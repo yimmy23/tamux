@@ -1498,7 +1498,7 @@ async fn tui_bash_command_falls_back_to_goal_run_surface_when_thread_surface_is_
     let plan_call = ToolCall::with_default_weles_review(
         "tool-tui-goal-surface-plan".to_string(),
         ToolFunction {
-            name: "update_todo".to_string(),
+            name: tool_names::UPDATE_TODO.to_string(),
             arguments: serde_json::json!({
                 "items": [
                     { "content": "Verify shell routing stays headless", "status": "in_progress" }
@@ -5948,7 +5948,7 @@ async fn get_todos_returns_thread_scoped_items_with_optional_task_id() {
     let update_call = ToolCall::with_default_weles_review(
         "tool-update-todos-runtime".to_string(),
         ToolFunction {
-            name: "update_todo".to_string(),
+            name: tool_names::UPDATE_TODO.to_string(),
             arguments: serde_json::json!({
                 "items": [
                     { "content": "Inspect current thread todos", "status": "in_progress" },
@@ -5982,7 +5982,7 @@ async fn get_todos_returns_thread_scoped_items_with_optional_task_id() {
     let get_call = ToolCall::with_default_weles_review(
         "tool-get-todos-runtime".to_string(),
         ToolFunction {
-            name: "get_todos".to_string(),
+            name: tool_names::GET_TODOS.to_string(),
             arguments: serde_json::json!({
                 "thread_id": thread_id,
                 "task_id": task.id,
@@ -6251,7 +6251,7 @@ async fn update_todo_for_goal_owned_main_task_requires_explicit_goal_binding() {
     let update_call = ToolCall::with_default_weles_review(
         "tool-goal-update-todos-missing-binding".to_string(),
         ToolFunction {
-            name: "update_todo".to_string(),
+            name: tool_names::UPDATE_TODO.to_string(),
             arguments: serde_json::json!({
                 "items": [
                     { "content": "Inspect current state", "status": "in_progress" }
@@ -6424,7 +6424,7 @@ async fn update_todo_for_goal_owned_main_task_pins_items_to_bound_goal_step() {
     let update_call = ToolCall::with_default_weles_review(
         "tool-goal-update-todos-bound-step".to_string(),
         ToolFunction {
-            name: "update_todo".to_string(),
+            name: tool_names::UPDATE_TODO.to_string(),
             arguments: serde_json::json!({
                 "goal_run_id": "goal-1",
                 "goal_step_id": "step-1",
@@ -6612,7 +6612,7 @@ async fn update_todo_for_goal_owned_main_task_allows_only_status_changes_within_
     let initial_update = ToolCall::with_default_weles_review(
         "tool-goal-update-todos-initial-status-only".to_string(),
         ToolFunction {
-            name: "update_todo".to_string(),
+            name: tool_names::UPDATE_TODO.to_string(),
             arguments: serde_json::json!({
                 "goal_run_id": "goal-1",
                 "goal_step_id": "step-1",
@@ -6650,7 +6650,7 @@ async fn update_todo_for_goal_owned_main_task_allows_only_status_changes_within_
     let status_update = ToolCall::with_default_weles_review(
         "tool-goal-update-todos-status-update".to_string(),
         ToolFunction {
-            name: "update_todo".to_string(),
+            name: tool_names::UPDATE_TODO.to_string(),
             arguments: serde_json::json!({
                 "goal_run_id": "goal-1",
                 "goal_step_id": "step-1",
@@ -6697,7 +6697,7 @@ async fn update_todo_for_goal_owned_main_task_allows_only_status_changes_within_
     let invalid_update = ToolCall::with_default_weles_review(
         "tool-goal-update-todos-add-item".to_string(),
         ToolFunction {
-            name: "update_todo".to_string(),
+            name: tool_names::UPDATE_TODO.to_string(),
             arguments: serde_json::json!({
                 "goal_run_id": "goal-1",
                 "goal_step_id": "step-1",
@@ -6906,7 +6906,7 @@ async fn update_todo_for_goal_owned_main_task_rejects_updates_after_goal_step_cl
     let initial_update = ToolCall::with_default_weles_review(
         "tool-goal-update-todos-before-advance".to_string(),
         ToolFunction {
-            name: "update_todo".to_string(),
+            name: tool_names::UPDATE_TODO.to_string(),
             arguments: serde_json::json!({
                 "goal_run_id": "goal-1",
                 "goal_step_id": "step-1",
@@ -6962,7 +6962,7 @@ async fn update_todo_for_goal_owned_main_task_rejects_updates_after_goal_step_cl
     let status_update = ToolCall::with_default_weles_review(
         "tool-goal-update-todos-stale-task-status".to_string(),
         ToolFunction {
-            name: "update_todo".to_string(),
+            name: tool_names::UPDATE_TODO.to_string(),
             arguments: serde_json::json!({
                 "goal_run_id": "goal-1",
                 "goal_step_id": "step-1",
@@ -7010,7 +7010,7 @@ async fn update_todo_for_goal_owned_main_task_rejects_updates_after_goal_step_cl
     let invalid_update = ToolCall::with_default_weles_review(
         "tool-goal-update-todos-stale-task-rename".to_string(),
         ToolFunction {
-            name: "update_todo".to_string(),
+            name: tool_names::UPDATE_TODO.to_string(),
             arguments: serde_json::json!({
                 "goal_run_id": "goal-1",
                 "goal_step_id": "step-1",

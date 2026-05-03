@@ -144,6 +144,12 @@ fn tool_icon_for(name: &str, arguments: Option<&str>) -> ToolIcon {
             label: "memory",
         };
     }
+    if is_git_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "git",
+            label: "git",
+        };
+    }
     if is_file_tool(&normalized_name) {
         return ToolIcon {
             marker: "file",
@@ -190,6 +196,12 @@ fn tool_icon_for(name: &str, arguments: Option<&str>) -> ToolIcon {
         return ToolIcon {
             marker: "agt",
             label: "agent",
+        };
+    }
+    if is_todo_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "todo",
+            label: "todo",
         };
     }
     if is_goal_tool(&normalized_name) {
@@ -307,6 +319,10 @@ fn is_file_tool(normalized_name: &str) -> bool {
     tool_names::FILE_TOOLS.contains(&normalized_name)
 }
 
+fn is_git_tool(normalized_name: &str) -> bool {
+    tool_names::GIT_TOOLS.contains(&normalized_name)
+}
+
 fn is_search_tool(normalized_name: &str) -> bool {
     tool_names::SEARCH_TOOLS.contains(&normalized_name)
 }
@@ -341,6 +357,10 @@ fn is_agent_tool(normalized_name: &str) -> bool {
 
 fn is_task_tool(normalized_name: &str) -> bool {
     tool_names::TASK_TOOLS.contains(&normalized_name)
+}
+
+fn is_todo_tool(normalized_name: &str) -> bool {
+    tool_names::TODO_TOOLS.contains(&normalized_name)
 }
 
 fn is_goal_tool(normalized_name: &str) -> bool {

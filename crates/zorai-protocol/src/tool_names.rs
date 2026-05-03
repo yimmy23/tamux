@@ -23,6 +23,7 @@ pub const BROWSER_SCROLL: &str = "browser_scroll";
 pub const BROWSER_TAKE_SCREENSHOT: &str = "browser_take_screenshot";
 pub const BROWSER_TYPE: &str = "browser_type";
 pub const CANCEL_TASK: &str = "cancel_task";
+pub const CARGO: &str = "cargo";
 pub const COMPLETE_DEBATE_SESSION: &str = "complete_debate_session";
 pub const CREATE_BROWSER_PROFILE: &str = "create_browser_profile";
 pub const CREATE_FILE: &str = "create_file";
@@ -30,14 +31,18 @@ pub const CREATE_ROUTINE: &str = "create_routine";
 pub const CREATE_SNIPPET: &str = "create_snippet";
 pub const CREATE_SURFACE: &str = "create_surface";
 pub const CREATE_WORKSPACE: &str = "create_workspace";
+pub const CREATE_SESSION: &str = "create_session";
 pub const CONTROL_GOAL_RUN: &str = "control_goal_run";
 pub const DECODE_EMERGENT_PROTOCOL: &str = "decode_emergent_protocol";
+pub const DELETE_FILE: &str = "delete_file";
 pub const DELETE_ROUTINE: &str = "delete_routine";
 pub const DISCOVER_GUIDELINES: &str = "discover_guidelines";
 pub const DISCOVER_SKILLS: &str = "discover_skills";
 pub const DISPATCH_VIA_BID_PROTOCOL: &str = "dispatch_via_bid_protocol";
+pub const DEPLOY: &str = "deploy";
 pub const ENQUEUE_TASK: &str = "enqueue_task";
 pub const EQUALIZE_LAYOUT: &str = "equalize_layout";
+pub const EDIT_FILE: &str = "edit_file";
 pub const EXECUTE_COMMAND: &str = "execute_command";
 pub const EXECUTE_MANAGED_COMMAND: &str = "execute_managed_command";
 pub const FETCH_AUTHENTICATED_PROVIDERS: &str = "fetch_authenticated_providers";
@@ -73,13 +78,16 @@ pub const HANDOFF_THREAD_AGENT: &str = "handoff_thread_agent";
 pub const IMAGE_QUERY: &str = "image_query";
 pub const IMPORT_EXTERNAL_RUNTIME: &str = "import_external_runtime";
 pub const INGEST_WEBHOOK_EVENT: &str = "ingest_webhook_event";
+pub const INSTALL_PACKAGE: &str = "install_package";
 pub const INSPECT_SKILL_VARIANT: &str = "inspect_skill_variant";
 pub const JUSTIFY_SKILL_SKIP: &str = "justify_skill_skip";
+pub const KILL_SESSION: &str = "kill_session";
 pub const LIST_AGENTS: &str = "list_agents";
 pub const LIST_BROWSER_PROFILES: &str = "list_browser_profiles";
 pub const LIST_COLLABORATION_SESSIONS: &str = "list_collaboration_sessions";
 pub const LIST_EMERGENT_PROTOCOL_PROPOSALS: &str = "list_emergent_protocol_proposals";
 pub const LIST_FILES: &str = "list_files";
+pub const LIST_DIRECTORY: &str = "list_directory";
 pub const LIST_GENERATED_TOOLS: &str = "list_generated_tools";
 pub const LIST_GOAL_RUNS: &str = "list_goal_runs";
 pub const LIST_GUIDELINES: &str = "list_guidelines";
@@ -128,12 +136,14 @@ pub const RELOAD_EMERGENT_PROTOCOL_REGISTRY: &str = "reload_emergent_protocol_re
 pub const RENAME_PANE: &str = "rename_pane";
 pub const REPLACE_IN_FILE: &str = "replace_in_file";
 pub const RERUN_ROUTINE: &str = "rerun_routine";
+pub const RESTART_SESSION: &str = "restart_session";
 pub const RESPOND_EMERGENT_PROTOCOL_PROPOSAL: &str = "respond_emergent_protocol_proposal";
 pub const RESET_OPERATOR_MODEL: &str = "reset_operator_model";
 pub const RESTORE_GENERATED_TOOL: &str = "restore_generated_tool";
 pub const RESTORE_SNAPSHOT: &str = "restore_snapshot";
 pub const RESUME_ROUTINE: &str = "resume_routine";
 pub const ROUTE_TO_SPECIALIST: &str = "route_to_specialist";
+pub const RUN_BASH: &str = "run_bash";
 pub const RUN_DEBATE: &str = "run_debate";
 pub const RUN_DIVERGENT: &str = "run_divergent";
 pub const RUN_GENERATED_TOOL: &str = "run_generated_tool";
@@ -142,6 +152,7 @@ pub const RUN_SNIPPET: &str = "run_snippet";
 pub const RUN_TERMINAL_COMMAND: &str = "run_terminal_command";
 pub const RUN_WORKFLOW_PACK: &str = "run_workflow_pack";
 pub const SEARCH_FILES: &str = "search_files";
+pub const SEARCH_CODEBASE: &str = "search_codebase";
 pub const SEARCH_HISTORY: &str = "search_history";
 pub const SEARCH_MEMORY: &str = "search_memory";
 pub const SEARCH_QUERY: &str = "search_query";
@@ -167,6 +178,7 @@ pub const SPLIT_PANE: &str = "split_pane";
 pub const START_GOAL_RUN: &str = "start_goal_run";
 pub const SUBMIT_GOAL_STEP_VERDICT: &str = "submit_goal_step_verdict";
 pub const SUMMARY: &str = "summary";
+pub const SYMBOL_SEARCH: &str = "symbol_search";
 pub const SWITCH_MODEL: &str = "switch_model";
 pub const SYNTHESIZE_TOOL: &str = "synthesize_tool";
 pub const TEXT_TO_SPEECH: &str = "text_to_speech";
@@ -179,7 +191,9 @@ pub const UPDATE_TODO: &str = "update_todo";
 pub const VERIFY_INTEGRITY: &str = "verify_integrity";
 pub const VOTE_ON_DISAGREEMENT: &str = "vote_on_disagreement";
 pub const WEB_RUN: &str = "web.run";
+pub const WEB_READ: &str = "web_read";
 pub const WEB_SEARCH: &str = "web_search";
+pub const WRITE_CONFIG: &str = "write_config";
 pub const WHATSAPP_LINK_RESET: &str = "whatsapp_link_reset";
 pub const WHATSAPP_LINK_START: &str = "whatsapp_link_start";
 pub const WHATSAPP_LINK_STATUS: &str = "whatsapp_link_status";
@@ -209,6 +223,7 @@ pub const WEB_BROWSING_TOOL_FRAGMENT: &str = "web_brows";
 
 pub const WEB_TOOLS: &[&str] = &[
     WEB_SEARCH,
+    WEB_READ,
     FETCH_URL,
     SETUP_WEB_BROWSING,
     OPEN_CANVAS_BROWSER,
@@ -238,7 +253,9 @@ pub const SKILL_TOOLS: &[&str] = &[
 
 pub const TERMINAL_TOOLS: &[&str] = &[
     EXECUTE_COMMAND,
+    CARGO,
     BASH_COMMAND,
+    RUN_BASH,
     RUN_TERMINAL_COMMAND,
     EXECUTE_MANAGED_COMMAND,
     LIST_TERMINALS,
@@ -248,14 +265,19 @@ pub const TERMINAL_TOOLS: &[&str] = &[
     GET_OPERATION_STATUS,
     GET_BACKGROUND_TASK_STATUS,
     GET_TERMINAL_CONTENT,
+    KILL_SESSION,
+    RESTART_SESSION,
+    CREATE_SESSION,
 ];
 
 pub const FILE_TOOLS: &[&str] = &[
     LIST_FILES,
+    LIST_DIRECTORY,
     READ_FILE,
-    GET_GIT_LINE_STATUSES,
     WRITE_FILE,
     CREATE_FILE,
+    EDIT_FILE,
+    DELETE_FILE,
     APPEND_TO_FILE,
     REPLACE_IN_FILE,
     APPLY_FILE_PATCH,
@@ -263,8 +285,12 @@ pub const FILE_TOOLS: &[&str] = &[
     READ_OFFLOADED_PAYLOAD,
 ];
 
+pub const GIT_TOOLS: &[&str] = &[GET_GIT_STATUS, GET_GIT_LINE_STATUSES];
+
 pub const SEARCH_TOOLS: &[&str] = &[
     SEARCH_FILES,
+    SEARCH_CODEBASE,
+    SYMBOL_SEARCH,
     SEARCH_HISTORY,
     FIND_SYMBOL,
     SESSION_SEARCH,
@@ -350,7 +376,9 @@ pub const SYSTEM_TOOLS: &[&str] = &[
     GET_PROVENANCE_REPORT,
     QUERY_AUDITS,
     GENERATE_SOC2_ARTIFACT,
-    GET_GIT_STATUS,
+    DEPLOY,
+    WRITE_CONFIG,
+    INSTALL_PACKAGE,
 ];
 
 pub const MODEL_TOOLS: &[&str] = &[
@@ -371,14 +399,10 @@ pub const AGENT_TOOLS: &[&str] = &[
     ROUTE_TO_SPECIALIST,
 ];
 
-pub const TASK_TOOLS: &[&str] = &[
-    UPDATE_TODO,
-    GET_TODOS,
-    LIST_TODOS,
-    ENQUEUE_TASK,
-    LIST_TASKS,
-    CANCEL_TASK,
-];
+pub const TASK_TOOLS: &[&str] = &[ENQUEUE_TASK, LIST_TASKS, CANCEL_TASK];
+
+pub const TODO_TOOLS: &[&str] = &[UPDATE_TODO, GET_TODOS, LIST_TODOS];
+
 pub const GOAL_TOOLS: &[&str] = &[
     START_GOAL_RUN,
     LIST_GOAL_RUNS,

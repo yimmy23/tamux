@@ -4357,7 +4357,7 @@ async fn forced_proceed_with_modifications_uses_critic_temporal_guidance_for_enq
     let session = engine
         .run_critique_preflight(
             "action-enqueue-guidance",
-            "enqueue_task",
+            tool_names::ENQUEUE_TASK,
             "Queue a background follow-up about deployment health.",
             &[],
             Some("thread-enqueue-guidance"),
@@ -6223,7 +6223,7 @@ fn apply_critique_modifications_schedules_enqueue_task_for_operator_window() {
     });
 
     let (adjusted, changes) = super::apply_critique_modifications(
-        "enqueue_task",
+        tool_names::ENQUEUE_TASK,
         &args,
         Some("proceed_with_modifications"),
         &[],
@@ -6249,7 +6249,7 @@ fn apply_critique_modifications_uses_typed_directive_for_enqueue_task_schedule()
     });
 
     let (adjusted, changes) = super::apply_critique_modifications(
-        "enqueue_task",
+        tool_names::ENQUEUE_TASK,
         &args,
         Some("proceed_with_modifications"),
         &[],
@@ -6512,7 +6512,7 @@ async fn critique_modifications_schedule_enqueue_task_for_operator_window_end_to
     let tool_call = ToolCall::with_default_weles_review(
         "tool-critique-enqueue-temporal".to_string(),
         ToolFunction {
-            name: "enqueue_task".to_string(),
+            name: tool_names::ENQUEUE_TASK.to_string(),
             arguments: serde_json::json!({
                 "title": "Review deployment results",
                 "description": "Follow up once the operator is back in the usual working window.",

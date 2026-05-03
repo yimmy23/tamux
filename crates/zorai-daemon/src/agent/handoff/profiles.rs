@@ -46,8 +46,8 @@ pub fn default_specialist_profiles() -> Vec<SpecialistProfile> {
             tool_filter: Some(vec![
                 zorai_protocol::tool_names::WEB_SEARCH.to_string(),
                 zorai_protocol::tool_names::READ_FILE.to_string(),
-                "list_directory".to_string(),
-                "search_codebase".to_string(),
+                zorai_protocol::tool_names::LIST_DIRECTORY.to_string(),
+                zorai_protocol::tool_names::SEARCH_CODEBASE.to_string(),
                 zorai_protocol::tool_names::BROADCAST_CONTRIBUTION.to_string(),
             ]),
             system_prompt_snippet: Some(
@@ -370,8 +370,8 @@ pub fn default_specialist_profiles() -> Vec<SpecialistProfile> {
             ],
             tool_filter: Some(vec![
                 zorai_protocol::tool_names::READ_FILE.to_string(),
-                "list_directory".to_string(),
-                "search_codebase".to_string(),
+                zorai_protocol::tool_names::LIST_DIRECTORY.to_string(),
+                zorai_protocol::tool_names::SEARCH_CODEBASE.to_string(),
                 zorai_protocol::tool_names::BROADCAST_CONTRIBUTION.to_string(),
             ]),
             system_prompt_snippet: Some(

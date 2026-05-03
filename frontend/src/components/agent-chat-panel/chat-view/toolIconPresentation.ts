@@ -1,3 +1,5 @@
+import { TOOL_NAME_FRAGMENTS, TOOL_NAME_GROUPS, TOOL_NAME_PREFIXES, TOOL_NAMES } from "@/lib/agentTools/toolNames";
+
 export type ToolIconKind =
   | "web"
   | "guideline"
@@ -5,6 +7,7 @@ export type ToolIconKind =
   | "python"
   | "terminal"
   | "file"
+  | "git"
   | "search"
   | "memory"
   | "workspace"
@@ -13,6 +16,7 @@ export type ToolIconKind =
   | "system"
   | "model"
   | "agent"
+  | "todo"
   | "task"
   | "goal"
   | "routine"
@@ -37,6 +41,7 @@ const TOOL_ICONS: Record<ToolIconKind, ToolIconPresentation> = {
   python: { kind: "python", glyph: "PY", label: "Python" },
   terminal: { kind: "terminal", glyph: ">_", label: "Terminal" },
   file: { kind: "file", glyph: "FILE", label: "File" },
+  git: { kind: "git", glyph: "GIT", label: "Git" },
   search: { kind: "search", glyph: "SRCH", label: "Search" },
   memory: { kind: "memory", glyph: "MEM", label: "Memory" },
   workspace: { kind: "workspace", glyph: "WKSP", label: "Workspace" },
@@ -45,6 +50,7 @@ const TOOL_ICONS: Record<ToolIconKind, ToolIconPresentation> = {
   system: { kind: "system", glyph: "SYS", label: "System" },
   model: { kind: "model", glyph: "MOD", label: "Model" },
   agent: { kind: "agent", glyph: "AGNT", label: "Agent" },
+  todo: { kind: "todo", glyph: "TODO", label: "Todo" },
   task: { kind: "task", glyph: "TASK", label: "Task" },
   goal: { kind: "goal", glyph: "GOAL", label: "Goal" },
   routine: { kind: "routine", glyph: "RTN", label: "Routine" },
@@ -73,6 +79,7 @@ export function getToolIconPresentation(
   if (isPluginTool(normalizedName)) return TOOL_ICONS.plugin;
   if (hasToolName(TOOL_NAME_GROUPS.collaboration, normalizedName)) return TOOL_ICONS.collaboration;
   if (hasToolName(TOOL_NAME_GROUPS.memory, normalizedName)) return TOOL_ICONS.memory;
+  if (hasToolName(TOOL_NAME_GROUPS.git, normalizedName)) return TOOL_ICONS.git;
   if (hasToolName(TOOL_NAME_GROUPS.file, normalizedName)) return TOOL_ICONS.file;
   if (hasToolName(TOOL_NAME_GROUPS.search, normalizedName)) return TOOL_ICONS.search;
   if (hasToolName(TOOL_NAME_GROUPS.workspace, normalizedName)) return TOOL_ICONS.workspace;
@@ -81,6 +88,7 @@ export function getToolIconPresentation(
   if (hasToolName(TOOL_NAME_GROUPS.system, normalizedName)) return TOOL_ICONS.system;
   if (hasToolName(TOOL_NAME_GROUPS.model, normalizedName)) return TOOL_ICONS.model;
   if (hasToolName(TOOL_NAME_GROUPS.agent, normalizedName)) return TOOL_ICONS.agent;
+  if (hasToolName(TOOL_NAME_GROUPS.todo, normalizedName)) return TOOL_ICONS.todo;
   if (hasToolName(TOOL_NAME_GROUPS.goal, normalizedName)) return TOOL_ICONS.goal;
   if (hasToolName(TOOL_NAME_GROUPS.routine, normalizedName)) return TOOL_ICONS.routine;
   if (hasToolName(TOOL_NAME_GROUPS.trigger, normalizedName)) return TOOL_ICONS.trigger;
@@ -152,4 +160,3 @@ function readString(source: Record<string, unknown> | null, key: string): string
   const value = source?.[key];
   return typeof value === "string" ? value : "";
 }
-import { TOOL_NAME_FRAGMENTS, TOOL_NAME_GROUPS, TOOL_NAME_PREFIXES, TOOL_NAMES } from "@/lib/agentTools/toolNames";

@@ -5,6 +5,7 @@ import { provisionTerminalPaneInWorkspace } from "@/lib/agentWorkspace";
 import { useWorkspaceStore } from "@/lib/workspaceStore";
 import { fetchThreadTodos } from "@/lib/agentTodos";
 import type { AgentTodoItem } from "@/lib/agentStore";
+import { TOOL_NAMES } from "@/lib/agentTools/toolNames";
 import {
   appendDaemonSystemMessage,
   normalizeBridgePayload,
@@ -275,18 +276,18 @@ export function handleWorkspaceCommand(event: any) {
   const snippetStore = useSnippetStore.getState();
   try {
     switch (command) {
-      case "create_workspace":
+      case TOOL_NAMES.createWorkspace:
         store.createWorkspace(args.name);
         break;
-      case "set_active_workspace": {
+      case TOOL_NAMES.setActiveWorkspace: {
         const workspace = store.workspaces.find((entry: any) => entry.id === args.workspace || entry.name === args.workspace);
         if (workspace) store.setActiveWorkspace(workspace.id);
         break;
       }
-      case "create_surface":
+      case TOOL_NAMES.createSurface:
         store.createSurface(undefined, undefined);
         break;
-      case "set_active_surface": {
+      case TOOL_NAMES.setActiveSurface: {
         const activeWorkspace = store.activeWorkspace();
         if (activeWorkspace) {
           const surface = activeWorkspace.surfaces.find((entry: any) => entry.id === args.surface || entry.name === args.surface);
@@ -294,10 +295,10 @@ export function handleWorkspaceCommand(event: any) {
         }
         break;
       }
-      case "split_pane":
+      case TOOL_NAMES.splitPane:
         store.splitActive(args.direction === "vertical" ? "vertical" : "horizontal");
         break;
-      case "rename_pane": {
+      case TOOL_NAMES.renamePane: {
         const paneId = args.pane || store.activePaneId();
         if (paneId) store.setPaneName(paneId, args.name);
         break;
@@ -312,7 +313,7 @@ export function handleWorkspaceCommand(event: any) {
           });
         }
         break;
-      case "create_snippet":
+      case TOOL_NAMES.createSnippet:
         snippetStore.addSnippet({ name: args.name, content: args.content, category: args.category, description: args.description, tags: args.tags, owner: "assistant" });
         break;
     }

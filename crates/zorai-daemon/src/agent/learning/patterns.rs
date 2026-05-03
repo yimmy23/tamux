@@ -304,7 +304,10 @@ mod tests {
     fn suggest_tools_returns_from_success_patterns() {
         let mut store = PatternStore::default();
         store.record_sequence(
-            &seq(&[zorai_protocol::tool_names::READ_FILE, "edit_file"]),
+            &seq(&[
+                zorai_protocol::tool_names::READ_FILE,
+                zorai_protocol::tool_names::EDIT_FILE,
+            ]),
             "coding",
             true,
             1000,
@@ -319,7 +322,7 @@ mod tests {
         let suggested = store.suggest_tools("coding");
         // Should contain all three unique tools.
         assert!(suggested.contains(&zorai_protocol::tool_names::READ_FILE.to_string()));
-        assert!(suggested.contains(&"edit_file".to_string()));
+        assert!(suggested.contains(&zorai_protocol::tool_names::EDIT_FILE.to_string()));
         assert!(suggested.contains(&"search".to_string()));
         // No duplicates.
         assert_eq!(suggested.len(), 3);

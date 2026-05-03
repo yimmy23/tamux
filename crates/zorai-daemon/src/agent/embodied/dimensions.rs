@@ -70,19 +70,21 @@ pub fn compute_weight(tool_name: &str) -> f64 {
         zorai_protocol::tool_names::EXECUTE_COMMAND
         | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
         | zorai_protocol::tool_names::WRITE_FILE
-        | "delete_file"
-        | "deploy"
-        | "create_session" => 0.8,
+        | zorai_protocol::tool_names::DELETE_FILE
+        | zorai_protocol::tool_names::DEPLOY
+        | zorai_protocol::tool_names::CREATE_SESSION => 0.8,
         // Medium actions (state-changing but bounded)
-        "edit_file" | zorai_protocol::tool_names::CREATE_FILE | "install_package" => 0.5,
+        zorai_protocol::tool_names::EDIT_FILE
+        | zorai_protocol::tool_names::CREATE_FILE
+        | zorai_protocol::tool_names::INSTALL_PACKAGE => 0.5,
         // Light actions (read-only)
         zorai_protocol::tool_names::READ_FILE
         | zorai_protocol::tool_names::SEARCH_FILES
         | zorai_protocol::tool_names::LIST_FILES
-        | "list_directory"
+        | zorai_protocol::tool_names::LIST_DIRECTORY
         | zorai_protocol::tool_names::WEB_SEARCH
-        | "web_read"
-        | "symbol_search" => 0.2,
+        | zorai_protocol::tool_names::WEB_READ
+        | zorai_protocol::tool_names::SYMBOL_SEARCH => 0.2,
         // Default for unknown tools
         _ => 0.5,
     }

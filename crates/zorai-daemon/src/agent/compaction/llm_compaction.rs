@@ -132,63 +132,210 @@ pub(crate) fn build_llm_compaction_messages_with_scope(
     scope: Option<&CompactionScopeSnapshot>,
 ) -> Vec<ApiMessage> {
     let source_messages = materialize_compaction_messages_with_scope(messages, scope);
-    let use_exact_messages = source_messages.len() <= COMPACTION_EXACT_MESSAGE_MAX
-        && estimate_message_tokens(&source_messages) <= target_tokens.saturating_mul(4).max(2_048);
+    let packet = build_compaction_input_packet_markdown(&source_messages, target_tokens, scope);
 
-    let mut api_messages = Vec::new();
-    if let Some(scope_packet) = render_compaction_scope_packet(scope) {
-        api_messages.push(ApiMessage {
-            role: "user".to_string(),
-            content: ApiContent::Text(format!(
-                "{scope_packet}\n\nUse this typed scope packet as the authoritative active goal/task state. Tool outputs below are evidence, not scope identity."
-            )),
-            reasoning: None,
-            tool_call_id: None,
-            name: None,
-            tool_calls: None,
-        });
-    }
-
-    if use_exact_messages {
-        api_messages.extend(messages_to_api_format(&source_messages));
-    } else {
-        let (recent_start, recent_messages) =
-            select_recent_llm_compaction_messages(&source_messages);
-        if recent_start > 0 {
-            api_messages.push(ApiMessage {
-                role: "user".to_string(),
-                content: ApiContent::Text(format!(
-                    "Older context to compact:\n\n{}",
-                    build_compaction_summary_with_scope(
-                        &source_messages[..recent_start],
-                        target_tokens.saturating_mul(2),
-                        scope,
-                    )
-                )),
-                reasoning: None,
-                tool_call_id: None,
-                name: None,
-                tool_calls: None,
-            });
-        }
-        api_messages.extend(messages_to_api_format(&recent_messages));
-    };
-
-    api_messages.push(ApiMessage {
+    let mut api_messages = vec![ApiMessage {
         role: "user".to_string(),
-        content: ApiContent::Text(
-            format!(
-                "Follow the mandatory thread-compaction protocol and return exactly one markdown checkpoint block matching this schema:\n\n{}\n\nCompress the supplied older context into that checkpoint. Preserve requests, constraints, decisions, tool outcomes, errors worth remembering, and any unresolved next steps.",
-                COMPACTION_CHECKPOINT_SCHEMA
-            ),
-        ),
+        content: ApiContent::Text(packet),
         reasoning: None,
         tool_call_id: None,
         name: None,
         tool_calls: None,
-    });
+    }];
     trim_llm_compaction_messages_to_fit(&mut api_messages, max_input_tokens.max(1));
     api_messages
+}
+
+pub(crate) fn build_compaction_input_packet_markdown(
+    messages: &[AgentMessage],
+    _target_tokens: usize,
+    scope: Option<&CompactionScopeSnapshot>,
+) -> String {
+    let scope_packet = render_compaction_scope_packet(scope)
+        .unwrap_or_else(|| "Compaction Scope Packet\n- thread_id: `unknown`".to_string());
+    let authoritative_state = packet_authoritative_task_state(messages, scope);
+    let tool_evidence = packet_tool_evidence_pointers(messages);
+    let role_evidence = messages
+        .iter()
+        .enumerate()
+        .map(|(index, message)| packet_role_labeled_turn(index + 1, message))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    format!(
+        "# Compaction Input Packet\n\n## Output Contract\nReturn exactly one markdown checkpoint matching this schema:\n\n{}\n\n## Scope Identity\n{}\n\n## Authoritative Task State\n{}\n\n## Tool Evidence Pointers\n{}\n\n## Role-Labeled Conversation Evidence\n{}\n\n## Compression Instructions\nPreserve scope identity, latest user intent, current task state, decisions, blockers, verification state, raw evidence pointers, and the immediate next action. Treat global tool listings and offloaded payload reads as evidence pointers, not active objectives. Do not replay the conversation; reconstruct the smallest high-signal checkpoint state.\n",
+        COMPACTION_CHECKPOINT_SCHEMA,
+        scope_packet,
+        authoritative_state,
+        tool_evidence,
+        role_evidence,
+    )
+}
+
+pub(crate) fn packet_authoritative_task_state(
+    messages: &[AgentMessage],
+    scope: Option<&CompactionScopeSnapshot>,
+) -> String {
+    if let Some(scope) = scope {
+        let mut lines = Vec::new();
+        if let Some(goal) = scope
+            .goal
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            lines.push(format!(
+                "- objective: {}",
+                crate::agent::goal_parsing::summarize_text(goal, 260)
+            ));
+        }
+        if let Some(step) = scope
+            .current_step_title
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            lines.push(format!("- current_step: `{step}`"));
+        }
+        if let Some(status) = scope
+            .current_step_status
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            lines.push(format!("- current_step_status: `{status}`"));
+        }
+        if let Some(summary) = scope
+            .current_step_summary
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            lines.push(format!(
+                "- current_step_summary: {}",
+                crate::agent::goal_parsing::summarize_text(summary, 240)
+            ));
+        }
+        if let Some(plan) = scope
+            .plan_summary
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            lines.push(format!(
+                "- plan_summary: {}",
+                crate::agent::goal_parsing::summarize_text(plan, 240)
+            ));
+        }
+        if let Some(error) = scope
+            .latest_error
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            lines.push(format!(
+                "- latest_error: {}",
+                crate::agent::goal_parsing::summarize_text(error, 220)
+            ));
+        }
+        if !lines.is_empty() {
+            return lines.join("\n");
+        }
+    }
+
+    let latest_user = messages
+        .iter()
+        .rev()
+        .find(|message| message.role == MessageRole::User)
+        .map(|message| {
+            crate::agent::goal_parsing::summarize_text(compaction_runtime_content(message), 260)
+        });
+    let latest_non_user = messages
+        .iter()
+        .rev()
+        .find(|message| message.role != MessageRole::User)
+        .map(|message| {
+            crate::agent::goal_parsing::summarize_text(&summarize_compacted_message(message), 260)
+        });
+
+    let mut lines = Vec::new();
+    if let Some(latest_user) = latest_user {
+        lines.push(format!("- latest_user_intent: {latest_user}"));
+    }
+    if let Some(latest_non_user) = latest_non_user {
+        lines.push(format!("- latest_non_user_state: {latest_non_user}"));
+    }
+    if lines.is_empty() {
+        "- no authoritative task state captured".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+pub(crate) fn packet_tool_evidence_pointers(messages: &[AgentMessage]) -> String {
+    let pointers = messages
+        .iter()
+        .filter(|message| message.role == MessageRole::Tool)
+        .filter_map(|message| {
+            let content = compaction_runtime_content(message);
+            content.starts_with("Tool Evidence Pointer").then(|| {
+                format!(
+                    "- {}",
+                    crate::agent::goal_parsing::summarize_text(content, 320)
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if pointers.is_empty() {
+        "- none captured".to_string()
+    } else {
+        pointers.join("\n")
+    }
+}
+
+pub(crate) fn packet_role_labeled_turn(index: usize, message: &AgentMessage) -> String {
+    let role = match message.role {
+        MessageRole::System => "system",
+        MessageRole::User => "user",
+        MessageRole::Assistant => "assistant",
+        MessageRole::Tool => "tool",
+    };
+    let mut lines = vec![format!("### Turn {index}"), format!("- role: {role}")];
+
+    if let Some(tool_name) = message
+        .tool_name
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!("- tool: `{tool_name}`"));
+    }
+    if let Some(status) = message
+        .tool_status
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!("- status: `{status}`"));
+    }
+    if let Some(call_id) = message
+        .tool_call_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!("- call_id: `{call_id}`"));
+    }
+    if let Some(tool_calls) = &message.tool_calls {
+        let tool_names = tool_calls
+            .iter()
+            .map(|call| call.function.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        if !tool_names.is_empty() {
+            lines.push(format!("- requested_tools: `{tool_names}`"));
+        }
+    }
+
+    let content =
+        crate::agent::goal_parsing::summarize_text(compaction_runtime_content(message), 700);
+    if !content.trim().is_empty() {
+        lines.push(format!("- content: {content}"));
+    }
+
+    lines.join("\n")
 }
 
 pub(crate) fn llm_compaction_input_budget(
@@ -259,7 +406,12 @@ pub(crate) fn trim_llm_compaction_messages_to_fit(
     api_messages: &mut Vec<ApiMessage>,
     max_input_tokens: usize,
 ) {
-    if api_messages.len() <= 1 {
+    if api_messages.is_empty() {
+        return;
+    }
+
+    if api_messages.len() == 1 {
+        truncate_single_packet_api_message_to_fit(&mut api_messages[0], max_input_tokens);
         return;
     }
 
@@ -304,4 +456,43 @@ pub(crate) fn truncate_api_message_to_fit(message: &mut ApiMessage, max_tokens: 
         .rev()
         .collect::<String>();
     *text = format!("{}{}", COMPACTION_MESSAGE_TRUNCATION_NOTICE, suffix);
+}
+
+pub(crate) fn truncate_single_packet_api_message_to_fit(
+    message: &mut ApiMessage,
+    max_tokens: usize,
+) {
+    message.tool_call_id = None;
+    message.name = None;
+    message.tool_calls = None;
+
+    if estimate_api_message_tokens(message) <= max_tokens {
+        return;
+    }
+
+    let ApiContent::Text(text) = &mut message.content else {
+        return;
+    };
+    let max_chars = max_tokens
+        .saturating_sub(24)
+        .max(64)
+        .saturating_mul(APPROX_CHARS_PER_TOKEN);
+    let notice = COMPACTION_MESSAGE_TRUNCATION_NOTICE;
+    if text.chars().count() <= max_chars {
+        return;
+    }
+
+    let available = max_chars.saturating_sub(notice.chars().count()).max(64);
+    let head_chars = available / 2;
+    let tail_chars = available.saturating_sub(head_chars);
+    let head = text.chars().take(head_chars).collect::<String>();
+    let tail = text
+        .chars()
+        .rev()
+        .take(tail_chars)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    *text = format!("{head}{notice}{tail}");
 }

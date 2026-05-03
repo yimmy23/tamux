@@ -169,7 +169,7 @@ impl AgentEngine {
                     .await;
             }
             zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
-            | "run_bash"
+            | zorai_protocol::tool_names::RUN_BASH
             | zorai_protocol::tool_names::BASH_COMMAND => {
                 self.refresh_thread_repo_context(thread_id).await;
             }

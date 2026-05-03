@@ -1,4 +1,5 @@
 use super::*;
+use zorai_protocol::tool_names;
 
 fn make_node(name: &str, category: &str) -> ToolNode {
     ToolNode {
@@ -104,7 +105,12 @@ fn dependencies_found() {
 #[test]
 fn cache_composition_stores_entry() {
     let mut graph = ToolGraph::default();
-    graph.cache_composition(vec!["read".into(), "write".into()], "edit_file", true, 100);
+    graph.cache_composition(
+        vec!["read".into(), "write".into()],
+        tool_names::EDIT_FILE,
+        true,
+        100,
+    );
     assert_eq!(graph.cache_size(), 1);
 }
 
@@ -134,11 +140,26 @@ fn cache_eviction_when_full_evicts_non_permanent_first() {
 fn suggest_composition_picks_best_for_task_type() {
     let mut graph = ToolGraph::default();
 
-    graph.cache_composition(vec!["read".into(), "write".into()], "edit_file", true, 1);
-    graph.cache_composition(vec!["read".into(), "write".into()], "edit_file", true, 2);
-    graph.cache_composition(vec!["search".into(), "read".into()], "edit_file", true, 3);
+    graph.cache_composition(
+        vec!["read".into(), "write".into()],
+        tool_names::EDIT_FILE,
+        true,
+        1,
+    );
+    graph.cache_composition(
+        vec!["read".into(), "write".into()],
+        tool_names::EDIT_FILE,
+        true,
+        2,
+    );
+    graph.cache_composition(
+        vec!["search".into(), "read".into()],
+        tool_names::EDIT_FILE,
+        true,
+        3,
+    );
 
-    let best = graph.suggest_composition("edit_file").unwrap();
+    let best = graph.suggest_composition(tool_names::EDIT_FILE).unwrap();
     assert_eq!(best.sequence, vec!["read", "write"]);
     assert_eq!(best.uses, 2);
 }

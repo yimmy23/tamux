@@ -376,9 +376,17 @@ fn llm_compaction_messages_receive_scope_packet_and_tool_evidence_pointers() {
         build_llm_compaction_messages_with_scope(&messages, 16_000, 16_000, Some(&scope));
     let flattened = api_text_contents(&api_messages).join("\n");
 
+    assert_eq!(
+        api_messages.len(),
+        1,
+        "compaction model input should be one markdown packet, not replayed chat history: {flattened}"
+    );
     assert!(flattened.contains("Compaction Scope Packet"));
     assert!(flattened.contains("goal_86e57b78"));
     assert!(flattened.contains("ConvGPT benchmarks"));
+    assert!(flattened.contains("## Role-Labeled Conversation Evidence"));
+    assert!(flattened.contains("- role: user"));
+    assert!(flattened.contains("- role: tool"));
     assert!(flattened.contains("Tool Evidence Pointers"));
     assert!(flattened.contains("goal_runs_dump.json"));
     assert!(flattened.contains("Keep working on the compaction scoping fix."));
@@ -502,7 +510,8 @@ fn build_llm_compaction_messages_trims_to_fit_model_budget() {
     else {
         panic!("expected final instruction message");
     };
-    assert!(instruction.contains("Follow the mandatory thread-compaction protocol"));
+    assert!(instruction.contains("# Compaction Input Packet"));
+    assert!(instruction.contains("## Output Contract"));
 }
 
 #[test]
@@ -858,7 +867,10 @@ fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies(
         "recent assistant question should remain visible to the compactor: {flattened}"
     );
     assert!(
-        flattened.contains("\n1\n") || flattened.ends_with("\n1") || flattened.contains("USER: 1"),
+        flattened.contains("- content: 1")
+            || flattened.contains("\n1\n")
+            || flattened.ends_with("\n1")
+            || flattened.contains("USER: 1"),
         "recent terse user reply should remain visible to the compactor: {flattened}"
     );
     assert!(

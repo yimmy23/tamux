@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use tempfile::tempdir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use zorai_protocol::tool_names;
 
 mod part1;
 mod part2;

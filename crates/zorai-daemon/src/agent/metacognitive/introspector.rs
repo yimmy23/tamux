@@ -197,7 +197,7 @@ fn detect_confirmation_bias(
             outcome.tool_name.as_str(),
             zorai_protocol::tool_names::BASH_COMMAND
                 | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
-                | "cargo"
+                | zorai_protocol::tool_names::CARGO
                 | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
         )
     });

@@ -122,7 +122,7 @@ use zorai_shared::providers::{
         message.tool_calls = Some(vec![ToolCall {
             id: "call_bad_args".to_string(),
             function: ToolFunction {
-                name: "update_todo".to_string(),
+                name: tool_names::UPDATE_TODO.to_string(),
                 arguments: r#"{"items":[{"content":"Read spec","status":"in_progress"}]"#
                     .to_string(),
             },
