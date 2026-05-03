@@ -1634,6 +1634,71 @@ fn older_thread_page_preserves_live_context_window_metadata() {
 }
 
 #[test]
+fn stale_pre_compaction_thread_detail_does_not_replace_compacted_context_window() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 121,
+        loaded_message_start: 0,
+        loaded_message_end: 121,
+        active_context_window_start: Some(0),
+        active_context_window_end: Some(121),
+        active_context_window_tokens: Some(336_000),
+        messages: (0..121)
+            .map(|index| AgentMessage {
+                id: Some(format!("old-{index}")),
+                role: MessageRole::User,
+                content: format!("old {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::CompactionApplied {
+        thread_id: "t1".into(),
+        active_compaction_window_start: 20,
+        total_message_count: 122,
+    });
+    state.reduce(ChatAction::ContextWindowUpdated {
+        thread_id: "t1".into(),
+        active_context_window_start: 20,
+        active_context_window_end: 122,
+        active_context_window_tokens: 4_800,
+    });
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 121,
+        loaded_message_start: 0,
+        loaded_message_end: 121,
+        active_context_window_start: Some(0),
+        active_context_window_end: Some(121),
+        active_context_window_tokens: Some(336_000),
+        messages: (0..121)
+            .map(|index| AgentMessage {
+                id: Some(format!("old-{index}")),
+                role: MessageRole::User,
+                content: format!("old {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .expect("thread should exist");
+    assert_eq!(thread.active_compaction_window_start, Some(20));
+    assert_eq!(thread.active_context_window_start, Some(20));
+    assert_eq!(thread.active_context_window_end, Some(122));
+    assert_eq!(thread.active_context_window_tokens, Some(4_800));
+}
+
+#[test]
 fn older_thread_page_does_not_replace_active_responder_metadata() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadDetailReceived(AgentThread {

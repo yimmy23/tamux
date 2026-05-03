@@ -17,6 +17,13 @@ impl AgentEngine {
                     candidate.thread_id
                 );
             };
+            if super::history_scan::thread_has_unanswered_tool_calls(thread) {
+                tracing::info!(
+                    thread_id = %candidate.thread_id,
+                    "skipping stalled-turn retry while thread has unanswered tool calls"
+                );
+                return Ok(());
+            }
             thread
                 .messages
                 .iter()

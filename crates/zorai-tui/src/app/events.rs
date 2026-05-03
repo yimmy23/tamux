@@ -55,7 +55,13 @@ impl TuiModel {
         let _ = self.pump_daemon_events_budgeted(usize::MAX);
     }
 
-    pub fn on_tick(&mut self) {
+    pub fn on_tick(&mut self) -> bool {
+        let render_revision_before = self.chat.render_revision();
+        let tick_driven_render_before = self.tick_driven_render_epoch(self.tick_counter);
+        let pending_stop_before = self.pending_stop;
+        let voice_player_active_before = self.voice_player.is_some();
+        let input_notice_active_before = self.input_notice.is_some();
+
         self.tick_counter = self.tick_counter.saturating_add(1);
         self.chat.clear_expired_copy_feedback(self.tick_counter);
         self.maybe_request_older_chat_history();
@@ -104,6 +110,51 @@ impl TuiModel {
             self.input_notice = None;
         }
         self.publish_attention_surface_if_changed();
+
+        self.chat.render_revision() != render_revision_before
+            || tick_driven_render_before != self.tick_driven_render_epoch(self.tick_counter)
+            || self.pending_stop != pending_stop_before
+            || self.voice_player.is_some() != voice_player_active_before
+            || self.input_notice.is_some() != input_notice_active_before
+    }
+
+    fn tick_driven_render_epoch(&self, tick: u64) -> Option<u64> {
+        let mut epoch = None;
+        let mut include = |value: u64| {
+            epoch = Some(epoch.map_or(value, |current: u64| current.max(value)));
+        };
+
+        if self.should_show_daemon_connection_loading()
+            || self.should_show_concierge_hero_loading()
+            || self.should_show_thread_loading()
+        {
+            include(tick / 3);
+        }
+
+        if self.current_thread_agent_activity().is_some()
+            && self.input.buffer().is_empty()
+            && self.attachments.is_empty()
+            && self.input_notice.is_none()
+        {
+            include(tick / 4);
+        }
+
+        if self.chat.retry_status().is_some()
+            || self.active_auto_response_countdown_secs().is_some()
+        {
+            let ticks_per_second = (1_000 / TUI_TICK_RATE_MS).max(1);
+            include(tick / ticks_per_second);
+        }
+
+        if self.voice_recording || self.voice_player.is_some() {
+            include(tick / 8);
+        }
+
+        if self.error_active {
+            include(tick / 10);
+        }
+
+        epoch
     }
 
     fn maybe_refresh_spawned_sidebar_tasks(&mut self) {

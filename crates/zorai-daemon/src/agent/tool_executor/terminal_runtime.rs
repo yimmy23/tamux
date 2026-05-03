@@ -116,6 +116,13 @@ async fn execute_bash_command(
     thread_id: &str,
     cancel_token: Option<CancellationToken>,
 ) -> Result<(String, Option<ToolPendingApproval>)> {
+    let forced_background_args;
+    let args = if bash_command_should_force_background(args) {
+        forced_background_args = bash_command_args_with_wait_false(args);
+        &forced_background_args
+    } else {
+        args
+    };
     let client_surface = resolve_shell_tool_client_surface(agent, thread_id, task_id).await;
     let foreground_detach_after = headless_foreground_detach_after_for_surface(client_surface);
     if should_use_managed_execution_for_surface(client_surface, args) {
@@ -158,6 +165,115 @@ async fn execute_bash_command(
 }
 
 const TUI_HEADLESS_FOREGROUND_GRACE_SECS: u64 = 1;
+
+fn bash_command_should_force_background(args: &serde_json::Value) -> bool {
+    let wait_for_completion = args
+        .get("wait_for_completion")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    if !wait_for_completion {
+        return false;
+    }
+
+    let requested_timeout = args
+        .get("timeout_seconds")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(30);
+    if requested_timeout > 600 {
+        return false;
+    }
+
+    !bash_command_can_wait_for_completion(args)
+}
+
+fn bash_command_args_with_wait_false(args: &serde_json::Value) -> serde_json::Value {
+    let mut mapped = args.as_object().cloned().unwrap_or_default();
+    mapped.insert(
+        "wait_for_completion".to_string(),
+        serde_json::Value::Bool(false),
+    );
+    serde_json::Value::Object(mapped)
+}
+
+fn bash_command_can_wait_for_completion(args: &serde_json::Value) -> bool {
+    if args
+        .get("wait_for_completion")
+        .and_then(|value| value.as_bool())
+        == Some(false)
+    {
+        return false;
+    }
+
+    let Some(command) = args
+        .get("command")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return false;
+    };
+
+    command_is_known_quick_shell_command(command)
+}
+
+fn command_is_known_quick_shell_command(command: &str) -> bool {
+    let trimmed = command.trim();
+    if trimmed.is_empty()
+        || trimmed.contains('\n')
+        || trimmed.contains('|')
+        || trimmed.contains('`')
+        || trimmed.contains("$(")
+    {
+        return false;
+    }
+
+    trimmed
+        .split(';')
+        .flat_map(|part| part.split("&&"))
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .all(shell_command_segment_is_known_quick)
+}
+
+fn shell_command_segment_is_known_quick(segment: &str) -> bool {
+    let first = segment
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_matches(|ch: char| ch == '(' || ch == ')' || ch == '"' || ch == '\'')
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    matches!(
+        first.as_str(),
+        "pwd"
+            | "printf"
+            | "echo"
+            | "true"
+            | "false"
+            | "test"
+            | "["
+            | "ls"
+            | "cat"
+            | "head"
+            | "tail"
+            | "wc"
+            | "stat"
+            | "date"
+            | "whoami"
+            | "id"
+            | "uname"
+            | "basename"
+            | "dirname"
+            | "which"
+            | "command"
+            | "type"
+            | "realpath"
+            | "readlink"
+    )
+}
 
 fn headless_foreground_detach_after_for_surface(
     client_surface: Option<zorai_protocol::ClientSurface>,
@@ -544,7 +660,7 @@ async fn execute_headless_shell_command(
                 .unwrap_or_default();
             return Ok((
                 format!(
-                    "Headless command detached{cwd_suffix} as background operation {operation_id} after {}s foreground grace.\noperation_id: {operation_id}\nwait_for_completion=true exceeded the TUI foreground grace window. Use get_operation_status with this operation_id for explicit polling.",
+                    "Headless command detached{cwd_suffix} as background operation {operation_id} after {}s foreground grace.\nbackground_task_id: {operation_id}\noperation_id: {operation_id}\nwait_for_completion=true exceeded the TUI foreground grace window. Use get_operation_status with this operation_id for explicit polling.",
                     foreground_wait.as_secs()
                 ),
                 None,
@@ -666,7 +782,7 @@ fn spawn_headless_shell_command_background(
     if auto_background {
         Ok((
             format!(
-                "{queued_summary}\noperation_id: {operation_id}\nCommand auto-backgrounded (requested timeout {}s > max 600s). Use get_operation_status with this operation_id for explicit polling.",
+                "{queued_summary}\nbackground_task_id: {operation_id}\noperation_id: {operation_id}\nCommand auto-backgrounded (requested timeout {}s > max 600s). Use get_operation_status with this operation_id for explicit polling.",
                 requested_timeout,
             ),
             None,
@@ -674,7 +790,7 @@ fn spawn_headless_shell_command_background(
     } else {
         Ok((
             format!(
-                "{queued_summary}\noperation_id: {operation_id}\nNot waiting for completion because wait_for_completion=false. Use get_operation_status with this operation_id for explicit polling."
+                "{queued_summary}\nbackground_task_id: {operation_id}\noperation_id: {operation_id}\nNot waiting for completion because wait_for_completion=false. Use get_operation_status with this operation_id for explicit polling."
             ),
             None,
         ))

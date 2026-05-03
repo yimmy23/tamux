@@ -140,7 +140,7 @@ fn hit_test_tool_header_body_selects_message_instead_of_toggling() {
         .expect("tool header should be visible");
     let hit_line = &visible[header_row];
     let (plain, content_start, _) = rendered_line_content_bounds(hit_line);
-    let gear_offset = plain.find("⚙").expect("tool gear should be rendered");
+    let gear_offset = plain.find("⌨").expect("terminal emoji icon should be rendered for bash_command");
 
     let hit = hit_test(
         area,
@@ -205,7 +205,8 @@ fn tool_row_renders_toggle_chevron_before_tool_name() {
         text.contains("▶"),
         "expected collapsed chevron, got: {text}"
     );
-    assert!(text.contains("⚙"), "expected tool gear, got: {text}");
+    // read_file is a file tool, so it uses the 📄 emoji icon now (not ⚙)
+    assert!(text.contains("📄"), "expected file emoji icon, got: {text}");
 }
 
 #[test]

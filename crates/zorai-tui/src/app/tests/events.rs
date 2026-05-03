@@ -38,6 +38,58 @@ fn next_thread_request(
     None
 }
 
+#[test]
+fn idle_tick_does_not_request_redraw() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model.chat.reduce(chat::ChatAction::AppendMessage {
+        thread_id: "thread-user".to_string(),
+        message: chat::AgentMessage {
+            role: chat::MessageRole::Assistant,
+            content: "idle".to_string(),
+            ..Default::default()
+        },
+    });
+
+    assert!(
+        !model.on_tick(),
+        "idle ticks should not force full terminal redraws"
+    );
+}
+
+#[test]
+fn activity_tick_redraws_only_when_spinner_frame_changes() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.agent_activity = Some("Thinking".to_string());
+
+    assert!(
+        !model.on_tick(),
+        "activity ticks between spinner frames should not redraw"
+    );
+    assert!(
+        !model.on_tick(),
+        "activity ticks between spinner frames should not redraw"
+    );
+    assert!(
+        !model.on_tick(),
+        "activity ticks between spinner frames should not redraw"
+    );
+    assert!(
+        model.on_tick(),
+        "activity ticks should redraw when the spinner frame changes"
+    );
+}
+
 fn saw_list_tasks_command(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> bool {

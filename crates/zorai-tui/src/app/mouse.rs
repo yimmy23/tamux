@@ -595,22 +595,19 @@ impl TuiModel {
                                 }
                             }
                         }
-                        if matches!(
-                            widgets::chat::hit_test(
-                                conversation_chat_area,
-                                &self.chat,
-                                &self.theme,
-                                self.tick_counter,
-                                pos,
-                            ),
-                            Some(
-                                chat::ChatHitTarget::RetryStartNow | chat::ChatHitTarget::RetryStop
-                            )
+                        if let Some(hit) = widgets::chat::hit_test(
+                            conversation_chat_area,
+                            &self.chat,
+                            &self.theme,
+                            self.tick_counter,
+                            pos,
                         ) {
-                            self.clear_chat_drag_selection();
-                            self.handle_chat_click(conversation_chat_area, pos);
-                            self.input.set_mode(input::InputMode::Insert);
-                            return;
+                            if !matches!(hit, chat::ChatHitTarget::Message(_)) {
+                                self.clear_chat_drag_selection();
+                                self.handle_chat_click(conversation_chat_area, pos);
+                                self.input.set_mode(input::InputMode::Insert);
+                                return;
+                            }
                         }
                         self.chat_selection_snapshot = widgets::chat::build_selection_snapshot(
                             conversation_chat_area,

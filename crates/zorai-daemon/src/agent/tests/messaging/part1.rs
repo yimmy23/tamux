@@ -187,12 +187,9 @@ fn tool_execution_hot_path_boxes_large_futures() {
         "internal delegate path should box the oversized internal-agent send future"
     );
     assert!(
-        thread_participants_production.contains(
-            "Box::pin(self.flush_deferred_visible_thread_continuations(thread_id))"
-        ) || thread_participants_production.contains(
-            "Box::pin(\n                self.flush_deferred_visible_thread_continuations(thread_id)"
-        ),
-        "internal delegate path should use the guarded visible-thread continuation flush path"
+        thread_participants_production
+            .contains(".build_internal_delegate_payload(thread_id, content, false)"),
+        "internal delegate path should disable visible-thread continuation"
     );
     assert!(
         thread_participants_production.contains("run_deferred_visible_thread_continuation("),

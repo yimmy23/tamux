@@ -57,6 +57,11 @@ impl AgentEngine {
             tokio::spawn({
                 let engine = self.clone();
                 let rx = shutdown.clone();
+                async move { engine.run_operation_wakeup_supervision_loop(rx).await }
+            }),
+            tokio::spawn({
+                let engine = self.clone();
+                let rx = shutdown.clone();
                 async move { engine.run_quiet_goal_supervision_loop(rx).await }
             }),
             tokio::spawn({
@@ -336,6 +341,24 @@ impl AgentEngine {
                 _ = tick.tick() => {
                     if let Err(error) = self.supervise_stalled_turns().await {
                         tracing::warn!(error = %error, "stalled-turn supervision tick failed");
+                    }
+                }
+                _ = shutdown.changed() => break,
+            }
+        }
+    }
+
+    async fn run_operation_wakeup_supervision_loop(
+        self: Arc<Self>,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(SUPERVISOR_TICK_SECS));
+
+        loop {
+            tokio::select! {
+                _ = tick.tick() => {
+                    if let Err(error) = self.supervise_operation_completion_wakeups().await {
+                        tracing::warn!(error = %error, "operation wakeup supervision tick failed");
                     }
                 }
                 _ = shutdown.changed() => break,

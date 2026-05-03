@@ -7,7 +7,7 @@ fn add_available_tools_part_a(
     if config.tools.bash {
         tools.push(tool_def(
             tool_names::BASH_COMMAND,
-            "Execute a shell command. TUI-originated turns run headless by default; Electron-originated turns may use a managed terminal when the command needs terminal state or interactivity. Omit `session` in normal TUI/chat turns unless you intentionally target a known live terminal. For long-running managed-terminal work, prefer non-blocking execution and poll the returned `operation_id` with `get_operation_status`. For large or awkward file writes, prefer a minimal Python writer over fragile shell escaping, but inspect the Python carefully so it only performs the intended write.",
+            "Execute a shell command. TUI-originated turns run headless by default; Electron-originated turns may use a managed terminal when the command needs terminal state or interactivity. Only known quick commands wait for a direct result; scripts, test/build commands, and other non-quick shell work are accepted as background operations and return `background_task_id`/`operation_id` for polling. Omit `session` in normal TUI/chat turns unless you intentionally target a known live terminal. For large or awkward file writes, prefer a minimal Python writer over fragile shell escaping, but inspect the Python carefully so it only performs the intended write.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -19,8 +19,8 @@ fn add_available_tools_part_a(
                     "sandbox_enabled": { "type": "boolean", "description": "Whether sandboxing should be requested" },
                     "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
                     "language_hint": { "type": "string", "description": "Optional language hint for validation" },
-                    "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-                    "timeout_seconds": { "type": "integer", "description": "Wait timeout (default: 30, max: 600). If you set a value above 600, the command auto-runs in background, returns an `operation_id`, and can be polled with `get_operation_status`." }
+                    "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary only for known quick commands (default: true). Non-quick commands run in background and return `background_task_id`/`operation_id`." },
+                    "timeout_seconds": { "type": "integer", "description": "Wait timeout for known quick commands (default: 30, max: 600). Values above 600 always auto-run in background and return `background_task_id`/`operation_id` for polling." }
                 },
                 "required": ["command"]
             }),

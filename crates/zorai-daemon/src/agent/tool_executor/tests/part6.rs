@@ -1415,6 +1415,71 @@ async fn tui_bash_command_wait_true_detaches_long_running_headless_command() {
 }
 
 #[tokio::test]
+async fn bash_command_wait_true_backgrounds_non_quick_headless_command() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let marker = root.path().join("headless-non-quick-backgrounded.txt");
+    let thread_id = "thread-bash-non-quick-background";
+
+    let command = format!(
+        "python3 -c \"import pathlib, time; time.sleep(1); pathlib.Path(r'{}').write_text('done')\"",
+        marker.display()
+    );
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-bash-non-quick-background".to_string(),
+        ToolFunction {
+            name: "bash_command".to_string(),
+            arguments: serde_json::json!({
+                "command": command,
+                "wait_for_completion": true,
+                "timeout_seconds": 30,
+            })
+            .to_string(),
+        },
+    );
+
+    let result = timeout(
+        Duration::from_millis(250),
+        execute_tool(
+            &tool_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        ),
+    )
+    .await
+    .expect("non-quick bash_command should return a background handle quickly");
+
+    assert!(
+        !result.is_error,
+        "non-quick bash command should be accepted as background work: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("operation_id: "),
+        "backgrounded bash command should return an operation handle: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("background_task_id: "),
+        "backgrounded bash command should return a background_task_id alias: {}",
+        result.content
+    );
+    assert!(
+        !marker.exists(),
+        "backgrounded command should return before the subprocess finishes"
+    );
+}
+
+#[tokio::test]
 async fn tui_bash_command_falls_back_to_goal_run_surface_when_thread_surface_is_missing() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
