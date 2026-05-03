@@ -196,6 +196,13 @@ pub const NOUS_PORTAL_MODELS: &[ModelDefinition] = &[
     },
 ];
 
+pub const HERMES_AGENT_API_MODELS: &[ModelDefinition] = &[ModelDefinition {
+    id: "hermes-agent",
+    name: "Hermes Agent",
+    context_window: 128_000,
+    modalities: TEXT_ONLY,
+}];
+
 pub const OPENCODE_ZEN_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
         id: "claude-opus-4-6",

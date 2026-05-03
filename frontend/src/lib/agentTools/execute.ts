@@ -14,6 +14,7 @@ import {
   executeBrowserType,
 } from "./browserActions";
 import { executeGetSystemInfo, executeReadTerminalContent, executeTerminalCommand } from "./terminalActions";
+import { TOOL_NAMES } from "./toolNames";
 import type { ToolCall, ToolResult } from "./types";
 import {
   executeCreateSnippet,
@@ -55,71 +56,71 @@ export async function executeTool(call: ToolCall): Promise<ToolResult> {
   try {
     const result = await (async (): Promise<ToolResult> => {
       switch (name) {
-      case "send_slack_message":
+      case TOOL_NAMES.sendSlackMessage:
         return await executeGatewayMessage(call.id, name, "slack", args.channel, args.message);
-      case "send_discord_message":
+      case TOOL_NAMES.sendDiscordMessage:
         return await executeDiscordMessage(call.id, name, args.channel_id, args.user_id, args.message);
-      case "send_telegram_message":
+      case TOOL_NAMES.sendTelegramMessage:
         return await executeGatewayMessage(call.id, name, "telegram", args.chat_id, args.message);
-      case "send_whatsapp_message":
+      case TOOL_NAMES.sendWhatsAppMessage:
         return await executeWhatsAppMessage(call.id, name, args.phone, args.message);
-      case "list_terminals":
+      case TOOL_NAMES.listTerminals:
         return executeListTerminals(call.id, name);
-      case "list_workspaces":
+      case TOOL_NAMES.listWorkspaces:
         return executeListWorkspaces(call.id, name);
-      case "create_workspace":
+      case TOOL_NAMES.createWorkspace:
         return executeCreateWorkspace(call.id, name, args.name);
-      case "set_active_workspace":
+      case TOOL_NAMES.setActiveWorkspace:
         return executeSetActiveWorkspace(call.id, name, args.workspace);
-      case "create_surface":
+      case TOOL_NAMES.createSurface:
         return executeCreateSurface(call.id, name, args.workspace, args.name);
-      case "set_active_surface":
+      case TOOL_NAMES.setActiveSurface:
         return executeSetActiveSurface(call.id, name, args.surface, args.workspace);
-      case "split_pane":
+      case TOOL_NAMES.splitPane:
         return executeSplitPane(call.id, name, args.direction, args.pane || args.pane_id, args.new_pane_name);
-      case "rename_pane":
+      case TOOL_NAMES.renamePane:
         return executeRenamePane(call.id, name, args.name, args.pane || args.pane_id);
-      case "set_layout_preset":
+      case TOOL_NAMES.setLayoutPreset:
         return executeSetLayoutPreset(call.id, name, args.preset, args.surface, args.workspace);
-      case "equalize_layout":
+      case TOOL_NAMES.equalizeLayout:
         return executeEqualizeLayout(call.id, name, args.surface, args.workspace);
-      case "list_snippets":
+      case TOOL_NAMES.listSnippets:
         return executeListSnippets(call.id, name, args.owner);
-      case "create_snippet":
+      case TOOL_NAMES.createSnippet:
         return executeCreateSnippet(call.id, name, args);
-      case "run_snippet":
+      case TOOL_NAMES.runSnippet:
         return await executeRunSnippet(call.id, name, args.snippet, args.pane || args.pane_id, args.params, args.execute);
-      case "open_canvas_browser":
+      case TOOL_NAMES.openCanvasBrowser:
         return executeOpenCanvasBrowser(call.id, name, args.url, args.name, args.profileId);
-      case "browser_navigate":
+      case TOOL_NAMES.browserNavigate:
         return await executeBrowserNavigate(call.id, name, args.url, args.pane);
-      case "browser_back":
+      case TOOL_NAMES.browserBack:
         return await executeBrowserBack(call.id, name);
-      case "browser_forward":
+      case TOOL_NAMES.browserForward:
         return await executeBrowserForward(call.id, name);
-      case "browser_reload":
+      case TOOL_NAMES.browserReload:
         return await executeBrowserReload(call.id, name);
-      case "browser_read_dom":
+      case TOOL_NAMES.browserReadDom:
         return await executeBrowserReadDom(call.id, name, args.pane);
-      case "browser_take_screenshot":
+      case TOOL_NAMES.browserTakeScreenshot:
         return await executeBrowserScreenshot(call.id, name);
-      case "browser_click":
+      case TOOL_NAMES.browserClick:
         return await executeBrowserClick(call.id, name, args.pane, args.selector, args.text);
-      case "browser_type":
+      case TOOL_NAMES.browserType:
         return await executeBrowserType(call.id, name, args.pane, args.selector, args.text, args.clear);
-      case "browser_scroll":
+      case TOOL_NAMES.browserScroll:
         return await executeBrowserScroll(call.id, name, args.pane, args.direction, args.amount, args.selector);
-      case "browser_get_elements":
+      case TOOL_NAMES.browserGetElements:
         return await executeBrowserGetElements(call.id, name, args.pane, args.filter, args.limit);
-      case "browser_eval_js":
+      case TOOL_NAMES.browserEvalJs:
         return await executeBrowserEvalJs(call.id, name, args.pane, args.code);
-      case "read_active_terminal_content":
+      case TOOL_NAMES.readActiveTerminalContent:
         return await executeReadTerminalContent(call.id, name, args.pane || args.pane_id, { include_dom: args.include_dom });
-      case "run_terminal_command":
+      case TOOL_NAMES.runTerminalCommand:
         return await executeTerminalCommand(call.id, name, args.command, args.pane || args.pane_id);
-      case "get_system_info":
+      case TOOL_NAMES.getSystemInfo:
         return await executeGetSystemInfo(call.id, name);
-      case "agent_query_memory":
+      case TOOL_NAMES.agentQueryMemory:
         return await executeAgentQueryMemory(call.id, name, args.query);
       default: {
         const pluginResult = await executePluginAssistantTool(call, args);

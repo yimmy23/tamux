@@ -1,11 +1,12 @@
 import type { ToolDefinition } from "./types";
+import { TOOL_NAMES } from "./toolNames";
 
 export const WORKSPACE_TOOLS: ToolDefinition[] = [
-  { type: "function", function: { name: "list_workspaces", description: "List workspaces, surfaces, and panes (with pane names and IDs).", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: TOOL_NAMES.listWorkspaces, description: "List workspaces, surfaces, and panes (with pane names and IDs).", parameters: { type: "object", properties: {} } } },
   {
     type: "function",
     function: {
-      name: "create_workspace",
+      name: TOOL_NAMES.createWorkspace,
       description: "Create a new workspace and make it active.",
       parameters: { type: "object", properties: { name: { type: "string", description: "Optional workspace name" } } },
     },
@@ -13,7 +14,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "set_active_workspace",
+      name: TOOL_NAMES.setActiveWorkspace,
       description: "Set the active workspace by workspace ID or name.",
       parameters: {
         type: "object",
@@ -25,7 +26,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "create_surface",
+      name: TOOL_NAMES.createSurface,
       description: "Create a new surface (tab) in a workspace; defaults to active workspace.",
       parameters: {
         type: "object",
@@ -39,7 +40,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "set_active_surface",
+      name: TOOL_NAMES.setActiveSurface,
       description: "Set active surface by surface ID or exact surface name.",
       parameters: {
         type: "object",
@@ -54,7 +55,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "split_pane",
+      name: TOOL_NAMES.splitPane,
       description: "Split a pane horizontally or vertically. Defaults to active pane.",
       parameters: {
         type: "object",
@@ -70,7 +71,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "rename_pane",
+      name: TOOL_NAMES.renamePane,
       description: "Rename a pane by ID or exact pane name. Defaults to active pane if omitted.",
       parameters: {
         type: "object",
@@ -85,7 +86,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "set_layout_preset",
+      name: TOOL_NAMES.setLayoutPreset,
       description: "Apply a layout preset to a surface.",
       parameters: {
         type: "object",
@@ -101,7 +102,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "equalize_layout",
+      name: TOOL_NAMES.equalizeLayout,
       description: "Equalize all split ratios in the active (or targeted) surface.",
       parameters: {
         type: "object",
@@ -115,7 +116,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "list_snippets",
+      name: TOOL_NAMES.listSnippets,
       description: "List snippets (name, owner, category, content preview). Optional owner filter: user, assistant, or both.",
       parameters: {
         type: "object",
@@ -128,7 +129,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "create_snippet",
+      name: TOOL_NAMES.createSnippet,
       description: "Create a new snippet owned by the assistant.",
       parameters: {
         type: "object",
@@ -146,7 +147,7 @@ export const WORKSPACE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "run_snippet",
+      name: TOOL_NAMES.runSnippet,
       description: "Execute a snippet by id or exact name in a pane.",
       parameters: {
         type: "object",

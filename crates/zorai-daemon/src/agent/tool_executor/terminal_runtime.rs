@@ -75,7 +75,7 @@ async fn execute_run_terminal_command(
                 args,
                 session_manager,
                 session_id,
-                "run_terminal_command",
+                tool_names::RUN_TERMINAL_COMMAND,
                 cancel_token,
                 None,
             )
@@ -98,7 +98,7 @@ async fn execute_run_terminal_command(
             args,
             session_manager,
             session_id,
-            "run_terminal_command",
+            tool_names::RUN_TERMINAL_COMMAND,
             cancel_token,
             None,
         )
@@ -126,7 +126,7 @@ async fn execute_bash_command(
                 args,
                 session_manager,
                 session_id,
-                "bash_command",
+                tool_names::BASH_COMMAND,
                 cancel_token,
                 foreground_detach_after,
             )
@@ -149,7 +149,7 @@ async fn execute_bash_command(
             args,
             session_manager,
             session_id,
-            "bash_command",
+            tool_names::BASH_COMMAND,
             cancel_token,
             foreground_detach_after,
         )

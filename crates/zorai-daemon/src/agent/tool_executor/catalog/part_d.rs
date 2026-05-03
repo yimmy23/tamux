@@ -5,7 +5,7 @@ fn add_available_tools_part_d(
     _has_workspace_topology: bool,
 ) {
     if config.collaboration.enabled {
-        tools.push(tool_def("broadcast_contribution", "Publish a structured subagent contribution into the shared collaboration session for the current parent task.", serde_json::json!({
+        tools.push(tool_def(tool_names::BROADCAST_CONTRIBUTION, "Publish a structured subagent contribution into the shared collaboration session for the current parent task.", serde_json::json!({
             "type": "object",
             "properties": {
                 "parent_task_id": { "type": "string", "description": "Optional explicit parent task scope for parent/operator-originated contributions" },
@@ -16,13 +16,13 @@ fn add_available_tools_part_d(
             },
             "required": ["topic", "position"]
         })));
-        tools.push(tool_def("read_peer_memory", "Read sibling subagent contributions, shared context, disagreements, and consensus for the current parent task.", serde_json::json!({
+        tools.push(tool_def(tool_names::READ_PEER_MEMORY, "Read sibling subagent contributions, shared context, disagreements, and consensus for the current parent task.", serde_json::json!({
             "type": "object",
             "properties": {
                 "parent_task_id": { "type": "string", "description": "Optional explicit parent task scope" }
             }
         })));
-        tools.push(tool_def("vote_on_disagreement", "Cast a weighted vote on a live subagent disagreement for the current collaboration session.", serde_json::json!({
+        tools.push(tool_def(tool_names::VOTE_ON_DISAGREEMENT, "Cast a weighted vote on a live subagent disagreement for the current collaboration session.", serde_json::json!({
             "type": "object",
             "properties": {
                 "disagreement_id": { "type": "string", "description": "Disagreement ID from read_peer_memory or list_collaboration_sessions" },
@@ -31,7 +31,7 @@ fn add_available_tools_part_d(
             },
             "required": ["disagreement_id", "position"]
         })));
-        tools.push(tool_def("dispatch_via_bid_protocol", "Dispatch a collaboration task through the minimal bid protocol and return the resolved primary/reviewer assignment.", serde_json::json!({
+        tools.push(tool_def(tool_names::DISPATCH_VIA_BID_PROTOCOL, "Dispatch a collaboration task through the minimal bid protocol and return the resolved primary/reviewer assignment.", serde_json::json!({
             "type": "object",
             "properties": {
                 "parent_task_id": { "type": "string", "description": "Parent collaboration task scope" },
@@ -51,14 +51,14 @@ fn add_available_tools_part_d(
             },
             "required": ["parent_task_id", "bids"]
         })));
-        tools.push(tool_def("list_collaboration_sessions", "Inspect live collaboration sessions, contributions, disagreements, and consensus built from subagent work.", serde_json::json!({
+        tools.push(tool_def(tool_names::LIST_COLLABORATION_SESSIONS, "Inspect live collaboration sessions, contributions, disagreements, and consensus built from subagent work.", serde_json::json!({
             "type": "object",
             "properties": {
                 "parent_task_id": { "type": "string", "description": "Optional parent task scope" }
             }
         })));
     }
-    tools.push(tool_def("list_threads", "List existing agent threads as lightweight summaries with optional deterministic filters.", serde_json::json!({
+    tools.push(tool_def(tool_names::LIST_THREADS, "List existing agent threads as lightweight summaries with optional deterministic filters.", serde_json::json!({
         "type": "object",
         "properties": {
             "created_after": { "type": "integer", "minimum": 0, "description": "Include threads created at or after this Unix timestamp in milliseconds" },
@@ -73,7 +73,7 @@ fn add_available_tools_part_d(
             "offset": { "type": "integer", "minimum": 0, "description": "Optional number of matching thread summaries to skip before returning results" }
         }
     })));
-    tools.push(tool_def("get_thread", "Fetch one agent thread and a paged slice of its messages by thread ID, with optional internal-thread access.", serde_json::json!({
+    tools.push(tool_def(tool_names::GET_THREAD, "Fetch one agent thread and a paged slice of its messages by thread ID, with optional internal-thread access.", serde_json::json!({
         "type": "object",
         "properties": {
             "thread_id": { "type": "string", "description": "Thread ID to fetch" },
@@ -83,7 +83,7 @@ fn add_available_tools_part_d(
         },
         "required": ["thread_id"]
     })));
-    tools.push(tool_def("read_offloaded_payload", "Read an offloaded tool-result payload by payload ID. Thread-shaped JSON payloads default to a compact messages-only view; set full=true to return the exact raw stored content.", serde_json::json!({
+    tools.push(tool_def(tool_names::READ_OFFLOADED_PAYLOAD, "Read an offloaded tool-result payload by payload ID. Thread-shaped JSON payloads default to a compact messages-only view; set full=true to return the exact raw stored content.", serde_json::json!({
         "type": "object",
         "properties": {
             "payload_id": { "type": "string", "description": "Payload ID from an offloaded tool-result thread message" },
@@ -95,7 +95,7 @@ fn add_available_tools_part_d(
         },
         "required": ["payload_id"]
     })));
-    tools.push(tool_def("enqueue_task", "Create a daemon-managed background task. Use this for work that should run later, survive disconnects, wait on dependencies, or schedule follow-up actions like reminders and gateway messages.", serde_json::json!({
+    tools.push(tool_def(tool_names::ENQUEUE_TASK, "Create a daemon-managed background task. Use this for work that should run later, survive disconnects, wait on dependencies, or schedule follow-up actions like reminders and gateway messages.", serde_json::json!({
         "type": "object",
         "properties": {
             "title": { "type": "string", "description": "Short task title" },
@@ -110,14 +110,14 @@ fn add_available_tools_part_d(
         },
         "required": ["description"]
     })));
-    tools.push(tool_def("list_tasks", "List daemon-managed background tasks and their status, dependencies, schedule, and recent execution metadata.", serde_json::json!({
+    tools.push(tool_def(tool_names::LIST_TASKS, "List daemon-managed background tasks and their status, dependencies, schedule, and recent execution metadata.", serde_json::json!({
         "type": "object",
         "properties": {
             "status": { "type": "string", "enum": ["queued", "in_progress", "awaiting_approval", "blocked", "failed_analyzing", "budget_exceeded", "completed", "failed", "cancelled"] },
             "limit": { "type": "integer", "description": "Maximum number of tasks to return" }
         }
     })));
-    tools.push(tool_def("start_goal_run", "Start a durable goal run for a long-running objective. The goal always executes on a dedicated thread; thread_id only contributes source-context lineage for the new goal thread.", serde_json::json!({
+    tools.push(tool_def(tool_names::START_GOAL_RUN, "Start a durable goal run for a long-running objective. The goal always executes on a dedicated thread; thread_id only contributes source-context lineage for the new goal thread.", serde_json::json!({
         "type": "object",
         "properties": {
             "goal": { "type": "string", "description": "The durable objective to pursue" },
@@ -146,11 +146,11 @@ fn add_available_tools_part_d(
         },
         "required": ["goal"]
     })));
-    tools.push(tool_def("list_goal_runs", "List durable goal runs with their current status, active step metadata, and recent execution state.", serde_json::json!({
+    tools.push(tool_def(tool_names::LIST_GOAL_RUNS, "List durable goal runs with their current status, active step metadata, and recent execution state.", serde_json::json!({
         "type": "object",
         "properties": {}
     })));
-    tools.push(tool_def("submit_goal_step_verdict", "Submit the structured pass/fail verdict for the current goal-step verification task. This is the authoritative gate used to advance or requeue the current goal step.", serde_json::json!({
+    tools.push(tool_def(tool_names::SUBMIT_GOAL_STEP_VERDICT, "Submit the structured pass/fail verdict for the current goal-step verification task. This is the authoritative gate used to advance or requeue the current goal step.", serde_json::json!({
         "type": "object",
         "properties": {
             "verdict": { "type": "string", "enum": ["pass", "fail"], "description": "Use pass only when the current step satisfies all instructions, success criteria, todos, artifacts, and proof checks." },
@@ -161,7 +161,7 @@ fn add_available_tools_part_d(
         },
         "required": ["verdict", "explanation"]
     })));
-    tools.push(tool_def("create_routine", "Create a durable routine definition with a schedule expression and target payload. This only defines the routine object; it does not execute it immediately.", serde_json::json!({
+    tools.push(tool_def(tool_names::CREATE_ROUTINE, "Create a durable routine definition with a schedule expression and target payload. This only defines the routine object; it does not execute it immediately.", serde_json::json!({
         "type": "object",
         "properties": {
             "id": { "type": "string", "description": "Optional explicit routine id" },
@@ -177,18 +177,18 @@ fn add_available_tools_part_d(
         },
         "required": ["title", "description", "schedule_expression", "target_kind", "target_payload"]
     })));
-    tools.push(tool_def("list_routines", "List durable routine definitions and their stored scheduling state. This surface lists routine objects only; it does not execute them.", serde_json::json!({
+    tools.push(tool_def(tool_names::LIST_ROUTINES, "List durable routine definitions and their stored scheduling state. This surface lists routine objects only; it does not execute them.", serde_json::json!({
         "type": "object",
         "properties": {}
     })));
-    tools.push(tool_def("get_routine", "Fetch one durable routine definition by id, including recent run history and summary state.", serde_json::json!({
+    tools.push(tool_def(tool_names::GET_ROUTINE, "Fetch one durable routine definition by id, including recent run history and summary state.", serde_json::json!({
         "type": "object",
         "properties": {
             "routine_id": { "type": "string", "description": "Routine definition id" }
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def("preview_routine", "Preview a stored routine without mutation. Shows next fire times, materialized payload, delivery fan-out, and approval posture.", serde_json::json!({
+    tools.push(tool_def(tool_names::PREVIEW_ROUTINE, "Preview a stored routine without mutation. Shows next fire times, materialized payload, delivery fan-out, and approval posture.", serde_json::json!({
         "type": "object",
         "properties": {
             "routine_id": { "type": "string", "description": "Routine definition id to preview" },
@@ -196,7 +196,7 @@ fn add_available_tools_part_d(
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def("update_routine", "Update a durable routine definition in place with validation and recomputed schedule state.", serde_json::json!({
+    tools.push(tool_def(tool_names::UPDATE_ROUTINE, "Update a durable routine definition in place with validation and recomputed schedule state.", serde_json::json!({
         "type": "object",
         "properties": {
             "routine_id": { "type": "string", "description": "Routine definition id" },
@@ -212,14 +212,14 @@ fn add_available_tools_part_d(
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def("run_routine_now", "Execute one stored routine immediately and record an explicit manual run history entry.", serde_json::json!({
+    tools.push(tool_def(tool_names::RUN_ROUTINE_NOW, "Execute one stored routine immediately and record an explicit manual run history entry.", serde_json::json!({
         "type": "object",
         "properties": {
             "routine_id": { "type": "string", "description": "Routine definition id" }
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def("list_routine_history", "List recent persisted run attempts for one routine, including success, failure, run-now, and rerun entries.", serde_json::json!({
+    tools.push(tool_def(tool_names::LIST_ROUTINE_HISTORY, "List recent persisted run attempts for one routine, including success, failure, run-now, and rerun entries.", serde_json::json!({
         "type": "object",
         "properties": {
             "routine_id": { "type": "string", "description": "Routine definition id" },
@@ -227,35 +227,35 @@ fn add_available_tools_part_d(
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def("rerun_routine", "Rerun a prior routine attempt from its last materialized payload and record a linked rerun history entry.", serde_json::json!({
+    tools.push(tool_def(tool_names::RERUN_ROUTINE, "Rerun a prior routine attempt from its last materialized payload and record a linked rerun history entry.", serde_json::json!({
         "type": "object",
         "properties": {
             "run_id": { "type": "string", "description": "Routine run id to rerun from" }
         },
         "required": ["run_id"]
     })));
-    tools.push(tool_def("pause_routine", "Pause one durable routine definition by id so due checks stop materializing it until resumed.", serde_json::json!({
+    tools.push(tool_def(tool_names::PAUSE_ROUTINE, "Pause one durable routine definition by id so due checks stop materializing it until resumed.", serde_json::json!({
         "type": "object",
         "properties": {
             "routine_id": { "type": "string", "description": "Routine definition id" }
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def("resume_routine", "Resume one paused durable routine definition by id so due checks can materialize it again.", serde_json::json!({
+    tools.push(tool_def(tool_names::RESUME_ROUTINE, "Resume one paused durable routine definition by id so due checks can materialize it again.", serde_json::json!({
         "type": "object",
         "properties": {
             "routine_id": { "type": "string", "description": "Routine definition id" }
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def("delete_routine", "Delete one durable routine definition by id.", serde_json::json!({
+    tools.push(tool_def(tool_names::DELETE_ROUTINE, "Delete one durable routine definition by id.", serde_json::json!({
         "type": "object",
         "properties": {
             "routine_id": { "type": "string", "description": "Routine definition id" }
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def("run_workflow_pack", "Execute one canonical workflow pack with prerequisite-aware, approval-aware runtime behavior. Supports Wave 1 and Wave 2 packs: Daily Brief, PR/Issue Triage, Inbox + Calendar Triage, Watch/Monitor, Standup (status report with task/routine/connector/trigger/browser summary), and Approval-Checkpoint Long Task.", serde_json::json!({
+    tools.push(tool_def(tool_names::RUN_WORKFLOW_PACK, "Execute one canonical workflow pack with prerequisite-aware, approval-aware runtime behavior. Supports Wave 1 and Wave 2 packs: Daily Brief, PR/Issue Triage, Inbox + Calendar Triage, Watch/Monitor, Standup (status report with task/routine/connector/trigger/browser summary), and Approval-Checkpoint Long Task.", serde_json::json!({
         "type": "object",
         "properties": {
             "pack_name": { "type": "string", "description": "Canonical pack name, such as daily-brief, pr-issue-triage, inbox-calendar-triage, watch-monitor, standup, or approval-checkpoint-long-task" },
@@ -271,11 +271,11 @@ fn add_available_tools_part_d(
         },
         "required": ["pack_name"]
     })));
-    tools.push(tool_def("list_triggers", "List configured event triggers with status, cooldown, last-fired metadata, and whether each trigger comes from packaged defaults or a custom entry. On a fresh engine, packaged defaults are seeded automatically before listing.", serde_json::json!({
+    tools.push(tool_def(tool_names::LIST_TRIGGERS, "List configured event triggers with status, cooldown, last-fired metadata, and whether each trigger comes from packaged defaults or a custom entry. On a fresh engine, packaged defaults are seeded automatically before listing.", serde_json::json!({
         "type": "object",
         "properties": {}
     })));
-    tools.push(tool_def("ingest_webhook_event", "Validate a webhook-style event payload and route it through the trigger engine. This is the narrow ingest foundation for Pack 1 webhook/event flows. On a fresh engine, packaged defaults are seeded automatically before routing.", serde_json::json!({
+    tools.push(tool_def(tool_names::INGEST_WEBHOOK_EVENT, "Validate a webhook-style event payload and route it through the trigger engine. This is the narrow ingest foundation for Pack 1 webhook/event flows. On a fresh engine, packaged defaults are seeded automatically before routing.", serde_json::json!({
         "type": "object",
         "properties": {
             "event_family": { "type": "string", "description": "High-level event family, e.g. filesystem or system" },
@@ -286,7 +286,7 @@ fn add_available_tools_part_d(
         },
         "required": ["event_family", "event_kind"]
     })));
-    tools.push(tool_def("add_trigger", "Create a new runtime event trigger, validate it, and persist it to the trigger registry. Pack 1 defaults already cover health/weles_health, health/subagent_health, filesystem/file_changed, and system/disk_pressure. Successful creations return trigger metadata with source: custom.", serde_json::json!({
+    tools.push(tool_def(tool_names::ADD_TRIGGER, "Create a new runtime event trigger, validate it, and persist it to the trigger registry. Pack 1 defaults already cover health/weles_health, health/subagent_health, filesystem/file_changed, and system/disk_pressure. Successful creations return trigger metadata with source: custom.", serde_json::json!({
         "type": "object",
         "properties": {
             "id": { "type": "string", "description": "Optional explicit trigger id" },
@@ -307,20 +307,20 @@ fn add_available_tools_part_d(
         },
         "required": ["event_family", "event_kind", "notification_kind", "title_template", "body_template"]
     })));
-    tools.push(tool_def("get_cost_summary", "Get a cost and activity replay summary across a time window. Shows token usage, cost breakdown by provider/model, recent task/routine/trigger activity, and replay guidance for drilling into specific threads and tasks.", serde_json::json!({
+    tools.push(tool_def(tool_names::GET_COST_SUMMARY, "Get a cost and activity replay summary across a time window. Shows token usage, cost breakdown by provider/model, recent task/routine/trigger activity, and replay guidance for drilling into specific threads and tasks.", serde_json::json!({
         "type": "object",
         "properties": {
             "window": { "type": "string", "description": "Time window for cost aggregation: today, last7days (default), last30days, or all" }
         }
     })));
-    tools.push(tool_def("list_browser_profiles", "List stored named browser profiles with health state, last-used metadata, and browser compatibility hints. Supports optional health-state and workspace filters.", serde_json::json!({
+    tools.push(tool_def(tool_names::LIST_BROWSER_PROFILES, "List stored named browser profiles with health state, last-used metadata, and browser compatibility hints. Supports optional health-state and workspace filters.", serde_json::json!({
         "type": "object",
         "properties": {
             "health_state": { "type": "string", "enum": ["healthy", "stale", "expired", "corrupted", "repair_needed", "repair_in_progress", "retired"], "description": "Optional health-state filter" },
             "workspace_id": { "type": "string", "description": "Optional workspace scope filter" }
         }
     })));
-    tools.push(tool_def("create_browser_profile", "Create or update a named browser profile for reuse across browsing and automation tasks. Returns the persisted profile metadata.", serde_json::json!({
+    tools.push(tool_def(tool_names::CREATE_BROWSER_PROFILE, "Create or update a named browser profile for reuse across browsing and automation tasks. Returns the persisted profile metadata.", serde_json::json!({
         "type": "object",
         "properties": {
             "profile_id": { "type": "string", "description": "Stable profile identifier, e.g. 'main-work'" },
@@ -331,7 +331,7 @@ fn add_available_tools_part_d(
         },
         "required": ["profile_id", "label", "profile_dir"]
     })));
-    tools.push(tool_def("update_browser_profile_health", "Set the health state of a named browser profile to signal freshness, expiry, corruption, or repair progress.", serde_json::json!({
+    tools.push(tool_def(tool_names::UPDATE_BROWSER_PROFILE_HEALTH, "Set the health state of a named browser profile to signal freshness, expiry, corruption, or repair progress.", serde_json::json!({
         "type": "object",
         "properties": {
             "profile_id": { "type": "string", "description": "Stable profile identifier" },
@@ -342,7 +342,7 @@ fn add_available_tools_part_d(
         },
         "required": ["profile_id", "health_state"]
     })));
-    tools.push(tool_def("list_trigger_fire_history", "List recent trigger fire events with status, retry count, and error details. Supports filtering by trigger ID and/or status (fired, succeeded, failed, suppressed, dead_letter).", serde_json::json!({
+    tools.push(tool_def(tool_names::LIST_TRIGGER_FIRE_HISTORY, "List recent trigger fire events with status, retry count, and error details. Supports filtering by trigger ID and/or status (fired, succeeded, failed, suppressed, dead_letter).", serde_json::json!({
         "type": "object",
         "properties": {
             "trigger_id": { "type": "string", "description": "Optional trigger ID filter" },
@@ -350,13 +350,13 @@ fn add_available_tools_part_d(
             "limit": { "type": "integer", "description": "Maximum results to return (default: 20)" }
         }
     })));
-    tools.push(tool_def("show_dreams", "Show recent dream-state cycles, counterfactual evaluations, and persisted [dream] strategy hints.", serde_json::json!({
+    tools.push(tool_def(tool_names::SHOW_DREAMS, "Show recent dream-state cycles, counterfactual evaluations, and persisted [dream] strategy hints.", serde_json::json!({
         "type": "object",
         "properties": {
             "limit": { "type": "integer", "description": "Maximum number of recent dream hints/cycles to return" }
         }
     })));
-    tools.push(tool_def("show_harness_state", "Show the persisted state-transition harness projection for a thread/goal/task scope, including beliefs, tensions, commitments, effects, verification results, and learned procedures.", serde_json::json!({
+    tools.push(tool_def(tool_names::SHOW_HARNESS_STATE, "Show the persisted state-transition harness projection for a thread/goal/task scope, including beliefs, tensions, commitments, effects, verification results, and learned procedures.", serde_json::json!({
         "type": "object",
         "properties": {
             "thread_id": { "type": "string", "description": "Optional thread scope; defaults to the current thread" },
@@ -365,7 +365,7 @@ fn add_available_tools_part_d(
             "limit": { "type": "integer", "description": "Maximum number of recent items per harness section to include" }
         }
     })));
-    tools.push(tool_def("import_external_runtime", "Import Hermes/OpenClaw migration data into persisted import sessions and asset records. Supports dry-run and real imports with conflict policy provenance.", serde_json::json!({
+    tools.push(tool_def(tool_names::IMPORT_EXTERNAL_RUNTIME, "Import Hermes/OpenClaw migration data into persisted import sessions and asset records. Supports dry-run and real imports with conflict policy provenance.", serde_json::json!({
         "type": "object",
         "properties": {
             "runtime": { "type": "string", "description": "Runtime to import, such as hermes or openclaw" },
@@ -375,14 +375,14 @@ fn add_available_tools_part_d(
         },
         "required": ["runtime"]
     })));
-    tools.push(tool_def("show_import_report", "Show the persisted import report for Hermes/OpenClaw runtime-profile migration data, including imported config summaries and zorai MCP readiness.", serde_json::json!({
+    tools.push(tool_def(tool_names::SHOW_IMPORT_REPORT, "Show the persisted import report for Hermes/OpenClaw runtime-profile migration data, including imported config summaries and zorai MCP readiness.", serde_json::json!({
         "type": "object",
         "properties": {
             "runtime": { "type": "string", "description": "Optional runtime filter such as hermes or openclaw" },
             "limit": { "type": "integer", "description": "Maximum number of imported runtime profiles to include" }
         }
     })));
-    tools.push(tool_def("preview_shadow_run", "Preview an isolated shadow-run comparison for one imported Hermes/OpenClaw runtime profile against current zorai defaults. This is read-only and does not enqueue tasks, launch runners, or spawn sessions.", serde_json::json!({
+    tools.push(tool_def(tool_names::PREVIEW_SHADOW_RUN, "Preview an isolated shadow-run comparison for one imported Hermes/OpenClaw runtime profile against current zorai defaults. This is read-only and does not enqueue tasks, launch runners, or spawn sessions.", serde_json::json!({
         "type": "object",
         "properties": {
             "runtime": { "type": "string", "description": "Imported runtime to compare, such as hermes or openclaw" }
@@ -390,7 +390,7 @@ fn add_available_tools_part_d(
         "required": ["runtime"]
     })));
     tools.push(tool_def(
-        "cancel_task",
+        tool_names::CANCEL_TASK,
         "Cancel a queued, blocked, running, approval-pending, or retrying background task by ID.",
         serde_json::json!({
             "type": "object",
@@ -400,7 +400,7 @@ fn add_available_tools_part_d(
             "required": ["task_id"]
         }),
     ));
-    tools.push(tool_def("type_in_terminal", "Type text into an existing terminal session as raw keyboard input. Use this for: interactive TUI programs (codex, vim, htop), REPLs (python, node), typing commands in running shells, or any program that needs a real TTY. Text and Enter are sent with a small delay between them so TUIs process correctly. You can also send special keys like ctrl+c, escape, tab, arrow keys, etc.", serde_json::json!({
+    tools.push(tool_def(tool_names::TYPE_IN_TERMINAL, "Type text into an existing terminal session as raw keyboard input. Use this for: interactive TUI programs (codex, vim, htop), REPLs (python, node), typing commands in running shells, or any program that needs a real TTY. Text and Enter are sent with a small delay between them so TUIs process correctly. You can also send special keys like ctrl+c, escape, tab, arrow keys, etc.", serde_json::json!({
         "type": "object",
         "properties": {
             "text": { "type": "string", "description": "Text to type into the terminal" },
@@ -413,25 +413,25 @@ fn add_available_tools_part_d(
 
     // Workspace tools — executed via WorkspaceCommand event on the frontend
     tools.push(tool_def(
-        "list_workspaces",
+        tool_names::LIST_WORKSPACES,
         "List workspaces, surfaces, and panes (with names and IDs).",
         serde_json::json!({"type":"object","properties":{}}),
     ));
     tools.push(tool_def(
-        "create_workspace",
+        tool_names::CREATE_WORKSPACE,
         "Create a new workspace and make it active.",
         serde_json::json!({
             "type": "object",
             "properties": { "name": { "type": "string", "description": "Optional workspace name" } }
         }),
     ));
-    tools.push(tool_def("set_active_workspace", "Set the active workspace by ID or name.", serde_json::json!({
+    tools.push(tool_def(tool_names::SET_ACTIVE_WORKSPACE, "Set the active workspace by ID or name.", serde_json::json!({
         "type": "object",
         "properties": { "workspace": { "type": "string", "description": "Workspace ID or name" } },
         "required": ["workspace"]
     })));
     tools.push(tool_def(
-        "create_surface",
+        tool_names::CREATE_SURFACE,
         "Create a new surface (tab) in a workspace.",
         serde_json::json!({
             "type": "object",
@@ -442,7 +442,7 @@ fn add_available_tools_part_d(
         }),
     ));
     tools.push(tool_def(
-        "set_active_surface",
+        tool_names::SET_ACTIVE_SURFACE,
         "Set active surface by ID or name.",
         serde_json::json!({
             "type": "object",
@@ -453,7 +453,7 @@ fn add_available_tools_part_d(
             "required": ["surface"]
         }),
     ));
-    tools.push(tool_def("split_pane", "Split a pane horizontally or vertically. Works in BSP layout mode. In canvas mode, creates a new panel instead.", serde_json::json!({
+    tools.push(tool_def(tool_names::SPLIT_PANE, "Split a pane horizontally or vertically. Works in BSP layout mode. In canvas mode, creates a new panel instead.", serde_json::json!({
         "type": "object",
         "properties": {
             "direction": { "type": "string", "enum": ["horizontal", "vertical"] },
@@ -463,7 +463,7 @@ fn add_available_tools_part_d(
         "required": ["direction"]
     })));
     tools.push(tool_def(
-        "rename_pane",
+        tool_names::RENAME_PANE,
         "Rename a pane.",
         serde_json::json!({
             "type": "object",
@@ -474,7 +474,7 @@ fn add_available_tools_part_d(
             "required": ["name"]
         }),
     ));
-    tools.push(tool_def("set_layout_preset", "Apply a layout preset to a surface.", serde_json::json!({
+    tools.push(tool_def(tool_names::SET_LAYOUT_PRESET, "Apply a layout preset to a surface.", serde_json::json!({
         "type": "object",
         "properties": {
             "preset": { "type": "string", "enum": ["single", "2-columns", "3-columns", "grid-2x2", "main-stack"] },
@@ -484,7 +484,7 @@ fn add_available_tools_part_d(
         "required": ["preset"]
     })));
     tools.push(tool_def(
-        "equalize_layout",
+        tool_names::EQUALIZE_LAYOUT,
         "Equalize all split ratios in a surface.",
         serde_json::json!({
             "type": "object",
@@ -495,7 +495,7 @@ fn add_available_tools_part_d(
         }),
     ));
     tools.push(tool_def(
-        "list_snippets",
+        tool_names::LIST_SNIPPETS,
         "List saved snippets with names and content previews.",
         serde_json::json!({
             "type": "object",
@@ -503,7 +503,7 @@ fn add_available_tools_part_d(
         }),
     ));
     tools.push(tool_def(
-        "create_snippet",
+        tool_names::CREATE_SNIPPET,
         "Create a new snippet.",
         serde_json::json!({
             "type": "object",
@@ -517,7 +517,7 @@ fn add_available_tools_part_d(
             "required": ["name", "content"]
         }),
     ));
-    tools.push(tool_def("run_snippet", "Execute a snippet by ID or name in a pane.", serde_json::json!({
+    tools.push(tool_def(tool_names::RUN_SNIPPET, "Execute a snippet by ID or name in a pane.", serde_json::json!({
         "type": "object",
         "properties": {
             "snippet": { "type": "string", "description": "Snippet ID or name" },
@@ -529,7 +529,7 @@ fn add_available_tools_part_d(
     })));
 
     if config.tool_synthesis.enabled {
-        tools.push(tool_def("synthesize_tool", "Generate a guarded runtime tool from a conservative CLI --help surface or a GET OpenAPI operation, then register it in the local generated-tool registry.", serde_json::json!({
+        tools.push(tool_def(tool_names::SYNTHESIZE_TOOL, "Generate a guarded runtime tool from a conservative CLI --help surface or a GET OpenAPI operation, then register it in the local generated-tool registry.", serde_json::json!({
             "type": "object",
             "properties": {
                 "kind": { "type": "string", "enum": ["cli", "openapi"], "description": "Generation source kind (default: cli)" },
@@ -541,28 +541,28 @@ fn add_available_tools_part_d(
             "required": ["target"]
         })));
         tools.push(tool_def(
-            "list_generated_tools",
+            tool_names::LIST_GENERATED_TOOLS,
             "List generated runtime tools with status, effectiveness, and promotion metadata.",
             serde_json::json!({
                 "type": "object",
                 "properties": {}
             }),
         ));
-        tools.push(tool_def("promote_generated_tool", "Promote a generated runtime tool into the generated skills library when it proves useful.", serde_json::json!({
+        tools.push(tool_def(tool_names::PROMOTE_GENERATED_TOOL, "Promote a generated runtime tool into the generated skills library when it proves useful.", serde_json::json!({
             "type": "object",
             "properties": {
                 "tool": { "type": "string", "description": "Generated tool ID" }
             },
             "required": ["tool"]
         })));
-        tools.push(tool_def("activate_generated_tool", "Activate a newly synthesized runtime tool after review so it can appear in the callable tool surface on the next turn.", serde_json::json!({
+        tools.push(tool_def(tool_names::ACTIVATE_GENERATED_TOOL, "Activate a newly synthesized runtime tool after review so it can appear in the callable tool surface on the next turn.", serde_json::json!({
             "type": "object",
             "properties": {
                 "tool": { "type": "string", "description": "Generated tool ID" }
             },
             "required": ["tool"]
         })));
-        tools.push(tool_def("restore_generated_tool", "Restore an archived generated runtime tool back to active status without promoting it.", serde_json::json!({
+        tools.push(tool_def(tool_names::RESTORE_GENERATED_TOOL, "Restore an archived generated runtime tool back to active status without promoting it.", serde_json::json!({
             "type": "object",
             "properties": {
                 "tool": { "type": "string", "description": "Generated tool ID" }
@@ -574,7 +574,7 @@ fn add_available_tools_part_d(
 
     // Plugin API proxy tool -- always available (PluginManager handles disabled/missing checks)
     tools.push(tool_def(
-        "plugin_api_call",
+        tool_names::PLUGIN_API_CALL,
         "Call a plugin API endpoint. The daemon proxies the HTTP request, handles auth, rate limiting, and returns the response as text.",
         serde_json::json!({
             "type": "object",

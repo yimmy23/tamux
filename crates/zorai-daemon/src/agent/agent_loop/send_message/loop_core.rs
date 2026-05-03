@@ -75,6 +75,7 @@ impl<'a> SendMessageRunner<'a> {
                 last_user_message.content = self.llm_user_content.to_string();
             }
         }
+        self.emit_context_window_update_for_messages(&request_thread.messages);
         let mut prepared = prepare_llm_request_with_reused_user_message(
             &request_thread,
             &self.config,

@@ -9,6 +9,30 @@ fn render_plain_text(workspace: &WorkspaceState, area: Rect) -> String {
     render_plain_text_with_scroll(workspace, area, &WorkspaceBoardScroll::default())
 }
 
+fn hit_test(
+    area: Rect,
+    workspace: &WorkspaceState,
+    expanded_task_ids: &std::collections::HashSet<String>,
+    position: Position,
+) -> Option<WorkspaceBoardHitTarget> {
+    hit_test_with_scroll(
+        area,
+        workspace,
+        expanded_task_ids,
+        &WorkspaceBoardScroll::default(),
+        position,
+    )
+}
+
+fn task_card_rect(
+    body: Rect,
+    tasks: &[WorkspaceTask],
+    expanded_task_ids: &std::collections::HashSet<String>,
+    index: usize,
+) -> Rect {
+    task_card_rect_with_scroll(body, tasks, expanded_task_ids, 0, index)
+}
+
 fn render_plain_text_with_scroll(
     workspace: &WorkspaceState,
     area: Rect,
@@ -322,11 +346,12 @@ fn workspace_board_colors_failed_and_done_cards() {
 
     terminal
         .draw(|frame| {
-            render(
+            render_with_scroll(
                 frame,
                 area,
                 &state,
                 &std::collections::HashSet::new(),
+                &WorkspaceBoardScroll::default(),
                 None,
                 &theme,
                 true,
@@ -549,17 +574,6 @@ fn workspace_board_hit_test_tracks_toolbar_actions() {
             Position::new(inner.x + 13, inner.y)
         ),
         Some(WorkspaceBoardHitTarget::Toolbar(
-            WorkspaceBoardToolbarAction::Refresh
-        ))
-    );
-    assert_eq!(
-        hit_test(
-            area,
-            &state,
-            &expanded,
-            Position::new(inner.x + 23, inner.y)
-        ),
-        Some(WorkspaceBoardHitTarget::Toolbar(
             WorkspaceBoardToolbarAction::ToggleOperator
         ))
     );
@@ -569,7 +583,8 @@ fn workspace_board_hit_test_tracks_toolbar_actions() {
 fn workspace_toolbar_has_single_operator_switcher_label() {
     let label = toolbar_label(zorai_protocol::WorkspaceOperator::User);
 
-    assert_eq!(label, "[New task] [Refresh] [operator: User]");
+    assert_eq!(label, "[New task] [operator: User]");
+    assert!(!label.contains("[Refresh]"));
     assert!(!label.contains("[Auto]"));
     assert!(!label.contains("[User]"));
     assert!(!label.contains("  operator:"));

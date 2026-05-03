@@ -361,9 +361,15 @@ export function useDaemonAgentEvents({
             daemonLocalThreadRef,
             daemonThreadIdRef,
             setDaemonTodosByThread,
+            setGoalRunsForTrace,
             setThreadTodos,
           });
           break;
+        case "workspace_task_update": {
+          const workspaceId = typeof event.task?.workspace_id === "string" ? event.task.workspace_id : null;
+          window.dispatchEvent(new CustomEvent("zorai-workspace-refresh", { detail: { workspaceId } }));
+          break;
+        }
         case "workflow_notice":
           recordDaemonWorkflowNotice({ event, activePaneId, activeWorkspace });
           if (event.kind === "operator-profile-warning") {

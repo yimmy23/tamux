@@ -1,5 +1,6 @@
 import { useAgentChatPanelRuntime } from "./agent-chat-panel/runtime/context";
 import { useAgentStore } from "../lib/agentStore";
+import { TOOL_NAMES } from "../lib/agentTools/toolNames";
 import { useWorkspaceStore } from "../lib/workspaceStore";
 import { openThreadTarget } from "../zorai/features/threads/openThreadTarget";
 import { navigateZorai } from "../zorai/shell/zoraiNavigationEvents";
@@ -67,7 +68,7 @@ export function ConciergeToast() {
                                 runtime.createThread({});
                                 navigateZorai({ view: "threads" });
                                 await dismiss();
-                            } else if (action.action_type === "start_goal_run") {
+                            } else if (action.action_type === TOOL_NAMES.startGoalRun) {
                                 // Navigate to goal run creation
                                 runtime.createThread({});
                                 navigateZorai({ view: "threads" });

@@ -4,7 +4,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use zorai_protocol::{ClientMessage, DaemonMessage, OperationStatusSnapshot};
 
-use super::connection::{connect, roundtrip};
+use super::connection::{connect, roundtrip, roundtrip_until};
 use futures::SinkExt;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -664,6 +664,94 @@ pub async fn send_config_set(key_path: String, value_json: String) -> Result<()>
         })
         .await?,
     )
+}
+
+pub async fn send_external_runtime_migration_status() -> Result<serde_json::Value> {
+    send_external_runtime_migration_query(ClientMessage::AgentExternalRuntimeMigrationStatus).await
+}
+
+pub async fn send_external_runtime_migration_preview(
+    runtime: String,
+    config_path: Option<String>,
+) -> Result<serde_json::Value> {
+    send_external_runtime_migration_query(ClientMessage::AgentExternalRuntimeMigrationPreview {
+        runtime,
+        config_path,
+    })
+    .await
+}
+
+pub async fn send_external_runtime_migration_apply(
+    runtime: String,
+    config_path: Option<String>,
+    conflict_policy: String,
+) -> Result<serde_json::Value> {
+    send_external_runtime_migration_query(ClientMessage::AgentExternalRuntimeMigrationApply {
+        runtime,
+        config_path,
+        conflict_policy,
+    })
+    .await
+}
+
+pub async fn send_external_runtime_migration_report(
+    runtime: Option<String>,
+    limit: Option<usize>,
+) -> Result<serde_json::Value> {
+    send_external_runtime_migration_query(ClientMessage::AgentExternalRuntimeMigrationReport {
+        runtime,
+        limit,
+    })
+    .await
+}
+
+pub async fn send_external_runtime_migration_shadow_run(
+    runtime: String,
+) -> Result<serde_json::Value> {
+    send_external_runtime_migration_query(ClientMessage::AgentExternalRuntimeMigrationShadowRun {
+        runtime,
+    })
+    .await
+}
+
+async fn send_external_runtime_migration_query(
+    message: ClientMessage,
+) -> Result<serde_json::Value> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        roundtrip_until(message, parse_external_runtime_migration_terminal_response),
+    )
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "timed out waiting for daemon migration response; restart zorai-daemon so it matches this CLI"
+        )
+    })?
+}
+
+pub(crate) fn parse_external_runtime_migration_terminal_response(
+    msg: DaemonMessage,
+) -> Option<Result<serde_json::Value>> {
+    match msg {
+        DaemonMessage::AgentExternalRuntimeMigrationResult { .. }
+        | DaemonMessage::Error { .. }
+        | DaemonMessage::AgentError { .. } => Some(parse_external_runtime_migration_response(msg)),
+        _ => None,
+    }
+}
+
+pub(crate) fn parse_external_runtime_migration_response(
+    msg: DaemonMessage,
+) -> Result<serde_json::Value> {
+    match msg {
+        DaemonMessage::AgentExternalRuntimeMigrationResult { result_json } => {
+            Ok(serde_json::from_str(&result_json)?)
+        }
+        DaemonMessage::Error { message } | DaemonMessage::AgentError { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
 }
 
 pub(crate) fn parse_config_set_response(msg: DaemonMessage) -> Result<()> {

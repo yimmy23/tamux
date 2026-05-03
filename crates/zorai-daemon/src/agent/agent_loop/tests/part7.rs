@@ -400,7 +400,7 @@ async fn metacognitive_warning_repeated_tool_calls_remain_advisory() {
     config.provider = PROVIDER_ID_OPENAI.to_string();
     config.base_url = spawn_scripted_tool_call_server(vec![
         (
-            "update_todo".to_string(),
+            tool_names::UPDATE_TODO.to_string(),
             serde_json::json!({
                 "items": [{
                     "content": "Create step completion marker for goal step 1",
@@ -411,7 +411,7 @@ async fn metacognitive_warning_repeated_tool_calls_remain_advisory() {
             .to_string(),
         ),
         (
-            "update_todo".to_string(),
+            tool_names::UPDATE_TODO.to_string(),
             serde_json::json!({
                 "items": [{
                     "content": "Create step completion marker for goal step 1",
@@ -422,7 +422,7 @@ async fn metacognitive_warning_repeated_tool_calls_remain_advisory() {
             .to_string(),
         ),
         (
-            "update_todo".to_string(),
+            tool_names::UPDATE_TODO.to_string(),
             serde_json::json!({
                 "items": [{
                     "content": "Create step completion marker for goal step 1",
@@ -527,7 +527,7 @@ async fn metacognitive_warning_repeated_tool_calls_remain_advisory() {
         .iter()
         .filter(|message| {
             message.role == MessageRole::Tool
-                && message.tool_name.as_deref() == Some("update_todo")
+                && message.tool_name.as_deref() == Some(tool_names::UPDATE_TODO)
                 && message.tool_status.as_deref() == Some("error")
                 && message.content.contains("meta-cognitive regulator")
         })
@@ -554,7 +554,7 @@ async fn metacognitive_warning_repeated_tool_calls_remain_advisory() {
 
     assert!(!thread.messages.iter().any(|message| {
         message.role == MessageRole::Tool
-            && message.tool_name.as_deref() == Some("update_todo")
+            && message.tool_name.as_deref() == Some(tool_names::UPDATE_TODO)
             && message
                 .content
                 .contains("Tool call blocked by meta-cognitive regulator before execution")
@@ -562,7 +562,7 @@ async fn metacognitive_warning_repeated_tool_calls_remain_advisory() {
 
     assert!(thread.messages.iter().any(|message| {
         message.role == MessageRole::Tool
-            && message.tool_name.as_deref() == Some("update_todo")
+            && message.tool_name.as_deref() == Some(tool_names::UPDATE_TODO)
             && message.tool_status.as_deref() == Some("done")
     }));
 }

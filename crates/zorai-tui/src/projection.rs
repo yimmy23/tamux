@@ -21,6 +21,12 @@ pub enum ClientEvent {
 
     ThreadList(Vec<crate::state::chat::AgentThread>),
     ThreadDetail(Option<crate::state::chat::AgentThread>),
+    ContextWindowUpdate {
+        thread_id: String,
+        active_context_window_start: usize,
+        active_context_window_end: usize,
+        active_context_window_tokens: u64,
+    },
     ThreadCreated {
         thread_id: String,
         title: String,
@@ -215,6 +221,17 @@ impl DaemonProjection {
                 vec![AppAction::Chat(ChatAction::ThreadDetailReceived(thread))]
             }
             ClientEvent::ThreadDetail(None) => vec![],
+            ClientEvent::ContextWindowUpdate {
+                thread_id,
+                active_context_window_start,
+                active_context_window_end,
+                active_context_window_tokens,
+            } => vec![AppAction::Chat(ChatAction::ContextWindowUpdated {
+                thread_id,
+                active_context_window_start,
+                active_context_window_end,
+                active_context_window_tokens,
+            })],
             ClientEvent::ThreadCreated {
                 thread_id,
                 title,

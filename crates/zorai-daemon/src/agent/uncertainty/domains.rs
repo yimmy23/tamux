@@ -28,14 +28,20 @@ pub enum DomainClassification {
 /// Classify a tool/action name into a domain (UNCR-04).
 pub fn classify_domain(tool_name: &str) -> DomainClassification {
     match tool_name {
-        "execute_command"
-        | "execute_managed_command"
-        | "delete_file"
-        | "kill_session"
-        | "restart_session" => DomainClassification::Safety,
-        "deploy" | "write_config" | "install_package" => DomainClassification::Reliability,
-        "web_search" | "web_read" | "symbol_search" | "list_directory" | "list_files"
-        | "search_files" => DomainClassification::Research,
+        zorai_protocol::tool_names::EXECUTE_COMMAND
+        | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
+        | zorai_protocol::tool_names::DELETE_FILE
+        | zorai_protocol::tool_names::KILL_SESSION
+        | zorai_protocol::tool_names::RESTART_SESSION => DomainClassification::Safety,
+        zorai_protocol::tool_names::DEPLOY
+        | zorai_protocol::tool_names::WRITE_CONFIG
+        | zorai_protocol::tool_names::INSTALL_PACKAGE => DomainClassification::Reliability,
+        zorai_protocol::tool_names::WEB_SEARCH
+        | zorai_protocol::tool_names::WEB_READ
+        | zorai_protocol::tool_names::SYMBOL_SEARCH
+        | zorai_protocol::tool_names::LIST_DIRECTORY
+        | zorai_protocol::tool_names::LIST_FILES
+        | zorai_protocol::tool_names::SEARCH_FILES => DomainClassification::Research,
         _ => DomainClassification::Business,
     }
 }
@@ -140,7 +146,7 @@ mod tests {
     #[test]
     fn classify_domain_execute_command_is_safety() {
         assert_eq!(
-            classify_domain("execute_command"),
+            classify_domain(zorai_protocol::tool_names::EXECUTE_COMMAND),
             DomainClassification::Safety
         );
     }
@@ -148,14 +154,17 @@ mod tests {
     #[test]
     fn classify_domain_web_search_is_research() {
         assert_eq!(
-            classify_domain("web_search"),
+            classify_domain(zorai_protocol::tool_names::WEB_SEARCH),
             DomainClassification::Research
         );
     }
 
     #[test]
     fn classify_domain_read_file_is_business() {
-        assert_eq!(classify_domain("read_file"), DomainClassification::Business);
+        assert_eq!(
+            classify_domain(zorai_protocol::tool_names::READ_FILE),
+            DomainClassification::Business
+        );
     }
 
     #[test]

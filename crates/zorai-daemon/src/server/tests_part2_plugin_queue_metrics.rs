@@ -30,7 +30,7 @@ async fn plugin_queue_saturation_rejects_extra_plugin_api_call_but_accepts_provi
 
         match conn.recv_with_timeout(Duration::from_secs(2)).await {
             DaemonMessage::OperationAccepted { kind, .. } => {
-                assert_eq!(kind, "plugin_api_call");
+                assert_eq!(kind, zorai_protocol::tool_names::PLUGIN_API_CALL);
             }
             other => {
                 panic!("expected plugin api acceptance during saturation setup, got {other:?}")
@@ -107,7 +107,7 @@ async fn subsystem_metrics_query_reports_plugin_rejections_after_queue_saturatio
 
         match conn.recv_with_timeout(Duration::from_secs(2)).await {
             DaemonMessage::OperationAccepted { kind, .. } => {
-                assert_eq!(kind, "plugin_api_call");
+                assert_eq!(kind, zorai_protocol::tool_names::PLUGIN_API_CALL);
             }
             other => panic!(
                 "expected plugin api acceptance during metrics saturation setup, got {other:?}"
@@ -178,7 +178,7 @@ async fn plugin_queue_saturation_rejects_plugin_oauth_start_before_acceptance() 
 
         match conn.recv_with_timeout(Duration::from_secs(2)).await {
             DaemonMessage::OperationAccepted { kind, .. } => {
-                assert_eq!(kind, "plugin_api_call");
+                assert_eq!(kind, zorai_protocol::tool_names::PLUGIN_API_CALL);
             }
             other => {
                 panic!("expected plugin api acceptance during saturation setup, got {other:?}")

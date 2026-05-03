@@ -812,8 +812,8 @@ fn resolve_audio_tool_route(
             "provider '{}' is not supported for {}",
             provider_id,
             match audio_tool_kind {
-                zorai_shared::providers::AudioToolKind::SpeechToText => "speech_to_text",
-                zorai_shared::providers::AudioToolKind::TextToSpeech => "text_to_speech",
+                zorai_shared::providers::AudioToolKind::SpeechToText => tool_names::SPEECH_TO_TEXT,
+                zorai_shared::providers::AudioToolKind::TextToSpeech => tool_names::TEXT_TO_SPEECH,
             }
         );
     }
@@ -1683,7 +1683,7 @@ async fn persist_generated_image_for_thread(
         agent.record_file_work_context(
             thread_id,
             None,
-            "generate_image",
+            tool_names::GENERATE_IMAGE,
             &path.to_string_lossy(),
         )
         .await;
@@ -1708,7 +1708,7 @@ async fn execute_analyze_image(
     agent: &AgentEngine,
     _http_client: &reqwest::Client,
 ) -> Result<String> {
-    let media_http_client = fresh_media_http_client("analyze_image", args);
+    let media_http_client = fresh_media_http_client(tool_names::ANALYZE_IMAGE, args);
     let (provider_id, provider_config) =
         resolve_media_provider_config(agent, args, None).await?;
     if !crate::agent::types::model_supports(
@@ -1787,7 +1787,7 @@ async fn execute_generate_image(
     _http_client: &reqwest::Client,
     thread_id: Option<&str>,
 ) -> Result<String> {
-    let media_http_client = fresh_media_http_client("generate_image", args);
+    let media_http_client = fresh_media_http_client(tool_names::GENERATE_IMAGE, args);
     let prompt = args
         .get("prompt")
         .and_then(|value| value.as_str())
@@ -2034,7 +2034,7 @@ async fn execute_speech_to_text(
     agent: &AgentEngine,
     _http_client: &reqwest::Client,
 ) -> Result<String> {
-    let media_http_client = fresh_media_http_client("speech_to_text", args);
+    let media_http_client = fresh_media_http_client(tool_names::SPEECH_TO_TEXT, args);
     let path = args
         .get("path")
         .and_then(|value| value.as_str())
@@ -2140,7 +2140,7 @@ async fn execute_text_to_speech(
     agent: &AgentEngine,
     _http_client: &reqwest::Client,
 ) -> Result<String> {
-    let media_http_client = fresh_media_http_client("text_to_speech", args);
+    let media_http_client = fresh_media_http_client(tool_names::TEXT_TO_SPEECH, args);
     let input = args
         .get("input")
         .and_then(|value| value.as_str())
@@ -2264,6 +2264,7 @@ mod media_tools_tests {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         }
     }
 
@@ -2681,6 +2682,7 @@ mod media_tools_tests {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
             },
         );
 
@@ -2742,6 +2744,7 @@ mod media_tools_tests {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
             },
         );
 
@@ -2804,6 +2807,7 @@ mod media_tools_tests {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
             },
         );
 
@@ -2888,7 +2892,7 @@ mod media_tools_tests {
             .cloned()
             .expect("work context should be recorded");
         assert_eq!(context.entries.len(), 1);
-        assert_eq!(context.entries[0].source, "generate_image");
+        assert_eq!(context.entries[0].source, tool_names::GENERATE_IMAGE);
     }
 
     #[tokio::test]
@@ -2970,6 +2974,7 @@ mod media_tools_tests {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         };
 
         let body = build_openrouter_image_generation_body(

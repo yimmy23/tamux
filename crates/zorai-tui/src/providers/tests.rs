@@ -2,14 +2,15 @@ use super::*;
 use crate::providers::context::is_known_default_url;
 use zorai_shared::providers::{
     MINIMAX_PROVIDER, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_ANTHROPIC, PROVIDER_ID_ARCEE,
-    PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_KIMI,
-    PROVIDER_ID_KIMI_CODING_PLAN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_XAI,
-    PROVIDER_ID_Z_AI, PROVIDER_ID_Z_AI_CODING_PLAN, QWEN_PROVIDER,
+    PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_HERMES_AGENT_API, PROVIDER_ID_KIMI, PROVIDER_ID_KIMI_CODING_PLAN,
+    PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_XAI, PROVIDER_ID_Z_AI,
+    PROVIDER_ID_Z_AI_CODING_PLAN, QWEN_PROVIDER,
 };
 
 #[test]
-fn provider_count_is_29() {
-    assert_eq!(PROVIDERS.len(), 29);
+fn provider_count_is_30() {
+    assert_eq!(PROVIDERS.len(), 30);
 }
 
 #[test]
@@ -446,4 +447,31 @@ fn nous_portal_provider_uses_expected_defaults() {
     assert!(models
         .iter()
         .any(|model| model.id == "nousresearch/hermes-4-405b"));
+}
+
+#[test]
+fn hermes_agent_api_provider_uses_documented_openai_compatible_defaults() {
+    let provider = find_by_id(PROVIDER_ID_HERMES_AGENT_API).unwrap();
+    assert_eq!(provider.name, "Hermes Agent API");
+    assert_eq!(provider.default_base_url, "http://localhost:8642/v1");
+    assert_eq!(provider.default_model, "hermes-agent");
+    assert_eq!(provider.default_auth_source, "api_key");
+    assert_eq!(provider.supported_auth_sources, API_KEY_ONLY_AUTH_SOURCES);
+    assert_eq!(provider.default_transport, "chat_completions");
+    assert_eq!(provider.supported_transports, CHAT_ONLY_TRANSPORTS);
+    assert!(supports_model_fetch_for(PROVIDER_ID_HERMES_AGENT_API));
+    let models = known_models_for_provider(PROVIDER_ID_HERMES_AGENT_API);
+    assert_eq!(models.len(), 1);
+    assert_eq!(
+        models.first().map(|model| model.id.as_str()),
+        Some("hermes-agent")
+    );
+    assert_eq!(
+        default_model_for_provider_auth(PROVIDER_ID_HERMES_AGENT_API, "api_key"),
+        "hermes-agent"
+    );
+    assert_eq!(
+        known_context_window_for(PROVIDER_ID_HERMES_AGENT_API, "hermes-agent"),
+        Some(128_000)
+    );
 }

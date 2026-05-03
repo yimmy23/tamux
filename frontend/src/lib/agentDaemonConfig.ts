@@ -25,7 +25,7 @@ export function getAgentBridge() {
 
 export function resolveDaemonBackend(
   backend: AgentSettings["agent_backend"],
-): Exclude<AgentSettings["agent_backend"], "legacy"> {
+): AgentSettings["agent_backend"] {
   void backend;
   return "daemon";
 }
@@ -145,6 +145,7 @@ export function buildDaemonAgentConfig(
               openrouter_provider_order: referencedConfig.openrouter_provider_order ?? [],
               openrouter_provider_ignore: referencedConfig.openrouter_provider_ignore ?? [],
               openrouter_allow_fallbacks: referencedConfig.openrouter_allow_fallbacks ?? null,
+              openrouter_response_cache_enabled: referencedConfig.openrouter_response_cache_enabled === true,
             }
             : {}),
         },
@@ -175,6 +176,7 @@ export function buildDaemonAgentConfig(
     tui_chat_history_page_size: agentSettings.tui_chat_history_page_size,
     participant_observer_restore_window_hours:
       agentSettings.participant_observer_restore_window_hours,
+    auto_refresh_interval_secs: agentSettings.auto_refresh_interval_secs,
     max_tool_loops: agentSettings.max_tool_loops,
     max_retries: agentSettings.max_retries,
     retry_delay_ms: agentSettings.retry_delay_ms,

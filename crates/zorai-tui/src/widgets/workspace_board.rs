@@ -19,7 +19,6 @@ const TASK_TITLE_MAX_LINES: usize = 2;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceBoardToolbarAction {
     NewTask,
-    Refresh,
     ToggleOperator,
 }
 
@@ -94,27 +93,6 @@ impl WorkspaceBoardScroll {
     }
 }
 
-pub fn render(
-    frame: &mut Frame,
-    area: Rect,
-    workspace: &WorkspaceState,
-    expanded_task_ids: &HashSet<String>,
-    selected: Option<&WorkspaceBoardHitTarget>,
-    theme: &ThemeTokens,
-    focused: bool,
-) {
-    render_with_scroll(
-        frame,
-        area,
-        workspace,
-        expanded_task_ids,
-        &WorkspaceBoardScroll::default(),
-        selected,
-        theme,
-        focused,
-    );
-}
-
 pub fn render_with_scroll(
     frame: &mut Frame,
     area: Rect,
@@ -179,7 +157,6 @@ pub fn selectable_targets(
 ) -> Vec<WorkspaceBoardHitTarget> {
     let mut targets = vec![
         WorkspaceBoardHitTarget::Toolbar(WorkspaceBoardToolbarAction::NewTask),
-        WorkspaceBoardHitTarget::Toolbar(WorkspaceBoardToolbarAction::Refresh),
         WorkspaceBoardHitTarget::Toolbar(WorkspaceBoardToolbarAction::ToggleOperator),
     ];
     for column in &workspace.projection().columns {
@@ -246,21 +223,6 @@ pub fn step_selection(
     let last = targets.len().saturating_sub(1) as i32;
     let next = (current_index as i32 + delta).clamp(0, last) as usize;
     targets.get(next).cloned()
-}
-
-pub fn hit_test(
-    area: Rect,
-    workspace: &WorkspaceState,
-    expanded_task_ids: &HashSet<String>,
-    position: Position,
-) -> Option<WorkspaceBoardHitTarget> {
-    hit_test_with_scroll(
-        area,
-        workspace,
-        expanded_task_ids,
-        &WorkspaceBoardScroll::default(),
-        position,
-    )
 }
 
 pub fn hit_test_with_scroll(
@@ -463,7 +425,7 @@ fn render_toolbar(
 }
 
 fn toolbar_label(operator: zorai_protocol::WorkspaceOperator) -> String {
-    format!("[New task] [Refresh] [operator: {operator:?}]")
+    format!("[New task] [operator: {operator:?}]")
 }
 
 fn toolbar_spans(
@@ -475,10 +437,6 @@ fn toolbar_spans(
         (
             WorkspaceBoardToolbarAction::NewTask,
             "[New task]".to_string(),
-        ),
-        (
-            WorkspaceBoardToolbarAction::Refresh,
-            "[Refresh]".to_string(),
         ),
         (
             WorkspaceBoardToolbarAction::ToggleOperator,
@@ -882,29 +840,6 @@ fn task_card_height(
     }
 }
 
-fn task_card_rect(
-    body: Rect,
-    tasks: &[zorai_protocol::WorkspaceTask],
-    expanded_task_ids: &HashSet<String>,
-    index: usize,
-) -> Rect {
-    let card_body_width = body.width.saturating_sub(2);
-    let offset = tasks.iter().take(index).fold(0u16, |offset, task| {
-        offset.saturating_add(task_card_height(task, card_body_width, expanded_task_ids))
-    });
-    let y = body.y.saturating_add(offset);
-    let height = tasks
-        .get(index)
-        .map(|task| task_card_height(task, card_body_width, expanded_task_ids))
-        .unwrap_or(TASK_COLLAPSED_ROW_HEIGHT);
-    Rect::new(
-        body.x,
-        y,
-        body.width,
-        height.min(body.y.saturating_add(body.height).saturating_sub(y)),
-    )
-}
-
 fn task_card_rect_with_scroll(
     body: Rect,
     tasks: &[zorai_protocol::WorkspaceTask],
@@ -1090,8 +1025,7 @@ fn toolbar_action_at_x(body_x: u16, position_x: u16) -> Option<WorkspaceBoardToo
     let x = position_x.saturating_sub(body_x);
     match x {
         0..=9 => Some(WorkspaceBoardToolbarAction::NewTask),
-        11..=19 => Some(WorkspaceBoardToolbarAction::Refresh),
-        21..=37 => Some(WorkspaceBoardToolbarAction::ToggleOperator),
+        11..=27 => Some(WorkspaceBoardToolbarAction::ToggleOperator),
         _ => None,
     }
 }

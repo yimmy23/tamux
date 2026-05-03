@@ -844,7 +844,7 @@ impl AgentEngine {
                 Ok((None, Some(goal_run), None, None))
             }
             RoutineExecutionTarget::Tool(tool_plan) => match tool_plan.tool_name.as_str() {
-                "run_workflow_pack" => {
+                zorai_protocol::tool_names::RUN_WORKFLOW_PACK => {
                     let thread_id = tool_plan.thread_id.as_deref().unwrap_or("system");
                     let execution = self
                         .run_workflow_pack_json(&tool_plan.tool_args, Some(thread_id), None)

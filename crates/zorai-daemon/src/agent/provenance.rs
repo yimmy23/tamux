@@ -133,7 +133,7 @@ pub(crate) fn adaptive_carryover_provenance_summary(
         .collect::<Vec<_>>();
 
     serde_json::json!({
-        "inspection_tool": "show_dreams",
+        "inspection_tool": zorai_protocol::tool_names::SHOW_DREAMS,
         "persisted_event_count": dream_hint_persist_count + forge_hint_persist_count,
         "dream_hint_event_count": dream_hint_persist_count,
         "forge_hint_event_count": forge_hint_persist_count,

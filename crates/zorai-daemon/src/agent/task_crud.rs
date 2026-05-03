@@ -5,7 +5,8 @@ use super::*;
 #[path = "task_crud/tasks.rs"]
 mod tasks;
 
-pub(crate) const GOAL_AUTONOMY_TOOL_BLACKLIST: &[&str] = &["ask_questions"];
+pub(crate) const GOAL_AUTONOMY_TOOL_BLACKLIST: &[&str] =
+    &[zorai_protocol::tool_names::ASK_QUESTIONS];
 
 pub(crate) fn merge_tool_blacklist(
     existing: Option<Vec<String>>,

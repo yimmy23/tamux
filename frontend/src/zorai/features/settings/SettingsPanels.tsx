@@ -55,7 +55,7 @@ export const conciergeReasoningEffortOptions: Array<{ value: AgentSettings["reas
   { value: "high", label: "high" },
   { value: "xhigh", label: "xhigh" },
 ];
-const APP_VERSION = "0.8.10";
+const APP_VERSION = "0.8.11";
 const APP_AUTHOR = "Mariusz Kurman";
 const APP_GITHUB = "mkurman/zorai";
 const APP_HOMEPAGE = "zorai.app";
@@ -202,7 +202,75 @@ function ModelPanel() {
         </SettingRow>
         <Metric label="Backend" value="daemon" />
       </Panel>
+      <MigrationPanel />
     </SettingsGrid>
+  );
+}
+
+function MigrationPanel() {
+  const bridge = getBridge();
+  const [status, setStatus] = useState<unknown | null>(null);
+  const [result, setResult] = useState<unknown | null>(null);
+  const [configPath, setConfigPath] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const runMigration = async (
+    label: string,
+    action: () => Promise<unknown> | undefined,
+  ) => {
+    setBusy(label);
+    try {
+      const payload = await action();
+      setResult(payload ?? null);
+    } catch (error) {
+      setResult({ error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const preview = (runtime: "hermes" | "openclaw") => runMigration(
+    `preview-${runtime}`,
+    () => bridge?.agentExternalRuntimeMigrationPreview?.(runtime, configPath.trim() || null),
+  );
+  const apply = (runtime: "hermes" | "openclaw") => runMigration(
+    `apply-${runtime}`,
+    () => bridge?.agentExternalRuntimeMigrationApply?.(runtime, configPath.trim() || null, "stage_for_review"),
+  );
+
+  return (
+    <Panel section="Migration" title="Migrate from existing agents">
+      <button
+        type="button"
+        className="zorai-ghost-button"
+        onClick={() => void runMigration("status", async () => {
+          const payload = await bridge?.agentExternalRuntimeMigrationStatus?.();
+          setStatus(payload ?? null);
+          return payload;
+        })}
+        disabled={busy !== null || !bridge?.agentExternalRuntimeMigrationStatus}
+      >
+        {busy === "status" ? "Checking..." : "Check installed agents"}
+      </button>
+      <SettingRow label="Config Path" description="Optional Hermes/OpenClaw config path override.">
+        <input className="zorai-input" value={configPath} onChange={(event) => setConfigPath(event.target.value)} placeholder="Use detected default" />
+      </SettingRow>
+      <SettingRow label="Migrate from Hermes" description="Preview or import Hermes config into Zorai.">
+        <div className="zorai-card-actions">
+          <button type="button" className="zorai-ghost-button" onClick={() => void preview("hermes")} disabled={busy !== null || !bridge?.agentExternalRuntimeMigrationPreview}>Preview</button>
+          <button type="button" className="zorai-ghost-button" onClick={() => void apply("hermes")} disabled={busy !== null || !bridge?.agentExternalRuntimeMigrationApply}>Import</button>
+        </div>
+      </SettingRow>
+      <SettingRow label="Migrate from OpenClaw" description="Preview or import OpenClaw config into Zorai.">
+        <div className="zorai-card-actions">
+          <button type="button" className="zorai-ghost-button" onClick={() => void preview("openclaw")} disabled={busy !== null || !bridge?.agentExternalRuntimeMigrationPreview}>Preview</button>
+          <button type="button" className="zorai-ghost-button" onClick={() => void apply("openclaw")} disabled={busy !== null || !bridge?.agentExternalRuntimeMigrationApply}>Import</button>
+        </div>
+      </SettingRow>
+      <button type="button" className="zorai-ghost-button" onClick={() => void runMigration("report", () => bridge?.agentExternalRuntimeMigrationReport?.(null, 20))} disabled={busy !== null || !bridge?.agentExternalRuntimeMigrationReport}>Show migration report</button>
+      {status ? <pre className="zorai-empty-state">{JSON.stringify(status, null, 2)}</pre> : null}
+      {result ? <pre className="zorai-empty-state">{JSON.stringify(result, null, 2)}</pre> : null}
+    </Panel>
   );
 }
 
@@ -639,6 +707,7 @@ function AdvancedPanel() {
         <NumberRow label="Heuristic Max Msgs" description="Conversation messages kept before compaction." value={agentSettings.max_context_messages} onChange={(value) => updateAgentSetting("max_context_messages", value)} min={10} max={500} />
         <NumberRow label="Max Tool Loops" description="Upper bound for tool-call cycles in one response." value={agentSettings.max_tool_loops} onChange={(value) => updateAgentSetting("max_tool_loops", value)} min={0} max={50} />
         <NumberRow label="Max Retries" description="Provider and tool retry attempts." value={agentSettings.max_retries} onChange={(value) => updateAgentSetting("max_retries", value)} min={0} max={10} />
+        <NumberRow label="Auto Refresh (s)" description="Goal and workspace refresh interval; 0 disables polling." value={agentSettings.auto_refresh_interval_secs} onChange={(value) => updateAgentSetting("auto_refresh_interval_secs", value)} min={0} max={86400} />
         <NumberRow label="Retry Delay (ms)" description="Delay between retries." value={agentSettings.retry_delay_ms} onChange={(value) => updateAgentSetting("retry_delay_ms", value)} min={0} max={60000} />
         <NumberRow label="Message Loop (ms)" description="Delay between message loop iterations." value={agentSettings.message_loop_delay_ms} onChange={(value) => updateAgentSetting("message_loop_delay_ms", value)} min={0} max={60000} />
         <NumberRow label="Tool Call Gap (ms)" description="Delay between tool calls." value={agentSettings.tool_call_delay_ms} onChange={(value) => updateAgentSetting("tool_call_delay_ms", value)} min={0} max={60000} />

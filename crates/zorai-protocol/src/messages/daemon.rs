@@ -78,6 +78,7 @@ pub enum DaemonMessage {
     AgentTaskApprovalRules { rules: Vec<TaskApprovalRule> },
     AgentConfigResponse { config_json: String },
     AgentEffectiveConfigState { state_json: String },
+    AgentExternalRuntimeMigrationResult { result_json: String },
     AgentModelsResponse { #[serde(default)] operation_id: Option<String>, models_json: String },
     AgentError { message: String },
     AgentHeartbeatItems { items_json: String },

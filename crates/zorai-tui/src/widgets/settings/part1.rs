@@ -167,21 +167,131 @@ pub fn render(
             Span::styled(" cancel", theme.fg_dim),
         ])
     } else {
-        Line::from(vec![
+        let mut spans = vec![
             Span::raw(" "),
             Span::styled("↑↓", theme.fg_active),
             Span::styled(" navigate  ", theme.fg_dim),
-            Span::styled("Enter", theme.fg_active),
-            Span::styled(" edit/select  ", theme.fg_dim),
-            Span::styled("Space", theme.fg_active),
-            Span::styled(" toggle  ", theme.fg_dim),
+        ];
+        if settings_field_can_activate(settings, config) {
+            spans.push(Span::styled("Enter", theme.fg_active));
+            spans.push(Span::styled(" edit/select  ", theme.fg_dim));
+        }
+        if settings_field_can_toggle(settings, config) {
+            spans.push(Span::styled("Space", theme.fg_active));
+            spans.push(Span::styled(" toggle  ", theme.fg_dim));
+        }
+        spans.extend([
             Span::styled("Tab", theme.fg_active),
             Span::styled(" switch tab  ", theme.fg_dim),
             Span::styled("Esc", theme.fg_active),
             Span::styled(" close", theme.fg_dim),
-        ])
+        ]);
+        Line::from(spans)
     };
     frame.render_widget(Paragraph::new(hints), chunks[3]);
+}
+
+fn settings_field_can_activate(settings: &SettingsState, config: &ConfigState) -> bool {
+    let field = settings.current_field_name_with_config(config);
+    if field.is_empty() || matches!(field, "snapshot_stats") {
+        return false;
+    }
+    if settings.active_tab() == SettingsTab::Advanced
+        && field == "context_window_tokens"
+        && !providers::model_uses_context_window_override(
+            &config.provider,
+            &config.auth_source,
+            &config.model,
+            &config.custom_model_name,
+        )
+    {
+        return false;
+    }
+    !matches!(
+        field,
+        "managed_sandbox_enabled"
+            | "gateway_enabled"
+            | "web_search_enabled"
+            | "enable_streaming"
+            | "enable_conversation_memory"
+            | "anticipatory_enabled"
+            | "anticipatory_morning_brief"
+            | "anticipatory_predictive_hydration"
+            | "anticipatory_stuck_detection"
+            | "operator_model_enabled"
+            | "operator_model_allow_message_statistics"
+            | "operator_model_allow_approval_learning"
+            | "operator_model_allow_attention_tracking"
+            | "operator_model_allow_implicit_feedback"
+            | "collaboration_enabled"
+            | "compliance_sign_all_events"
+            | "tool_synthesis_enabled"
+            | "tool_synthesis_require_activation"
+            | "auto_compact_context"
+            | "auto_retry"
+            | "snapshot_auto_cleanup"
+            | "feat_check_stale_todos"
+            | "feat_check_stuck_goals"
+            | "feat_check_unreplied_messages"
+            | "feat_check_repo_changes"
+            | "feat_consolidation_enabled"
+            | "feat_skill_recommendation_enabled"
+            | "feat_skill_background_community_search"
+            | "feat_audio_stt_enabled"
+            | "feat_audio_tts_enabled"
+            | "feat_embedding_enabled"
+    ) && !field.starts_with("tool_")
+}
+
+fn settings_field_can_toggle(settings: &SettingsState, config: &ConfigState) -> bool {
+    let field = settings.current_field_name_with_config(config);
+    matches!(
+        field,
+        "managed_sandbox_enabled"
+            | "managed_security_level"
+            | "gateway_enabled"
+            | "web_search_enabled"
+            | "enable_streaming"
+            | "enable_conversation_memory"
+            | "enable_honcho_memory"
+            | "anticipatory_enabled"
+            | "anticipatory_morning_brief"
+            | "anticipatory_predictive_hydration"
+            | "anticipatory_stuck_detection"
+            | "operator_model_enabled"
+            | "operator_model_allow_message_statistics"
+            | "operator_model_allow_approval_learning"
+            | "operator_model_allow_attention_tracking"
+            | "operator_model_allow_implicit_feedback"
+            | "collaboration_enabled"
+            | "compliance_sign_all_events"
+            | "tool_synthesis_enabled"
+            | "tool_synthesis_require_activation"
+            | "auto_compact_context"
+            | "compaction_strategy"
+            | "compaction_weles_provider"
+            | "compaction_weles_reasoning_effort"
+            | "compaction_custom_provider"
+            | "compaction_custom_auth_source"
+            | "compaction_custom_api_transport"
+            | "compaction_custom_reasoning_effort"
+            | "auto_retry"
+            | "snapshot_auto_cleanup"
+            | "feat_tier_override"
+            | "feat_security_level"
+            | "feat_check_stale_todos"
+            | "feat_check_stuck_goals"
+            | "feat_check_unreplied_messages"
+            | "feat_check_repo_changes"
+            | "feat_consolidation_enabled"
+            | "feat_skill_recommendation_enabled"
+            | "feat_skill_background_community_search"
+            | "feat_audio_stt_enabled"
+            | "feat_audio_tts_enabled"
+            | "feat_embedding_enabled"
+            | "whatsapp_link_device"
+            | "whatsapp_relink_device"
+    ) || field.starts_with("tool_")
 }
 
 pub fn hit_test(

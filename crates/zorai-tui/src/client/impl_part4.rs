@@ -71,6 +71,31 @@ impl DaemonClient {
                     .send(ClientEvent::ThreadReloadRequired { thread_id })
                     .await;
             }
+            "context_window_update" => {
+                let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                if Self::is_hidden_agent_thread(Some(thread_id.as_str()), None) {
+                    return;
+                }
+                let _ = event_tx
+                    .send(ClientEvent::ContextWindowUpdate {
+                        thread_id,
+                        active_context_window_start: event
+                            .get("active_context_window_start")
+                            .and_then(Value::as_u64)
+                            .and_then(|value| usize::try_from(value).ok())
+                            .unwrap_or(0),
+                        active_context_window_end: event
+                            .get("active_context_window_end")
+                            .and_then(Value::as_u64)
+                            .and_then(|value| usize::try_from(value).ok())
+                            .unwrap_or(0),
+                        active_context_window_tokens: event
+                            .get("active_context_window_tokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0),
+                    })
+                    .await;
+            }
             "participant_suggestion" => {
                 let thread_id = get_string(&event, "thread_id").unwrap_or_default();
                 if Self::is_hidden_agent_thread(Some(thread_id.as_str()), None) {

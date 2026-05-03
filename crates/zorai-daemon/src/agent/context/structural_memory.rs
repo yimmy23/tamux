@@ -10,13 +10,13 @@ use crate::agent::types::{AgentTask, TaskStatus};
 use crate::agent::AgentEngine;
 
 const SUPPORTED_TOOL_NAMES: &[&str] = &[
-    "read_file",
-    "create_file",
-    "write_file",
-    "append_to_file",
-    "replace_in_file",
-    "apply_file_patch",
-    "apply_patch",
+    zorai_protocol::tool_names::READ_FILE,
+    zorai_protocol::tool_names::CREATE_FILE,
+    zorai_protocol::tool_names::WRITE_FILE,
+    zorai_protocol::tool_names::APPEND_TO_FILE,
+    zorai_protocol::tool_names::REPLACE_IN_FILE,
+    zorai_protocol::tool_names::APPLY_FILE_PATCH,
+    zorai_protocol::tool_names::APPLY_PATCH,
 ];
 const MANIFEST_FILE_NAMES: &[&str] = &[
     "Cargo.toml",
@@ -461,7 +461,7 @@ pub fn observe_successful_file_tool_result(
         });
         merge_workspace_seed_for_relative_path(memory, repo_root, &relative_path, &absolute_path);
 
-        let file_content = if tool_name == "read_file" {
+        let file_content = if tool_name == zorai_protocol::tool_names::READ_FILE {
             tool_content.map(ToOwned::to_owned)
         } else {
             std::fs::read_to_string(&absolute_path)
@@ -530,7 +530,7 @@ pub fn build_memory_graph_updates_for_file_tool(
             summary_text: Some(format!("file observed via {tool_name}")),
         });
 
-        let file_content = if tool_name == "read_file" {
+        let file_content = if tool_name == zorai_protocol::tool_names::READ_FILE {
             tool_content.map(ToOwned::to_owned)
         } else {
             std::fs::read_to_string(&absolute_path)
@@ -1116,7 +1116,7 @@ fn extract_tool_file_paths(tool_name: &str, tool_arguments: &str) -> Vec<PathBuf
 
     let mut paths = Vec::new();
     let base_dir = match tool_name {
-        "create_file" | "write_file" => {
+        zorai_protocol::tool_names::CREATE_FILE | zorai_protocol::tool_names::WRITE_FILE => {
             crate::agent::tool_executor::get_explicit_cwd_arg(&arguments).map(PathBuf::from)
         }
         _ => None,
@@ -1131,7 +1131,7 @@ fn extract_tool_file_paths(tool_name: &str, tool_arguments: &str) -> Vec<PathBuf
         ));
     }
 
-    if tool_name == "apply_patch" {
+    if tool_name == zorai_protocol::tool_names::APPLY_PATCH {
         if let Some(patch_text) = crate::agent::tool_executor::get_apply_patch_text_arg(&arguments)
         {
             if let Ok(patch_paths) =

@@ -61,8 +61,11 @@ pub(crate) fn infer_draft_context_tags(
             "npm" | "pnpm" | "yarn" => {
                 tags.insert("node".to_string());
             }
-            "read_file" | "search_files" | "replace_in_file" | "apply_file_patch"
-            | "apply_patch" => {
+            zorai_protocol::tool_names::READ_FILE
+            | zorai_protocol::tool_names::SEARCH_FILES
+            | zorai_protocol::tool_names::REPLACE_IN_FILE
+            | zorai_protocol::tool_names::APPLY_FILE_PATCH
+            | zorai_protocol::tool_names::APPLY_PATCH => {
                 tags.insert("codebase".to_string());
             }
             _ => {}

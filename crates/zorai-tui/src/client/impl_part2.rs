@@ -251,6 +251,16 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse agent config response: {}", err),
                 }
             }
+            DaemonMessage::AgentExternalRuntimeMigrationResult { result_json } => {
+                match serde_json::from_str::<Value>(&result_json) {
+                    Ok(raw) => {
+                        let _ = event_tx
+                            .send(ClientEvent::ExternalRuntimeMigrationResult(raw))
+                            .await;
+                    }
+                    Err(err) => warn!("Failed to parse external runtime migration result: {}", err),
+                }
+            }
             DaemonMessage::AgentThreadDeleted { thread_id, deleted } => {
                 let _ = event_tx
                     .send(ClientEvent::ThreadDeleted { thread_id, deleted })

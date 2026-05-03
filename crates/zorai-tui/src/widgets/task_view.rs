@@ -501,10 +501,10 @@ fn render_goal_controls(
                 || !run.steps.is_empty());
     if has_step_context {
         controls.push(("↻", "Retry step", "R", theme.accent_secondary));
-        controls.push(("⟲", "Rerun from here", "Shift+R", theme.accent_primary));
+        controls.push(("⟲", "Rerun from here", "Ctrl+R", theme.accent_primary));
     }
     if has_goal_actions {
-        controls.push(("⟳", "Refresh goal", "Ctrl+R", theme.accent_primary));
+        controls.push(("⟳", "Refresh goal", "Shift+R", theme.accent_primary));
     }
 
     if has_goal_actions || has_step_context {

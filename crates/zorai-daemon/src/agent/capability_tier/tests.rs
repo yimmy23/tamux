@@ -48,6 +48,7 @@ fn provider_config(base_url: &str, model: &str, api_key: &str) -> ProviderConfig
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     }
 }
 
@@ -423,7 +424,7 @@ async fn status_snapshot_uses_cached_skill_gate_skip_rationale() {
                 query: "obscure request with no local skill".to_string(),
                 confidence_tier: "none".to_string(),
                 recommended_skill: None,
-                recommended_action: "justify_skill_skip".to_string(),
+                recommended_action: zorai_protocol::tool_names::JUSTIFY_SKILL_SKIP.to_string(),
                 mesh_next_step: Some(
                     crate::agent::skill_mesh::types::SkillMeshNextStep::JustifySkillSkip,
                 ),

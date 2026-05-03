@@ -1,6 +1,6 @@
 pub fn get_memory_flush_tools() -> Vec<ToolDefinition> {
     vec![tool_def(
-        "update_memory",
+        tool_names::UPDATE_MEMORY,
         "Update curated persistent memory. Use this only for durable operator preferences or stable project facts, not temporary task state.",
         serde_json::json!({
             "type": "object",

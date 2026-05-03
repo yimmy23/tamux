@@ -506,6 +506,11 @@ declare global {
         agentLogoutProvider?: (providerId: string) => Promise<unknown[] | { error?: string }>;
         agentValidateProvider?: (providerId: string, base_url: string, api_key: string, auth_source: string) => Promise<{ valid: boolean; error?: string; models?: unknown[] }>;
         agentGetConfig?: () => Promise<unknown>;
+        agentExternalRuntimeMigrationStatus?: () => Promise<unknown>;
+        agentExternalRuntimeMigrationPreview?: (runtime: "hermes" | "openclaw", configPath?: string | null) => Promise<unknown>;
+        agentExternalRuntimeMigrationApply?: (runtime: "hermes" | "openclaw", configPath?: string | null, conflictPolicy?: string) => Promise<unknown>;
+        agentExternalRuntimeMigrationReport?: (runtime?: "hermes" | "openclaw" | null, limit?: number | null) => Promise<unknown>;
+        agentExternalRuntimeMigrationShadowRun?: (runtime: "hermes" | "openclaw") => Promise<unknown>;
         agentGetStatus?: () => Promise<{
             tier: string;
             feature_flags: unknown;

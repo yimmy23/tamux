@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@/lib/agentStore";
+import { TOOL_NAMES } from "@/lib/agentTools/toolNames";
 
 export function resolveAudioPlaybackSource(result: unknown): string {
   if (typeof result === "string") {
@@ -39,7 +40,7 @@ export function findLatestAgentToolTextToSpeechPlayback(
     .reverse()
     .find((message) =>
       message.role === "tool"
-      && message.toolName === "text_to_speech"
+      && message.toolName === TOOL_NAMES.textToSpeech
       && message.toolStatus === "done",
     );
 

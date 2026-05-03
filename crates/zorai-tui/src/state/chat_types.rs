@@ -313,6 +313,12 @@ pub enum ChatAction {
     },
     ThreadListReceived(Vec<AgentThread>),
     ThreadDetailReceived(AgentThread),
+    ContextWindowUpdated {
+        thread_id: String,
+        active_context_window_start: usize,
+        active_context_window_end: usize,
+        active_context_window_tokens: u64,
+    },
     InvalidateContextWindow {
         thread_id: String,
     },

@@ -610,7 +610,7 @@ mod tests {
     fn strategy_hint_serialization() {
         let hint = StrategyHint {
             for_agent: "svarog".into(),
-            target: "bash_command".into(),
+            target: zorai_protocol::tool_names::BASH_COMMAND.into(),
             hint: "prefer read_file over bash_command for file reads".into(),
             priority: 4,
             source_pattern: "tool_fallback_loop".into(),
@@ -672,10 +672,17 @@ mod tests {
             .find(|pattern| pattern.pattern_type == PatternType::TimeoutProne)
             .expect("expected timeout-prone pattern");
 
-        assert_eq!(timeout.affected_tools, vec!["bash_command".to_string()]);
+        assert_eq!(
+            timeout.affected_tools,
+            vec![zorai_protocol::tool_names::BASH_COMMAND.to_string()]
+        );
         assert!(
-            !timeout.operator_impact.contains("read_file")
-                && !timeout.operator_impact.contains("search_files")
+            !timeout
+                .operator_impact
+                .contains(zorai_protocol::tool_names::READ_FILE)
+                && !timeout
+                    .operator_impact
+                    .contains(zorai_protocol::tool_names::SEARCH_FILES)
         );
     }
 
@@ -698,7 +705,7 @@ mod tests {
             },
             StrategyHint {
                 for_agent: "svarog".into(),
-                target: "bash_command".into(),
+                target: zorai_protocol::tool_names::BASH_COMMAND.into(),
                 hint: "timeout hint".into(),
                 priority: 5,
                 source_pattern: "timeout_prone".into(),
@@ -708,7 +715,10 @@ mod tests {
             ExecutionPattern {
                 pattern_type: PatternType::ToolFallbackLoop,
                 frequency: 10,
-                affected_tools: vec!["bash_command".into(), "read_file".into()],
+                affected_tools: vec![
+                    zorai_protocol::tool_names::BASH_COMMAND.into(),
+                    zorai_protocol::tool_names::READ_FILE.into(),
+                ],
                 operator_impact: "observed 10 consecutive fallback transitions".into(),
                 confidence: 0.72,
             },
@@ -722,7 +732,7 @@ mod tests {
             ExecutionPattern {
                 pattern_type: PatternType::TimeoutProne,
                 frequency: 3,
-                affected_tools: vec!["bash_command".into()],
+                affected_tools: vec![zorai_protocol::tool_names::BASH_COMMAND.into()],
                 operator_impact: "involved in 3 slow or non-zero-exit traces".into(),
                 confidence: 0.67,
             },

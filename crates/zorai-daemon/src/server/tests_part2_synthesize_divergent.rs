@@ -23,7 +23,7 @@ async fn synthesize_tool_async_request_does_not_block_ping() {
         DaemonMessage::OperationAccepted {
             operation_id, kind, ..
         } => {
-            assert_eq!(kind, "synthesize_tool");
+            assert_eq!(kind, zorai_protocol::tool_names::SYNTHESIZE_TOOL);
             operation_id
         }
         other => panic!("expected synthesize-tool operation acceptance, got {other:?}"),
@@ -60,7 +60,7 @@ async fn synthesize_tool_async_request_does_not_block_ping() {
 
     match conn.recv_with_timeout(Duration::from_secs(1)).await {
         DaemonMessage::OperationStatus { snapshot } => {
-            assert_eq!(snapshot.kind, "synthesize_tool");
+            assert_eq!(snapshot.kind, zorai_protocol::tool_names::SYNTHESIZE_TOOL);
             assert!(matches!(
                 snapshot.state,
                 zorai_protocol::OperationLifecycleState::Accepted
@@ -103,7 +103,7 @@ async fn synthesize_tool_async_request_returns_correlated_terminal_result() {
         DaemonMessage::OperationAccepted {
             operation_id, kind, ..
         } => {
-            assert_eq!(kind, "synthesize_tool");
+            assert_eq!(kind, zorai_protocol::tool_names::SYNTHESIZE_TOOL);
             operation_id
         }
         other => panic!("expected synthesize-tool operation acceptance, got {other:?}"),
@@ -118,7 +118,7 @@ async fn synthesize_tool_async_request_returns_correlated_terminal_result() {
 
     match conn.recv_with_timeout(Duration::from_secs(1)).await {
         DaemonMessage::OperationStatus { snapshot } => {
-            assert_eq!(snapshot.kind, "synthesize_tool");
+            assert_eq!(snapshot.kind, zorai_protocol::tool_names::SYNTHESIZE_TOOL);
             assert!(matches!(
                 snapshot.state,
                 zorai_protocol::OperationLifecycleState::Accepted
@@ -173,7 +173,7 @@ async fn synthesize_tool_request_without_declared_capability_still_returns_opera
         DaemonMessage::OperationAccepted {
             operation_id, kind, ..
         } => {
-            assert_eq!(kind, "synthesize_tool");
+            assert_eq!(kind, zorai_protocol::tool_names::SYNTHESIZE_TOOL);
             operation_id
         }
         other => panic!("expected synthesize-tool operation acceptance, got {other:?}"),
@@ -218,7 +218,7 @@ async fn synthesize_tool_request_without_declared_capability_still_returns_opera
 
     match conn.recv_with_timeout(Duration::from_secs(1)).await {
         DaemonMessage::OperationStatus { snapshot } => {
-            assert_eq!(snapshot.kind, "synthesize_tool");
+            assert_eq!(snapshot.kind, zorai_protocol::tool_names::SYNTHESIZE_TOOL);
         }
         other => panic!("expected synthesize tool status snapshot, got {other:?}"),
     }
@@ -247,7 +247,7 @@ async fn synthesize_tool_request_without_declared_capability_returns_correlated_
         DaemonMessage::OperationAccepted {
             operation_id, kind, ..
         } => {
-            assert_eq!(kind, "synthesize_tool");
+            assert_eq!(kind, zorai_protocol::tool_names::SYNTHESIZE_TOOL);
             operation_id
         }
         other => panic!("expected synthesize-tool operation acceptance, got {other:?}"),

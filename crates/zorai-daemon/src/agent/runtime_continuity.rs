@@ -379,7 +379,7 @@ mod tests {
         engine
             .update_counter_who_on_tool_result(
                 "thread-runtime-restore",
-                "read_file",
+                zorai_protocol::tool_names::READ_FILE,
                 "src/main.rs",
                 false,
             )

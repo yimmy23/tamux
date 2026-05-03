@@ -96,10 +96,6 @@ pub(super) fn provider_uses_browser_auth(provider: &ProviderSelection) -> bool {
     provider.provider_id == "github-copilot" && provider.auth_source == "github_copilot"
 }
 
-pub(super) fn provider_requires_api_key_prompt(provider: &ProviderSelection) -> bool {
-    !is_local_provider(&provider.provider_id) && !provider_uses_browser_auth(provider)
-}
-
 pub(super) fn should_validate_provider_after_setup(
     provider: &ProviderSelection,
     auth_result: AuthSetupResult,

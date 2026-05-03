@@ -230,6 +230,22 @@ fn semantic_embedding_fields_parse_from_canonical_semantic_section() {
 }
 
 #[test]
+fn auxiliary_providers_default_to_openrouter_when_primary_openrouter() {
+    let mut state = ConfigState::new();
+    state.reduce(ConfigAction::SetProvider("openrouter".to_string()));
+    state.reduce(ConfigAction::ConfigRawReceived(json!({
+        "provider": "openrouter",
+        "model": "anthropic/claude-sonnet-4.5",
+        "extra": {}
+    })));
+
+    assert_eq!(state.audio_stt_provider(), "openrouter");
+    assert_eq!(state.audio_tts_provider(), "openrouter");
+    assert_eq!(state.image_generation_provider(), "openrouter");
+    assert_eq!(state.semantic_embedding_provider(), "openrouter");
+}
+
+#[test]
 fn semantic_embedding_dimensions_prefer_fetched_model_settings() {
     let mut state = ConfigState::new();
     state.reduce(ConfigAction::ConfigRawReceived(json!({

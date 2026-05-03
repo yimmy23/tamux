@@ -174,6 +174,7 @@ async fn write_http_response(
 }
 
 impl AgentEngine {
+    #[cfg(test)]
     pub(crate) async fn webhook_listener_addr(&self) -> Option<String> {
         self.webhook_listener_addr.read().await.clone()
     }

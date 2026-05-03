@@ -1,4 +1,5 @@
 use super::*;
+use zorai_protocol::tool_names;
 
 include!("part1.rs");
 include!("part2.rs");

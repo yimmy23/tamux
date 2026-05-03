@@ -17,6 +17,13 @@ pub(crate) const COMPACTION_PAYLOAD_TRUNCATION_NOTICE: &str =
 pub(crate) const COMPACTION_MODEL_SYSTEM_PROMPT: &str = "You compress older conversation context into a deterministic execution checkpoint for future continuity. Follow the mandatory thread compaction protocol exactly. Preserve goals, constraints, decisions, tool outcomes, unresolved issues, failed paths, and the immediate next step. Return exactly one markdown block matching the required schema. Do not add commentary outside the schema.";
 pub(crate) const COMPACTION_CHECKPOINT_SCHEMA: &str = r#"# 🤖 Agent Context: State Checkpoint
 
+## 🔎 Scope Identity
+Compaction Scope Packet
+- thread_id: `...`
+- goal_run_id: `...` when present
+- active_task_id: `...` when present
+- current_step_title: `...` when present
+
 ## 🎯 Primary Objective
 > [1-2 sentences strictly defining the end goal.]
 
@@ -41,6 +48,9 @@ pub(crate) const COMPACTION_CHECKPOINT_SCHEMA: &str = r#"# 🤖 Agent Context: S
 
 ## 🛠️ Recent Action Summary (Last 3-5 Turns)
 1.  `tool_or_step(...)` -> [...]
+
+## 🔗 Tool Evidence Pointers
+* [...]
 
 ## 🎯 Immediate Next Step
 [Strict single-action instruction]
@@ -95,6 +105,26 @@ pub(crate) struct RuleBasedCompactionPayload {
     pub(crate) fallback_notice: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct CompactionScopeSnapshot {
+    pub(crate) thread_id: String,
+    pub(crate) task_id: Option<String>,
+    pub(crate) goal_run_id: Option<String>,
+    pub(crate) active_task_id: Option<String>,
+    pub(crate) goal_title: Option<String>,
+    pub(crate) goal: Option<String>,
+    pub(crate) goal_status: Option<String>,
+    pub(crate) root_thread_id: Option<String>,
+    pub(crate) active_thread_id: Option<String>,
+    pub(crate) execution_thread_ids: Vec<String>,
+    pub(crate) current_step_title: Option<String>,
+    pub(crate) current_step_status: Option<String>,
+    pub(crate) current_step_summary: Option<String>,
+    pub(crate) plan_summary: Option<String>,
+    pub(crate) latest_error: Option<String>,
+    pub(crate) recent_events: Vec<String>,
+}
+
 pub(crate) fn message_is_compaction_summary(message: &AgentMessage) -> bool {
     let content = message.content.trim_start();
     message.message_kind == AgentMessageKind::CompactionArtifact
@@ -123,6 +153,191 @@ pub(crate) fn compaction_runtime_content<'a>(message: &'a AgentMessage) -> &'a s
     } else {
         message.content.as_str()
     }
+}
+
+pub(crate) fn compaction_summary_content(message: &AgentMessage) -> std::borrow::Cow<'_, str> {
+    std::borrow::Cow::Borrowed(compaction_runtime_content(message))
+}
+
+pub(crate) fn compaction_projected_content<'a>(
+    message: &'a AgentMessage,
+    scope: Option<&'a CompactionScopeSnapshot>,
+) -> std::borrow::Cow<'a, str> {
+    if let Some(projection) = project_tool_result_for_compaction(message, scope) {
+        return std::borrow::Cow::Owned(projection);
+    }
+    std::borrow::Cow::Borrowed(compaction_runtime_content(message))
+}
+
+pub(crate) fn materialize_compaction_messages_with_scope(
+    messages: &[AgentMessage],
+    scope: Option<&CompactionScopeSnapshot>,
+) -> Vec<AgentMessage> {
+    messages
+        .iter()
+        .map(|message| {
+            let mut materialized = materialize_compaction_message(message);
+            if let Some(projection) = project_tool_result_for_compaction(message, scope) {
+                materialized.content = projection;
+            }
+            materialized
+        })
+        .collect()
+}
+
+pub(crate) fn project_tool_result_for_compaction(
+    message: &AgentMessage,
+    scope: Option<&CompactionScopeSnapshot>,
+) -> Option<String> {
+    if message.role != MessageRole::Tool {
+        return None;
+    }
+    let tool_name = message.tool_name.as_deref()?;
+    if !matches!(
+        tool_name,
+        zorai_protocol::tool_names::LIST_GOAL_RUNS
+            | zorai_protocol::tool_names::READ_OFFLOADED_PAYLOAD
+    ) {
+        return None;
+    }
+
+    let mut lines = vec![
+        "Tool Evidence Pointer".to_string(),
+        format!("- tool: `{tool_name}`"),
+    ];
+    if let Some(status) = message
+        .tool_status
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!("- status: `{status}`"));
+    }
+    if let Some(call_id) = message
+        .tool_call_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!("- call_id: `{call_id}`"));
+    }
+    if let Some(payload_id) = message
+        .offloaded_payload_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!("- payload_id: `{payload_id}`"));
+    }
+    if let Some(arguments) = message
+        .tool_arguments
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!(
+            "- arguments: `{}`",
+            crate::agent::goal_parsing::summarize_text(arguments, 180)
+        ));
+    }
+    if let Some(scope) = scope {
+        if let Some(goal_run_id) = scope.goal_run_id.as_deref() {
+            lines.push(format!("- active_goal_run_id: `{goal_run_id}`"));
+        }
+        if let Some(task_id) = scope.task_id.as_deref().or(scope.active_task_id.as_deref()) {
+            lines.push(format!("- active_task_id: `{task_id}`"));
+        }
+    }
+    lines.push(
+        "- projection: raw broad/offloaded result omitted from compacted state; reload by pointer if exact evidence is needed."
+            .to_string(),
+    );
+
+    Some(lines.join("\n"))
+}
+
+pub(crate) fn render_compaction_scope_packet(
+    scope: Option<&CompactionScopeSnapshot>,
+) -> Option<String> {
+    let scope = scope?;
+    let mut lines = vec![
+        "Compaction Scope Packet".to_string(),
+        format!("- thread_id: `{}`", scope.thread_id),
+    ];
+    push_optional_scope_line(&mut lines, "task_id", scope.task_id.as_deref());
+    push_optional_scope_line(&mut lines, "goal_run_id", scope.goal_run_id.as_deref());
+    push_optional_scope_line(
+        &mut lines,
+        "active_task_id",
+        scope.active_task_id.as_deref(),
+    );
+    push_optional_scope_line(&mut lines, "goal_title", scope.goal_title.as_deref());
+    push_optional_scope_line(&mut lines, "goal_status", scope.goal_status.as_deref());
+    push_optional_scope_line(
+        &mut lines,
+        "root_thread_id",
+        scope.root_thread_id.as_deref(),
+    );
+    push_optional_scope_line(
+        &mut lines,
+        "active_thread_id",
+        scope.active_thread_id.as_deref(),
+    );
+    if !scope.execution_thread_ids.is_empty() {
+        lines.push(format!(
+            "- execution_thread_ids: `{}`",
+            scope.execution_thread_ids.join("`, `")
+        ));
+    }
+    push_optional_scope_line(
+        &mut lines,
+        "current_step_title",
+        scope.current_step_title.as_deref(),
+    );
+    push_optional_scope_line(
+        &mut lines,
+        "current_step_status",
+        scope.current_step_status.as_deref(),
+    );
+    push_optional_scope_line(
+        &mut lines,
+        "current_step_summary",
+        scope.current_step_summary.as_deref(),
+    );
+    push_optional_scope_line(&mut lines, "plan_summary", scope.plan_summary.as_deref());
+    push_optional_scope_line(&mut lines, "latest_error", scope.latest_error.as_deref());
+    if let Some(goal) = scope
+        .goal
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        lines.push(format!(
+            "- goal: {}",
+            crate::agent::goal_parsing::summarize_text(goal, 260)
+        ));
+    }
+    for event in scope.recent_events.iter().take(3) {
+        lines.push(format!(
+            "- recent_event: {}",
+            crate::agent::goal_parsing::summarize_text(event, 220)
+        ));
+    }
+    Some(lines.join("\n"))
+}
+
+fn push_optional_scope_line(lines: &mut Vec<String>, label: &str, value: Option<&str>) {
+    if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+        lines.push(format!("- {label}: `{value}`"));
+    }
+}
+
+pub(crate) fn compaction_payload_matches_scope(
+    payload: &str,
+    scope: Option<&CompactionScopeSnapshot>,
+) -> bool {
+    let Some(scope) = scope else {
+        return true;
+    };
+    let Some(goal_run_id) = scope.goal_run_id.as_deref() else {
+        return true;
+    };
+    payload.contains(goal_run_id)
 }
 
 pub(crate) fn materialize_compaction_message(message: &AgentMessage) -> AgentMessage {

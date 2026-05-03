@@ -3,7 +3,7 @@ pub(super) fn text_to_speech_result_path(
     content: &str,
     is_error: bool,
 ) -> Option<String> {
-    if is_error || name != "text_to_speech" {
+    if is_error || name != zorai_protocol::tool_names::TEXT_TO_SPEECH {
         return None;
     }
 
@@ -26,7 +26,7 @@ mod tests {
     #[test]
     fn text_to_speech_result_path_reads_successful_tool_payloads() {
         let path = text_to_speech_result_path(
-            "text_to_speech",
+            zorai_protocol::tool_names::TEXT_TO_SPEECH,
             r#"{"path":"/tmp/speech.mp3","mime_type":"audio/mpeg"}"#,
             false,
         );
@@ -36,18 +36,20 @@ mod tests {
 
     #[test]
     fn text_to_speech_result_path_ignores_non_tts_results_and_errors() {
-        assert!(
-            text_to_speech_result_path("bash_command", r#"{"path":"/tmp/speech.mp3"}"#, false)
-                .is_none()
-        );
         assert!(text_to_speech_result_path(
-            "text_to_speech",
+            zorai_protocol::tool_names::BASH_COMMAND,
+            r#"{"path":"/tmp/speech.mp3"}"#,
+            false
+        )
+        .is_none());
+        assert!(text_to_speech_result_path(
+            zorai_protocol::tool_names::TEXT_TO_SPEECH,
             r#"{"path":"/tmp/speech.mp3"}"#,
             true
         )
         .is_none());
         assert!(text_to_speech_result_path(
-            "text_to_speech",
+            zorai_protocol::tool_names::TEXT_TO_SPEECH,
             r#"{"mime_type":"audio/mpeg"}"#,
             false
         )

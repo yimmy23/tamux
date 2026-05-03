@@ -338,7 +338,7 @@ if matches!(
                     match serde_json::from_str::<serde_json::Value>(&args_json) {
                         Ok(args) => {
                             match crate::agent::tool_executor::execute_media_tool_for_ipc(
-                                "speech_to_text",
+                                zorai_protocol::tool_names::SPEECH_TO_TEXT,
                                 &args,
                                 &agent,
                             )
@@ -379,7 +379,7 @@ if matches!(
                     match serde_json::from_str::<serde_json::Value>(&args_json) {
                         Ok(args) => {
                             match crate::agent::tool_executor::execute_media_tool_for_ipc(
-                                "text_to_speech",
+                                zorai_protocol::tool_names::TEXT_TO_SPEECH,
                                 &args,
                                 &agent,
                             )
@@ -831,9 +831,10 @@ if matches!(
                                 max_tokens: None,
                                 anthropic_tool_choice: None,
                                 output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
+                                openrouter_provider_order: Vec::new(),
+                                openrouter_provider_ignore: Vec::new(),
+                                openrouter_allow_fallbacks: None,
+                                openrouter_response_cache_enabled: false,
                             }
                         });
                     entry.api_key = api_key;

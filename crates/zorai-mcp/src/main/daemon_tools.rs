@@ -430,27 +430,27 @@ async fn tool_memory_roundtrip(tool_name: &str, args: &Value) -> Result<Value> {
 }
 
 pub(super) async fn tool_read_memory(args: &Value) -> Result<Value> {
-    tool_memory_roundtrip("read_memory", args).await
+    tool_memory_roundtrip(zorai_protocol::tool_names::READ_MEMORY, args).await
 }
 
 pub(super) async fn tool_read_user(args: &Value) -> Result<Value> {
-    tool_memory_roundtrip("read_user", args).await
+    tool_memory_roundtrip(zorai_protocol::tool_names::READ_USER, args).await
 }
 
 pub(super) async fn tool_read_soul(args: &Value) -> Result<Value> {
-    tool_memory_roundtrip("read_soul", args).await
+    tool_memory_roundtrip(zorai_protocol::tool_names::READ_SOUL, args).await
 }
 
 pub(super) async fn tool_search_memory(args: &Value) -> Result<Value> {
-    tool_memory_roundtrip("search_memory", args).await
+    tool_memory_roundtrip(zorai_protocol::tool_names::SEARCH_MEMORY, args).await
 }
 
 pub(super) async fn tool_search_user(args: &Value) -> Result<Value> {
-    tool_memory_roundtrip("search_user", args).await
+    tool_memory_roundtrip(zorai_protocol::tool_names::SEARCH_USER, args).await
 }
 
 pub(super) async fn tool_search_soul(args: &Value) -> Result<Value> {
-    tool_memory_roundtrip("search_soul", args).await
+    tool_memory_roundtrip(zorai_protocol::tool_names::SEARCH_SOUL, args).await
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ fn render_streaming_markdown(content: &str, width: usize) -> Vec<Line<'static>> 
 }
 
 use std::path::Path;
+use zorai_protocol::tool_names;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ToolFileChip {
@@ -25,7 +26,7 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
             tool_name: tool_name.to_string(),
         });
     }
-    if tool_name == "generate_image" {
+    if tool_name == tool_names::GENERATE_IMAGE {
         let path = generated_image_preview_path(message)?;
         let label = file_name_label(&path);
         return Some(ToolFileChip {
@@ -34,7 +35,7 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
             tool_name: tool_name.to_string(),
         });
     }
-    if tool_name == "read_skill" {
+    if tool_name == tool_names::READ_SKILL {
         let path = read_skill_preview_path(message)?;
         let label = file_name_label(&path);
         return Some(ToolFileChip {
@@ -43,7 +44,7 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
             tool_name: tool_name.to_string(),
         });
     }
-    if tool_name == "read_guideline" {
+    if tool_name == tool_names::READ_GUIDELINE {
         let path = read_guideline_preview_path(message)?;
         let label = file_name_label(&path);
         return Some(ToolFileChip {
@@ -55,13 +56,13 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
 
     if !matches!(
         tool_name,
-        "read_file"
-            | "write_file"
-            | "create_file"
-            | "append_to_file"
-            | "replace_in_file"
-            | "apply_file_patch"
-            | "apply_patch"
+        tool_names::READ_FILE
+            | tool_names::WRITE_FILE
+            | tool_names::CREATE_FILE
+            | tool_names::APPEND_TO_FILE
+            | tool_names::REPLACE_IN_FILE
+            | tool_names::APPLY_FILE_PATCH
+            | tool_names::APPLY_PATCH
     ) {
         return None;
     }
@@ -71,7 +72,7 @@ pub(crate) fn tool_file_chip(message: &AgentMessage) -> Option<ToolFileChip> {
     let path = direct_tool_path(&value)
         .or_else(|| tool_path_from_cwd_and_filename(&value))
         .or_else(|| {
-            if tool_name == "apply_patch" {
+            if tool_name == tool_names::APPLY_PATCH {
                 first_apply_patch_path(arguments)
             } else {
                 None
@@ -110,7 +111,7 @@ fn generated_image_preview_path(message: &AgentMessage) -> Option<String> {
 
 pub(crate) fn tool_skill_chip(message: &AgentMessage) -> Option<String> {
     let tool_name = message.tool_name.as_deref()?;
-    if tool_name != "read_skill" {
+    if tool_name != zorai_protocol::tool_names::READ_SKILL {
         return None;
     }
 

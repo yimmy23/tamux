@@ -5107,7 +5107,7 @@ fn goal_view_retry_from_prompt_without_steps_opens_confirmation() {
 }
 
 #[test]
-fn goal_view_rerun_from_prompt_without_steps_opens_confirmation() {
+fn goal_view_ctrl_r_reruns_from_prompt_without_steps() {
     let (mut model, _daemon_rx) = make_model();
     model.focus = FocusArea::Chat;
     model
@@ -5122,7 +5122,7 @@ fn goal_view_rerun_from_prompt_without_steps_opens_confirmation() {
         step_id: None,
     });
 
-    let handled = model.handle_key(KeyCode::Char('R'), KeyModifiers::SHIFT);
+    let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::CONTROL);
 
     assert!(!handled);
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
@@ -5137,7 +5137,7 @@ fn goal_view_rerun_from_prompt_without_steps_opens_confirmation() {
 }
 
 #[test]
-fn goal_view_ctrl_r_requests_authoritative_goal_refresh() {
+fn goal_view_shift_r_requests_authoritative_goal_refresh() {
     let (mut model, mut daemon_rx) = make_model();
     model.focus = FocusArea::Chat;
     model
@@ -5152,7 +5152,7 @@ fn goal_view_ctrl_r_requests_authoritative_goal_refresh() {
         step_id: None,
     });
 
-    let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::CONTROL);
+    let handled = model.handle_key(KeyCode::Char('R'), KeyModifiers::SHIFT);
 
     assert!(!handled);
     assert_eq!(
@@ -5253,7 +5253,7 @@ fn selected_goal_step_r_opens_retry_confirmation() {
 }
 
 #[test]
-fn selected_goal_step_shift_r_opens_rerun_confirmation() {
+fn selected_goal_step_ctrl_r_opens_rerun_confirmation() {
     let (mut model, _daemon_rx) = make_model();
     model.focus = FocusArea::Chat;
     model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(
@@ -5284,7 +5284,7 @@ fn selected_goal_step_shift_r_opens_rerun_confirmation() {
         step_id: Some("step-2".to_string()),
     });
 
-    let handled = model.handle_key(KeyCode::Char('R'), KeyModifiers::SHIFT);
+    let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::CONTROL);
 
     assert!(!handled);
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
@@ -5299,8 +5299,8 @@ fn selected_goal_step_shift_r_opens_rerun_confirmation() {
 }
 
 #[test]
-fn selected_goal_step_shift_r_lowercase_key_opens_rerun_confirmation() {
-    let (mut model, _daemon_rx) = make_model();
+fn selected_goal_step_shift_r_lowercase_key_requests_authoritative_goal_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
     model.focus = FocusArea::Chat;
     model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(
         make_goal_run_with_steps(
@@ -5333,15 +5333,20 @@ fn selected_goal_step_shift_r_lowercase_key_opens_rerun_confirmation() {
     let handled = model.handle_key(KeyCode::Char('r'), KeyModifiers::SHIFT);
 
     assert!(!handled);
-    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+    assert_eq!(model.modal.top(), None);
     assert_eq!(
-        model
-            .pending_chat_action_confirm
-            .as_ref()
-            .map(PendingConfirmAction::modal_body)
-            .as_deref(),
-        Some("Rerun from step 2 \"Deploy\" in goal \"Goal One\"?")
+        next_goal_run_detail_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
     );
+    assert_eq!(
+        next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert!(matches!(daemon_rx.try_recv(), Ok(DaemonCommand::Refresh)));
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::RefreshServices)
+    ));
 }
 
 #[test]

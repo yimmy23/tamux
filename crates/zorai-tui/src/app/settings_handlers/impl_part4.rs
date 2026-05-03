@@ -233,6 +233,16 @@ impl TuiModel {
                         "OpenRouter provider routing only applies to OpenRouter".to_string();
                 }
             }
+            "openrouter_response_cache_enabled" => {
+                if self.config.provider == PROVIDER_ID_OPENROUTER {
+                    self.config.openrouter_response_cache_enabled =
+                        !self.config.openrouter_response_cache_enabled;
+                    self.sync_config_to_daemon();
+                } else {
+                    self.status_line =
+                        "OpenRouter response caching only applies to OpenRouter".to_string();
+                }
+            }
             "gateway_prefix" => {
                 self.settings
                     .start_editing("gateway_prefix", &self.config.gateway_prefix.clone());
@@ -449,6 +459,10 @@ impl TuiModel {
             "max_retries" => self
                 .settings
                 .start_editing("max_retries", &self.config.max_retries.to_string()),
+            "auto_refresh_interval_secs" => self.settings.start_editing(
+                "auto_refresh_interval_secs",
+                &self.config.auto_refresh_interval_secs.to_string(),
+            ),
             "retry_delay_ms" => self
                 .settings
                 .start_editing("retry_delay_ms", &self.config.retry_delay_ms.to_string()),

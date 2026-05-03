@@ -849,6 +849,7 @@ async fn direct_weles_handoff_turn_uses_weles_provider_override_for_new_request_
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.builtin_sub_agents.weles.provider = Some(PROVIDER_ID_CUSTOM.to_string());
@@ -983,6 +984,7 @@ async fn new_targeted_weles_thread_uses_weles_runtime_provider_and_model() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());
@@ -1177,6 +1179,7 @@ async fn new_targeted_rarog_thread_uses_concierge_runtime_provider_and_model() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.concierge.provider = Some(PROVIDER_ID_CUSTOM.to_string());
@@ -1306,6 +1309,7 @@ async fn new_targeted_rarog_thread_prefers_concierge_model_override_over_stored_
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.concierge.provider = Some(PROVIDER_ID_CUSTOM.to_string());
@@ -1644,6 +1648,7 @@ async fn successful_handoff_restarts_same_turn_under_requested_agent_with_summar
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.providers.insert(
@@ -1673,6 +1678,7 @@ async fn successful_handoff_restarts_same_turn_under_requested_agent_with_summar
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());
@@ -1834,6 +1840,7 @@ async fn direct_rarog_handoff_turn_uses_real_concierge_runtime_config() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.concierge.provider = Some(PROVIDER_ID_CUSTOM.to_string());
@@ -1965,6 +1972,7 @@ async fn transport_incompatibility_does_not_mutate_persisted_config_and_emits_no
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
 
@@ -2104,6 +2112,7 @@ async fn auto_retry_wait_escalates_to_fresh_runner_after_repeated_waits() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
 
@@ -2308,6 +2317,7 @@ async fn retry_stream_now_replaces_waiting_stream_with_fresh_send_generation() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
 

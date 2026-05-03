@@ -75,7 +75,9 @@ pub(crate) fn security_level_for_tool_call(
         Some("moderate") => SecurityLevel::Moderate,
         _ if matches!(
             tool_name,
-            "bash_command" | "run_terminal_command" | "execute_managed_command"
+            zorai_protocol::tool_names::BASH_COMMAND
+                | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
+                | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
         ) =>
         {
             config.managed_execution.security_level
@@ -199,7 +201,7 @@ fn delegation_suspicion_reasons(tool_name: &str, tool_args: &serde_json::Value) 
         .get("current_depth")
         .and_then(|value| value.as_u64())
         .unwrap_or(0);
-    if fanout >= 4 || depth >= 2 || matches!(tool_name, "run_divergent") {
+    if fanout >= 4 || depth >= 2 || matches!(tool_name, zorai_protocol::tool_names::RUN_DIVERGENT) {
         reasons.push("delegation fan-out or orchestration depth is suspicious".to_string());
     }
     reasons
@@ -208,30 +210,34 @@ fn delegation_suspicion_reasons(tool_name: &str, tool_args: &serde_json::Value) 
 fn messaging_suspicion_reasons(tool_name: &str, tool_args: &serde_json::Value) -> Vec<String> {
     let mut reasons = Vec::new();
     let has_explicit_target = match tool_name {
-        "send_slack_message" => tool_args
+        zorai_protocol::tool_names::SEND_SLACK_MESSAGE => tool_args
             .get("channel")
             .and_then(|value| value.as_str())
             .map(|value| !value.trim().is_empty())
             .unwrap_or(false),
-        "send_discord_message" => ["channel_id", "user_id"].into_iter().any(|field| {
-            tool_args
-                .get(field)
-                .and_then(|value| value.as_str())
-                .map(|value| !value.trim().is_empty())
-                .unwrap_or(false)
-        }),
-        "send_telegram_message" => tool_args
+        zorai_protocol::tool_names::SEND_DISCORD_MESSAGE => {
+            ["channel_id", "user_id"].into_iter().any(|field| {
+                tool_args
+                    .get(field)
+                    .and_then(|value| value.as_str())
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false)
+            })
+        }
+        zorai_protocol::tool_names::SEND_TELEGRAM_MESSAGE => tool_args
             .get("chat_id")
             .and_then(|value| value.as_str())
             .map(|value| !value.trim().is_empty())
             .unwrap_or(false),
-        "send_whatsapp_message" => ["phone", "to"].into_iter().any(|field| {
-            tool_args
-                .get(field)
-                .and_then(|value| value.as_str())
-                .map(|value| !value.trim().is_empty())
-                .unwrap_or(false)
-        }),
+        zorai_protocol::tool_names::SEND_WHATSAPP_MESSAGE => {
+            ["phone", "to"].into_iter().any(|field| {
+                tool_args
+                    .get(field)
+                    .and_then(|value| value.as_str())
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false)
+            })
+        }
         _ => false,
     };
     if has_explicit_target {
@@ -262,7 +268,9 @@ pub(crate) fn classify_tool_call(
     let normalized_tool = tool_name.trim().to_ascii_lowercase();
     if matches!(
         normalized_tool.as_str(),
-        "bash_command" | "run_terminal_command" | "execute_managed_command"
+        zorai_protocol::tool_names::BASH_COMMAND
+            | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
+            | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
     ) {
         let command = tool_args
             .get("command")
@@ -276,10 +284,10 @@ pub(crate) fn classify_tool_call(
 
     if matches!(
         normalized_tool.as_str(),
-        "send_slack_message"
-            | "send_discord_message"
-            | "send_telegram_message"
-            | "send_whatsapp_message"
+        zorai_protocol::tool_names::SEND_SLACK_MESSAGE
+            | zorai_protocol::tool_names::SEND_DISCORD_MESSAGE
+            | zorai_protocol::tool_names::SEND_TELEGRAM_MESSAGE
+            | zorai_protocol::tool_names::SEND_WHATSAPP_MESSAGE
     ) {
         return WelesToolClassification {
             class: WelesGovernanceClass::GuardIfSuspicious,
@@ -289,12 +297,12 @@ pub(crate) fn classify_tool_call(
 
     if matches!(
         normalized_tool.as_str(),
-        "write_file"
-            | "create_file"
-            | "append_to_file"
-            | "replace_in_file"
-            | "apply_file_patch"
-            | "apply_patch"
+        zorai_protocol::tool_names::WRITE_FILE
+            | zorai_protocol::tool_names::CREATE_FILE
+            | zorai_protocol::tool_names::APPEND_TO_FILE
+            | zorai_protocol::tool_names::REPLACE_IN_FILE
+            | zorai_protocol::tool_names::APPLY_FILE_PATCH
+            | zorai_protocol::tool_names::APPLY_PATCH
     ) {
         return WelesToolClassification {
             class: WelesGovernanceClass::GuardIfSuspicious,
@@ -304,7 +312,9 @@ pub(crate) fn classify_tool_call(
 
     if matches!(
         normalized_tool.as_str(),
-        "spawn_subagent" | "route_to_specialist" | "run_divergent"
+        zorai_protocol::tool_names::SPAWN_SUBAGENT
+            | zorai_protocol::tool_names::ROUTE_TO_SPECIALIST
+            | zorai_protocol::tool_names::RUN_DIVERGENT
     ) {
         return WelesToolClassification {
             class: WelesGovernanceClass::GuardIfSuspicious,
@@ -312,7 +322,7 @@ pub(crate) fn classify_tool_call(
         };
     }
 
-    if normalized_tool == "plugin_api_call" {
+    if normalized_tool == zorai_protocol::tool_names::PLUGIN_API_CALL {
         return WelesToolClassification {
             class: WelesGovernanceClass::GuardAlways,
             reasons: vec![
@@ -322,14 +332,14 @@ pub(crate) fn classify_tool_call(
         };
     }
 
-    if normalized_tool == "synthesize_tool" {
+    if normalized_tool == zorai_protocol::tool_names::SYNTHESIZE_TOOL {
         return WelesToolClassification {
             class: WelesGovernanceClass::GuardAlways,
             reasons: vec!["tool synthesis can rewrite runtime tool capability policy".to_string()],
         };
     }
 
-    if normalized_tool == "switch_model" {
+    if normalized_tool == zorai_protocol::tool_names::SWITCH_MODEL {
         return WelesToolClassification {
             class: WelesGovernanceClass::GuardAlways,
             reasons: vec![
@@ -339,7 +349,7 @@ pub(crate) fn classify_tool_call(
         };
     }
 
-    if normalized_tool == "setup_web_browsing" {
+    if normalized_tool == zorai_protocol::tool_names::SETUP_WEB_BROWSING {
         let action = tool_args
             .get("action")
             .and_then(|value| value.as_str())

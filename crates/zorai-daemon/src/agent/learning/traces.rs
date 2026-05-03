@@ -310,16 +310,40 @@ mod tests {
     #[test]
     fn record_step_adds_to_steps() {
         let mut c = TraceCollector::new("code_edit", 1000);
-        c.record_step("read_file", "abc123", true, 50, 100, None, 1050);
+        c.record_step(
+            zorai_protocol::tool_names::READ_FILE,
+            "abc123",
+            true,
+            50,
+            100,
+            None,
+            1050,
+        );
         assert_eq!(c.step_count(), 1);
-        c.record_step("write_file", "def456", true, 30, 80, None, 1100);
+        c.record_step(
+            zorai_protocol::tool_names::WRITE_FILE,
+            "def456",
+            true,
+            30,
+            80,
+            None,
+            1100,
+        );
         assert_eq!(c.step_count(), 2);
     }
 
     #[test]
     fn finalize_creates_valid_trace_with_uuid() {
         let mut c = TraceCollector::new("code_edit", 1000);
-        c.record_step("read_file", "abc", true, 50, 100, None, 1050);
+        c.record_step(
+            zorai_protocol::tool_names::READ_FILE,
+            "abc",
+            true,
+            50,
+            100,
+            None,
+            1050,
+        );
         let trace = c.finalize(TraceOutcome::Success, None, None, None, 2000);
         assert!(trace.trace_id.starts_with("trace_"));
         // UUID portion is 36 chars (8-4-4-4-12 with hyphens).

@@ -85,7 +85,7 @@ pub(in crate::agent) async fn execute_gateway_message(
         |val: &str| -> String { val.split(',').next().unwrap_or("").trim().to_string() };
 
     match tool_name {
-        "send_slack_message" => {
+        tool_names::SEND_SLACK_MESSAGE => {
             let channel = args
                 .get("channel")
                 .and_then(|v| v.as_str())
@@ -145,7 +145,7 @@ pub(in crate::agent) async fn execute_gateway_message(
 
             Ok(format!("Slack message sent to #{channel}"))
         }
-        "send_discord_message" => {
+        tool_names::SEND_DISCORD_MESSAGE => {
             let mut channel_id = args
                 .get("channel_id")
                 .and_then(|v| v.as_str())
@@ -240,7 +240,7 @@ pub(in crate::agent) async fn execute_gateway_message(
 
             Ok(format!("Discord message sent to {target_channel}"))
         }
-        "send_telegram_message" => {
+        tool_names::SEND_TELEGRAM_MESSAGE => {
             let chat_id = args
                 .get("chat_id")
                 .and_then(|v| v.as_str())
@@ -297,7 +297,7 @@ pub(in crate::agent) async fn execute_gateway_message(
 
             Ok(format!("Telegram message sent to {chat_id}"))
         }
-        "send_whatsapp_message" => {
+        tool_names::SEND_WHATSAPP_MESSAGE => {
             let phone = args
                 .get("phone")
                 .and_then(|v| v.as_str())
@@ -378,7 +378,7 @@ async fn execute_workspace_tool(
         .to_path_buf();
 
     match tool_name {
-        "list_workspaces" => {
+        tool_names::LIST_WORKSPACES => {
             let session_path = data_dir.join("session.json");
             match tokio::fs::read_to_string(&session_path).await {
                 Ok(raw) => {
@@ -405,7 +405,7 @@ async fn execute_workspace_tool(
                 Err(_) => Ok("No session file found (app may not have saved state yet).".into()),
             }
         }
-        "list_snippets" => {
+        tool_names::LIST_SNIPPETS => {
             let snippets_path = data_dir.join("snippets.json");
             match tokio::fs::read_to_string(&snippets_path).await {
                 Ok(raw) => {

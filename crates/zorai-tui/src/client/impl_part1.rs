@@ -16,6 +16,9 @@ impl DaemonClient {
             DaemonMessage::AgentGoalRunList { .. } => "AgentGoalRunList",
             DaemonMessage::AgentGoalRunDetail { .. } => "AgentGoalRunDetail",
             DaemonMessage::AgentEventRows { .. } => "AgentEventRows",
+            DaemonMessage::AgentExternalRuntimeMigrationResult { .. } => {
+                "AgentExternalRuntimeMigrationResult"
+            }
             DaemonMessage::Error { .. } => "Error",
             DaemonMessage::AgentError { .. } => "AgentError",
             DaemonMessage::Pong => "Pong",
@@ -422,6 +425,7 @@ impl DaemonClient {
             | DaemonMessage::GitDiff { .. }
             | DaemonMessage::FilePreview { .. }
             | DaemonMessage::AgentConfigResponse { .. }
+            | DaemonMessage::AgentExternalRuntimeMigrationResult { .. }
             | DaemonMessage::AgentModelsResponse { .. }
             | DaemonMessage::AgentHeartbeatItems { .. }
             | DaemonMessage::AgentEventRows { .. }

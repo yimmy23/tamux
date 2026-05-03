@@ -1,6 +1,6 @@
 use zorai_shared::providers::{
     PROVIDER_ID_ARCEE, PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK, PROVIDER_ID_GITHUB_COPILOT,
-    PROVIDER_ID_NVIDIA, PROVIDER_ID_XAI,
+    PROVIDER_ID_HERMES_AGENT_API, PROVIDER_ID_NVIDIA, PROVIDER_ID_XAI,
 };
 use crate::agent::config::load_config_from_items;
 
@@ -819,7 +819,7 @@ providers:
         assert_eq!(provider.default_model, "mimo-v2-pro");
         assert_eq!(provider.api_type, ApiType::OpenAI);
         assert_eq!(provider.auth_method, AuthMethod::Bearer);
-        assert!(!provider.supports_model_fetch);
+        assert!(provider.supports_model_fetch);
         assert_eq!(provider.default_transport, ApiTransport::ChatCompletions);
         assert_eq!(provider.models.len(), 7);
         assert_eq!(provider.models[0].id, "mimo-v2-pro");
@@ -868,6 +868,25 @@ providers:
             ),
             ApiType::OpenAI
         );
+    }
+
+    #[test]
+    fn hermes_agent_api_provider_uses_documented_openai_compatible_defaults() {
+        let provider =
+            get_provider_definition(PROVIDER_ID_HERMES_AGENT_API).expect("hermes provider");
+        assert_eq!(provider.name, "Hermes Agent API");
+        assert_eq!(provider.default_base_url, "http://localhost:8642/v1");
+        assert_eq!(provider.default_model, "hermes-agent");
+        assert_eq!(provider.api_type, ApiType::OpenAI);
+        assert_eq!(provider.auth_method, AuthMethod::Bearer);
+        assert_eq!(provider.default_transport, ApiTransport::ChatCompletions);
+        assert_eq!(provider.supported_transports, CHAT_ONLY_TRANSPORTS);
+        assert!(provider.supports_model_fetch);
+        assert!(!provider.supports_response_continuity);
+        assert_eq!(provider.models.len(), 1);
+        assert_eq!(provider.models[0].id, "hermes-agent");
+        assert_eq!(provider.models[0].context_window, 128_000);
+        assert_eq!(provider.models[0].modalities, TEXT_ONLY);
     }
 
     #[test]

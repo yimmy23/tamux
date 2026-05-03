@@ -284,7 +284,7 @@ async fn execute_get_thread(args: &serde_json::Value, agent: &AgentEngine) -> Re
                 .is_some()
         {
             tracing::info!(
-                tool = "get_thread",
+                tool = tool_names::GET_THREAD,
                 thread_id = %thread_id,
                 "masked hidden internal thread as not found"
             );

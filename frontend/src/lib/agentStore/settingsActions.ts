@@ -1,7 +1,6 @@
 import { getBridge } from "../bridge";
 import { resolveReactChatHistoryMessageLimit } from "../chatHistoryPageSize";
 import { normalizeAgentProviderId } from "./providers";
-import { normalizeDaemonBackedAgentMode } from "./daemonBackedSettings";
 import {
   buildHydratedRemoteThread,
   type RemoteAgentThreadRecord,
@@ -91,16 +90,10 @@ export function createSettingsActions(
       set((state) => {
         const nextValue = key === "active_provider" ? normalizeAgentProviderId(value) : value;
         const nextSettings = { ...state.agentSettings, [key]: nextValue };
-        const activeProvider = nextSettings.active_provider;
-        const activeProviderConfig = nextSettings[activeProvider];
         return {
           agentSettings: {
             ...nextSettings,
-            agent_backend: normalizeDaemonBackedAgentMode(
-              nextSettings.agent_backend,
-              activeProvider,
-              activeProviderConfig.auth_source,
-            ) as AgentState["agentSettings"]["agent_backend"],
+            agent_backend: "daemon",
           },
           agentSettingsDirty: state.agentSettingsHydrated,
         };

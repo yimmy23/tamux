@@ -1,3 +1,5 @@
+import { TOOL_NAMES } from "@/lib/agentTools/toolNames";
+
 type ToolDiffLineKind = "file" | "hunk" | "add" | "remove" | "context" | "meta";
 
 type ToolDiffLine = {
@@ -18,15 +20,15 @@ export function getToolDiffPresentation(toolName: string, toolArguments: string)
     }
 
     switch (toolName) {
-        case "apply_patch":
+        case TOOL_NAMES.applyPatch:
             return buildApplyPatchSections(args);
-        case "apply_file_patch":
+        case TOOL_NAMES.applyFilePatch:
             return buildApplyFilePatchSections(args);
-        case "replace_in_file":
+        case TOOL_NAMES.replaceInFile:
             return buildReplaceInFileSections(args);
-        case "write_file":
+        case TOOL_NAMES.writeFile:
             return buildWriteLikeSections(args, "write");
-        case "append_to_file":
+        case TOOL_NAMES.appendToFile:
             return buildWriteLikeSections(args, "append");
         default:
             return null;

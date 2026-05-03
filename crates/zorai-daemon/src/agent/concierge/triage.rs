@@ -143,7 +143,8 @@ impl ConciergeEngine {
 
                 for tool_call in tool_calls {
                     if !gateway_triage_tool_allowed(&tool_call.function.name)
-                        || (tool_call.function.name == "fetch_gateway_history"
+                        || (tool_call.function.name
+                            == zorai_protocol::tool_names::FETCH_GATEWAY_HISTORY
                             && gateway_thread_id.is_none())
                     {
                         tracing::info!(
@@ -335,7 +336,8 @@ pub(super) fn gateway_triage_safe_tools(
         .filter(|tool| {
             let name = tool.function.name.as_str();
             gateway_triage_tool_allowed(name)
-                && (allow_gateway_history || name != "fetch_gateway_history")
+                && (allow_gateway_history
+                    || name != zorai_protocol::tool_names::FETCH_GATEWAY_HISTORY)
         })
         .collect()
 }

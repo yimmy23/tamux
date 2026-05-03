@@ -6,10 +6,10 @@ use zorai_protocol::SecurityLevel;
 
 const COMMUNITY_SCOUT_RESULT_LIMIT: usize = 5;
 const PARTICIPANT_AGENT_FANOUT_TOOLS: &[&str] = &[
-    "spawn_subagent",
-    "message_agent",
-    "route_to_specialist",
-    "run_divergent",
+    zorai_protocol::tool_names::SPAWN_SUBAGENT,
+    zorai_protocol::tool_names::MESSAGE_AGENT,
+    zorai_protocol::tool_names::ROUTE_TO_SPECIALIST,
+    zorai_protocol::tool_names::RUN_DIVERGENT,
 ];
 
 #[derive(Clone)]
@@ -979,6 +979,10 @@ impl<'a> SendMessageRunner<'a> {
         }
         let has_workspace_topology = engine.session_manager.read_workspace_topology().is_some();
         let mut tools = get_available_tools(&config, &engine.data_dir, has_workspace_topology);
+        crate::agent::tool_executor::filter_tools_for_client_surface(
+            &mut tools,
+            engine.get_thread_client_surface(&tid).await,
+        );
         if let Some(filter) = &task_tool_filter {
             tools = filter.filtered_tools(tools);
         }
@@ -990,9 +994,10 @@ impl<'a> SendMessageRunner<'a> {
         }
         let participant_managed_thread = visible_thread_has_participants(engine, &tid).await;
         if participant_managed_thread {
-            tools.retain(|tool| tool.function.name != "list_agents");
+            tools.retain(|tool| tool.function.name != zorai_protocol::tool_names::LIST_AGENTS);
         } else {
-            tools.retain(|tool| tool.function.name != "list_participants");
+            tools
+                .retain(|tool| tool.function.name != zorai_protocol::tool_names::LIST_PARTICIPANTS);
         }
         if current_visible_thread_responder_is_active_participant(engine, &tid).await {
             tools.retain(|tool| {
@@ -1227,9 +1232,119 @@ mod tests {
             );
         }
         assert!(
-            tool_names.contains(&"handoff_thread_agent"),
+            tool_names.contains(&zorai_protocol::tool_names::HANDOFF_THREAD_AGENT),
             "active participant responder should still see handoff_thread_agent"
         );
+    }
+
+    #[tokio::test]
+    async fn tui_originated_turn_does_not_expose_managed_terminal_tools() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            Some("thread_tui_tool_surface"),
+            "inspect repository state",
+            &[],
+            "inspect repository state",
+            None,
+            None,
+            None,
+            Some(zorai_protocol::ClientSurface::Tui),
+            true,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize");
+
+        let tool_names = runner
+            .tools
+            .iter()
+            .map(|tool| tool.function.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            !tool_names.contains(&zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND),
+            "TUI-originated turns should not expose managed terminal execution as a direct tool"
+        );
+        assert!(
+            !tool_names.contains(&zorai_protocol::tool_names::ALLOCATE_TERMINAL),
+            "TUI-originated turns should not expose managed terminal allocation"
+        );
+        for terminal_tool in [
+            zorai_protocol::tool_names::LIST_SESSIONS,
+            zorai_protocol::tool_names::LIST_TERMINALS,
+            zorai_protocol::tool_names::READ_ACTIVE_TERMINAL_CONTENT,
+            zorai_protocol::tool_names::RUN_TERMINAL_COMMAND,
+            zorai_protocol::tool_names::TYPE_IN_TERMINAL,
+        ] {
+            assert!(
+                !tool_names.contains(&terminal_tool),
+                "TUI-originated turns should not expose {terminal_tool}"
+            );
+        }
+        assert!(
+            tool_names.contains(&zorai_protocol::tool_names::BASH_COMMAND),
+            "TUI-originated turns should still expose headless shell execution"
+        );
+    }
+
+    #[tokio::test]
+    async fn inherited_tui_surface_does_not_expose_managed_terminal_tools() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread_spawned_from_tui";
+        engine
+            .set_thread_client_surface(thread_id, zorai_protocol::ClientSurface::Tui)
+            .await;
+
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            Some(thread_id),
+            "continue delegated work",
+            &[],
+            "continue delegated work",
+            None,
+            None,
+            None,
+            None,
+            true,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize");
+
+        let tool_names = runner
+            .tools
+            .iter()
+            .map(|tool| tool.function.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(
+            !tool_names.contains(&zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND),
+            "threads inheriting TUI origin should not expose managed terminal execution"
+        );
+        assert!(
+            !tool_names.contains(&zorai_protocol::tool_names::ALLOCATE_TERMINAL),
+            "threads inheriting TUI origin should not expose managed terminal allocation"
+        );
+        for terminal_tool in [
+            zorai_protocol::tool_names::LIST_SESSIONS,
+            zorai_protocol::tool_names::LIST_TERMINALS,
+            zorai_protocol::tool_names::READ_ACTIVE_TERMINAL_CONTENT,
+            zorai_protocol::tool_names::RUN_TERMINAL_COMMAND,
+            zorai_protocol::tool_names::TYPE_IN_TERMINAL,
+        ] {
+            assert!(
+                !tool_names.contains(&terminal_tool),
+                "threads inheriting TUI origin should not expose {terminal_tool}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -1269,6 +1384,7 @@ mod tests {
                 openrouter_provider_order: Vec::new(),
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
+                openrouter_response_cache_enabled: false,
             },
         );
         config.builtin_sub_agents.weles.provider = Some("weles-provider".to_string());
@@ -1538,11 +1654,11 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(
-            !tool_names.contains(&"list_agents"),
+            !tool_names.contains(&zorai_protocol::tool_names::LIST_AGENTS),
             "participant-managed thread should hide list_agents"
         );
         assert!(
-            tool_names.contains(&"list_participants"),
+            tool_names.contains(&zorai_protocol::tool_names::LIST_PARTICIPANTS),
             "participant-managed thread should expose list_participants"
         );
     }
@@ -1598,11 +1714,11 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(
-            tool_names.contains(&"start_goal_run"),
+            tool_names.contains(&zorai_protocol::tool_names::START_GOAL_RUN),
             "runner should expose start_goal_run"
         );
         assert!(
-            tool_names.contains(&"list_goal_runs"),
+            tool_names.contains(&zorai_protocol::tool_names::LIST_GOAL_RUNS),
             "runner should expose list_goal_runs"
         );
     }
@@ -1870,7 +1986,7 @@ mod tests {
             lane_id: None,
             last_error: None,
             logs: Vec::new(),
-            tool_whitelist: Some(vec!["cancel_task".to_string()]),
+            tool_whitelist: Some(vec![zorai_protocol::tool_names::CANCEL_TASK.to_string()]),
             tool_blacklist: None,
             context_budget_tokens: None,
             context_overflow_action: None,
@@ -1908,15 +2024,15 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(
-            tool_names.contains(&"cancel_task"),
+            tool_names.contains(&zorai_protocol::tool_names::CANCEL_TASK),
             "original task whitelist entries should stay available"
         );
         assert!(
-            tool_names.contains(&"workspace_submit_review"),
+            tool_names.contains(&zorai_protocol::tool_names::WORKSPACE_SUBMIT_REVIEW),
             "workspace reviewer must be able to close the workspace task"
         );
         assert!(
-            tool_names.contains(&"workspace_list_tasks"),
+            tool_names.contains(&zorai_protocol::tool_names::WORKSPACE_LIST_TASKS),
             "workspace reviewer should retain workspace task context tools"
         );
     }
@@ -1937,7 +2053,7 @@ mod tests {
             model: "gpt-5.4-mini".to_string(),
             role: Some("reviewer".to_string()),
             system_prompt: Some("Handle workspace tasks.".to_string()),
-            tool_whitelist: Some(vec!["cancel_task".to_string()]),
+            tool_whitelist: Some(vec![zorai_protocol::tool_names::CANCEL_TASK.to_string()]),
             tool_blacklist: None,
             context_budget_tokens: None,
             max_duration_secs: None,
@@ -2042,15 +2158,15 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(
-            tool_names.contains(&"cancel_task"),
+            tool_names.contains(&zorai_protocol::tool_names::CANCEL_TASK),
             "original subagent whitelist entries should stay available"
         );
         assert!(
-            tool_names.contains(&"workspace_submit_completion"),
+            tool_names.contains(&zorai_protocol::tool_names::WORKSPACE_SUBMIT_COMPLETION),
             "workspace assignee must be able to submit completion"
         );
         assert!(
-            tool_names.contains(&"workspace_submit_review"),
+            tool_names.contains(&zorai_protocol::tool_names::WORKSPACE_SUBMIT_REVIEW),
             "workspace reviewer must be able to submit review from the workspace thread"
         );
     }
@@ -2133,11 +2249,11 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(
-            tool_names.contains(&"spawn_subagent"),
+            tool_names.contains(&zorai_protocol::tool_names::SPAWN_SUBAGENT),
             "non-participant responder should still see spawn_subagent"
         );
         assert!(
-            tool_names.contains(&"message_agent"),
+            tool_names.contains(&zorai_protocol::tool_names::MESSAGE_AGENT),
             "non-participant responder should still see message_agent"
         );
     }
@@ -2201,11 +2317,11 @@ mod tests {
             .collect::<Vec<_>>();
         let ask_questions_index = tool_names
             .iter()
-            .position(|name| *name == "ask_questions")
+            .position(|name| *name == zorai_protocol::tool_names::ASK_QUESTIONS)
             .expect("ask_questions should remain available for non-goal clarification");
         let search_files_index = tool_names
             .iter()
-            .position(|name| *name == "search_files")
+            .position(|name| *name == zorai_protocol::tool_names::SEARCH_FILES)
             .expect("search_files should be available");
         assert!(
             ask_questions_index < search_files_index,
@@ -2582,7 +2698,7 @@ mod tests {
             last_error: None,
             logs: Vec::new(),
             tool_whitelist: None,
-            tool_blacklist: Some(vec!["ask_questions".to_string()]),
+            tool_blacklist: Some(vec![zorai_protocol::tool_names::ASK_QUESTIONS.to_string()]),
             context_budget_tokens: None,
             context_overflow_action: None,
             termination_conditions: None,
@@ -2626,7 +2742,7 @@ mod tests {
             .map(|tool| tool.function.name.as_str())
             .collect::<Vec<_>>();
         assert!(
-            !tool_names.contains(&"ask_questions"),
+            !tool_names.contains(&zorai_protocol::tool_names::ASK_QUESTIONS),
             "goal task clarification prioritization must not reintroduce ask_questions"
         );
     }
@@ -2737,6 +2853,7 @@ mod tests {
                 openrouter_provider_order: Vec::new(),
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
+                openrouter_response_cache_enabled: false,
             },
         );
         config.builtin_sub_agents.mokosh.provider = Some("alibaba-coding-plan".to_string());

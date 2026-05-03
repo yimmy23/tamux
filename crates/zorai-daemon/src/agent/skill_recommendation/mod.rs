@@ -569,7 +569,7 @@ pub(super) fn page_public_discovery_result(
         cfg,
         cursor,
         limit,
-        "read_skill",
+        zorai_protocol::tool_names::READ_SKILL,
         None,
     )
 }
@@ -724,7 +724,7 @@ fn confidence_label(value: SkillRecommendationConfidence) -> &'static str {
 
 fn action_label(value: SkillRecommendationAction) -> &'static str {
     match value {
-        SkillRecommendationAction::ReadSkill => "read_skill",
+        SkillRecommendationAction::ReadSkill => zorai_protocol::tool_names::READ_SKILL,
         SkillRecommendationAction::None => "none",
     }
 }

@@ -124,6 +124,10 @@ export function taskRunBlocked(task: WorkspaceTask): boolean {
   return task.deleted_at == null && task.assignee == null;
 }
 
+export function workspaceTasksNeedAutoRefresh(tasks: WorkspaceTask[]): boolean {
+  return tasks.some((task) => task.deleted_at == null && task.status !== "done");
+}
+
 export function mergeWorkspaceSettings(settings: WorkspaceSettings[], tasks: WorkspaceTask[]): WorkspaceSettings[] {
   const byId = new Map(settings.map((workspace) => [workspace.workspace_id, workspace]));
   for (const task of tasks) {

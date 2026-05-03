@@ -316,14 +316,14 @@ impl AgentEngine {
             // GoalRunStepKind variants: Reason, Command, Research, Memory, Skill, Specialist, Unknown
             let weight = {
                 let tool_name = match &step.kind {
-                    GoalRunStepKind::Command => "execute_command",
-                    GoalRunStepKind::Research => "web_search",
-                    GoalRunStepKind::Reason => "read_file",
-                    GoalRunStepKind::Memory => "read_file",
-                    GoalRunStepKind::Skill => "execute_command",
-                    GoalRunStepKind::Specialist(_) => "execute_command",
-                    GoalRunStepKind::Divergent => "read_file",
-                    GoalRunStepKind::Debate => "read_file",
+                    GoalRunStepKind::Command => zorai_protocol::tool_names::EXECUTE_COMMAND,
+                    GoalRunStepKind::Research => zorai_protocol::tool_names::WEB_SEARCH,
+                    GoalRunStepKind::Reason => zorai_protocol::tool_names::READ_FILE,
+                    GoalRunStepKind::Memory => zorai_protocol::tool_names::READ_FILE,
+                    GoalRunStepKind::Skill => zorai_protocol::tool_names::EXECUTE_COMMAND,
+                    GoalRunStepKind::Specialist(_) => zorai_protocol::tool_names::EXECUTE_COMMAND,
+                    GoalRunStepKind::Divergent => zorai_protocol::tool_names::READ_FILE,
+                    GoalRunStepKind::Debate => zorai_protocol::tool_names::READ_FILE,
                     GoalRunStepKind::Unknown => "unknown",
                 };
                 super::embodied::dimensions::compute_weight(tool_name)

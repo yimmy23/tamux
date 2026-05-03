@@ -6,7 +6,7 @@ fn add_available_tools_part_a(
 ) {
     if config.tools.bash {
         tools.push(tool_def(
-            "bash_command",
+            tool_names::BASH_COMMAND,
             "Execute a shell command. TUI-originated turns run headless by default; Electron-originated turns may use a managed terminal when the command needs terminal state or interactivity. Omit `session` in normal TUI/chat turns unless you intentionally target a known live terminal. For long-running managed-terminal work, prefer non-blocking execution and poll the returned `operation_id` with `get_operation_status`. For large or awkward file writes, prefer a minimal Python writer over fragile shell escaping, but inspect the Python carefully so it only performs the intended write.",
             serde_json::json!({
                 "type": "object",
@@ -29,7 +29,7 @@ fn add_available_tools_part_a(
 
     if config.tools.file_operations {
         tools.push(tool_def(
-            "list_files",
+            tool_names::LIST_FILES,
             "List files and directories at a given path through a zorai-managed terminal session.",
             serde_json::json!({
                 "type": "object",
@@ -43,7 +43,7 @@ fn add_available_tools_part_a(
         ));
 
         tools.push(tool_def(
-            "read_file",
+            tool_names::READ_FILE,
             "Read the contents of a file. Always prefer bounded reads with offset/limit windows instead of dumping entire files.",
             serde_json::json!({
                 "type": "object",
@@ -58,7 +58,7 @@ fn add_available_tools_part_a(
         ));
 
         tools.push(tool_def(
-            "get_git_line_statuses",
+            tool_names::GET_GIT_LINE_STATUSES,
             "Report git statuses for the current file lines in a bounded window. Use this when you need to know which current lines are unchanged, modified, or added without parsing a full diff.",
             serde_json::json!({
                 "type": "object",
@@ -72,7 +72,7 @@ fn add_available_tools_part_a(
         ));
 
         tools.push(tool_def(
-            "write_file",
+            tool_names::WRITE_FILE,
             "Write content to a file. Supports JSON args or a multipart-style payload with path/file parts so larger content does not have to fit inside one giant JSON string.",
             serde_json::json!({
                 "type": "object",
@@ -87,7 +87,7 @@ fn add_available_tools_part_a(
         ));
 
         tools.push(tool_def(
-            "create_file",
+            tool_names::CREATE_FILE,
             "Create a new file directly from the daemon filesystem context. Supports JSON args or a multipart-style payload with filename/cwd/file parts. Fails if the file already exists unless overwrite=true. Prefer multipart-style payloads for larger content instead of giant JSON strings.",
             serde_json::json!({
                 "type": "object",
@@ -103,7 +103,7 @@ fn add_available_tools_part_a(
         ));
 
         tools.push(tool_def(
-            "append_to_file",
+            tool_names::APPEND_TO_FILE,
             "Append text to the end of an existing file without rewriting the whole file.",
             serde_json::json!({
                 "type": "object",
@@ -117,7 +117,7 @@ fn add_available_tools_part_a(
         ));
 
         tools.push(tool_def(
-            "replace_in_file",
+            tool_names::REPLACE_IN_FILE,
             "Replace a specific fragment inside a file. Use this for targeted edits instead of rewriting the full file.",
             serde_json::json!({
                 "type": "object",
@@ -132,7 +132,7 @@ fn add_available_tools_part_a(
         ));
 
         tools.push(tool_def(
-            "apply_file_patch",
+            tool_names::APPLY_FILE_PATCH,
             "Apply one or more exact text replacements to a file in order. Use this for multi-hunk targeted edits. Patch must start with '*** Begin Patch' and end with '*** End Patch'",
             serde_json::json!({
                 "type": "object",
@@ -156,7 +156,7 @@ fn add_available_tools_part_a(
         ));
 
         tools.push(tool_def(
-            "apply_patch",
+            tool_names::APPLY_PATCH,
             "Apply a harness-style patch with `*** Begin Patch` / `*** End Patch` markers, supporting Add/Update/Delete file actions. Update hunks must include `@@` and at least one `-old` / `+new` line pair. Use `input` or legacy alias `patch` for the full patch text. For exact text replacements, use `apply_file_patch` instead.",
             serde_json::json!({
                 "type": "object",
@@ -170,7 +170,7 @@ fn add_available_tools_part_a(
         ));
 
         tools.push(tool_def(
-            "search_files",
+            tool_names::SEARCH_FILES,
             "Search for a pattern in files using ripgrep. Returns matching lines with file paths and line numbers.",
             serde_json::json!({
                 "type": "object",
@@ -189,13 +189,13 @@ fn add_available_tools_part_a(
 
     if config.tools.system_info {
         tools.push(tool_def(
-            "get_system_info",
+            tool_names::GET_SYSTEM_INFO,
             "Get system information: CPU, memory, disk, load average, hostname.",
             serde_json::json!({ "type": "object", "properties": {} }),
         ));
 
         tools.push(tool_def(
-            "list_processes",
+            tool_names::LIST_PROCESSES,
             "List running processes sorted by CPU usage.",
             serde_json::json!({
                 "type": "object",

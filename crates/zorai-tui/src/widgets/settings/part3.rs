@@ -89,6 +89,11 @@ fn render_provider_tab<'a>(
     } else {
         "strict".to_string()
     };
+    let openrouter_cache_val = if config.openrouter_response_cache_enabled {
+        "enabled".to_string()
+    } else {
+        "disabled".to_string()
+    };
     let context_hint = if providers::model_uses_context_window_override(
         &config.provider,
         &config.auth_source,
@@ -182,6 +187,13 @@ fn render_provider_tab<'a>(
                 "OR Fallbacks",
                 openrouter_fallbacks_val,
                 "openrouter_allow_fallbacks",
+                " [Enter: toggle]",
+            ),
+            (
+                11,
+                "OR Cache",
+                openrouter_cache_val,
+                "openrouter_response_cache_enabled",
                 " [Enter: toggle]",
             ),
         ]);

@@ -143,7 +143,7 @@ impl AgentEngine {
                     None
                 } else {
                     Some(serde_json::json!({
-                        "inspection_tool": "show_dreams",
+                        "inspection_tool": zorai_protocol::tool_names::SHOW_DREAMS,
                         "persisted_event_count": 0,
                         "dream_hint_event_count": 0,
                         "forge_hint_event_count": 0,

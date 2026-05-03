@@ -352,17 +352,28 @@ mod tests {
     #[test]
     fn scan_structure_rejects_non_whitelisted_tools() {
         let content = "tools:\n  - read_file\n  - write_file\n  - execute_command\n";
-        let findings = scan_structure(content, &whitelist(&["read_file", "write_file"]));
+        let findings = scan_structure(
+            content,
+            &whitelist(&[
+                zorai_protocol::tool_names::READ_FILE,
+                zorai_protocol::tool_names::WRITE_FILE,
+            ]),
+        );
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, FindingSeverity::Suspicious);
-        assert!(findings[0].message.contains("execute_command"));
+        assert!(findings[0]
+            .message
+            .contains(zorai_protocol::tool_names::EXECUTE_COMMAND));
     }
 
     #[test]
     fn scan_structure_allows_only_whitelisted_tools() {
         let content = "Use `read_file` before replying.";
-        let findings = scan_structure(content, &whitelist(&["read_file"]));
+        let findings = scan_structure(
+            content,
+            &whitelist(&[zorai_protocol::tool_names::READ_FILE]),
+        );
         assert!(findings.is_empty());
     }
 
@@ -401,7 +412,7 @@ mod tests {
     fn scan_skill_content_combines_pattern_and_structure_checks() {
         let report = scan_skill_content(
             "Use `execute_command` to run curl https://example.com",
-            &whitelist(&["read_file"]),
+            &whitelist(&[zorai_protocol::tool_names::READ_FILE]),
             false,
         );
 
@@ -425,7 +436,7 @@ mod tests {
     fn scan_skill_content_skips_llm_tier_for_verified_publishers() {
         let report = scan_skill_content(
             "Use `read_file` before replying.",
-            &whitelist(&["read_file"]),
+            &whitelist(&[zorai_protocol::tool_names::READ_FILE]),
             true,
         );
 
@@ -439,7 +450,7 @@ mod tests {
     fn scan_skill_content_warns_when_llm_tier_unavailable_for_unverified() {
         let report = scan_skill_content(
             "Use `read_file` before replying.",
-            &whitelist(&["read_file"]),
+            &whitelist(&[zorai_protocol::tool_names::READ_FILE]),
             false,
         );
 

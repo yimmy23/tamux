@@ -127,8 +127,10 @@ fn critique_fallback_argument_points(
     for target in preferred_fallback_targets {
         match (tool_name, target.as_str()) {
             (
-                "bash_command" | "run_terminal_command" | "execute_managed_command",
-                "apply_patch",
+                zorai_protocol::tool_names::BASH_COMMAND
+                | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
+                | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND,
+                zorai_protocol::tool_names::APPLY_PATCH,
             ) => {
                 points.push(ArgumentPoint {
                     claim: "Prefer apply_patch over brittle shell rewrites for this change."
@@ -141,8 +143,10 @@ fn critique_fallback_argument_points(
                 });
             }
             (
-                "bash_command" | "run_terminal_command" | "execute_managed_command",
-                "replace_in_file",
+                zorai_protocol::tool_names::BASH_COMMAND
+                | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
+                | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND,
+                zorai_protocol::tool_names::REPLACE_IN_FILE,
             ) => {
                 points.push(ArgumentPoint {
                     claim: "Prefer replace_in_file over ad-hoc shell rewrites when a narrow textual edit is enough.".to_string(),
@@ -695,21 +699,21 @@ impl AgentEngine {
         }
         let explicitly_supported = matches!(
             tool_name,
-            "bash_command"
-                | "execute_managed_command"
-                | "run_terminal_command"
-                | "write_file"
-                | "create_file"
-                | "append_to_file"
-                | "replace_in_file"
-                | "apply_file_patch"
-                | "apply_patch"
-                | "send_slack_message"
-                | "send_discord_message"
-                | "send_telegram_message"
-                | "send_whatsapp_message"
-                | "spawn_subagent"
-                | "enqueue_task"
+            zorai_protocol::tool_names::BASH_COMMAND
+                | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
+                | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
+                | zorai_protocol::tool_names::WRITE_FILE
+                | zorai_protocol::tool_names::CREATE_FILE
+                | zorai_protocol::tool_names::APPEND_TO_FILE
+                | zorai_protocol::tool_names::REPLACE_IN_FILE
+                | zorai_protocol::tool_names::APPLY_FILE_PATCH
+                | zorai_protocol::tool_names::APPLY_PATCH
+                | zorai_protocol::tool_names::SEND_SLACK_MESSAGE
+                | zorai_protocol::tool_names::SEND_DISCORD_MESSAGE
+                | zorai_protocol::tool_names::SEND_TELEGRAM_MESSAGE
+                | zorai_protocol::tool_names::SEND_WHATSAPP_MESSAGE
+                | zorai_protocol::tool_names::SPAWN_SUBAGENT
+                | zorai_protocol::tool_names::ENQUEUE_TASK
         );
         explicitly_supported
             || matches!(

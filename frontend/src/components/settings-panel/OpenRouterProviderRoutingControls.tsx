@@ -12,6 +12,7 @@ export type OpenRouterRoutingConfig = {
     openrouter_provider_order?: string[];
     openrouter_provider_ignore?: string[];
     openrouter_allow_fallbacks?: boolean | null;
+    openrouter_response_cache_enabled?: boolean;
 };
 
 export function OpenRouterProviderRoutingControls<T extends OpenRouterRoutingConfig>({
@@ -30,6 +31,7 @@ export function OpenRouterProviderRoutingControls<T extends OpenRouterRoutingCon
     const preferred = normalizeOpenRouterProviderSlugs(config.openrouter_provider_order);
     const excluded = normalizeOpenRouterProviderSlugs(config.openrouter_provider_ignore);
     const fallbackAllowed = config.openrouter_allow_fallbacks !== false;
+    const responseCacheEnabled = config.openrouter_response_cache_enabled === true;
 
     useEffect(() => {
         if (!config.model.trim()) {
@@ -150,6 +152,15 @@ export function OpenRouterProviderRoutingControls<T extends OpenRouterRoutingCon
                     onChange={(value) => onChange({
                         ...config,
                         openrouter_allow_fallbacks: value ? null : false,
+                    })}
+                />
+            </SettingRow>
+            <SettingRow label="OR Cache">
+                <Toggle
+                    value={responseCacheEnabled}
+                    onChange={(value) => onChange({
+                        ...config,
+                        openrouter_response_cache_enabled: value,
                     })}
                 />
             </SettingRow>

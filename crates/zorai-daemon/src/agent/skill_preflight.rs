@@ -204,7 +204,7 @@ pub(super) fn preserve_noncompliant_mesh_state(
                 .map(|skill| format!("read_skill {skill}"))
                 .unwrap_or_else(|| previous_state.recommended_action.clone()),
             crate::agent::skill_mesh::types::SkillMeshNextStep::JustifySkillSkip => {
-                "justify_skill_skip".to_string()
+                zorai_protocol::tool_names::JUSTIFY_SKILL_SKIP.to_string()
             }
         }
     };
@@ -279,7 +279,7 @@ impl AgentEngine {
             &cfg,
             cursor,
             limit,
-            "read_guideline",
+            zorai_protocol::tool_names::READ_GUIDELINE,
             Some("guideline"),
         )
     }
@@ -451,7 +451,7 @@ impl AgentEngine {
         state.mesh_approval_id = None;
         state.mesh_next_step =
             Some(crate::agent::skill_mesh::types::SkillMeshNextStep::JustifySkillSkip);
-        state.recommended_action = "justify_skill_skip".to_string();
+        state.recommended_action = zorai_protocol::tool_names::JUSTIFY_SKILL_SKIP.to_string();
         state.compliant = false;
         state.updated_at = now_millis();
         self.set_thread_skill_discovery_state(thread_id, state.clone())
@@ -1771,7 +1771,9 @@ fn skill_identifier_matches(expected: &str, actual: &str) -> bool {
 
 fn action_label(value: super::skill_recommendation::SkillRecommendationAction) -> &'static str {
     match value {
-        super::skill_recommendation::SkillRecommendationAction::ReadSkill => "read_skill",
+        super::skill_recommendation::SkillRecommendationAction::ReadSkill => {
+            zorai_protocol::tool_names::READ_SKILL
+        }
         super::skill_recommendation::SkillRecommendationAction::None => "none",
     }
 }
@@ -2110,7 +2112,10 @@ mod tests {
         );
 
         assert_eq!(state.confidence_tier, "none");
-        assert_eq!(state.recommended_action, "justify_skill_skip");
+        assert_eq!(
+            state.recommended_action,
+            zorai_protocol::tool_names::JUSTIFY_SKILL_SKIP
+        );
         assert!(state.read_skill_identifier.is_none());
     }
 
@@ -2379,7 +2384,10 @@ triggers: [panic, failing test]
             .expect("state should exist");
 
         assert!(!state.mesh_requires_approval);
-        assert_eq!(state.recommended_action, "justify_skill_skip");
+        assert_eq!(
+            state.recommended_action,
+            zorai_protocol::tool_names::JUSTIFY_SKILL_SKIP
+        );
         assert_eq!(
             state.mesh_next_step,
             Some(crate::agent::skill_mesh::types::SkillMeshNextStep::JustifySkillSkip)

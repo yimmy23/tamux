@@ -17,10 +17,10 @@ pub(super) fn build_task_prompt(task: &AgentTask) -> String {
     );
 
     prompt.push_str(
-        "\nUse execute_managed_command when work should run inside a daemon-managed terminal lane, needs a real PTY, or may require operator approval.",
+        "\nUse the shell execution tools available in the current turn when work needs a shell, a real PTY, or operator-governed command execution.",
     );
     prompt.push_str(
-        "\nFor browser-readable pages, search/discovery work, or HTTP reads where you need text or JSON content, prefer web_search and fetch_url. For direct reachability checks, HEAD or range requests, large or binary downloads, or streaming transfers, prefer curl or wget in a managed command instead of fetch_url.",
+        "\nFor browser-readable pages, search/discovery work, or HTTP reads where you need text or JSON content, prefer web_search and fetch_url. For direct reachability checks, HEAD or range requests, large or binary downloads, or streaming transfers, prefer curl or wget through shell execution instead of fetch_url.",
     );
     prompt.push_str(
         "\nIf the task is more than a one-shot action, call update_todo immediately with a concise plan and keep it current as steps advance.",
@@ -610,8 +610,9 @@ mod tests {
     fn build_task_prompt_distinguishes_web_reads_from_binary_downloads() {
         let prompt = build_task_prompt(&sample_task());
 
-        assert!(prompt.contains("web_search"));
-        assert!(prompt.contains("fetch_url"));
+        assert!(!prompt.contains(zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND));
+        assert!(prompt.contains(zorai_protocol::tool_names::WEB_SEARCH));
+        assert!(prompt.contains(zorai_protocol::tool_names::FETCH_URL));
         assert!(prompt.contains("curl"));
         assert!(prompt.contains("wget"));
         assert!(prompt.contains("large or binary"));
@@ -635,7 +636,7 @@ mod tests {
             "goal-run prompts should forbid direct operator questions"
         );
         assert!(
-            prompt.contains("message_agent"),
+            prompt.contains(zorai_protocol::tool_names::MESSAGE_AGENT),
             "goal-run prompts should redirect blockers into agent-to-agent messaging"
         );
         assert!(

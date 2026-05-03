@@ -636,6 +636,7 @@ fn api_content_to_json(content: &ApiContent) -> serde_json::Value {
     }
 }
 
+#[cfg(test)]
 fn build_chat_completion_messages(
     system_prompt: &str,
     messages: &[ApiMessage],

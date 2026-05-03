@@ -3,7 +3,7 @@ use serde_json::Value;
 pub(super) fn tool_definitions() -> Value {
     serde_json::json!([
         {
-            "name": "execute_command",
+            "name": zorai_protocol::tool_names::EXECUTE_COMMAND,
             "description": "Execute a managed command inside a zorai terminal session. The command runs in a sandboxed lane with approval gating, automatic snapshots, and telemetry.",
             "inputSchema": {
                 "type": "object",
@@ -25,7 +25,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "search_history",
+            "name": zorai_protocol::tool_names::SEARCH_HISTORY,
             "description": "Search the daemon's command and transcript history using full-text search.",
             "inputSchema": {
                 "type": "object",
@@ -43,7 +43,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "find_symbol",
+            "name": zorai_protocol::tool_names::FIND_SYMBOL,
             "description": "Search for code symbols (functions, types, variables) using the daemon's semantic indexing.",
             "inputSchema": {
                 "type": "object",
@@ -65,7 +65,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "list_snapshots",
+            "name": zorai_protocol::tool_names::LIST_SNAPSHOTS,
             "description": "List recorded workspace snapshots and checkpoints. Snapshots are created automatically before managed commands.",
             "inputSchema": {
                 "type": "object",
@@ -79,7 +79,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "restore_snapshot",
+            "name": zorai_protocol::tool_names::RESTORE_SNAPSHOT,
             "description": "Restore a previously recorded workspace snapshot, reverting the workspace to that point in time.",
             "inputSchema": {
                 "type": "object",
@@ -93,7 +93,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "scrub_sensitive",
+            "name": zorai_protocol::tool_names::SCRUB_SENSITIVE,
             "description": "Scrub sensitive data (secrets, tokens, passwords) from a text string using the daemon's detection engine.",
             "inputSchema": {
                 "type": "object",
@@ -107,7 +107,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "list_sessions",
+            "name": zorai_protocol::tool_names::LIST_SESSIONS,
             "description": "List all active terminal sessions and browser panels. Includes workspace/surface hierarchy, pane types (terminal/browser), URLs for browser panes, session IDs, CWD, and active commands.",
             "inputSchema": {
                 "type": "object",
@@ -116,7 +116,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "verify_integrity",
+            "name": zorai_protocol::tool_names::VERIFY_INTEGRITY,
             "description": "Verify the integrity of WORM (Write-Once-Read-Many) telemetry ledgers to detect tampering.",
             "inputSchema": {
                 "type": "object",
@@ -125,7 +125,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "get_terminal_content",
+            "name": zorai_protocol::tool_names::GET_TERMINAL_CONTENT,
             "description": "Read the scrollback buffer (visible content) of a terminal session. Use this to see what is currently displayed in a user's terminal pane.",
             "inputSchema": {
                 "type": "object",
@@ -143,7 +143,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "type_in_terminal",
+            "name": zorai_protocol::tool_names::TYPE_IN_TERMINAL,
             "description": "Send keystrokes/input to a terminal session. Use this to type commands or interact with running programs in the user's terminal.",
             "inputSchema": {
                 "type": "object",
@@ -161,7 +161,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "enqueue_task",
+            "name": zorai_protocol::tool_names::ENQUEUE_TASK,
             "description": "Queue a daemon-managed background task. Supports dependencies and scheduled execution for reminders, follow-up gateway messages, and deferred automation.",
             "inputSchema": {
                 "type": "object",
@@ -180,12 +180,12 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "list_tasks",
+            "name": zorai_protocol::tool_names::LIST_TASKS,
             "description": "List daemon-managed background tasks with status, schedule, and dependency metadata.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "cancel_task",
+            "name": zorai_protocol::tool_names::CANCEL_TASK,
             "description": "Cancel a queued, blocked, running, or approval-pending daemon task by ID.",
             "inputSchema": {
                 "type": "object",
@@ -196,12 +196,12 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "list_todos",
+            "name": zorai_protocol::tool_names::LIST_TODOS,
             "description": "List daemon-managed planner todos for all agent threads.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "get_todos",
+            "name": zorai_protocol::tool_names::GET_TODOS,
             "description": "Fetch daemon-managed planner todos for a specific agent thread.",
             "inputSchema": {
                 "type": "object",
@@ -212,7 +212,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "list_skills",
+            "name": zorai_protocol::tool_names::LIST_SKILLS,
             "description": "List reusable local zorai skills from the platform-specific ~/.zorai/skills directory.",
             "inputSchema": {
                 "type": "object",
@@ -224,7 +224,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "discover_skills",
+            "name": zorai_protocol::tool_names::DISCOVER_SKILLS,
             "description": "Rank installed zorai skills for a task and return the recommended next action.",
             "inputSchema": {
                 "type": "object",
@@ -250,7 +250,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "list_guidelines",
+            "name": zorai_protocol::tool_names::LIST_GUIDELINES,
             "description": "List reusable local zorai guidelines from the platform-specific ~/.zorai/guidelines directory.",
             "inputSchema": {
                 "type": "object",
@@ -262,7 +262,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "discover_guidelines",
+            "name": zorai_protocol::tool_names::DISCOVER_GUIDELINES,
             "description": "Rank installed zorai guidelines for a task using the same daemon discovery pipeline as skills, returning guideline documents to read before choosing skills.",
             "inputSchema": {
                 "type": "object",
@@ -288,7 +288,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "ask_questions",
+            "name": zorai_protocol::tool_names::ASK_QUESTIONS,
             "description": "Show a blocking multiple-choice question in zorai clients and wait for one compact token answer. Put the full question and answer text in content; keep buttons/options limited to short ordered tokens like A/B/C/D or 1/2/3/4.",
             "inputSchema": {
                 "type": "object",
@@ -313,7 +313,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "read_skill",
+            "name": zorai_protocol::tool_names::READ_SKILL,
             "description": "Read one or more local zorai skill documents by name, stem, or relative path under the skills directory.",
             "inputSchema": {
                 "type": "object",
@@ -329,7 +329,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "read_guideline",
+            "name": zorai_protocol::tool_names::READ_GUIDELINE,
             "description": "Read a local zorai guideline document by name, stem, or relative path under the guidelines directory.",
             "inputSchema": {
                 "type": "object",
@@ -341,7 +341,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "list_skill_variants",
+            "name": zorai_protocol::tool_names::LIST_SKILL_VARIANTS,
             "description": "List daemon-tracked skill variants with lifecycle status, usage counters, and context tags.",
             "inputSchema": {
                 "type": "object",
@@ -353,7 +353,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "inspect_skill_variant",
+            "name": zorai_protocol::tool_names::INSPECT_SKILL_VARIANT,
             "description": "Inspect a daemon-tracked skill variant by variant ID or skill name, including lifecycle inspection notes and current skill content.",
             "inputSchema": {
                 "type": "object",
@@ -364,7 +364,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "start_goal_run",
+            "name": zorai_protocol::tool_names::START_GOAL_RUN,
             "description": "Start a durable goal run that plans, executes child tasks, handles approvals, and reflects on outcomes.",
             "inputSchema": {
                 "type": "object",
@@ -396,12 +396,12 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "list_goal_runs",
+            "name": zorai_protocol::tool_names::LIST_GOAL_RUNS,
             "description": "List durable goal runs with status, current step, metrics, and history metadata.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "get_goal_run",
+            "name": zorai_protocol::tool_names::GET_GOAL_RUN,
             "description": "Fetch a specific goal run with full plan, events, and derived metrics.",
             "inputSchema": {
                 "type": "object",
@@ -412,7 +412,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "control_goal_run",
+            "name": zorai_protocol::tool_names::CONTROL_GOAL_RUN,
             "description": "Control a goal run lifecycle or rerun a specific step. Supported actions: pause, resume, cancel, retry_step, rerun_from_step.",
             "inputSchema": {
                 "type": "object",
@@ -425,17 +425,17 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "get_operator_model",
+            "name": zorai_protocol::tool_names::GET_OPERATOR_MODEL,
             "description": "Fetch the daemon's aggregate operator model, including learned cognitive style, risk tolerance, session rhythm, and attention topology.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "reset_operator_model",
+            "name": zorai_protocol::tool_names::RESET_OPERATOR_MODEL,
             "description": "Reset the daemon's aggregate operator model, clearing learned shortcuts and accumulated operator telemetry.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "get_causal_trace_report",
+            "name": zorai_protocol::tool_names::GET_CAUSAL_TRACE_REPORT,
             "description": "Summarize causal trace outcomes for a tool or decision option, including success/failure counts and recent reasons.",
             "inputSchema": {
                 "type": "object",
@@ -447,7 +447,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "get_counterfactual_report",
+            "name": zorai_protocol::tool_names::GET_COUNTERFACTUAL_REPORT,
             "description": "Estimate likely risk for a candidate command family using recent causal history for the given tool or option type.",
             "inputSchema": {
                 "type": "object",
@@ -460,7 +460,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "get_memory_provenance_report",
+            "name": zorai_protocol::tool_names::GET_MEMORY_PROVENANCE_REPORT,
             "description": "Inspect durable zorai memory provenance with source, age-based confidence, and active/uncertain/retracted status.",
             "inputSchema": {
                 "type": "object",
@@ -471,7 +471,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "read_memory",
+            "name": zorai_protocol::tool_names::READ_MEMORY,
             "description": "Read persistent MEMORY.md plus related structured memory layers. This response is injection-aware and avoids re-sending already injected fresh base markdown unless explicitly requested.",
             "inputSchema": {
                 "type": "object",
@@ -488,7 +488,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "read_user",
+            "name": zorai_protocol::tool_names::READ_USER,
             "description": "Read persistent USER.md plus related structured operator layers. This response is injection-aware and avoids re-sending already injected fresh base markdown unless explicitly requested.",
             "inputSchema": {
                 "type": "object",
@@ -505,7 +505,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "read_soul",
+            "name": zorai_protocol::tool_names::READ_SOUL,
             "description": "Read persistent SOUL.md plus related structured context layers. This response is injection-aware and avoids re-sending already injected fresh base markdown unless explicitly requested.",
             "inputSchema": {
                 "type": "object",
@@ -522,7 +522,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "search_memory",
+            "name": zorai_protocol::tool_names::SEARCH_MEMORY,
             "description": "Search MEMORY.md plus related structured memory layers. This response is injection-aware and skips already injected fresh base markdown unless explicitly requested.",
             "inputSchema": {
                 "type": "object",
@@ -541,7 +541,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "search_user",
+            "name": zorai_protocol::tool_names::SEARCH_USER,
             "description": "Search USER.md plus related structured operator layers. This response is injection-aware and skips already injected fresh base markdown unless explicitly requested.",
             "inputSchema": {
                 "type": "object",
@@ -560,7 +560,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "search_soul",
+            "name": zorai_protocol::tool_names::SEARCH_SOUL,
             "description": "Search SOUL.md plus related structured context layers. This response is injection-aware and skips already injected fresh base markdown unless explicitly requested.",
             "inputSchema": {
                 "type": "object",
@@ -579,7 +579,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "get_provenance_report",
+            "name": zorai_protocol::tool_names::GET_PROVENANCE_REPORT,
             "description": "Inspect trusted execution provenance, including hash/signature validity and recent event summaries.",
             "inputSchema": {
                 "type": "object",
@@ -589,7 +589,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "query_audits",
+            "name": zorai_protocol::tool_names::QUERY_AUDITS,
             "description": "Query daemon action-audit entries by action type and time window.",
             "inputSchema": {
                 "type": "object",
@@ -611,7 +611,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "generate_soc2_artifact",
+            "name": zorai_protocol::tool_names::GENERATE_SOC2_ARTIFACT,
             "description": "Generate a SOC2-style audit artifact from recent provenance events.",
             "inputSchema": {
                 "type": "object",
@@ -621,7 +621,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "get_collaboration_sessions",
+            "name": zorai_protocol::tool_names::GET_COLLABORATION_SESSIONS,
             "description": "Inspect active subagent collaboration sessions, contributions, disagreements, and consensus state.",
             "inputSchema": {
                 "type": "object",
@@ -631,12 +631,12 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "list_generated_tools",
+            "name": zorai_protocol::tool_names::LIST_GENERATED_TOOLS,
             "description": "List runtime-generated tools with status, effectiveness, and promotion metadata.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {
-            "name": "synthesize_tool",
+            "name": zorai_protocol::tool_names::SYNTHESIZE_TOOL,
             "description": "Generate a guarded runtime tool from a conservative CLI or GET OpenAPI operation.",
             "inputSchema": {
                 "type": "object",
@@ -651,7 +651,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "run_generated_tool",
+            "name": zorai_protocol::tool_names::RUN_GENERATED_TOOL,
             "description": "Execute a generated runtime tool by name.",
             "inputSchema": {
                 "type": "object",
@@ -663,7 +663,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "promote_generated_tool",
+            "name": zorai_protocol::tool_names::PROMOTE_GENERATED_TOOL,
             "description": "Promote a generated runtime tool into the generated skills library.",
             "inputSchema": {
                 "type": "object",
@@ -674,7 +674,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "activate_generated_tool",
+            "name": zorai_protocol::tool_names::ACTIVATE_GENERATED_TOOL,
             "description": "Activate a newly synthesized runtime tool after review so it can be called on subsequent turns.",
             "inputSchema": {
                 "type": "object",
@@ -685,7 +685,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "get_git_status",
+            "name": zorai_protocol::tool_names::GET_GIT_STATUS,
             "description": "Get git status for a working directory, showing modified, staged, and untracked files.",
             "inputSchema": {
                 "type": "object",
@@ -696,7 +696,7 @@ pub(super) fn tool_definitions() -> Value {
             }
         },
         {
-            "name": "semantic_query",
+            "name": zorai_protocol::tool_names::SEMANTIC_QUERY,
             "description": "Query the daemon semantic environment for packages, dependencies, services, imports, conventions, or temporal workspace history.",
             "inputSchema": {
                 "type": "object",
@@ -735,7 +735,9 @@ mod tests {
             .as_array()
             .expect("tool definitions should be an array");
         assert!(
-            tools.iter().any(|tool| tool["name"] == "query_audits"),
+            tools
+                .iter()
+                .any(|tool| tool["name"] == zorai_protocol::tool_names::QUERY_AUDITS),
             "query_audits tool definition should be present"
         );
     }
@@ -747,7 +749,9 @@ mod tests {
             .as_array()
             .expect("tool definitions should be an array");
         assert!(
-            tools.iter().any(|tool| tool["name"] == "semantic_query"),
+            tools
+                .iter()
+                .any(|tool| tool["name"] == zorai_protocol::tool_names::SEMANTIC_QUERY),
             "semantic_query tool definition should be present"
         );
     }
@@ -760,7 +764,7 @@ mod tests {
             .expect("tool definitions should be an array");
         let discover_skills = tools
             .iter()
-            .find(|tool| tool["name"] == "discover_skills")
+            .find(|tool| tool["name"] == zorai_protocol::tool_names::DISCOVER_SKILLS)
             .expect("discover_skills tool definition should be present");
         assert!(
             discover_skills["description"]
@@ -778,7 +782,11 @@ mod tests {
             .as_array()
             .expect("tool definitions should be an array");
 
-        for name in ["list_guidelines", "discover_guidelines", "read_guideline"] {
+        for name in [
+            zorai_protocol::tool_names::LIST_GUIDELINES,
+            zorai_protocol::tool_names::DISCOVER_GUIDELINES,
+            zorai_protocol::tool_names::READ_GUIDELINE,
+        ] {
             assert!(
                 tools.iter().any(|tool| tool["name"] == name),
                 "{name} tool definition should be present"
@@ -787,7 +795,7 @@ mod tests {
 
         let discover_guidelines = tools
             .iter()
-            .find(|tool| tool["name"] == "discover_guidelines")
+            .find(|tool| tool["name"] == zorai_protocol::tool_names::DISCOVER_GUIDELINES)
             .expect("discover_guidelines tool definition should be present");
         assert!(
             discover_guidelines["description"]
@@ -806,7 +814,7 @@ mod tests {
             .expect("tool definitions should be an array");
         let ask_questions = tools
             .iter()
-            .find(|tool| tool["name"] == "ask_questions")
+            .find(|tool| tool["name"] == zorai_protocol::tool_names::ASK_QUESTIONS)
             .expect("ask_questions tool definition should be present");
 
         let properties = ask_questions["inputSchema"]["properties"]
@@ -833,7 +841,7 @@ mod tests {
             .expect("tool definitions should be an array");
         let tool = tools
             .iter()
-            .find(|tool| tool["name"] == "read_memory")
+            .find(|tool| tool["name"] == zorai_protocol::tool_names::READ_MEMORY)
             .expect("read_memory tool definition should be present");
         assert!(
             tool["inputSchema"]["properties"]
@@ -851,7 +859,7 @@ mod tests {
             .expect("tool definitions should be an array");
         let tool = tools
             .iter()
-            .find(|tool| tool["name"] == "search_memory")
+            .find(|tool| tool["name"] == zorai_protocol::tool_names::SEARCH_MEMORY)
             .expect("search_memory tool definition should be present");
         assert!(
             tool["inputSchema"]["properties"]
@@ -869,7 +877,7 @@ mod tests {
             .expect("tool definitions should be an array");
         let tool = tools
             .iter()
-            .find(|tool| tool["name"] == "read_skill")
+            .find(|tool| tool["name"] == zorai_protocol::tool_names::READ_SKILL)
             .expect("read_skill tool definition should be present");
         let properties = tool["inputSchema"]["properties"]
             .as_object()
@@ -893,7 +901,7 @@ mod tests {
             .expect("tool definitions should be an array");
         let tool = tools
             .iter()
-            .find(|tool| tool["name"] == "read_skill")
+            .find(|tool| tool["name"] == zorai_protocol::tool_names::READ_SKILL)
             .expect("read_skill tool definition should be present");
         let schema = &tool["inputSchema"];
 
@@ -914,7 +922,7 @@ mod tests {
             .expect("tool definitions should be an array");
         let tool = tools
             .iter()
-            .find(|tool| tool["name"] == "start_goal_run")
+            .find(|tool| tool["name"] == zorai_protocol::tool_names::START_GOAL_RUN)
             .expect("start_goal_run tool definition should be present");
         let properties = tool["inputSchema"]["properties"]
             .as_object()

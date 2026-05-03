@@ -1,5 +1,7 @@
 import { getBridge } from "../../../lib/bridge";
 
+import { TOOL_NAMES } from "@/lib/agentTools/toolNames";
+
 export type ToolStructuredField = {
     key: string;
     value: string;
@@ -15,7 +17,7 @@ const CONTENT_FIELD_NAMES = new Set(["content", "contents", "text", "data", "bod
 const MAX_FIELDS = 24;
 
 export function getToolFileTarget(toolName: string, toolArguments: string): ToolFileTarget | null {
-    if (toolName !== "create_file") {
+    if (toolName !== TOOL_NAMES.createFile) {
         return null;
     }
 
@@ -217,7 +219,7 @@ function summarizeStringValue(
     value: string,
 ): string {
     const leafKey = keyPath.split(".").pop() ?? keyPath;
-    if (toolName === "create_file" && source === "arguments" && CONTENT_FIELD_NAMES.has(leafKey)) {
+    if (toolName === TOOL_NAMES.createFile && source === "arguments" && CONTENT_FIELD_NAMES.has(leafKey)) {
         return summarizeContentValue(value);
     }
 

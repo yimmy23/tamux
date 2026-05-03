@@ -270,23 +270,23 @@ pub(super) fn gateway_reply_tool(platform: &str, channel: &str) -> (String, &'st
     match platform.to_ascii_lowercase().as_str() {
         "discord" => (
             format!("send_discord_message with channel_id=\"{}\"", channel),
-            "send_discord_message",
+            zorai_protocol::tool_names::SEND_DISCORD_MESSAGE,
         ),
         "slack" => (
             format!("send_slack_message with channel=\"{}\"", channel),
-            "send_slack_message",
+            zorai_protocol::tool_names::SEND_SLACK_MESSAGE,
         ),
         "telegram" => (
             format!("send_telegram_message with chat_id=\"{}\"", channel),
-            "send_telegram_message",
+            zorai_protocol::tool_names::SEND_TELEGRAM_MESSAGE,
         ),
         "whatsapp" => (
             format!("send_whatsapp_message with phone=\"{}\"", channel),
-            "send_whatsapp_message",
+            zorai_protocol::tool_names::SEND_WHATSAPP_MESSAGE,
         ),
         _ => (
             "the appropriate gateway tool".to_string(),
-            "send_discord_message",
+            zorai_protocol::tool_names::SEND_DISCORD_MESSAGE,
         ),
     }
 }

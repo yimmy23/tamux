@@ -767,6 +767,32 @@ fn start_daemon_bridge(
                             DaemonCommand::SetConfigItem { key_path, value_json } => {
                                 let _ = client.set_config_item_json(key_path, value_json);
                             }
+                            DaemonCommand::ExternalRuntimeMigrationStatus => {
+                                let _ = client.external_runtime_migration_status();
+                            }
+                            DaemonCommand::ExternalRuntimeMigrationPreview {
+                                runtime,
+                                config_path,
+                            } => {
+                                let _ = client.external_runtime_migration_preview(runtime, config_path);
+                            }
+                            DaemonCommand::ExternalRuntimeMigrationApply {
+                                runtime,
+                                config_path,
+                                conflict_policy,
+                            } => {
+                                let _ = client.external_runtime_migration_apply(
+                                    runtime,
+                                    config_path,
+                                    conflict_policy,
+                                );
+                            }
+                            DaemonCommand::ExternalRuntimeMigrationReport { runtime, limit } => {
+                                let _ = client.external_runtime_migration_report(runtime, limit);
+                            }
+                            DaemonCommand::ExternalRuntimeMigrationShadowRun { runtime } => {
+                                let _ = client.external_runtime_migration_shadow_run(runtime);
+                            }
                             DaemonCommand::SetProviderModel { provider_id, model } => {
                                 let _ = client.set_provider_model(provider_id, model);
                             }

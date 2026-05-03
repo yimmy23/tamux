@@ -335,6 +335,45 @@ where
         AgentBridgeCommand::GetConfig => {
             framed.send(ClientMessage::AgentGetConfig).await?;
         }
+        AgentBridgeCommand::ExternalRuntimeMigrationStatus => {
+            framed
+                .send(ClientMessage::AgentExternalRuntimeMigrationStatus)
+                .await?;
+        }
+        AgentBridgeCommand::ExternalRuntimeMigrationPreview {
+            runtime,
+            config_path,
+        } => {
+            framed
+                .send(ClientMessage::AgentExternalRuntimeMigrationPreview {
+                    runtime,
+                    config_path,
+                })
+                .await?;
+        }
+        AgentBridgeCommand::ExternalRuntimeMigrationApply {
+            runtime,
+            config_path,
+            conflict_policy,
+        } => {
+            framed
+                .send(ClientMessage::AgentExternalRuntimeMigrationApply {
+                    runtime,
+                    config_path,
+                    conflict_policy,
+                })
+                .await?;
+        }
+        AgentBridgeCommand::ExternalRuntimeMigrationReport { runtime, limit } => {
+            framed
+                .send(ClientMessage::AgentExternalRuntimeMigrationReport { runtime, limit })
+                .await?;
+        }
+        AgentBridgeCommand::ExternalRuntimeMigrationShadowRun { runtime } => {
+            framed
+                .send(ClientMessage::AgentExternalRuntimeMigrationShadowRun { runtime })
+                .await?;
+        }
         AgentBridgeCommand::GetGatewayConfig => {
             framed.send(ClientMessage::AgentGetGatewayConfig).await?;
         }

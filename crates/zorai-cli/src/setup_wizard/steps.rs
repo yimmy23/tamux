@@ -1,6 +1,15 @@
 use super::flow::set_config_item;
 use super::*;
 
+pub(super) fn web_search_provider_for_key(key_name: &str) -> Option<&'static str> {
+    match key_name {
+        "firecrawl_api_key" => Some("firecrawl"),
+        "exa_api_key" => Some("exa"),
+        "tavily_api_key" => Some("tavily"),
+        _ => None,
+    }
+}
+
 pub(super) async fn configure_web_search(
     framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, ZoraiCodec>,
     summary: &mut SetupSummary,
@@ -55,6 +64,15 @@ pub(super) async fn configure_web_search(
                         set_config_item(framed, "/tools/web_search", "true")
                             .await
                             .context("Failed to enable web search")?;
+                        if let Some(provider) = web_search_provider_for_key(key_name) {
+                            set_config_item(
+                                framed,
+                                "/search_provider",
+                                format!("\"{}\"", provider),
+                            )
+                            .await
+                            .context("Failed to set web search provider")?;
+                        }
                         set_config_item(framed, format!("/{key_name}"), format!("\"{}\"", key))
                             .await
                             .context("Failed to set web search API key")?;

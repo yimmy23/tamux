@@ -142,7 +142,7 @@ async fn execute_managed_command(
     {
         DaemonMessage::ApprovalRequired { mut approval, .. } => {
             if let Some(advisory) = agent
-                .command_blast_radius_advisory("execute_managed_command", command)
+                .command_blast_radius_advisory(tool_names::EXECUTE_MANAGED_COMMAND, command)
                 .await
             {
                 approval
@@ -577,7 +577,7 @@ async fn execute_operation_status_lookup(
             payload["terminal_result"] = terminal_result;
         } else if matches!(
             payload["kind"].as_str(),
-            Some("bash_command" | "run_terminal_command")
+            Some(tool_names::BASH_COMMAND | tool_names::RUN_TERMINAL_COMMAND)
         ) && matches!(payload["state"].as_str(), Some("accepted" | "started"))
         {
             payload["status_hint"] = serde_json::Value::String(

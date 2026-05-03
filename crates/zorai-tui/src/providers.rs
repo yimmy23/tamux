@@ -355,6 +355,17 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
+        id: PROVIDER_ID_HERMES_AGENT_API,
+        name: "Hermes Agent API",
+        default_base_url: "http://localhost:8642/v1",
+        default_model: "hermes-agent",
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
+        native_base_url: None,
+    },
+    ProviderDef {
         id: PROVIDER_ID_QWEN_DEEPINFRA,
         name: "Qwen (DeepInfra)",
         default_base_url: "https://api.deepinfra.com/v1/openai",

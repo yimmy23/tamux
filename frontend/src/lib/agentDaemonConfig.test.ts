@@ -7,9 +7,11 @@ describe("daemon agent config audio wiring", () => {
     const daemonConfig = buildDaemonAgentConfig({
       ...DEFAULT_AGENT_SETTINGS,
       participant_observer_restore_window_hours: 12,
+      auto_refresh_interval_secs: 120,
     });
 
     expect(daemonConfig.participant_observer_restore_window_hours).toBe(12);
+    expect(daemonConfig.auto_refresh_interval_secs).toBe(120);
   });
 
   it("serializes canonical nested audio settings and referenced audio providers", () => {

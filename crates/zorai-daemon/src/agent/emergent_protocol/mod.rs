@@ -913,7 +913,11 @@ mod tests {
                 2,
                 "assistant",
                 "running tool sequence",
-                &["search_files", "read_file", "apply_patch"],
+                &[
+                    zorai_protocol::tool_names::SEARCH_FILES,
+                    zorai_protocol::tool_names::READ_FILE,
+                    zorai_protocol::tool_names::APPLY_PATCH,
+                ],
             ),
             msg("m3", thread_id, 3, "user", "again"),
             msg_with_tool_calls(
@@ -922,7 +926,11 @@ mod tests {
                 4,
                 "assistant",
                 "running tool sequence",
-                &["search_files", "read_file", "apply_patch"],
+                &[
+                    zorai_protocol::tool_names::SEARCH_FILES,
+                    zorai_protocol::tool_names::READ_FILE,
+                    zorai_protocol::tool_names::APPLY_PATCH,
+                ],
             ),
             msg("m5", thread_id, 5, "user", "one more time"),
             msg_with_tool_calls(
@@ -931,7 +939,11 @@ mod tests {
                 6,
                 "assistant",
                 "running tool sequence",
-                &["search_files", "read_file", "apply_patch"],
+                &[
+                    zorai_protocol::tool_names::SEARCH_FILES,
+                    zorai_protocol::tool_names::READ_FILE,
+                    zorai_protocol::tool_names::APPLY_PATCH,
+                ],
             ),
         ];
 

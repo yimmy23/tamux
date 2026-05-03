@@ -217,6 +217,27 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
     ipcMain.handle('agent-request-concierge-welcome', async () => { try { sendAgentCommand({ type: 'request-concierge-welcome' }); return { ok: true }; } catch { return { ok: false }; } });
     ipcMain.handle('dismiss-audit-entry', async (_event, entryId) => { try { sendAgentCommand({ type: 'audit-dismiss', entry_id: entryId }); return { ok: true }; } catch (err) { return { ok: false, error: err.message }; } });
     ipcMain.handle('agent-get-config', async () => sendAgentQuery({ type: 'get-config' }, 'config'));
+    ipcMain.handle('agent-external-runtime-migration-status', async () => sendAgentQuery({ type: 'external-runtime-migration-status' }, 'external-runtime-migration', 15000));
+    ipcMain.handle('agent-external-runtime-migration-preview', async (_event, runtime, configPath) => sendAgentQuery({
+        type: 'external-runtime-migration-preview',
+        runtime,
+        config_path: typeof configPath === 'string' && configPath.trim() ? configPath.trim() : null,
+    }, 'external-runtime-migration', 30000));
+    ipcMain.handle('agent-external-runtime-migration-apply', async (_event, runtime, configPath, conflictPolicy) => sendAgentQuery({
+        type: 'external-runtime-migration-apply',
+        runtime,
+        config_path: typeof configPath === 'string' && configPath.trim() ? configPath.trim() : null,
+        conflict_policy: typeof conflictPolicy === 'string' && conflictPolicy.trim() ? conflictPolicy.trim() : 'stage_for_review',
+    }, 'external-runtime-migration', 30000));
+    ipcMain.handle('agent-external-runtime-migration-report', async (_event, runtime, limit) => sendAgentQuery({
+        type: 'external-runtime-migration-report',
+        runtime: typeof runtime === 'string' && runtime.trim() ? runtime.trim() : null,
+        limit: Number.isFinite(limit) ? Math.trunc(limit) : 20,
+    }, 'external-runtime-migration', 15000));
+    ipcMain.handle('agent-external-runtime-migration-shadow-run', async (_event, runtime) => sendAgentQuery({
+        type: 'external-runtime-migration-shadow-run',
+        runtime,
+    }, 'external-runtime-migration', 15000));
     ipcMain.handle('agent-get-status', async () => { try { return await sendAgentQuery({ type: 'get-status' }, 'status-response'); } catch (err) { logToFile('warn', 'agent-get-status failed', { error: err?.message ?? String(err) }); return null; } });
     ipcMain.handle('agent-get-statistics', async (_event, window) => {
         try {

@@ -234,6 +234,7 @@ pub(super) fn known_models_for_provider_auth(
                 131_072,
             ),
         ],
+        PROVIDER_ID_HERMES_AGENT_API => &[("hermes-agent", "Hermes Agent", 128_000)],
         PROVIDER_ID_HUGGINGFACE => &[(
             "meta-llama/Llama-3.3-70B-Instruct",
             "Llama 3.3 70B",

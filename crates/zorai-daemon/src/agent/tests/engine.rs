@@ -56,6 +56,7 @@ fn provider_config(
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     }
 }
 

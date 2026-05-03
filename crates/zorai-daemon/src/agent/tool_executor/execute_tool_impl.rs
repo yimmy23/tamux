@@ -6,7 +6,7 @@ async fn maybe_bootstrap_todo_plan_for_background_tool(
     args: &serde_json::Value,
 ) -> bool {
     let (content, status, notice_message) = match tool_name {
-        "spawn_subagent" => {
+        tool_names::SPAWN_SUBAGENT => {
             let title = args
                 .get("title")
                 .and_then(|value| value.as_str())
@@ -19,7 +19,7 @@ async fn maybe_bootstrap_todo_plan_for_background_tool(
                 format!("Bootstrapped plan tracking for delegated work: {title}"),
             )
         }
-        "enqueue_task" => {
+        tool_names::ENQUEUE_TASK => {
             let summary = args
                 .get("title")
                 .and_then(|value| value.as_str())
@@ -122,13 +122,13 @@ async fn maybe_emit_existing_tool_status_notice(
             format!(
                 "Equivalent generated tool `{id}` already exists for this {gap_label}. Activate it instead of synthesizing a duplicate."
             ),
-            "activate_generated_tool",
+            tool_names::ACTIVATE_GENERATED_TOOL,
         ),
         "promotable" => (
             format!(
                 "Equivalent generated tool `{id}` is already promotable. Prefer using or promoting it instead of synthesizing a duplicate."
             ),
-            "promote_generated_tool",
+            tool_names::PROMOTE_GENERATED_TOOL,
         ),
         "promoted" => (
             format!(
@@ -485,7 +485,7 @@ async fn maybe_emit_openapi_synthesis_proposal_notice(
 }
 
 fn should_scrub_successful_tool_result(tool_name: &str) -> bool {
-    !matches!(tool_name, "read_offloaded_payload")
+    !matches!(tool_name, tool_names::READ_OFFLOADED_PAYLOAD)
 }
 
 fn sanitize_broadcast_mentions(message: &str) -> Option<String> {
@@ -583,7 +583,7 @@ fn maybe_rewrite_shell_tool_to_safer_file_mutation(
 ) -> Option<(String, serde_json::Value, Vec<String>)> {
     if !matches!(
         tool_name,
-        "bash_command" | "run_terminal_command" | "execute_managed_command"
+        tool_names::BASH_COMMAND | tool_names::RUN_TERMINAL_COMMAND | tool_names::EXECUTE_MANAGED_COMMAND
     ) {
         return None;
     }
@@ -605,7 +605,7 @@ fn maybe_rewrite_shell_tool_to_safer_file_mutation(
             serde_json::Value::String(patch_text.to_string()),
         );
         return Some((
-            "apply_patch".to_string(),
+            tool_names::APPLY_PATCH.to_string(),
             serde_json::Value::Object(rewritten),
             vec!["fallback:rewrite_to_apply_patch".to_string()],
         ));
@@ -646,7 +646,7 @@ fn maybe_rewrite_shell_tool_to_safer_file_mutation(
     }
 
     Some((
-        "replace_in_file".to_string(),
+        tool_names::REPLACE_IN_FILE.to_string(),
         serde_json::Value::Object(rewritten),
         vec!["fallback:rewrite_to_replace_in_file".to_string()],
     ))
@@ -677,7 +677,7 @@ fn apply_critique_modifications(
     let mut adjustments = Vec::new();
 
     match tool_name {
-        "bash_command" | "run_terminal_command" | "execute_managed_command" => {
+        tool_names::BASH_COMMAND | tool_names::RUN_TERMINAL_COMMAND | tool_names::EXECUTE_MANAGED_COMMAND => {
             if let Some(value) = map.remove("dangerous_flag") {
                 map.insert("safe_flag".to_string(), value);
                 adjustments.push("shell:rename_key:dangerous_flag->safe_flag".to_string());
@@ -720,7 +720,7 @@ fn apply_critique_modifications(
                 adjustments.push("shell:inject_security_level".to_string());
             }
         }
-        "send_slack_message" => {
+        tool_names::SEND_SLACK_MESSAGE => {
             if map.remove("channel").is_some() {
                 adjustments.push("messaging:strip_explicit_channel".to_string());
             }
@@ -728,7 +728,7 @@ fn apply_critique_modifications(
                 adjustments.push("messaging:strip_explicit_thread".to_string());
             }
         }
-        "send_discord_message" => {
+        tool_names::SEND_DISCORD_MESSAGE => {
             if map.remove("channel_id").is_some() {
                 adjustments.push("messaging:strip_explicit_channel".to_string());
             }
@@ -739,7 +739,7 @@ fn apply_critique_modifications(
                 adjustments.push("messaging:strip_explicit_reply".to_string());
             }
         }
-        "send_telegram_message" => {
+        tool_names::SEND_TELEGRAM_MESSAGE => {
             if map.remove("chat_id").is_some() {
                 adjustments.push("messaging:strip_explicit_chat".to_string());
             }
@@ -747,7 +747,7 @@ fn apply_critique_modifications(
                 adjustments.push("messaging:strip_explicit_reply".to_string());
             }
         }
-        "send_whatsapp_message" => {
+        tool_names::SEND_WHATSAPP_MESSAGE => {
             if map.remove("phone").is_some() {
                 adjustments.push("messaging:strip_explicit_phone".to_string());
             }
@@ -755,7 +755,7 @@ fn apply_critique_modifications(
                 adjustments.push("messaging:strip_explicit_phone".to_string());
             }
         }
-        "synthesize_tool" => {
+        tool_names::SYNTHESIZE_TOOL => {
             let requires_confirmation = !critique_bypass_confirmation
                 && critique_modifications.iter().any(|item| {
                     let normalized = item.trim().to_ascii_lowercase();
@@ -770,12 +770,12 @@ fn apply_critique_modifications(
                 );
                 map.insert(
                     "__critique_confirmation_reason".to_string(),
-                    serde_json::Value::String("synthesize_tool".to_string()),
+                    serde_json::Value::String(tool_names::SYNTHESIZE_TOOL.to_string()),
                 );
                 adjustments.push("synthesize_tool:require_operator_confirmation".to_string());
             }
         }
-        "switch_model" => {
+        tool_names::SWITCH_MODEL => {
             let requires_confirmation = !critique_bypass_confirmation
                 && (critique_modifications.iter().any(|item| {
                     let normalized = item.trim().to_ascii_lowercase();
@@ -793,12 +793,12 @@ fn apply_critique_modifications(
                 );
                 map.insert(
                     "__critique_confirmation_reason".to_string(),
-                    serde_json::Value::String("switch_model".to_string()),
+                    serde_json::Value::String(tool_names::SWITCH_MODEL.to_string()),
                 );
                 adjustments.push("switch_model:require_operator_confirmation".to_string());
             }
         }
-        "plugin_api_call" => {
+        tool_names::PLUGIN_API_CALL => {
             let requires_confirmation = !critique_bypass_confirmation
                 && critique_modifications.iter().any(|item| {
                     let normalized = item.trim().to_ascii_lowercase();
@@ -813,13 +813,13 @@ fn apply_critique_modifications(
                 );
                 map.insert(
                     "__critique_confirmation_reason".to_string(),
-                    serde_json::Value::String("plugin_api_call".to_string()),
+                    serde_json::Value::String(tool_names::PLUGIN_API_CALL.to_string()),
                 );
                 adjustments.push("plugin_api_call:require_operator_confirmation".to_string());
             }
         }
-        "write_file" | "create_file" | "append_to_file" | "replace_in_file"
-        | "apply_file_patch" => {
+        tool_names::WRITE_FILE | tool_names::CREATE_FILE | tool_names::APPEND_TO_FILE | tool_names::REPLACE_IN_FILE
+        | tool_names::APPLY_FILE_PATCH => {
             let sensitive_path = has_directive(
                 critique_directives,
                 crate::agent::critique::types::CritiqueDirective::NarrowSensitiveFilePath,
@@ -852,7 +852,7 @@ fn apply_critique_modifications(
                 }
             }
         }
-        "apply_patch" => {
+        tool_names::APPLY_PATCH => {
             let sensitive_path = has_directive(
                 critique_directives,
                 crate::agent::critique::types::CritiqueDirective::NarrowSensitiveFilePath,
@@ -893,7 +893,7 @@ fn apply_critique_modifications(
                 }
             }
         }
-        "enqueue_task" => {
+        tool_names::ENQUEUE_TASK => {
             let has_explicit_schedule = map.get("scheduled_at").is_some()
                 || map.get("schedule_at").is_some()
                 || map.get("delay_seconds").is_some();
@@ -915,7 +915,7 @@ fn apply_critique_modifications(
                 adjustments.push("temporal:schedule_for_operator_window".to_string());
             }
         }
-        "spawn_subagent" => {
+        tool_names::SPAWN_SUBAGENT => {
             let has_explicit_schedule = map.get("scheduled_at").is_some()
                 || map.get("schedule_at").is_some()
                 || map.get("delay_seconds").is_some();
@@ -1372,7 +1372,7 @@ async fn prepare_tool_execution(
                 audit_id: Some(format!("critique_confirmation_{}", tool_call.id)),
             },
         )
-    } else if effective_tool_name.as_str() == "switch_model" {
+    } else if effective_tool_name.as_str() == tool_names::SWITCH_MODEL {
         crate::agent::weles_governance::direct_allow_decision(governance_classification.class)
     } else if crate::agent::agent_identity::is_weles_agent_scope(&active_scope_id) {
         crate::agent::weles_governance::internal_runtime_decision(
@@ -1525,7 +1525,7 @@ async fn prepare_tool_execution(
     if !thread_id.trim().is_empty()
         && matches!(
             tool_call.function.name.as_str(),
-            "bash_command" | "execute_managed_command" | "enqueue_task" | "spawn_subagent"
+            tool_names::BASH_COMMAND | tool_names::EXECUTE_MANAGED_COMMAND | tool_names::ENQUEUE_TASK | tool_names::SPAWN_SUBAGENT
         )
         && !trusted_weles_internal_task
         && agent.get_todos(thread_id).await.is_empty()
@@ -1583,9 +1583,9 @@ async fn dispatch_tool_execution(
 
     let result = match prepared.dispatch_tool_name.as_str() {
         // Terminal/session tools (daemon owns sessions directly)
-        "list_terminals" | "list_sessions" => execute_list_sessions(session_manager).await,
-        "read_active_terminal_content" => execute_read_terminal(args, session_manager).await,
-        "run_terminal_command" => {
+        tool_names::LIST_TERMINALS | tool_names::LIST_SESSIONS => execute_list_sessions(session_manager).await,
+        tool_names::READ_ACTIVE_TERMINAL_CONTENT => execute_read_terminal(args, session_manager).await,
+        tool_names::RUN_TERMINAL_COMMAND => {
             match execute_run_terminal_command(
                 dispatch_args,
                 agent,
@@ -1605,7 +1605,7 @@ async fn dispatch_tool_execution(
                 Err(error) => Err(error),
             }
         }
-        "execute_managed_command" => {
+        tool_names::EXECUTE_MANAGED_COMMAND => {
             match execute_managed_command(
                 dispatch_args,
                 agent,
@@ -1624,21 +1624,21 @@ async fn dispatch_tool_execution(
                 Err(error) => Err(error),
             }
         }
-        "get_operation_status" => execute_get_operation_status(args, session_manager).await,
-        "get_background_task_status" => {
+        tool_names::GET_OPERATION_STATUS => execute_get_operation_status(args, session_manager).await,
+        tool_names::GET_BACKGROUND_TASK_STATUS => {
             execute_get_background_task_status(args, session_manager).await
         }
-        "allocate_terminal" => {
+        tool_names::ALLOCATE_TERMINAL => {
             execute_allocate_terminal(args, session_manager, session_id, event_tx).await
         }
-        "fetch_authenticated_providers" => execute_fetch_authenticated_providers(agent).await,
-        "list_providers" => execute_list_providers(agent).await,
-        "fetch_provider_models" => execute_fetch_provider_models(args, agent).await,
-        "list_models" => execute_list_models(args, agent).await,
-        "list_agents" => execute_list_agents(agent).await,
-        "list_participants" => execute_list_participants(agent, thread_id).await,
-        "switch_model" => execute_switch_model(args, agent).await,
-        "spawn_subagent" => {
+        tool_names::FETCH_AUTHENTICATED_PROVIDERS => execute_fetch_authenticated_providers(agent).await,
+        tool_names::LIST_PROVIDERS => execute_list_providers(agent).await,
+        tool_names::FETCH_PROVIDER_MODELS => execute_fetch_provider_models(args, agent).await,
+        tool_names::LIST_MODELS => execute_list_models(args, agent).await,
+        tool_names::LIST_AGENTS => execute_list_agents(agent).await,
+        tool_names::LIST_PARTICIPANTS => execute_list_participants(agent, thread_id).await,
+        tool_names::SWITCH_MODEL => execute_switch_model(args, agent).await,
+        tool_names::SPAWN_SUBAGENT => {
             execute_spawn_subagent(
                 args,
                 agent,
@@ -1650,7 +1650,7 @@ async fn dispatch_tool_execution(
             )
             .await
         }
-        "handoff_thread_agent" => {
+        tool_names::HANDOFF_THREAD_AGENT => {
             match execute_handoff_thread_agent(args, agent, thread_id).await {
                 Ok((content, approval)) => {
                     pending_approval = approval;
@@ -1659,73 +1659,73 @@ async fn dispatch_tool_execution(
                 Err(error) => Err(error),
             }
         }
-        "list_subagents" => execute_list_subagents(args, agent, thread_id, task_id).await,
-        "message_agent" => {
+        tool_names::LIST_SUBAGENTS => execute_list_subagents(args, agent, thread_id, task_id).await,
+        tool_names::MESSAGE_AGENT => {
             Box::pin(execute_message_agent(
                 args, agent, thread_id, task_id, session_id,
             ))
             .await
         }
-        "route_to_specialist" => execute_route_to_specialist(args, agent, thread_id, task_id).await,
-        "run_divergent" => execute_run_divergent(args, agent, thread_id, task_id).await,
-        "get_divergent_session" => execute_get_divergent_session(args, agent).await,
-        "run_debate" => execute_run_debate(args, agent, thread_id, task_id).await,
-        "get_debate_session" => execute_get_debate_session(args, agent).await,
-        "get_critique_session" => execute_get_critique_session(args, agent).await,
-        "lookup_emergent_protocol" => {
+        tool_names::ROUTE_TO_SPECIALIST => execute_route_to_specialist(args, agent, thread_id, task_id).await,
+        tool_names::RUN_DIVERGENT => execute_run_divergent(args, agent, thread_id, task_id).await,
+        tool_names::GET_DIVERGENT_SESSION => execute_get_divergent_session(args, agent).await,
+        tool_names::RUN_DEBATE => execute_run_debate(args, agent, thread_id, task_id).await,
+        tool_names::GET_DEBATE_SESSION => execute_get_debate_session(args, agent).await,
+        tool_names::GET_CRITIQUE_SESSION => execute_get_critique_session(args, agent).await,
+        tool_names::LOOKUP_EMERGENT_PROTOCOL => {
             execute_lookup_emergent_protocol(args, agent, thread_id).await
         }
-        "list_emergent_protocol_proposals" => {
+        tool_names::LIST_EMERGENT_PROTOCOL_PROPOSALS => {
             execute_list_emergent_protocol_proposals(args, agent, thread_id).await
         }
-        "respond_emergent_protocol_proposal" => {
+        tool_names::RESPOND_EMERGENT_PROTOCOL_PROPOSAL => {
             execute_respond_emergent_protocol_proposal(args, agent, thread_id).await
         }
-        "reload_emergent_protocol_registry" => {
+        tool_names::RELOAD_EMERGENT_PROTOCOL_REGISTRY => {
             execute_reload_emergent_protocol_registry(args, agent, thread_id).await
         }
-        "decode_emergent_protocol" => {
+        tool_names::DECODE_EMERGENT_PROTOCOL => {
             execute_decode_emergent_protocol(args, agent, thread_id).await
         }
-        "get_emergent_protocol_usage_log" => {
+        tool_names::GET_EMERGENT_PROTOCOL_USAGE_LOG => {
             execute_get_emergent_protocol_usage_log(args, agent).await
         }
-        "append_debate_argument" => execute_append_debate_argument(args, agent).await,
-        "advance_debate_round" => execute_advance_debate_round(args, agent).await,
-        "complete_debate_session" => execute_complete_debate_session(args, agent).await,
-        "broadcast_contribution" => {
+        tool_names::APPEND_DEBATE_ARGUMENT => execute_append_debate_argument(args, agent).await,
+        tool_names::ADVANCE_DEBATE_ROUND => execute_advance_debate_round(args, agent).await,
+        tool_names::COMPLETE_DEBATE_SESSION => execute_complete_debate_session(args, agent).await,
+        tool_names::BROADCAST_CONTRIBUTION => {
             execute_broadcast_contribution(args, agent, thread_id, task_id).await
         }
-        "read_peer_memory" => execute_read_peer_memory(args, agent, task_id).await,
-        "vote_on_disagreement" => {
+        tool_names::READ_PEER_MEMORY => execute_read_peer_memory(args, agent, task_id).await,
+        tool_names::VOTE_ON_DISAGREEMENT => {
             execute_vote_on_disagreement(args, agent, thread_id, task_id).await
         }
-        "dispatch_via_bid_protocol" => execute_dispatch_via_bid_protocol(args, agent).await,
-        "list_collaboration_sessions" => {
+        tool_names::DISPATCH_VIA_BID_PROTOCOL => execute_dispatch_via_bid_protocol(args, agent).await,
+        tool_names::LIST_COLLABORATION_SESSIONS => {
             execute_list_collaboration_sessions(args, agent, task_id).await
         }
-        "list_threads" => execute_list_threads(args, agent).await,
-        "get_thread" => execute_get_thread(args, agent).await,
-        "read_offloaded_payload" => execute_read_offloaded_payload(args, agent, thread_id).await,
-        "enqueue_task" => execute_enqueue_task(args, agent).await,
-        "list_tasks" => execute_list_tasks(args, agent).await,
-        "start_goal_run" => execute_start_goal_run(args, agent, thread_id, session_id).await,
-        "list_goal_runs" => execute_list_goal_runs(agent).await,
-        "submit_goal_step_verdict" => {
+        tool_names::LIST_THREADS => execute_list_threads(args, agent).await,
+        tool_names::GET_THREAD => execute_get_thread(args, agent).await,
+        tool_names::READ_OFFLOADED_PAYLOAD => execute_read_offloaded_payload(args, agent, thread_id).await,
+        tool_names::ENQUEUE_TASK => execute_enqueue_task(args, agent).await,
+        tool_names::LIST_TASKS => execute_list_tasks(args, agent).await,
+        tool_names::START_GOAL_RUN => execute_start_goal_run(args, agent, thread_id, session_id).await,
+        tool_names::LIST_GOAL_RUNS => execute_list_goal_runs(agent).await,
+        tool_names::SUBMIT_GOAL_STEP_VERDICT => {
             execute_submit_goal_step_verdict(args, agent, task_id).await
         }
-        "create_routine" => execute_create_routine(args, agent).await,
-        "list_routines" => execute_list_routines(args, agent).await,
-        "get_routine" => execute_get_routine(args, agent).await,
-        "preview_routine" => execute_preview_routine(args, agent).await,
-        "update_routine" => execute_update_routine(args, agent).await,
-        "run_routine_now" => execute_run_routine_now(args, agent).await,
-        "list_routine_history" => execute_list_routine_history(args, agent).await,
-        "rerun_routine" => execute_rerun_routine(args, agent).await,
-        "pause_routine" => execute_pause_routine(args, agent).await,
-        "resume_routine" => execute_resume_routine(args, agent).await,
-        "delete_routine" => execute_delete_routine(args, agent).await,
-        "run_workflow_pack" => {
+        tool_names::CREATE_ROUTINE => execute_create_routine(args, agent).await,
+        tool_names::LIST_ROUTINES => execute_list_routines(args, agent).await,
+        tool_names::GET_ROUTINE => execute_get_routine(args, agent).await,
+        tool_names::PREVIEW_ROUTINE => execute_preview_routine(args, agent).await,
+        tool_names::UPDATE_ROUTINE => execute_update_routine(args, agent).await,
+        tool_names::RUN_ROUTINE_NOW => execute_run_routine_now(args, agent).await,
+        tool_names::LIST_ROUTINE_HISTORY => execute_list_routine_history(args, agent).await,
+        tool_names::RERUN_ROUTINE => execute_rerun_routine(args, agent).await,
+        tool_names::PAUSE_ROUTINE => execute_pause_routine(args, agent).await,
+        tool_names::RESUME_ROUTINE => execute_resume_routine(args, agent).await,
+        tool_names::DELETE_ROUTINE => execute_delete_routine(args, agent).await,
+        tool_names::RUN_WORKFLOW_PACK => {
             match execute_run_workflow_pack(args, agent, thread_id, task_id).await {
                 Ok((content, approval)) => {
                     pending_approval = approval;
@@ -1734,65 +1734,65 @@ async fn dispatch_tool_execution(
                 Err(error) => Err(error),
             }
         }
-        "whatsapp_link_start" => execute_whatsapp_link_start(args, agent).await,
-        "whatsapp_link_stop" => execute_whatsapp_link_stop(args, agent).await,
-        "whatsapp_link_reset" => execute_whatsapp_link_reset(args, agent).await,
-        "whatsapp_link_status" => execute_whatsapp_link_status(args, agent).await,
-        "list_triggers" => execute_list_triggers(args, agent).await,
-        "ingest_webhook_event" => execute_ingest_webhook_event(args, agent).await,
-        "add_trigger" => execute_add_trigger(args, agent).await,
-        "list_trigger_fire_history" => execute_list_trigger_fire_history(args, agent).await,
-        "get_cost_summary" => execute_get_cost_summary(args, agent).await,
-        "list_browser_profiles" => execute_list_browser_profiles(args, agent).await,
-        "create_browser_profile" => execute_create_browser_profile(args, agent).await,
-        "update_browser_profile_health" => execute_update_browser_profile_health(args, agent).await,
-        "show_dreams" => execute_show_dreams(args, agent).await,
-        "show_harness_state" => {
+        tool_names::WHATSAPP_LINK_START => execute_whatsapp_link_start(args, agent).await,
+        tool_names::WHATSAPP_LINK_STOP => execute_whatsapp_link_stop(args, agent).await,
+        tool_names::WHATSAPP_LINK_RESET => execute_whatsapp_link_reset(args, agent).await,
+        tool_names::WHATSAPP_LINK_STATUS => execute_whatsapp_link_status(args, agent).await,
+        tool_names::LIST_TRIGGERS => execute_list_triggers(args, agent).await,
+        tool_names::INGEST_WEBHOOK_EVENT => execute_ingest_webhook_event(args, agent).await,
+        tool_names::ADD_TRIGGER => execute_add_trigger(args, agent).await,
+        tool_names::LIST_TRIGGER_FIRE_HISTORY => execute_list_trigger_fire_history(args, agent).await,
+        tool_names::GET_COST_SUMMARY => execute_get_cost_summary(args, agent).await,
+        tool_names::LIST_BROWSER_PROFILES => execute_list_browser_profiles(args, agent).await,
+        tool_names::CREATE_BROWSER_PROFILE => execute_create_browser_profile(args, agent).await,
+        tool_names::UPDATE_BROWSER_PROFILE_HEALTH => execute_update_browser_profile_health(args, agent).await,
+        tool_names::SHOW_DREAMS => execute_show_dreams(args, agent).await,
+        tool_names::SHOW_HARNESS_STATE => {
             execute_show_harness_state(args, agent, thread_id, task_id).await
         },
-        "import_external_runtime" => execute_import_external_runtime(args, agent).await,
-        "show_import_report" => execute_show_import_report(args, agent).await,
-        "preview_shadow_run" => execute_preview_shadow_run(args, agent).await,
-        "get_todos" => execute_get_todos(args, agent, task_id).await,
-        "cancel_task" => execute_cancel_task(args, agent).await,
-        "type_in_terminal" => execute_type_in_terminal(args, session_manager).await,
-        "send_slack_message"
-        | "send_discord_message"
-        | "send_telegram_message"
-        | "send_whatsapp_message" => {
+        tool_names::IMPORT_EXTERNAL_RUNTIME => execute_import_external_runtime(args, agent).await,
+        tool_names::SHOW_IMPORT_REPORT => execute_show_import_report(args, agent).await,
+        tool_names::PREVIEW_SHADOW_RUN => execute_preview_shadow_run(args, agent).await,
+        tool_names::GET_TODOS => execute_get_todos(args, agent, task_id).await,
+        tool_names::CANCEL_TASK => execute_cancel_task(args, agent).await,
+        tool_names::TYPE_IN_TERMINAL => execute_type_in_terminal(args, session_manager).await,
+        tool_names::SEND_SLACK_MESSAGE
+        | tool_names::SEND_DISCORD_MESSAGE
+        | tool_names::SEND_TELEGRAM_MESSAGE
+        | tool_names::SEND_WHATSAPP_MESSAGE => {
             execute_gateway_message(prepared.tool_name.as_str(), args, agent, http_client).await
         }
-        "list_workspaces"
-        | "create_workspace"
-        | "set_active_workspace"
-        | "create_surface"
-        | "set_active_surface"
-        | "split_pane"
-        | "rename_pane"
-        | "set_layout_preset"
-        | "equalize_layout"
-        | "list_snippets"
-        | "create_snippet"
-        | "run_snippet" => {
+        tool_names::LIST_WORKSPACES
+        | tool_names::CREATE_WORKSPACE
+        | tool_names::SET_ACTIVE_WORKSPACE
+        | tool_names::CREATE_SURFACE
+        | tool_names::SET_ACTIVE_SURFACE
+        | tool_names::SPLIT_PANE
+        | tool_names::RENAME_PANE
+        | tool_names::SET_LAYOUT_PRESET
+        | tool_names::EQUALIZE_LAYOUT
+        | tool_names::LIST_SNIPPETS
+        | tool_names::CREATE_SNIPPET
+        | tool_names::RUN_SNIPPET => {
             execute_workspace_tool(prepared.tool_name.as_str(), args, event_tx).await
         }
-        "workspace_get_settings"
-        | "workspace_list_tasks"
-        | "workspace_get_task"
-        | "workspace_list_notices"
-        | "workspace_set_operator"
-        | "workspace_create_task"
-        | "workspace_update_task"
-        | "workspace_move_task"
-        | "workspace_run_task"
-        | "workspace_pause_task"
-        | "workspace_stop_task"
-        | "workspace_delete_task"
-        | "workspace_submit_review"
-        | "workspace_submit_completion" => {
+        tool_names::WORKSPACE_GET_SETTINGS
+        | tool_names::WORKSPACE_LIST_TASKS
+        | tool_names::WORKSPACE_GET_TASK
+        | tool_names::WORKSPACE_LIST_NOTICES
+        | tool_names::WORKSPACE_SET_OPERATOR
+        | tool_names::WORKSPACE_CREATE_TASK
+        | tool_names::WORKSPACE_UPDATE_TASK
+        | tool_names::WORKSPACE_MOVE_TASK
+        | tool_names::WORKSPACE_RUN_TASK
+        | tool_names::WORKSPACE_PAUSE_TASK
+        | tool_names::WORKSPACE_STOP_TASK
+        | tool_names::WORKSPACE_DELETE_TASK
+        | tool_names::WORKSPACE_SUBMIT_REVIEW
+        | tool_names::WORKSPACE_SUBMIT_COMPLETION => {
             execute_workspace_task_tool(prepared.tool_name.as_str(), args, agent).await
         }
-        "bash_command" => {
+        tool_names::BASH_COMMAND => {
             match execute_bash_command(
                 dispatch_args,
                 agent,
@@ -1812,7 +1812,7 @@ async fn dispatch_tool_execution(
                 Err(error) => Err(error),
             }
         }
-        "python_execute" => {
+        tool_names::PYTHON_EXECUTE => {
             execute_python_execute(
                 dispatch_args,
                 session_manager,
@@ -1821,59 +1821,65 @@ async fn dispatch_tool_execution(
             )
             .await
         }
-        "analyze_image" => execute_analyze_image(args, agent, http_client).await,
-        "generate_image" => execute_generate_image(args, agent, http_client, Some(thread_id)).await,
-        "speech_to_text" => execute_speech_to_text(args, agent, http_client).await,
-        "text_to_speech" => execute_text_to_speech(args, agent, http_client).await,
-        "list_files" => execute_list_files(args, session_manager, session_id).await,
-        "read_file" => execute_read_file(args).await,
-        "get_git_line_statuses" => execute_get_git_line_statuses(args).await,
-        "write_file" => execute_write_file(args, session_manager, session_id).await,
-        "create_file" => execute_create_file(args).await,
-        "append_to_file" => execute_append_to_file(args).await,
-        "replace_in_file" => execute_replace_in_file(args).await,
-        "apply_file_patch" => execute_apply_file_patch(args).await,
-        "apply_patch" => execute_apply_patch(args).await,
-        "search_files" => execute_search_files(args).await,
-        "get_system_info" => execute_system_info().await,
-        "get_current_datetime" => execute_current_datetime().await,
-        "list_processes" => execute_list_processes(args).await,
-        "search_history" => execute_search_history(args, agent).await,
-        "fetch_gateway_history" => execute_fetch_gateway_history(args, agent, thread_id).await,
-        "session_search" => execute_session_search(args, session_manager).await,
-        "agent_query_memory" => execute_agent_query_memory(args, agent).await,
-        "onecontext_search" => execute_onecontext_search(args).await,
-        "notify_user" => execute_notify(args, agent).await,
-        "update_todo" => execute_update_todo(args, agent, thread_id, task_id).await,
-        "update_memory" => {
+        tool_names::ANALYZE_IMAGE => execute_analyze_image(args, agent, http_client).await,
+        tool_names::GENERATE_IMAGE => execute_generate_image(args, agent, http_client, Some(thread_id)).await,
+        tool_names::SPEECH_TO_TEXT => execute_speech_to_text(args, agent, http_client).await,
+        tool_names::TEXT_TO_SPEECH => execute_text_to_speech(args, agent, http_client).await,
+        tool_names::LIST_FILES => execute_list_files(args, session_manager, session_id).await,
+        tool_names::READ_FILE => execute_read_file(args).await,
+        tool_names::GET_GIT_LINE_STATUSES => execute_get_git_line_statuses(args).await,
+        tool_names::WRITE_FILE => execute_write_file(args, session_manager, session_id).await,
+        tool_names::CREATE_FILE => execute_create_file(args).await,
+        tool_names::APPEND_TO_FILE => execute_append_to_file(args).await,
+        tool_names::REPLACE_IN_FILE => execute_replace_in_file(args).await,
+        tool_names::APPLY_FILE_PATCH => execute_apply_file_patch(args).await,
+        tool_names::APPLY_PATCH => execute_apply_patch(args).await,
+        tool_names::SEARCH_FILES => execute_search_files(args).await,
+        tool_names::GET_SYSTEM_INFO => execute_system_info().await,
+        tool_names::GET_CURRENT_DATETIME => execute_current_datetime().await,
+        tool_names::LIST_PROCESSES => execute_list_processes(args).await,
+        tool_names::SEARCH_HISTORY => execute_search_history(args, agent).await,
+        tool_names::FETCH_GATEWAY_HISTORY => execute_fetch_gateway_history(args, agent, thread_id).await,
+        tool_names::SESSION_SEARCH => execute_session_search(args, session_manager).await,
+        tool_names::AGENT_QUERY_MEMORY => execute_agent_query_memory(args, agent).await,
+        tool_names::ONECONTEXT_SEARCH => execute_onecontext_search(args).await,
+        tool_names::NOTIFY_USER => execute_notify(args, agent).await,
+        tool_names::UPDATE_TODO => execute_update_todo(args, agent, thread_id, task_id).await,
+        tool_names::UPDATE_MEMORY => {
             execute_update_memory(args, agent, thread_id, task_id, agent_data_dir).await
         }
-        "read_memory" => {
+        tool_names::READ_MEMORY => {
             execute_read_memory(args, agent, Some(thread_id), task_id, agent_data_dir).await
         }
-        "read_user" => {
+        tool_names::READ_USER => {
             execute_read_user(args, agent, Some(thread_id), task_id, agent_data_dir).await
         }
-        "read_soul" => {
+        tool_names::READ_SOUL => {
             execute_read_soul(args, agent, Some(thread_id), task_id, agent_data_dir).await
         }
-        "search_memory" => {
+        tool_names::SEARCH_MEMORY => {
             execute_search_memory(args, agent, Some(thread_id), task_id, agent_data_dir).await
         }
-        "search_user" => {
+        tool_names::SEARCH_USER => {
             execute_search_user(args, agent, Some(thread_id), task_id, agent_data_dir).await
         }
-        "search_soul" => {
+        tool_names::SEARCH_SOUL => {
             execute_search_soul(args, agent, Some(thread_id), task_id, agent_data_dir).await
         }
-        "list_tools" => execute_list_tools(args, agent, session_manager, agent_data_dir).await,
-        "tool_search" => execute_tool_search(args, agent, session_manager, agent_data_dir).await,
-        "list_guidelines" => execute_list_guidelines(args, agent_data_dir).await,
-        "discover_guidelines" => execute_discover_guidelines(args, agent, session_id).await,
-        "read_guideline" => execute_read_guideline(args, agent_data_dir).await,
-        "list_skills" => execute_list_skills(args, agent_data_dir, &agent.history).await,
-        "discover_skills" => execute_discover_skills(args, agent, session_id).await,
-        "semantic_query" => {
+        tool_names::LIST_TOOLS => {
+            execute_list_tools(args, agent, session_manager, agent_data_dir, thread_id, task_id)
+                .await
+        }
+        tool_names::TOOL_SEARCH => {
+            execute_tool_search(args, agent, session_manager, agent_data_dir, thread_id, task_id)
+                .await
+        }
+        tool_names::LIST_GUIDELINES => execute_list_guidelines(args, agent_data_dir).await,
+        tool_names::DISCOVER_GUIDELINES => execute_discover_guidelines(args, agent, session_id).await,
+        tool_names::READ_GUIDELINE => execute_read_guideline(args, agent_data_dir).await,
+        tool_names::LIST_SKILLS => execute_list_skills(args, agent_data_dir, &agent.history).await,
+        tool_names::DISCOVER_SKILLS => execute_discover_skills(args, agent, session_id).await,
+        tool_names::SEMANTIC_QUERY => {
             execute_semantic_query(
                 dispatch_args,
                 session_manager,
@@ -1883,7 +1889,7 @@ async fn dispatch_tool_execution(
             )
             .await
         }
-        "read_skill" => {
+        tool_names::READ_SKILL => {
             execute_read_skill(
                 args,
                 agent,
@@ -1896,7 +1902,7 @@ async fn dispatch_tool_execution(
             )
             .await
         }
-        "ask_questions" => {
+        tool_names::ASK_QUESTIONS => {
             let parsed = (|| -> Result<(String, Vec<String>, Option<String>, Option<String>)> {
                 let content = dispatch_args
                     .get("content")
@@ -1942,31 +1948,31 @@ async fn dispatch_tool_execution(
                 Err(error) => Err(error),
             }
         }
-        "justify_skill_skip" => execute_justify_skill_skip(args, agent, thread_id).await,
-        "synthesize_tool" => synthesize_tool(args, agent, agent_data_dir, http_client).await,
-        "list_generated_tools" => list_generated_tools(agent_data_dir),
-        "promote_generated_tool" => args
+        tool_names::JUSTIFY_SKILL_SKIP => execute_justify_skill_skip(args, agent, thread_id).await,
+        tool_names::SYNTHESIZE_TOOL => synthesize_tool(args, agent, agent_data_dir, http_client).await,
+        tool_names::LIST_GENERATED_TOOLS => list_generated_tools(agent_data_dir),
+        tool_names::PROMOTE_GENERATED_TOOL => args
             .get("tool")
             .and_then(|value| value.as_str())
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| anyhow::anyhow!("missing 'tool' argument"))
             .and_then(|tool| promote_generated_tool(agent_data_dir, tool)),
-        "activate_generated_tool" => args
+        tool_names::ACTIVATE_GENERATED_TOOL => args
             .get("tool")
             .and_then(|value| value.as_str())
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| anyhow::anyhow!("missing 'tool' argument"))
             .and_then(|tool| activate_generated_tool(agent_data_dir, tool)),
-        "restore_generated_tool" => args
+        tool_names::RESTORE_GENERATED_TOOL => args
             .get("tool")
             .and_then(|value| value.as_str())
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| anyhow::anyhow!("missing 'tool' argument"))
             .and_then(|tool| restore_generated_tool(agent_data_dir, tool)),
-        "web_search" => {
+        tool_names::WEB_SEARCH => {
             let config = agent.config.read().await;
             let search_provider = config
                 .extra
@@ -1996,7 +2002,7 @@ async fn dispatch_tool_execution(
             )
             .await
         }
-        "fetch_url" => {
+        tool_names::FETCH_URL => {
             let config = agent.config.read().await;
             let browse_provider = config
                 .extra
@@ -2007,8 +2013,8 @@ async fn dispatch_tool_execution(
             drop(config);
             execute_fetch_url(args, agent, http_client, &browse_provider).await
         }
-        "setup_web_browsing" => execute_setup_web_browsing(args, agent).await,
-        "plugin_api_call" => {
+        tool_names::SETUP_WEB_BROWSING => execute_setup_web_browsing(args, agent).await,
+        tool_names::PLUGIN_API_CALL => {
             let plugin_name = match get_string_arg(args, &["plugin_name"]) {
                 Some(name) => name.to_string(),
                 None => {
@@ -2156,7 +2162,7 @@ pub fn execute_tool<'a>(
                     prepared.dispatch_tool_name.as_str(),
                     &prepared.dispatch_args,
                 );
-                if prepared.dispatch_tool_name.as_str() == "fetch_url" {
+                if prepared.dispatch_tool_name.as_str() == tool_names::FETCH_URL {
                     maybe_emit_openapi_synthesis_proposal_notice(
                         agent,
                         event_tx,
@@ -2168,7 +2174,7 @@ pub fn execute_tool<'a>(
                 }
                 if matches!(
                     prepared.dispatch_tool_name.as_str(),
-                    "bash_command" | "run_terminal_command" | "execute_managed_command"
+                    tool_names::BASH_COMMAND | tool_names::RUN_TERMINAL_COMMAND | tool_names::EXECUTE_MANAGED_COMMAND
                 ) {
                     maybe_emit_successful_shell_synthesis_proposal_notice(
                         agent,

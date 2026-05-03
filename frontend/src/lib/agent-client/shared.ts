@@ -1,4 +1,4 @@
-import type { AgentProviderId } from "../agentStore";
+import type { AgentProviderConfig, AgentProviderId } from "../agentStore";
 import { getProviderDefinition } from "../agentStore";
 import type { ApiChatMessage, ChatRequest } from "./types";
 
@@ -57,6 +57,15 @@ export function applyOpenRouterAttributionHeaders(
   headers["HTTP-Referer"] = OPENROUTER_ATTRIBUTION_URL;
   headers["X-OpenRouter-Title"] = OPENROUTER_ATTRIBUTION_TITLE;
   headers["X-OpenRouter-Categories"] = OPENROUTER_ATTRIBUTION_CATEGORIES;
+}
+
+export function applyOpenRouterResponseCacheHeaders(
+  provider: AgentProviderId,
+  config: AgentProviderConfig,
+  headers: Record<string, string>,
+): void {
+  if (provider !== "openrouter" || config.openrouter_response_cache_enabled !== true) return;
+  headers["X-OpenRouter-Cache"] = "true";
 }
 
 export function buildChatCompletionUrl(

@@ -1,6 +1,7 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use zorai_protocol::tool_names;
 
 #[path = "message_markdown_table.rs"]
 mod markdown_table;
@@ -84,6 +85,316 @@ fn render_weles_review_details(
             ]));
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ToolIcon {
+    marker: &'static str,
+    label: &'static str,
+}
+
+fn tool_icon_for(name: &str, arguments: Option<&str>) -> ToolIcon {
+    let normalized_name = name.trim().to_ascii_lowercase();
+
+    if is_python_tool(&normalized_name, arguments) {
+        return ToolIcon {
+            marker: "🐍",
+            label: "python",
+        };
+    }
+    if is_web_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "🌐",
+            label: "web",
+        };
+    }
+    if tool_names::GUIDELINE_TOOLS.contains(&normalized_name.as_str()) {
+        return ToolIcon {
+            marker: "📖",
+            label: "guide",
+        };
+    }
+    if tool_names::SKILL_TOOLS.contains(&normalized_name.as_str()) {
+        return ToolIcon {
+            marker: "🧠",
+            label: "skill",
+        };
+    }
+    if normalized_name.contains(tool_names::GENERATED_TOOL_FRAGMENT) {
+        return ToolIcon {
+            marker: "🧠",
+            label: "skill",
+        };
+    }
+    if is_plugin_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "🔌",
+            label: "plugin",
+        };
+    }
+    if is_collaboration_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "👥",
+            label: "collab",
+        };
+    }
+    if is_memory_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "◈",
+            label: "memory",
+        };
+    }
+    if is_git_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "⑂",
+            label: "git",
+        };
+    }
+    if is_file_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "📄",
+            label: "file",
+        };
+    }
+    if is_search_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "🔎",
+            label: "search",
+        };
+    }
+    if is_workspace_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "▦",
+            label: "workspace",
+        };
+    }
+    if is_communication_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "✉",
+            label: "comm",
+        };
+    }
+    if is_audio_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "♪",
+            label: "audio",
+        };
+    }
+    if is_system_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "⚙",
+            label: "system",
+        };
+    }
+    if is_model_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "◇",
+            label: "model",
+        };
+    }
+    if is_agent_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "🤖",
+            label: "agent",
+        };
+    }
+    if is_todo_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "☑",
+            label: "todo",
+        };
+    }
+    if is_goal_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "🎯",
+            label: "goal",
+        };
+    }
+    if is_routine_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "↻",
+            label: "routine",
+        };
+    }
+    if is_trigger_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "⚡",
+            label: "trigger",
+        };
+    }
+    if is_workflow_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "⇄",
+            label: "workflow",
+        };
+    }
+    if is_debate_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "⚖",
+            label: "debate",
+        };
+    }
+    if is_task_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "◷",
+            label: "task",
+        };
+    }
+    if is_thread_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "🧵",
+            label: "thread",
+        };
+    }
+    if is_terminal_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "⌨",
+            label: "terminal",
+        };
+    }
+
+    ToolIcon {
+        marker: "\u{2699}",
+        label: "tool",
+    }
+}
+
+fn is_python_tool(normalized_name: &str, arguments: Option<&str>) -> bool {
+    if normalized_name == tool_names::PYTHON_EXECUTE || normalized_name.contains("python") {
+        return true;
+    }
+
+    let Some(args) = parse_tool_arguments_object(arguments) else {
+        return false;
+    };
+    let language_hint = args
+        .get("language_hint")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if language_hint.contains("python") {
+        return true;
+    }
+
+    let command = args
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    command_uses_python(&command)
+}
+
+fn parse_tool_arguments_object(
+    arguments: Option<&str>,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let arguments = arguments?;
+    let value = serde_json::from_str::<serde_json::Value>(arguments).ok()?;
+    value.as_object().cloned()
+}
+
+fn command_uses_python(command: &str) -> bool {
+    !command.is_empty()
+        && (command.starts_with("python ")
+            || command.starts_with("python3 ")
+            || command.starts_with("python -")
+            || command.starts_with("python3 -")
+            || command.starts_with("uv run python ")
+            || command.contains(" python ")
+            || command.contains(" python3 "))
+}
+
+fn is_web_tool(normalized_name: &str) -> bool {
+    tool_names::WEB_TOOLS.contains(&normalized_name)
+        || normalized_name.starts_with(tool_names::BROWSER_TOOL_PREFIX)
+        || normalized_name.contains(tool_names::WEB_BROWSING_TOOL_FRAGMENT)
+}
+
+fn is_terminal_tool(normalized_name: &str) -> bool {
+    tool_names::TERMINAL_TOOLS.contains(&normalized_name)
+        || normalized_name.contains(tool_names::TERMINAL_TOOL_FRAGMENT)
+}
+
+fn is_file_tool(normalized_name: &str) -> bool {
+    tool_names::FILE_TOOLS.contains(&normalized_name)
+}
+
+fn is_git_tool(normalized_name: &str) -> bool {
+    tool_names::GIT_TOOLS.contains(&normalized_name)
+}
+
+fn is_search_tool(normalized_name: &str) -> bool {
+    tool_names::SEARCH_TOOLS.contains(&normalized_name)
+}
+
+fn is_memory_tool(normalized_name: &str) -> bool {
+    tool_names::MEMORY_TOOLS.contains(&normalized_name)
+}
+
+fn is_workspace_tool(normalized_name: &str) -> bool {
+    tool_names::WORKSPACE_TOOLS.contains(&normalized_name)
+}
+
+fn is_communication_tool(normalized_name: &str) -> bool {
+    tool_names::COMMUNICATION_TOOLS.contains(&normalized_name)
+}
+
+fn is_audio_tool(normalized_name: &str) -> bool {
+    tool_names::AUDIO_TOOLS.contains(&normalized_name)
+}
+
+fn is_system_tool(normalized_name: &str) -> bool {
+    tool_names::SYSTEM_TOOLS.contains(&normalized_name)
+}
+
+fn is_model_tool(normalized_name: &str) -> bool {
+    tool_names::MODEL_TOOLS.contains(&normalized_name)
+}
+
+fn is_agent_tool(normalized_name: &str) -> bool {
+    tool_names::AGENT_TOOLS.contains(&normalized_name)
+}
+
+fn is_task_tool(normalized_name: &str) -> bool {
+    tool_names::TASK_TOOLS.contains(&normalized_name)
+}
+
+fn is_todo_tool(normalized_name: &str) -> bool {
+    tool_names::TODO_TOOLS.contains(&normalized_name)
+}
+
+fn is_goal_tool(normalized_name: &str) -> bool {
+    tool_names::GOAL_TOOLS.contains(&normalized_name)
+}
+
+fn is_routine_tool(normalized_name: &str) -> bool {
+    tool_names::ROUTINE_TOOLS.contains(&normalized_name)
+}
+
+fn is_trigger_tool(normalized_name: &str) -> bool {
+    tool_names::TRIGGER_TOOLS.contains(&normalized_name)
+}
+
+fn is_workflow_tool(normalized_name: &str) -> bool {
+    tool_names::WORKFLOW_TOOLS.contains(&normalized_name)
+}
+
+fn is_debate_tool(normalized_name: &str) -> bool {
+    tool_names::DEBATE_TOOLS.contains(&normalized_name)
+}
+
+fn is_collaboration_tool(normalized_name: &str) -> bool {
+    tool_names::COLLABORATION_TOOLS.contains(&normalized_name)
+}
+
+fn is_plugin_tool(normalized_name: &str) -> bool {
+    normalized_name == tool_names::PLUGIN_API_CALL
+        || normalized_name.starts_with(tool_names::PLUGIN_TOOL_PREFIX)
+        || normalized_name.contains(tool_names::PLUGIN_TOOL_FRAGMENT)
+}
+
+fn is_thread_tool(normalized_name: &str) -> bool {
+    tool_names::THREAD_TOOLS.contains(&normalized_name)
 }
 
 /// Render markdown content into Lines using tui-markdown.
@@ -409,10 +720,11 @@ fn render_compact(
             let status = msg.tool_status.as_deref().unwrap_or("done");
             let (status_text, status_style) = format_tool_status(status, theme);
             let is_expanded = expanded_tools.contains(&msg_index);
+            let tool_icon = tool_icon_for(name, msg.tool_arguments.as_deref());
             let mut header_spans = vec![
                 Span::styled(toggle_glyph(is_expanded), theme.fg_dim),
                 Span::raw(" "),
-                Span::styled("\u{2699}", theme.accent_assistant),
+                Span::styled(tool_icon.marker, theme.accent_assistant),
                 Span::raw("  "),
                 Span::styled(name.clone(), theme.fg_dim),
                 Span::raw(" "),
@@ -624,6 +936,7 @@ fn render_tools_only(
         let status = msg.tool_status.as_deref().unwrap_or("done");
         let (status_text, status_style) = format_tool_status(status, theme);
         let args_preview = msg.tool_arguments.as_deref().unwrap_or("");
+        let tool_icon = tool_icon_for(name, msg.tool_arguments.as_deref());
         let max_args = width.saturating_sub(30);
         let args_short = if args_preview.len() > max_args {
             &args_preview[..max_args]
@@ -632,7 +945,7 @@ fn render_tools_only(
         };
 
         let mut spans = vec![
-            Span::styled("\u{2699}", theme.accent_assistant),
+            Span::styled(tool_icon.marker, theme.accent_assistant),
             Span::raw("  "),
             Span::styled(name.clone(), theme.fg_active),
             Span::raw(" "),

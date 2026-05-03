@@ -1,8 +1,7 @@
 use super::flow::{
     parse_fetch_models_terminal_response, parse_gh_cli_token_output,
-    parse_set_config_item_response, provider_requires_api_key_prompt, provider_uses_browser_auth,
-    setup_probe_from_config_json, should_validate_provider_after_setup, AuthSetupResult,
-    SetupProbe,
+    parse_set_config_item_response, provider_uses_browser_auth, setup_probe_from_config_json,
+    should_validate_provider_after_setup, AuthSetupResult, SetupProbe,
 };
 use super::*;
 
@@ -30,6 +29,26 @@ fn test_select_list_wraps_index() {
         idx = 0;
     }
     assert_eq!(idx, 2);
+}
+
+#[test]
+fn setup_select_window_keeps_selected_item_visible() {
+    assert_eq!(select_visible_window_start(0, 30, 8), 0);
+    assert_eq!(select_visible_window_start(7, 30, 8), 0);
+    assert_eq!(select_visible_window_start(8, 30, 8), 1);
+    assert_eq!(select_visible_window_start(29, 30, 8), 22);
+    assert_eq!(select_visible_window_start(29, 30, 80), 0);
+}
+
+#[test]
+fn setup_select_navigation_supports_large_steps_and_edges() {
+    assert_eq!(move_select_index(0, 30, SelectMove::Previous), 29);
+    assert_eq!(move_select_index(29, 30, SelectMove::Next), 0);
+    assert_eq!(move_select_index(2, 30, SelectMove::PageDown(8)), 10);
+    assert_eq!(move_select_index(28, 30, SelectMove::PageDown(8)), 29);
+    assert_eq!(move_select_index(6, 30, SelectMove::PageUp(8)), 0);
+    assert_eq!(move_select_index(12, 30, SelectMove::First), 0);
+    assert_eq!(move_select_index(12, 30, SelectMove::Last), 29);
 }
 
 #[test]
@@ -200,6 +219,20 @@ fn test_gateway_choice_items_include_whatsapp_and_skip() {
     assert_eq!(items.len(), 5);
     assert_eq!(items[3], ("WhatsApp", "whatsapp"));
     assert_eq!(items[4], ("Skip", ""));
+}
+
+#[test]
+fn web_search_setup_maps_api_key_to_search_provider() {
+    assert_eq!(
+        web_search_provider_for_key("firecrawl_api_key"),
+        Some("firecrawl")
+    );
+    assert_eq!(web_search_provider_for_key("exa_api_key"), Some("exa"));
+    assert_eq!(
+        web_search_provider_for_key("tavily_api_key"),
+        Some("tavily")
+    );
+    assert_eq!(web_search_provider_for_key(""), None);
 }
 
 #[test]
@@ -419,7 +452,6 @@ fn github_copilot_setup_prefers_browser_auth_over_api_key_prompt() {
     };
 
     assert!(provider_uses_browser_auth(&provider));
-    assert!(!provider_requires_api_key_prompt(&provider));
 }
 
 #[test]
@@ -453,7 +485,6 @@ fn anthropic_setup_uses_api_key_prompt_and_validation() {
     };
 
     assert!(!provider_uses_browser_auth(&provider));
-    assert!(provider_requires_api_key_prompt(&provider));
     assert!(should_validate_provider_after_setup(
         &provider,
         AuthSetupResult {

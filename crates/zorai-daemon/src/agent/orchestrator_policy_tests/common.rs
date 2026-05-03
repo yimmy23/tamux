@@ -69,7 +69,7 @@ pub(super) fn policy_eval_context() -> PolicyEvaluationContext {
         current_retry_guard: Some("approach-hash-1".to_string()),
         recent_tool_outcomes: vec![
             PolicyToolOutcomeSummary {
-                tool_name: "read_file".to_string(),
+                tool_name: zorai_protocol::tool_names::READ_FILE.to_string(),
                 outcome: "success".to_string(),
                 summary: "Read the config but found no obvious mismatch.".to_string(),
             },

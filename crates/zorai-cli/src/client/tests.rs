@@ -1,5 +1,6 @@
 use super::agent_api::{
-    parse_config_set_response, parse_operation_status_response, send_thread_get_query,
+    parse_config_set_response, parse_external_runtime_migration_terminal_response,
+    parse_operation_status_response, send_thread_get_query,
 };
 use super::agent_bridge::handle_message_for_test as handle_bridge_message;
 use super::agent_bridge::initial_bridge_messages;
@@ -549,6 +550,38 @@ fn config_set_response_accepts_operation_acceptance() {
         revision: 1,
     })
     .expect("operation acceptance should be treated as success");
+}
+
+#[test]
+fn external_runtime_migration_response_ignores_unsolicited_daemon_frames() {
+    let session_id =
+        uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").expect("valid test uuid");
+
+    assert!(
+        parse_external_runtime_migration_terminal_response(DaemonMessage::CwdChanged {
+            id: session_id,
+            cwd: "/workspace/repo".to_string(),
+        })
+        .is_none()
+    );
+}
+
+#[test]
+fn external_runtime_migration_response_parses_result_payload() {
+    let response = parse_external_runtime_migration_terminal_response(
+        DaemonMessage::AgentExternalRuntimeMigrationResult {
+            result_json: serde_json::json!({
+                "runtime": "daemon",
+                "sources": []
+            })
+            .to_string(),
+        },
+    )
+    .expect("terminal response")
+    .expect("successful parse");
+
+    assert_eq!(response["runtime"], "daemon");
+    assert_eq!(response["sources"].as_array().map(Vec::len), Some(0));
 }
 
 #[test]

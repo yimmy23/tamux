@@ -18,6 +18,7 @@ use crate::agent::types::{
 };
 use crate::agent::AgentEngine;
 use crate::session_manager::SessionManager;
+use zorai_protocol::tool_names;
 
 include!("part1.rs");
 include!("part2.rs");

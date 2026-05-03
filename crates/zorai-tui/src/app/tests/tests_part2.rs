@@ -1,4 +1,24 @@
     #[test]
+    fn migrate_preview_slash_command_sends_daemon_migration_preview() {
+        let (_daemon_tx, daemon_rx) = mpsc::channel();
+        let (cmd_tx, mut cmd_rx) = unbounded_channel();
+        let mut model = TuiModel::new(daemon_rx, cmd_tx);
+
+        assert!(model.execute_slash_command_line("/migrate preview hermes --config /tmp/hermes.yaml"));
+
+        let sent = cmd_rx
+            .try_recv()
+            .expect("migrate preview should send daemon command");
+        assert!(matches!(
+            sent,
+            DaemonCommand::ExternalRuntimeMigrationPreview {
+                runtime,
+                config_path: Some(config_path),
+            } if runtime == "hermes" && config_path == "/tmp/hermes.yaml"
+        ));
+    }
+
+    #[test]
     fn clicking_confirm_in_chat_action_confirm_deletes_message() {
         let (_daemon_tx, daemon_rx) = mpsc::channel();
         let (cmd_tx, mut cmd_rx) = unbounded_channel();

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { buildToolReviewPresentation } from "../toolReviewPresentation";
 import type { ToolEventGroup } from "./types";
 import { getToolDiffPresentation, ToolDiffView } from "./toolDiffPresentation";
+import { getToolIconPresentation } from "./toolIconPresentation";
 import { toolStatusTone } from "./toolStatusTone";
 import {
   getToolFileTarget,
@@ -15,6 +16,7 @@ export function ToolEventRow({ group }: { group: ToolEventGroup }) {
   const statusLabel = group.status.toUpperCase();
   const shortId = (group.toolCallId || group.key).slice(-8);
   const statusTone = toolStatusTone(group.status);
+  const toolIcon = getToolIconPresentation(group.toolName, group.toolArguments);
   const toolDiff = group.toolArguments
     ? getToolDiffPresentation(group.toolName, group.toolArguments)
     : null;
@@ -65,7 +67,31 @@ export function ToolEventRow({ group }: { group: ToolEventGroup }) {
       >
         <span style={{ color: "#DE600A" }}>{collapsed ? "▸" : "▾"}</span>
         <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "center", justifyContent: "space-between", flex: 1, minWidth: 0 }}>
-          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.toolName}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, overflow: "hidden", flex: "1 1 auto" }}>
+            <span
+              aria-label={toolIcon.label}
+              title={toolIcon.label}
+              style={{
+                width: 22,
+                height: 22,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "1px solid rgba(255,255,255,0.14)",
+                borderRadius: 4,
+                background: "rgba(255,255,255,0.04)",
+                color: "var(--text-muted)",
+                fontSize: 14,
+                fontWeight: 700,
+                letterSpacing: 0,
+                lineHeight: 1,
+                flexShrink: 0,
+              }}
+            >
+              {toolIcon.glyph}
+            </span>
+            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.toolName}</span>
+          </span>
           <div style={{ display: "flex", flexDirection: "row", gap: 4, alignItems: "flex-start", fontSize: 8, flexShrink: 0 }}>
             {reviewPresentation && (
               <span

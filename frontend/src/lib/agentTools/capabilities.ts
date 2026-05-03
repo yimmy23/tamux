@@ -1,3 +1,4 @@
+import { TOOL_NAMES } from "./toolNames";
 import type { ToolDefinition } from "./types";
 
 export function getToolCapabilityDescription(tools: ToolDefinition[]): string {
@@ -9,44 +10,44 @@ export function getToolCapabilityDescription(tools: ToolDefinition[]): string {
   const capabilities: string[] = [];
   const described = new Set<string>();
 
-  if (names.includes("list_terminals")) { capabilities.push("- List available terminal panes"); described.add("list_terminals"); }
-  if (names.includes("run_terminal_command")) { capabilities.push("- Execute shell commands in a specific terminal pane (defaults to active pane)"); described.add("run_terminal_command"); }
-  if (names.includes("read_active_terminal_content")) { capabilities.push("- Read terminal content or browser panel info from the active pane or by pane name/ID"); described.add("read_active_terminal_content"); }
-  if (names.includes("get_system_info")) { capabilities.push("- Check system resource usage (CPU, RAM, GPU)"); described.add("get_system_info"); }
-  if (names.includes("list_workspaces")) { capabilities.push("- List workspaces, surfaces, and panes"); described.add("list_workspaces"); }
-  if (names.includes("create_workspace")) { capabilities.push("- Create and switch workspaces"); described.add("create_workspace"); }
-  if (names.includes("set_active_workspace")) { capabilities.push("- Switch active workspace"); described.add("set_active_workspace"); }
-  if (names.includes("create_surface")) { capabilities.push("- Create surfaces (tabs) in a workspace"); described.add("create_surface"); }
-  if (names.includes("set_active_surface")) { capabilities.push("- Switch active surface"); described.add("set_active_surface"); }
-  if (names.includes("split_pane")) { capabilities.push("- Split panes horizontally or vertically"); described.add("split_pane"); }
-  if (names.includes("set_layout_preset")) { capabilities.push("- Apply workspace layout presets"); described.add("set_layout_preset"); }
-  if (names.includes("equalize_layout")) { capabilities.push("- Equalize pane split ratios"); described.add("equalize_layout"); }
-  if (names.includes("rename_pane")) { capabilities.push("- Rename panes for clearer targeted operations"); described.add("rename_pane"); }
-  if (names.includes("list_snippets")) { capabilities.push("- Read snippets created by user/assistant"); described.add("list_snippets"); }
-  if (names.includes("create_snippet")) { capabilities.push("- Create reusable assistant-owned snippets"); described.add("create_snippet"); }
-  if (names.includes("run_snippet")) { capabilities.push("- Execute snippets in a targeted pane"); described.add("run_snippet"); }
-  if (names.includes("open_canvas_browser")) { capabilities.push("- Open a new browser panel on a canvas surface"); described.add("open_canvas_browser"); }
-  if (names.includes("browser_navigate")) { capabilities.push("- Navigate the integrated web browser (sidebar or canvas browser by pane ID)"); described.add("browser_navigate"); }
-  if (names.includes("browser_back") || names.includes("browser_forward") || names.includes("browser_reload")) {
+  if (names.includes(TOOL_NAMES.listTerminals)) { capabilities.push("- List available terminal panes"); described.add(TOOL_NAMES.listTerminals); }
+  if (names.includes(TOOL_NAMES.runTerminalCommand)) { capabilities.push("- Execute shell commands in a specific terminal pane (defaults to active pane)"); described.add(TOOL_NAMES.runTerminalCommand); }
+  if (names.includes(TOOL_NAMES.readActiveTerminalContent)) { capabilities.push("- Read terminal content or browser panel info from the active pane or by pane name/ID"); described.add(TOOL_NAMES.readActiveTerminalContent); }
+  if (names.includes(TOOL_NAMES.getSystemInfo)) { capabilities.push("- Check system resource usage (CPU, RAM, GPU)"); described.add(TOOL_NAMES.getSystemInfo); }
+  if (names.includes(TOOL_NAMES.listWorkspaces)) { capabilities.push("- List workspaces, surfaces, and panes"); described.add(TOOL_NAMES.listWorkspaces); }
+  if (names.includes(TOOL_NAMES.createWorkspace)) { capabilities.push("- Create and switch workspaces"); described.add(TOOL_NAMES.createWorkspace); }
+  if (names.includes(TOOL_NAMES.setActiveWorkspace)) { capabilities.push("- Switch active workspace"); described.add(TOOL_NAMES.setActiveWorkspace); }
+  if (names.includes(TOOL_NAMES.createSurface)) { capabilities.push("- Create surfaces (tabs) in a workspace"); described.add(TOOL_NAMES.createSurface); }
+  if (names.includes(TOOL_NAMES.setActiveSurface)) { capabilities.push("- Switch active surface"); described.add(TOOL_NAMES.setActiveSurface); }
+  if (names.includes(TOOL_NAMES.splitPane)) { capabilities.push("- Split panes horizontally or vertically"); described.add(TOOL_NAMES.splitPane); }
+  if (names.includes(TOOL_NAMES.setLayoutPreset)) { capabilities.push("- Apply workspace layout presets"); described.add(TOOL_NAMES.setLayoutPreset); }
+  if (names.includes(TOOL_NAMES.equalizeLayout)) { capabilities.push("- Equalize pane split ratios"); described.add(TOOL_NAMES.equalizeLayout); }
+  if (names.includes(TOOL_NAMES.renamePane)) { capabilities.push("- Rename panes for clearer targeted operations"); described.add(TOOL_NAMES.renamePane); }
+  if (names.includes(TOOL_NAMES.listSnippets)) { capabilities.push("- Read snippets created by user/assistant"); described.add(TOOL_NAMES.listSnippets); }
+  if (names.includes(TOOL_NAMES.createSnippet)) { capabilities.push("- Create reusable assistant-owned snippets"); described.add(TOOL_NAMES.createSnippet); }
+  if (names.includes(TOOL_NAMES.runSnippet)) { capabilities.push("- Execute snippets in a targeted pane"); described.add(TOOL_NAMES.runSnippet); }
+  if (names.includes(TOOL_NAMES.openCanvasBrowser)) { capabilities.push("- Open a new browser panel on a canvas surface"); described.add(TOOL_NAMES.openCanvasBrowser); }
+  if (names.includes(TOOL_NAMES.browserNavigate)) { capabilities.push("- Navigate the integrated web browser (sidebar or canvas browser by pane ID)"); described.add(TOOL_NAMES.browserNavigate); }
+  if (names.includes(TOOL_NAMES.browserBack) || names.includes(TOOL_NAMES.browserForward) || names.includes(TOOL_NAMES.browserReload)) {
     capabilities.push("- Control browser history and reload");
-    described.add("browser_back");
-    described.add("browser_forward");
-    described.add("browser_reload");
+    described.add(TOOL_NAMES.browserBack);
+    described.add(TOOL_NAMES.browserForward);
+    described.add(TOOL_NAMES.browserReload);
   }
-  if (names.includes("browser_read_dom")) { capabilities.push("- Read DOM content (title, URL, text) from the browser"); described.add("browser_read_dom"); }
-  if (names.includes("browser_take_screenshot")) { capabilities.push("- Capture browser screenshots to temporary vision storage (auto-expire)"); described.add("browser_take_screenshot"); }
-  if (names.includes("browser_click")) {
+  if (names.includes(TOOL_NAMES.browserReadDom)) { capabilities.push("- Read DOM content (title, URL, text) from the browser"); described.add(TOOL_NAMES.browserReadDom); }
+  if (names.includes(TOOL_NAMES.browserTakeScreenshot)) { capabilities.push("- Capture browser screenshots to temporary vision storage (auto-expire)"); described.add(TOOL_NAMES.browserTakeScreenshot); }
+  if (names.includes(TOOL_NAMES.browserClick)) {
     capabilities.push("- Interact with canvas browser panels: click elements, type text, scroll, extract elements, run JavaScript");
-    described.add("browser_click");
-    described.add("browser_type");
-    described.add("browser_scroll");
-    described.add("browser_get_elements");
-    described.add("browser_eval_js");
+    described.add(TOOL_NAMES.browserClick);
+    described.add(TOOL_NAMES.browserType);
+    described.add(TOOL_NAMES.browserScroll);
+    described.add(TOOL_NAMES.browserGetElements);
+    described.add(TOOL_NAMES.browserEvalJs);
   }
-  if (names.includes("send_slack_message")) { capabilities.push("- Send messages to Slack channels"); described.add("send_slack_message"); }
-  if (names.includes("send_discord_message")) { capabilities.push("- Send messages to Discord channels"); described.add("send_discord_message"); }
-  if (names.includes("send_telegram_message")) { capabilities.push("- Send messages to Telegram chats"); described.add("send_telegram_message"); }
-  if (names.includes("send_whatsapp_message")) { capabilities.push("- Send WhatsApp messages"); described.add("send_whatsapp_message"); }
+  if (names.includes(TOOL_NAMES.sendSlackMessage)) { capabilities.push("- Send messages to Slack channels"); described.add(TOOL_NAMES.sendSlackMessage); }
+  if (names.includes(TOOL_NAMES.sendDiscordMessage)) { capabilities.push("- Send messages to Discord channels"); described.add(TOOL_NAMES.sendDiscordMessage); }
+  if (names.includes(TOOL_NAMES.sendTelegramMessage)) { capabilities.push("- Send messages to Telegram chats"); described.add(TOOL_NAMES.sendTelegramMessage); }
+  if (names.includes(TOOL_NAMES.sendWhatsAppMessage)) { capabilities.push("- Send WhatsApp messages"); described.add(TOOL_NAMES.sendWhatsAppMessage); }
 
   for (const tool of tools) {
     if (described.has(tool.function.name)) {

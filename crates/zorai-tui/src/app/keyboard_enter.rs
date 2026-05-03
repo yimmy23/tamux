@@ -1,10 +1,125 @@
 use super::*;
 
 impl TuiModel {
+    fn parse_migration_config_path(parts: &[&str]) -> Option<String> {
+        parts
+            .windows(2)
+            .find_map(|window| {
+                matches!(window[0], "--config" | "--config-path").then(|| window[1].to_string())
+            })
+            .or_else(|| {
+                parts.iter().find_map(|part| {
+                    part.strip_prefix("--config=")
+                        .or_else(|| part.strip_prefix("--config-path="))
+                        .map(str::to_string)
+                })
+            })
+    }
+
+    fn parse_migration_limit(parts: &[&str]) -> Option<usize> {
+        parts
+            .windows(2)
+            .find_map(|window| {
+                (window[0] == "--limit")
+                    .then(|| window[1].parse::<usize>().ok())
+                    .flatten()
+            })
+            .or_else(|| {
+                parts.iter().find_map(|part| {
+                    part.strip_prefix("--limit=")
+                        .and_then(|value| value.parse::<usize>().ok())
+                })
+            })
+    }
+
+    fn parse_migration_conflict_policy(parts: &[&str]) -> String {
+        parts
+            .windows(2)
+            .find_map(|window| (window[0] == "--conflict-policy").then(|| window[1].to_string()))
+            .or_else(|| {
+                parts
+                    .iter()
+                    .find_map(|part| part.strip_prefix("--conflict-policy=").map(str::to_string))
+            })
+            .unwrap_or_else(|| "stage_for_review".to_string())
+    }
+
+    fn migration_runtime_arg(parts: &[&str]) -> Option<String> {
+        parts.iter().copied().find_map(|part| {
+            (!part.starts_with("--")
+                && matches!(part.to_ascii_lowercase().as_str(), "hermes" | "openclaw"))
+            .then(|| part.to_ascii_lowercase())
+        })
+    }
+
+    fn execute_migration_slash_command(&mut self, args: &str) {
+        let parts = args.split_whitespace().collect::<Vec<_>>();
+        let action = parts.first().copied().unwrap_or("status");
+        match action {
+            "" | "status" => {
+                self.send_daemon_command(DaemonCommand::ExternalRuntimeMigrationStatus);
+                self.status_line = "Checking migration sources...".to_string();
+            }
+            "preview" => {
+                let runtime = Self::migration_runtime_arg(&parts[1..]);
+                if let Some(runtime) = runtime {
+                    self.send_daemon_command(DaemonCommand::ExternalRuntimeMigrationPreview {
+                        runtime: runtime.clone(),
+                        config_path: Self::parse_migration_config_path(&parts[1..]),
+                    });
+                    self.status_line = format!("Previewing {runtime} migration...");
+                } else {
+                    self.status_line =
+                        "Usage: /migrate preview <hermes|openclaw> [--config <path>]".to_string();
+                }
+            }
+            "apply" | "import" => {
+                let runtime = Self::migration_runtime_arg(&parts[1..]);
+                if let Some(runtime) = runtime {
+                    self.send_daemon_command(DaemonCommand::ExternalRuntimeMigrationApply {
+                        runtime: runtime.clone(),
+                        config_path: Self::parse_migration_config_path(&parts[1..]),
+                        conflict_policy: Self::parse_migration_conflict_policy(&parts[1..]),
+                    });
+                    self.status_line = format!("Importing {runtime} migration...");
+                } else {
+                    self.status_line =
+                        "Usage: /migrate apply <hermes|openclaw> [--config <path>]".to_string();
+                }
+            }
+            "report" => {
+                self.send_daemon_command(DaemonCommand::ExternalRuntimeMigrationReport {
+                    runtime: Self::migration_runtime_arg(&parts[1..]),
+                    limit: Self::parse_migration_limit(&parts[1..]),
+                });
+                self.status_line = "Loading migration report...".to_string();
+            }
+            "shadow-run" | "shadow" => {
+                let runtime = Self::migration_runtime_arg(&parts[1..]);
+                if let Some(runtime) = runtime {
+                    self.send_daemon_command(DaemonCommand::ExternalRuntimeMigrationShadowRun {
+                        runtime: runtime.clone(),
+                    });
+                    self.status_line = format!("Previewing {runtime} shadow run...");
+                } else {
+                    self.status_line = "Usage: /migrate shadow-run <hermes|openclaw>".to_string();
+                }
+            }
+            _ => {
+                self.status_line =
+                    "Usage: /migrate status|preview|apply|report|shadow-run".to_string();
+            }
+        }
+    }
+
     pub(in crate::app) fn execute_slash_command_line(&mut self, prompt: &str) -> bool {
         let trimmed = prompt.trim_start_matches('/');
         let cmd = trimmed.split_whitespace().next().unwrap_or("");
         let args = trimmed[cmd.len()..].trim();
+        if cmd == "migrate" {
+            self.execute_migration_slash_command(args);
+            return true;
+        }
         if cmd == "apikey" && !args.is_empty() {
             self.config.api_key = args.to_string();
             self.status_line = format!("API key set ({}...)", &args[..args.len().min(8)]);

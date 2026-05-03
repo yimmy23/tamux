@@ -278,7 +278,7 @@ mod tests {
         monitor.record_outcome(
             "thread-1",
             "thread",
-            "read_file",
+            zorai_protocol::tool_names::READ_FILE,
             "abc123",
             true,
             false,
@@ -294,7 +294,7 @@ mod tests {
         monitor.record_outcome(
             "thread-1",
             "thread",
-            "read_file",
+            zorai_protocol::tool_names::READ_FILE,
             "abc123",
             true,
             false,
@@ -303,7 +303,7 @@ mod tests {
         monitor.record_outcome(
             "thread-1",
             "thread",
-            "write_file",
+            zorai_protocol::tool_names::WRITE_FILE,
             "def456",
             true,
             true,
@@ -371,7 +371,7 @@ mod tests {
             monitor.record_outcome(
                 "e1",
                 "thread",
-                "web_search",
+                zorai_protocol::tool_names::WEB_SEARCH,
                 &format!("query-{i}"),
                 false,
                 false,
@@ -383,7 +383,10 @@ mod tests {
         assert!(result.is_some());
         let msg = result.unwrap();
         assert!(msg.contains("same-tool failures"), "got: {msg}");
-        assert!(msg.contains("web_search"), "got: {msg}");
+        assert!(
+            msg.contains(zorai_protocol::tool_names::WEB_SEARCH),
+            "got: {msg}"
+        );
     }
 
     #[test]

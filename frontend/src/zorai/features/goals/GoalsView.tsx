@@ -6,6 +6,7 @@ import {
   formatGoalRunDuration,
   formatGoalRunStatus,
   goalRunChildTaskCount,
+  goalRunsNeedAutoRefresh,
   goalRunSupportAvailable,
   isGoalRunActive,
   latestGoalRunTodoSnapshot,
@@ -13,6 +14,7 @@ import {
   summarizeGoalRunStep,
   type GoalRun,
 } from "@/lib/goalRuns";
+import { useAgentStore } from "@/lib/agentStore";
 import { GoalWorkspacePanel } from "./GoalWorkspacePanel";
 import { GoalLaunchPanel } from "./GoalLaunchPanel";
 import { openThreadTarget } from "../threads/openThreadTarget";
@@ -76,6 +78,7 @@ export function GoalsView({
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [launchOpen, setLaunchOpen] = useState(false);
+  const autoRefreshIntervalSecs = useAgentStore((state) => state.agentSettings.auto_refresh_interval_secs);
   const supported = goalRunSupportAvailable();
 
   const visibleGoalRuns = useMemo(() => {
@@ -112,11 +115,23 @@ export function GoalsView({
     setGoalRuns(await fetchGoalRuns());
   }, []);
 
+  const autoRefreshGoalRuns = useMemo(() => {
+    if (workspaceOpen && selectedRun) {
+      return goalRunsNeedAutoRefresh([selectedRun]);
+    }
+    return goalRunsNeedAutoRefresh(visibleGoalRuns);
+  }, [selectedRun, visibleGoalRuns, workspaceOpen]);
+
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 5000);
-    return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    const intervalSecs = Math.max(0, Math.trunc(Number(autoRefreshIntervalSecs) || 0));
+    if (intervalSecs <= 0 || !autoRefreshGoalRuns) return;
+    const timer = window.setInterval(() => void refresh(), intervalSecs * 1000);
+    return () => window.clearInterval(timer);
+  }, [autoRefreshGoalRuns, autoRefreshIntervalSecs, refresh]);
 
   const handleStartGoal = async (payload: Parameters<typeof startGoalRun>[0]) => {
     if (!payload.goal.trim() || !supported) return;

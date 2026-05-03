@@ -1591,6 +1591,20 @@ impl ChatState {
                 }
             }
 
+            ChatAction::ContextWindowUpdated {
+                thread_id,
+                active_context_window_start,
+                active_context_window_end,
+                active_context_window_tokens,
+            } => {
+                if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
+                    thread.active_context_window_start = Some(active_context_window_start);
+                    thread.active_context_window_end = Some(active_context_window_end);
+                    thread.active_context_window_tokens = Some(active_context_window_tokens);
+                    normalize_thread_window(thread);
+                }
+            }
+
             ChatAction::InvalidateContextWindow { thread_id } => {
                 if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
                     thread.active_context_window_start = None;

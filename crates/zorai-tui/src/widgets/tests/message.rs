@@ -167,10 +167,97 @@ fn user_message_has_badge() {
 }
 
 #[test]
-fn tool_message_shows_gear_icon() {
+fn tool_icon_classifies_action_families() {
+    use zorai_protocol::tool_names;
+
+    assert_eq!(tool_icon_for(tool_names::WEB_SEARCH, None).label, "web");
+    assert_eq!(tool_icon_for(tool_names::WEB_SEARCH, None).marker, "🌐");
+    assert_eq!(tool_icon_for(tool_names::FETCH_URL, None).label, "web");
+    assert_eq!(
+        tool_icon_for(tool_names::BROWSER_NAVIGATE, None).label,
+        "web"
+    );
+    assert_eq!(
+        tool_icon_for(tool_names::READ_GUIDELINE, None).label,
+        "guide"
+    );
+    assert_eq!(tool_icon_for(tool_names::READ_GUIDELINE, None).marker, "📖");
+    assert_eq!(
+        tool_icon_for(tool_names::DISCOVER_SKILLS, None).label,
+        "skill"
+    );
+    assert_eq!(
+        tool_icon_for(tool_names::DISCOVER_SKILLS, None).marker,
+        "🧠"
+    );
+    assert_eq!(
+        tool_icon_for(tool_names::PYTHON_EXECUTE, None).label,
+        "python"
+    );
+    assert_eq!(
+        tool_icon_for(tool_names::BASH_COMMAND, None).label,
+        "terminal"
+    );
+    assert_eq!(tool_icon_for(tool_names::BASH_COMMAND, None).marker, "⌨");
+    assert_eq!(
+        tool_icon_for(
+            tool_names::BASH_COMMAND,
+            Some(r#"{"command":"python3 -c \"print('ok')\""}"#)
+        )
+        .label,
+        "python"
+    );
+
+    for (tool_name, expected_label) in [
+        (tool_names::READ_FILE, "file"),
+        (tool_names::APPLY_PATCH, "file"),
+        (tool_names::SEARCH_FILES, "search"),
+        (tool_names::SEARCH_HISTORY, "search"),
+        (tool_names::READ_MEMORY, "memory"),
+        (tool_names::AGENT_QUERY_MEMORY, "memory"),
+        (tool_names::LIST_WORKSPACES, "workspace"),
+        (tool_names::SPLIT_PANE, "workspace"),
+        (tool_names::SEND_SLACK_MESSAGE, "comm"),
+        (tool_names::NOTIFY_USER, "comm"),
+        (tool_names::SPEECH_TO_TEXT, "audio"),
+        (tool_names::GET_SYSTEM_INFO, "system"),
+        (tool_names::GET_COST_SUMMARY, "system"),
+        (tool_names::GET_GIT_STATUS, "git"),
+        (tool_names::GET_GIT_LINE_STATUSES, "git"),
+        (tool_names::LIST_PROVIDERS, "model"),
+        (tool_names::SWITCH_MODEL, "model"),
+        (tool_names::SPAWN_SUBAGENT, "agent"),
+        (tool_names::HANDOFF_THREAD_AGENT, "agent"),
+        (tool_names::UPDATE_TODO, "todo"),
+        (tool_names::GET_TODOS, "todo"),
+        (tool_names::LIST_TODOS, "todo"),
+        (tool_names::ENQUEUE_TASK, "task"),
+        (tool_names::START_GOAL_RUN, "goal"),
+        (tool_names::CREATE_ROUTINE, "routine"),
+        (tool_names::ADD_TRIGGER, "trigger"),
+        (tool_names::RUN_WORKFLOW_PACK, "workflow"),
+        (tool_names::RUN_DEBATE, "debate"),
+        (tool_names::BROADCAST_CONTRIBUTION, "collab"),
+        (tool_names::PLUGIN_API_CALL, "plugin"),
+        (tool_names::SYNTHESIZE_TOOL, "skill"),
+        (tool_names::LIST_THREADS, "thread"),
+    ] {
+        assert_eq!(
+            tool_icon_for(tool_name, None).label,
+            expected_label,
+            "{tool_name}"
+        );
+    }
+
+    assert_eq!(tool_icon_for(tool_names::GET_GIT_STATUS, None).marker, "⑂");
+    assert_eq!(tool_icon_for(tool_names::UPDATE_TODO, None).marker, "☑");
+}
+
+#[test]
+fn tool_message_shows_action_icon() {
     let msg = AgentMessage {
         role: MessageRole::Tool,
-        tool_name: Some("bash_command".into()),
+        tool_name: Some(zorai_protocol::tool_names::WEB_SEARCH.into()),
         tool_status: Some("done".into()),
         content: "some output here".into(),
         ..Default::default()
@@ -185,6 +272,11 @@ fn tool_message_shows_gear_icon() {
         &empty_tools(),
     );
     assert_eq!(lines.len(), 1);
+    let plain = plain_lines(&lines).join("");
+    assert!(
+        plain.contains("web"),
+        "expected action-specific web icon label, got: {plain}"
+    );
 }
 
 #[test]

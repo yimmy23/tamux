@@ -1,10 +1,11 @@
 import type { ToolDefinition } from "./types";
+import { TOOL_NAMES } from "./toolNames";
 
 export const WEB_BROWSING_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "open_canvas_browser",
+      name: TOOL_NAMES.openCanvasBrowser,
       description: "Open a new browser panel on the active canvas surface. Returns the new pane ID for subsequent browser_navigate calls.",
       parameters: {
         type: "object",
@@ -19,7 +20,7 @@ export const WEB_BROWSING_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "browser_navigate",
+      name: TOOL_NAMES.browserNavigate,
       description: "Navigate a browser to a URL. Without a pane parameter, uses the sidebar browser. With a pane ID/name, targets a specific canvas browser panel.",
       parameters: {
         type: "object",
@@ -31,16 +32,16 @@ export const WEB_BROWSING_TOOLS: ToolDefinition[] = [
       },
     },
   },
-  { type: "function", function: { name: "browser_back", description: "Navigate back in the sidebar browser history.", parameters: { type: "object", properties: {} } } },
-  { type: "function", function: { name: "browser_forward", description: "Navigate forward in the sidebar browser history.", parameters: { type: "object", properties: {} } } },
-  { type: "function", function: { name: "browser_reload", description: "Reload the sidebar browser page.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: TOOL_NAMES.browserBack, description: "Navigate back in the sidebar browser history.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: TOOL_NAMES.browserForward, description: "Navigate forward in the sidebar browser history.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: TOOL_NAMES.browserReload, description: "Reload the sidebar browser page.", parameters: { type: "object", properties: {} } } },
 ];
 
 export const VISION_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "browser_read_dom",
+      name: TOOL_NAMES.browserReadDom,
       description: "Read current page DOM text/title/url from a browser. Without a pane parameter, uses the sidebar browser. With a pane ID/name, targets a canvas browser panel.",
       parameters: {
         type: "object",
@@ -53,7 +54,7 @@ export const VISION_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "browser_take_screenshot",
+      name: TOOL_NAMES.browserTakeScreenshot,
       description: "Capture a browser screenshot, save it to temporary vision storage, and return its path.",
       parameters: { type: "object", properties: {} },
     },
@@ -64,7 +65,7 @@ export const BROWSER_USE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "browser_click",
+      name: TOOL_NAMES.browserClick,
       description: "Click an element in a canvas browser panel. Target by CSS selector or visible text content.",
       parameters: {
         type: "object",
@@ -80,7 +81,7 @@ export const BROWSER_USE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "browser_type",
+      name: TOOL_NAMES.browserType,
       description: "Type text into an input, textarea, or contenteditable element in a canvas browser panel.",
       parameters: {
         type: "object",
@@ -97,7 +98,7 @@ export const BROWSER_USE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "browser_scroll",
+      name: TOOL_NAMES.browserScroll,
       description: "Scroll the page or a specific element in a canvas browser panel.",
       parameters: {
         type: "object",
@@ -114,7 +115,7 @@ export const BROWSER_USE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "browser_get_elements",
+      name: TOOL_NAMES.browserGetElements,
       description: "List interactive elements visible on the current page in a canvas browser panel. Returns element tag, text, href, selector hint.",
       parameters: {
         type: "object",
@@ -130,7 +131,7 @@ export const BROWSER_USE_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "browser_eval_js",
+      name: TOOL_NAMES.browserEvalJs,
       description: "Execute JavaScript code in the page context of a canvas browser panel and return the result.",
       parameters: {
         type: "object",

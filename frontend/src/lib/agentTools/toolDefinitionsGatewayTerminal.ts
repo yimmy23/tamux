@@ -1,10 +1,11 @@
 import type { ToolDefinition } from "./types";
+import { TOOL_NAMES } from "./toolNames";
 
 export const GATEWAY_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "send_slack_message",
+      name: TOOL_NAMES.sendSlackMessage,
       description: "Send a message to a Slack channel via the zorai gateway.",
       parameters: {
         type: "object",
@@ -19,7 +20,7 @@ export const GATEWAY_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "send_discord_message",
+      name: TOOL_NAMES.sendDiscordMessage,
       description: "Send a message to a Discord channel or user. If channel_id and user_id are both omitted, sends to the first channel configured in settings.",
       parameters: {
         type: "object",
@@ -35,7 +36,7 @@ export const GATEWAY_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "send_telegram_message",
+      name: TOOL_NAMES.sendTelegramMessage,
       description: "Send a message to a Telegram chat via the zorai gateway.",
       parameters: {
         type: "object",
@@ -50,7 +51,7 @@ export const GATEWAY_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "send_whatsapp_message",
+      name: TOOL_NAMES.sendWhatsAppMessage,
       description: "Send a message to a WhatsApp contact via the zorai gateway.",
       parameters: {
         type: "object",
@@ -68,7 +69,7 @@ export const TERMINAL_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "list_terminals",
+      name: TOOL_NAMES.listTerminals,
       description: "List all open terminal panes with their IDs. Use this to discover which terminals are available before running commands.",
       parameters: { type: "object", properties: {} },
     },
@@ -76,7 +77,7 @@ export const TERMINAL_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "read_active_terminal_content",
+      name: TOOL_NAMES.readActiveTerminalContent,
       description: "Read the current terminal buffer content or browser panel info. By default reads the active pane; optionally target a pane by ID or pane name. For browser panels, returns URL and title; use include_dom to get page text content.",
       parameters: {
         type: "object",
@@ -90,7 +91,7 @@ export const TERMINAL_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "run_terminal_command",
+      name: TOOL_NAMES.runTerminalCommand,
       description: "Execute a shell command in a terminal pane and return its output. If pane/pane_id are omitted, uses the currently active pane.",
       parameters: {
         type: "object",
@@ -109,7 +110,7 @@ export const SYSTEM_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "get_system_info",
+      name: TOOL_NAMES.getSystemInfo,
       description: "Get current system information including CPU usage, memory, GPU stats, and top processes.",
       parameters: { type: "object", properties: {} },
     },
@@ -117,7 +118,7 @@ export const SYSTEM_TOOLS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "agent_query_memory",
+      name: TOOL_NAMES.agentQueryMemory,
       description: "Query Honcho cross-session memory for long-term user, workspace, or assistant context.",
       parameters: {
         type: "object",

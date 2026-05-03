@@ -4,7 +4,15 @@ pub(crate) fn build_checkpoint_compaction_payload(
     messages: &[AgentMessage],
     target_tokens: usize,
 ) -> String {
-    let summary = build_compaction_summary(messages, target_tokens);
+    build_checkpoint_compaction_payload_with_scope(messages, target_tokens, None)
+}
+
+pub(crate) fn build_checkpoint_compaction_payload_with_scope(
+    messages: &[AgentMessage],
+    target_tokens: usize,
+    scope: Option<&CompactionScopeSnapshot>,
+) -> String {
+    let summary = build_compaction_summary_with_scope(messages, target_tokens, scope);
     if summary.trim().is_empty() {
         "Older context compacted for continuity.".to_string()
     } else {
@@ -48,15 +56,15 @@ pub(crate) fn message_uses_coding_tool(message: &AgentMessage) -> bool {
 pub(crate) fn is_coding_tool_name(tool_name: &str) -> bool {
     matches!(
         tool_name,
-        "read_file"
-            | "replace_in_file"
-            | "apply_patch"
-            | "create_file"
-            | "list_files"
+        zorai_protocol::tool_names::READ_FILE
+            | zorai_protocol::tool_names::REPLACE_IN_FILE
+            | zorai_protocol::tool_names::APPLY_PATCH
+            | zorai_protocol::tool_names::CREATE_FILE
+            | zorai_protocol::tool_names::LIST_FILES
             | "list_dir"
-            | "write_file"
-            | "append_to_file"
-            | "apply_file_patch"
+            | zorai_protocol::tool_names::WRITE_FILE
+            | zorai_protocol::tool_names::APPEND_TO_FILE
+            | zorai_protocol::tool_names::APPLY_FILE_PATCH
     )
 }
 

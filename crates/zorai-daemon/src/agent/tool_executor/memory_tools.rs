@@ -1483,7 +1483,7 @@ pub(crate) async fn execute_memory_tool_for_mcp(
     let task_id = requested_task_id(args)?;
 
     match tool_name {
-        "read_memory" => {
+        tool_names::READ_MEMORY => {
             execute_read_memory(
                 args,
                 agent,
@@ -1493,7 +1493,7 @@ pub(crate) async fn execute_memory_tool_for_mcp(
             )
             .await
         }
-        "read_user" => {
+        tool_names::READ_USER => {
             execute_read_user(
                 args,
                 agent,
@@ -1503,7 +1503,7 @@ pub(crate) async fn execute_memory_tool_for_mcp(
             )
             .await
         }
-        "read_soul" => {
+        tool_names::READ_SOUL => {
             execute_read_soul(
                 args,
                 agent,
@@ -1513,7 +1513,7 @@ pub(crate) async fn execute_memory_tool_for_mcp(
             )
             .await
         }
-        "search_memory" => {
+        tool_names::SEARCH_MEMORY => {
             execute_search_memory(
                 args,
                 agent,
@@ -1523,7 +1523,7 @@ pub(crate) async fn execute_memory_tool_for_mcp(
             )
             .await
         }
-        "search_user" => {
+        tool_names::SEARCH_USER => {
             execute_search_user(
                 args,
                 agent,
@@ -1533,7 +1533,7 @@ pub(crate) async fn execute_memory_tool_for_mcp(
             )
             .await
         }
-        "search_soul" => {
+        tool_names::SEARCH_SOUL => {
             execute_search_soul(
                 args,
                 agent,

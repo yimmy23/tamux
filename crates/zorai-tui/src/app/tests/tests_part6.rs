@@ -858,6 +858,17 @@ fn goal_workspace_goal_mode_restores_old_goal_sections() {
     assert!(!plain.contains("/tmp/plan.md"), "{plain}");
 }
 
+#[test]
+fn goal_workspace_footer_omits_refresh_button_and_keeps_ctrl_r_rerun() {
+    let mut model = goal_sidebar_model();
+
+    let plain = render_chat_plain(&mut model);
+
+    assert!(plain.contains("[Rerun from here] Ctrl+R"), "{plain}");
+    assert!(!plain.contains("[Refresh]"), "{plain}");
+    assert!(!plain.contains("[Rerun from here] Shift+R"), "{plain}");
+}
+
 
 #[test]
 fn goal_workspace_plan_prompt_toggle_is_clickable_and_keyboard_expandable() {

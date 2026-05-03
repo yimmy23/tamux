@@ -245,6 +245,30 @@ describe("frontend Nous Portal provider catalog", () => {
   });
 });
 
+describe("frontend Hermes Agent API provider catalog", () => {
+  it("registers Hermes Agent API with documented OpenAI-compatible defaults", () => {
+    const hermes = getProviderDefinition("hermes-agent-api" as any);
+
+    expect(hermes).toBeDefined();
+    expect(hermes?.name).toBe("Hermes Agent API");
+    expect(hermes?.defaultBaseUrl).toBe("http://localhost:8642/v1");
+    expect(hermes?.defaultModel).toBe("hermes-agent");
+    expect(hermes?.supportsModelFetch).toBe(true);
+    expect(hermes?.defaultTransport).toBe("chat_completions");
+    expect(hermes?.supportedTransports).toEqual(["chat_completions"]);
+    expect(hermes?.supportsResponseContinuity).toBe(false);
+    expect(hermes?.models.map((model) => [model.id, model.contextWindow])).toEqual([
+      ["hermes-agent", 128_000],
+    ]);
+    expect(DEFAULT_AGENT_SETTINGS["hermes-agent-api"].model).toBe("hermes-agent");
+  });
+
+  it("recognizes Hermes Agent API as a valid provider id", () => {
+    expect(normalizeAgentProviderId("hermes-agent-api")).toBe("hermes-agent-api");
+    expect(getDefaultModelForProvider("hermes-agent-api" as any)).toBe("hermes-agent");
+  });
+});
+
 describe("frontend Azure OpenAI provider catalog", () => {
   it("registers Azure OpenAI with OpenAI-compatible defaults", () => {
     const azure = getProviderDefinition("azure-openai" as any);

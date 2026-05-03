@@ -332,6 +332,38 @@ use zorai_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     }
 
     #[tokio::test]
+    async fn context_window_update_agent_event_emits_client_event() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        DaemonClient::dispatch_agent_event(
+            serde_json::json!({
+                "type": "context_window_update",
+                "thread_id": "thread-1",
+                "active_context_window_start": 2,
+                "active_context_window_end": 7,
+                "active_context_window_tokens": 1234
+            }),
+            &event_tx,
+        )
+        .await;
+
+        match event_rx.recv().await.expect("expected context window event") {
+            ClientEvent::ContextWindowUpdate {
+                thread_id,
+                active_context_window_start,
+                active_context_window_end,
+                active_context_window_tokens,
+            } => {
+                assert_eq!(thread_id, "thread-1");
+                assert_eq!(active_context_window_start, 2);
+                assert_eq!(active_context_window_end, 7);
+                assert_eq!(active_context_window_tokens, 1234);
+            }
+            other => panic!("expected context window event, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
     async fn checkpoint_list_event_carries_goal_id_when_empty() {
         let (event_tx, mut event_rx) = mpsc::channel(8);
 

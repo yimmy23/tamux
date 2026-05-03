@@ -516,6 +516,17 @@ fn render_advanced_tab<'a>(
         "",
         theme,
     );
+    render_advanced_value(
+        &mut lines,
+        settings,
+        config,
+        snapshot_start + 4,
+        "Auto Refresh (s):",
+        config.auto_refresh_interval_secs.to_string(),
+        "auto_refresh_interval_secs",
+        "  [Enter: edit]",
+        theme,
+    );
 
     lines
 }

@@ -16,13 +16,13 @@ pub(super) fn inter_tool_call_delay(
 fn skill_gate_exempt_tool(name: &str) -> bool {
     matches!(
         name,
-        "discover_guidelines"
-            | "list_guidelines"
-            | "read_guideline"
-            | "discover_skills"
-            | "list_skills"
-            | "read_skill"
-            | "justify_skill_skip"
+        zorai_protocol::tool_names::DISCOVER_GUIDELINES
+            | zorai_protocol::tool_names::LIST_GUIDELINES
+            | zorai_protocol::tool_names::READ_GUIDELINE
+            | zorai_protocol::tool_names::DISCOVER_SKILLS
+            | zorai_protocol::tool_names::LIST_SKILLS
+            | zorai_protocol::tool_names::READ_SKILL
+            | zorai_protocol::tool_names::JUSTIFY_SKILL_SKIP
     )
 }
 
@@ -34,7 +34,10 @@ fn should_suppress_busy_wait_poll(
     has_active_subagents: bool,
 ) -> bool {
     has_active_subagents
-        && matches!(tool_name, "list_agents" | "list_subagents")
+        && matches!(
+            tool_name,
+            zorai_protocol::tool_names::LIST_AGENTS | zorai_protocol::tool_names::LIST_SUBAGENTS
+        )
         && previous_signature.is_some_and(|value| value == current_signature)
         && consecutive_same_tool_calls >= 1
 }
@@ -42,7 +45,8 @@ fn should_suppress_busy_wait_poll(
 fn allows_repeated_identical_tool_calls(tool_name: &str) -> bool {
     matches!(
         tool_name,
-        "get_operation_status" | "get_background_task_status"
+        zorai_protocol::tool_names::GET_OPERATION_STATUS
+            | zorai_protocol::tool_names::GET_BACKGROUND_TASK_STATUS
     )
 }
 
@@ -307,6 +311,7 @@ impl<'a> SendMessageRunner<'a> {
             )
             .await;
         self.engine.persist_thread_by_id(&self.tid).await;
+        self.emit_context_window_update_for_current_thread().await;
         Box::pin(
             self.engine
                 .maybe_auto_send_gateway_thread_response(&self.tid),
@@ -380,7 +385,7 @@ impl<'a> SendMessageRunner<'a> {
             let result = self.execute_tool_call(tc).await;
             self.record_tool_trace(tc, &result);
 
-            if tc.function.name == "update_memory" && !result.is_error {
+            if tc.function.name == zorai_protocol::tool_names::UPDATE_MEMORY && !result.is_error {
                 self.engine.refresh_memory_cache().await;
             }
 
@@ -697,7 +702,8 @@ impl<'a> SendMessageRunner<'a> {
             self.consecutive_same_tool_calls,
             has_active_subagents,
         ) {
-            let (summary, content) = if tc.function.name == "list_agents" {
+            let (summary, content) = if tc.function.name == zorai_protocol::tool_names::LIST_AGENTS
+            {
                 (
                     "Repeated list_agents polling suppressed while child subagents are still running.",
                     "Repeated list_agents polling suppressed. `list_agents` does not report spawned child progress. Do not busy-wait while child subagents are active; continue unrelated work or send a normal response so zorai can resume you when children finish.".to_string(),
@@ -907,7 +913,7 @@ mod tests {
     #[test]
     fn busy_wait_poll_detection_flags_repeated_list_agents_with_active_subagents() {
         assert!(super::should_suppress_busy_wait_poll(
-            "list_agents",
+            zorai_protocol::tool_names::LIST_AGENTS,
             "list_agents:{}",
             Some("list_agents:{}"),
             1,
@@ -918,7 +924,7 @@ mod tests {
     #[test]
     fn busy_wait_poll_detection_allows_first_status_probe() {
         assert!(!super::should_suppress_busy_wait_poll(
-            "list_subagents",
+            zorai_protocol::tool_names::LIST_SUBAGENTS,
             "list_subagents:{}",
             Some("spawn_subagent:{\"title\":\"review\"}"),
             1,
@@ -929,7 +935,7 @@ mod tests {
     #[test]
     fn busy_wait_poll_detection_ignores_non_poll_tools() {
         assert!(!super::should_suppress_busy_wait_poll(
-            "read_file",
+            zorai_protocol::tool_names::READ_FILE,
             "read_file:{\"path\":\"PROJECT.md\"}",
             Some("read_file:{\"path\":\"PROJECT.md\"}"),
             1,

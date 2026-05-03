@@ -200,6 +200,8 @@ impl TuiModel {
                 );
                 value["openrouter_allow_fallbacks"] =
                     serde_json::Value::Bool(self.config.openrouter_allow_fallbacks);
+                value["openrouter_response_cache_enabled"] =
+                    serde_json::Value::Bool(self.config.openrouter_response_cache_enabled);
             }
             return value;
         }
@@ -233,6 +235,7 @@ impl TuiModel {
             value["openrouter_provider_order"] = serde_json::json!([]);
             value["openrouter_provider_ignore"] = serde_json::json!([]);
             value["openrouter_allow_fallbacks"] = serde_json::Value::Bool(true);
+            value["openrouter_response_cache_enabled"] = serde_json::Value::Bool(false);
         }
         value
     }
@@ -327,6 +330,17 @@ impl TuiModel {
                         self.config.openrouter_allow_fallbacks
                     } else {
                         true
+                    },
+                ));
+            value["openrouter_response_cache_enabled"] = ui_value
+                .get("openrouter_response_cache_enabled")
+                .and_then(|value| value.as_bool())
+                .map(serde_json::Value::Bool)
+                .unwrap_or(serde_json::Value::Bool(
+                    if self.config.provider == PROVIDER_ID_OPENROUTER {
+                        self.config.openrouter_response_cache_enabled
+                    } else {
+                        false
                     },
                 ));
         }
@@ -522,6 +536,8 @@ impl TuiModel {
             serde_json::Value::from(self.config.participant_observer_restore_window_hours);
         patch["max_tool_loops"] = serde_json::Value::from(self.config.max_tool_loops);
         patch["max_retries"] = serde_json::Value::from(self.config.max_retries);
+        patch["auto_refresh_interval_secs"] =
+            serde_json::Value::from(self.config.auto_refresh_interval_secs);
         patch["retry_delay_ms"] = serde_json::Value::from(self.config.retry_delay_ms);
         patch["message_loop_delay_ms"] = serde_json::Value::from(self.config.message_loop_delay_ms);
         patch["tool_call_delay_ms"] = serde_json::Value::from(self.config.tool_call_delay_ms);

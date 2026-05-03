@@ -713,7 +713,7 @@ impl TuiModel {
                     self.focus = FocusArea::Input;
                 }
             }
-            "start_goal_run" => {
+            zorai_protocol::tool_names::START_GOAL_RUN => {
                 self.cleanup_concierge_on_navigate();
                 self.chat
                     .reduce(chat::ChatAction::SelectThread("concierge".to_string()));
