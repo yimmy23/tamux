@@ -70,6 +70,7 @@ mod metadata;
 pub(crate) mod morphogenesis;
 mod notifications;
 pub(crate) mod openai_codex_auth;
+mod operation_wakeup;
 mod operational_context;
 mod operator_model;
 mod operator_questions;

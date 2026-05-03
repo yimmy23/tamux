@@ -1558,42 +1558,15 @@ impl AgentEngine {
             None => MAIN_AGENT_ID.to_string(),
         };
         let payload = self
-            .build_internal_delegate_payload(thread_id, content, thread_id.is_some())
+            .build_internal_delegate_payload(thread_id, content, false)
             .await;
-
-        if let Some(thread_id) = thread_id {
-            let continuation_prompt = self
-                .build_visible_thread_continuation_prompt(
-                    thread_id,
-                    &sender,
-                    &resolved_target_id,
-                    content,
-                )
-                .await;
-            self.enqueue_visible_thread_continuation(
-                thread_id,
-                DeferredVisibleThreadContinuation {
-                    agent_id: resolved_target_id.clone(),
-                    task_id: None,
-                    preferred_session_hint: preferred_session_hint.map(str::to_string),
-                    llm_user_content: continuation_prompt,
-                    force_compaction: false,
-                    rerun_participant_observers_after_turn: true,
-                    internal_delegate_sender: Some(sender.clone()),
-                    internal_delegate_message: Some(payload),
-                },
-            )
-            .await;
-            Box::pin(self.flush_deferred_visible_thread_continuations(thread_id)).await?;
-        } else {
-            Box::pin(self.send_internal_agent_message(
-                &sender,
-                &resolved_target_id,
-                &payload,
-                preferred_session_hint,
-            ))
-            .await?;
-        }
+        Box::pin(self.send_internal_agent_message(
+            &sender,
+            &resolved_target_id,
+            &payload,
+            preferred_session_hint,
+        ))
+        .await?;
 
         Ok(())
     }

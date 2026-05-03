@@ -321,9 +321,10 @@ fn run_loop(
     loop {
         let now = Instant::now();
         if now >= next_tick {
-            model.on_tick();
+            if model.on_tick() {
+                needs_draw = true;
+            }
             next_tick = now + tick_rate;
-            needs_draw = true;
         }
 
         let processed_daemon_events =

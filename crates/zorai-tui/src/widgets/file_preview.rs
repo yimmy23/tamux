@@ -157,8 +157,9 @@ struct FilePreviewCacheKey {
 #[derive(Clone)]
 struct CachedFilePreviewLines {
     key: FilePreviewCacheKey,
-    lines: Arc<Vec<Line<'static>>>,
-    content_area: Rect,
+    header_lines: Arc<Vec<Line<'static>>>,
+    body_lines: Arc<Vec<Line<'static>>>,
+    body_area: Rect,
     max_scroll: usize,
 }
 
@@ -168,9 +169,10 @@ struct FilePreviewRenderCache {
 }
 
 struct FilePreviewSnapshot {
-    lines: Arc<Vec<Line<'static>>>,
+    header_lines: Arc<Vec<Line<'static>>>,
+    body_lines: Arc<Vec<Line<'static>>>,
     scroll: usize,
-    area: Rect,
+    body_area: Rect,
     layout: Option<FilePreviewScrollbarLayout>,
     max_scroll: usize,
 }
@@ -193,6 +195,7 @@ static BUILD_LINES_CALL_COUNT: std::sync::atomic::AtomicUsize =
 #[cfg(test)]
 fn reset_build_lines_call_count_for_tests() {
     BUILD_LINES_CALL_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+    lock_file_preview_cache().lines = None;
 }
 
 #[cfg(test)]
@@ -300,26 +303,44 @@ fn build_lines(
     theme: &ThemeTokens,
     scroll: usize,
 ) -> Vec<Line<'static>> {
+    let mut lines = build_header_lines(target, theme);
+    lines.extend(build_body_lines(area, tasks, target, theme, scroll));
+    lines
+}
+
+fn build_header_lines(target: &ChatFilePreviewTarget, theme: &ThemeTokens) -> Vec<Line<'static>> {
+    vec![
+        Line::from(vec![
+            Span::styled("[x]", theme.accent_danger),
+            Span::raw(" "),
+            Span::styled("Close preview", theme.fg_dim),
+        ]),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("Path: ", theme.fg_dim),
+            Span::styled(target.path.clone(), theme.fg_active),
+        ]),
+        Line::raw(""),
+        Line::from(Span::styled(
+            "Preview",
+            theme.accent_primary.add_modifier(Modifier::BOLD),
+        )),
+    ]
+}
+
+fn build_body_lines(
+    area: Rect,
+    tasks: &TaskState,
+    target: &ChatFilePreviewTarget,
+    theme: &ThemeTokens,
+    scroll: usize,
+) -> Vec<Line<'static>> {
     #[cfg(test)]
     BUILD_LINES_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
     let width = area.width as usize;
-    let mut lines = vec![Line::from(vec![
-        Span::styled("[x]", theme.accent_danger),
-        Span::raw(" "),
-        Span::styled("Close preview", theme.fg_dim),
-    ])];
-    lines.push(Line::raw(""));
-    lines.push(Line::from(vec![
-        Span::styled("Path: ", theme.fg_dim),
-        Span::styled(target.path.clone(), theme.fg_active),
-    ]));
-    lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled(
-        "Preview",
-        theme.accent_primary.add_modifier(Modifier::BOLD),
-    )));
-    let image_preview_height = area.height.saturating_sub(lines.len() as u16).max(1) as usize;
+    let mut lines = Vec::new();
+    let image_preview_height = area.height.max(1) as usize;
     let use_terminal_graphics = uses_terminal_graphics(target, scroll);
 
     if let Some(repo_root) = target.repo_root.as_deref() {
@@ -397,6 +418,16 @@ fn build_lines(
     lines
 }
 
+fn file_preview_body_area(area: Rect) -> Rect {
+    let header_height = FILE_PREVIEW_HEADER_LINES.min(area.height);
+    Rect::new(
+        area.x,
+        area.y.saturating_add(header_height),
+        area.width,
+        area.height.saturating_sub(header_height),
+    )
+}
+
 fn file_preview_cache_key(
     area: Rect,
     tasks: &TaskState,
@@ -435,28 +466,38 @@ fn build_cached_lines(
     terminal_graphics: bool,
 ) -> CachedFilePreviewLines {
     let cache_scroll = if terminal_graphics { 0 } else { 1 };
-    let full_lines = build_lines(area, tasks, target, theme, cache_scroll);
-    if full_lines.len() <= area.height as usize {
+    let header_lines = Arc::new(build_header_lines(target, theme));
+    let body_area = file_preview_body_area(area);
+    let body_lines = build_body_lines(body_area, tasks, target, theme, cache_scroll);
+    if body_area.height == 0
+        || body_area.width <= SCROLLBAR_WIDTH
+        || body_lines.len() <= body_area.height as usize
+    {
+        let max_scroll = body_lines.len().saturating_sub(body_area.height as usize);
         return CachedFilePreviewLines {
             key: file_preview_cache_key(area, tasks, target, theme, terminal_graphics),
-            max_scroll: full_lines.len().saturating_sub(area.height as usize),
-            lines: Arc::new(full_lines),
-            content_area: area,
+            header_lines,
+            max_scroll,
+            body_lines: Arc::new(body_lines),
+            body_area,
         };
     }
 
-    let content_area = Rect::new(
-        area.x,
-        area.y,
-        area.width.saturating_sub(SCROLLBAR_WIDTH),
-        area.height,
+    let content_body_area = Rect::new(
+        body_area.x,
+        body_area.y,
+        body_area.width.saturating_sub(SCROLLBAR_WIDTH),
+        body_area.height,
     );
-    let lines = build_lines(content_area, tasks, target, theme, cache_scroll);
+    let body_lines = build_body_lines(content_body_area, tasks, target, theme, cache_scroll);
     CachedFilePreviewLines {
         key: file_preview_cache_key(area, tasks, target, theme, terminal_graphics),
-        max_scroll: lines.len().saturating_sub(content_area.height as usize),
-        lines: Arc::new(lines),
-        content_area,
+        max_scroll: body_lines
+            .len()
+            .saturating_sub(content_body_area.height as usize),
+        header_lines,
+        body_lines: Arc::new(body_lines),
+        body_area: content_body_area,
     }
 }
 
@@ -482,15 +523,19 @@ fn snapshot_with_cache(
             cached
         }
     };
-    let layout = scrollbar_layout_from_metrics(area, cached.lines.len(), scroll);
+    let body_track_area = file_preview_body_area(area);
+    let layout = scrollbar_layout_from_metrics(body_track_area, cached.body_lines.len(), scroll);
     let resolved_scroll = layout
         .map(|layout| layout.scroll)
         .unwrap_or_else(|| scroll.min(cached.max_scroll));
 
     Some(FilePreviewSnapshot {
-        lines: cached.lines,
+        header_lines: cached.header_lines,
+        body_lines: cached.body_lines,
         scroll: resolved_scroll,
-        area: cached.content_area,
+        body_area: layout
+            .map(|layout| layout.content)
+            .unwrap_or(cached.body_area),
         layout,
         max_scroll: cached.max_scroll,
     })
@@ -515,13 +560,16 @@ fn selection_snapshot(
     scroll: usize,
 ) -> Option<SelectionSnapshot> {
     let snapshot = snapshot(area, tasks, target, theme, scroll)?;
-    if snapshot.lines.is_empty() || snapshot.area.width == 0 || snapshot.area.height == 0 {
+    if snapshot.body_lines.is_empty()
+        || snapshot.body_area.width == 0
+        || snapshot.body_area.height == 0
+    {
         return None;
     }
     Some(SelectionSnapshot {
-        lines: snapshot.lines,
+        lines: snapshot.body_lines,
         scroll: snapshot.scroll,
-        area: snapshot.area,
+        area: snapshot.body_area,
     })
 }
 
@@ -694,25 +742,19 @@ pub fn terminal_image_overlay_spec(
         return None;
     }
 
-    let content = snapshot(area, tasks, target, theme, scroll)?.area;
+    let body = snapshot(area, tasks, target, theme, scroll)?.body_area;
     let path = image_preview::resolve_local_image_path(&target.path)?;
-    let image_row = content
-        .y
-        .saturating_add(FILE_PREVIEW_HEADER_LINES)
-        .saturating_add(TERMINAL_IMAGE_HEADER_LINES);
-    let image_rows = content
-        .height
-        .saturating_sub(FILE_PREVIEW_HEADER_LINES)
-        .saturating_sub(TERMINAL_IMAGE_HEADER_LINES);
-    if content.width == 0 || image_rows == 0 {
+    let image_row = body.y.saturating_add(TERMINAL_IMAGE_HEADER_LINES);
+    let image_rows = body.height.saturating_sub(TERMINAL_IMAGE_HEADER_LINES);
+    if body.width == 0 || image_rows == 0 {
         return None;
     }
 
     Some(TerminalImageOverlaySpec {
         path,
-        column: content.x,
+        column: body.x,
         row: image_row,
-        cols: content.width,
+        cols: body.width,
         rows: image_rows,
     })
 }
@@ -725,16 +767,11 @@ pub fn hit_test(
     mouse: Position,
     theme: &ThemeTokens,
 ) -> Option<FilePreviewHitTarget> {
-    let snapshot = snapshot(area, tasks, target, theme, scroll)?;
-    let content = snapshot.area;
-    if !content.contains(mouse) {
+    let _ = snapshot(area, tasks, target, theme, scroll)?;
+    if !area.contains(mouse) {
         return None;
     }
-    if snapshot
-        .scroll
-        .saturating_add(mouse.y.saturating_sub(content.y) as usize)
-        == 0
-    {
+    if mouse.y == area.y {
         Some(FilePreviewHitTarget::ClosePreview)
     } else {
         None
@@ -791,12 +828,24 @@ pub fn render(
     let Some(snapshot) = snapshot(area, tasks, target, theme, scroll) else {
         return;
     };
+    let header_height = FILE_PREVIEW_HEADER_LINES.min(area.height);
+    if header_height > 0 {
+        let header_area = Rect::new(area.x, area.y, area.width, header_height);
+        let visible_header = snapshot
+            .header_lines
+            .iter()
+            .take(header_height as usize)
+            .cloned()
+            .collect::<Vec<_>>();
+        frame.render_widget(Paragraph::new(visible_header), header_area);
+    }
+
     let visible = snapshot
-        .lines
+        .body_lines
         .iter()
         .enumerate()
         .skip(snapshot.scroll)
-        .take(snapshot.area.height as usize)
+        .take(snapshot.body_area.height as usize)
         .map(|(row, line)| {
             let mut line = line.clone();
             apply_mouse_selection_highlight_to_line(row, &mut line, mouse_selection);
@@ -822,7 +871,7 @@ pub fn render(
             .collect::<Vec<_>>();
         frame.render_widget(Paragraph::new(scrollbar_lines), layout.scrollbar);
     } else {
-        frame.render_widget(Paragraph::new(visible), snapshot.area);
+        frame.render_widget(Paragraph::new(visible), snapshot.body_area);
     }
 }
 
@@ -850,6 +899,42 @@ pub(crate) fn scrollbar_layout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn render_preview_plain_text(
+        area: Rect,
+        tasks: &TaskState,
+        target: &ChatFilePreviewTarget,
+        scroll: usize,
+    ) -> String {
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("terminal should initialize");
+
+        terminal
+            .draw(|frame| {
+                render(
+                    frame,
+                    area,
+                    tasks,
+                    target,
+                    &ThemeTokens::default(),
+                    scroll,
+                    None,
+                );
+            })
+            .expect("file preview render should succeed");
+
+        let buffer = terminal.backend().buffer();
+        (area.y..area.y.saturating_add(area.height))
+            .map(|y| {
+                (area.x..area.x.saturating_add(area.width))
+                    .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 
     #[test]
     fn cached_snapshot_reuses_built_lines_for_same_preview_input() {
@@ -881,11 +966,90 @@ mod tests {
         let second = snapshot_with_cache(&mut cache, area, &tasks, &target, &theme, 10)
             .expect("second snapshot should be cached");
 
-        assert_eq!(first.lines.len(), second.lines.len());
+        assert_eq!(first.header_lines.len(), second.header_lines.len());
+        assert_eq!(first.body_lines.len(), second.body_lines.len());
         assert_eq!(
             build_lines_call_count_for_tests(),
             calls_after_first,
             "same file preview input should reuse cached rendered lines"
+        );
+    }
+
+    #[test]
+    fn repeated_render_reuses_cached_preview_lines() {
+        let mut tasks = TaskState::default();
+        tasks.reduce(crate::state::task::TaskAction::FilePreviewReceived(
+            crate::state::task::FilePreview {
+                path: "/tmp/large-preview.txt".to_string(),
+                content: (1..=500)
+                    .map(|idx| format!("large preview line {idx}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                truncated: false,
+                is_text: true,
+            },
+        ));
+        let target = ChatFilePreviewTarget {
+            path: "/tmp/large-preview.txt".to_string(),
+            repo_root: None,
+            repo_relative_path: None,
+        };
+        let area = Rect::new(0, 0, 80, 20);
+
+        reset_build_lines_call_count_for_tests();
+        let _ = render_preview_plain_text(area, &tasks, &target, 10);
+        let calls_after_first_render = build_lines_call_count_for_tests();
+        let _ = render_preview_plain_text(area, &tasks, &target, 30);
+
+        assert_eq!(
+            build_lines_call_count_for_tests(),
+            calls_after_first_render,
+            "render should reuse cached preview lines across scroll positions"
+        );
+    }
+
+    #[test]
+    fn scrolled_file_preview_keeps_close_control_and_path_visible() {
+        let mut tasks = TaskState::default();
+        tasks.reduce(crate::state::task::TaskAction::FilePreviewReceived(
+            crate::state::task::FilePreview {
+                path: "/tmp/large-preview.txt".to_string(),
+                content: (1..=80)
+                    .map(|idx| format!("large preview line {idx}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                truncated: false,
+                is_text: true,
+            },
+        ));
+        let target = ChatFilePreviewTarget {
+            path: "/tmp/large-preview.txt".to_string(),
+            repo_root: None,
+            repo_relative_path: None,
+        };
+
+        let rendered = render_preview_plain_text(Rect::new(0, 0, 80, 12), &tasks, &target, 20);
+
+        assert!(
+            rendered.contains("Close preview"),
+            "close control should remain visible while scrolled"
+        );
+        assert!(
+            rendered.contains("Path: /tmp/large-preview.txt"),
+            "file path should remain visible while scrolled"
+        );
+
+        assert_eq!(
+            hit_test(
+                Rect::new(0, 0, 80, 12),
+                &tasks,
+                &target,
+                20,
+                Position::new(1, 0),
+                &ThemeTokens::default(),
+            ),
+            Some(FilePreviewHitTarget::ClosePreview),
+            "close control should remain clickable while scrolled"
         );
     }
 

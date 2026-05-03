@@ -353,6 +353,100 @@ async fn collect_stalled_turn_observations_skips_active_tool_turns() {
 }
 
 #[tokio::test]
+async fn collect_stalled_turn_observations_skips_idle_stream_with_unanswered_tool_call() {
+    let engine = build_test_engine("Recovered.").await;
+    let now = super::now_millis();
+    let thread_id = "thread-active-bash-tool-stream";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: None,
+                title: "Active bash tool stream".to_string(),
+                messages: vec![
+                    AgentMessage::user("Run the long command.", now.saturating_sub(120_000)),
+                    AgentMessage {
+                        id: "assistant-bash-tool".to_string(),
+                        role: MessageRole::Assistant,
+                        content: String::new(),
+                        content_blocks: Vec::new(),
+                        tool_calls: Some(vec![ToolCall::with_default_weles_review(
+                            "call-bash-1".to_string(),
+                            ToolFunction {
+                                name: zorai_protocol::tool_names::BASH_COMMAND.to_string(),
+                                arguments: r#"{"command":"sleep 60"}"#.to_string(),
+                            },
+                        )]),
+                        tool_call_id: None,
+                        tool_name: None,
+                        tool_arguments: None,
+                        tool_status: None,
+                        weles_review: None,
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cost: None,
+                        provider: None,
+                        model: None,
+                        api_transport: None,
+                        response_id: None,
+                        upstream_message: None,
+                        provider_final_result: None,
+                        author_agent_id: None,
+                        author_agent_name: None,
+                        reasoning: None,
+                        message_kind: crate::agent::types::AgentMessageKind::Normal,
+                        compaction_strategy: None,
+                        compaction_payload: None,
+                        offloaded_payload_id: None,
+                        tool_output_preview_path: None,
+                        structural_refs: Vec::new(),
+                        pinned_for_compaction: false,
+                        timestamp: now.saturating_sub(60_000),
+                    },
+                ],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: now,
+                updated_at: now,
+            },
+        );
+    }
+
+    let (generation, _, _) = engine.begin_stream_cancellation(thread_id).await;
+    engine
+        .note_stream_progress(
+            thread_id,
+            generation,
+            StreamProgressKind::ToolCalls,
+            "bash_command",
+        )
+        .await;
+    {
+        let mut streams = engine.stream_cancellations.lock().await;
+        let entry = streams
+            .get_mut(thread_id)
+            .expect("active stream entry should exist");
+        entry.last_progress_at = now.saturating_sub(31_000);
+    }
+
+    let observations = engine.collect_stalled_turn_observations().await;
+
+    assert!(
+        observations.is_empty(),
+        "stalled-turn recovery must not resume while tool_call_id call-bash-1 is awaiting a tool result"
+    );
+}
+
+#[tokio::test]
 async fn collect_stalled_turn_observations_detects_promise_without_action() {
     let engine = build_test_engine("Acknowledged.").await;
     let now = super::now_millis();

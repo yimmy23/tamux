@@ -2162,6 +2162,13 @@ pub fn execute_tool<'a>(
                     prepared.dispatch_tool_name.as_str(),
                     &prepared.dispatch_args,
                 );
+                agent
+                    .register_operation_wakeups_from_tool_result(
+                        thread_id,
+                        prepared.dispatch_tool_name.as_str(),
+                        &content,
+                    )
+                    .await;
                 if prepared.dispatch_tool_name.as_str() == tool_names::FETCH_URL {
                     maybe_emit_openapi_synthesis_proposal_notice(
                         agent,

@@ -139,6 +139,32 @@ fn latest_loaded_compaction_window_start(thread: &AgentThread) -> Option<usize> 
         .map(|index| thread.loaded_message_start.saturating_add(index))
 }
 
+fn incoming_context_window_is_stale(existing: &AgentThread, incoming: &AgentThread) -> bool {
+    if incoming.active_context_window_tokens.is_none() {
+        return false;
+    }
+
+    if let (Some(boundary), Some(incoming_start)) = (
+        existing.active_compaction_window_start,
+        incoming.active_context_window_start,
+    ) {
+        if incoming_start < boundary {
+            return true;
+        }
+    }
+
+    if let (Some(existing_end), Some(incoming_end)) = (
+        existing.active_context_window_end,
+        incoming.active_context_window_end,
+    ) {
+        if incoming_end < existing_end {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn merge_thread_window(
     existing: &AgentThread,
     incoming: &AgentThread,
@@ -1485,6 +1511,8 @@ impl ChatState {
                     let metadata_only_detail =
                         incoming.messages.is_empty() && !existing.messages.is_empty();
                     let older_history_page = is_older_thread_page(existing, &incoming);
+                    let stale_context_window =
+                        incoming_context_window_is_stale(existing, &incoming);
                     let replace_existing_window = should_replace_thread_window(existing, &incoming);
                     let (merged, merged_start, merged_end, disjoint) = if metadata_only_detail {
                         (
@@ -1521,7 +1549,7 @@ impl ChatState {
                     } else {
                         merged_end.max(existing.total_message_count)
                     };
-                    if !older_history_page {
+                    if !older_history_page && !stale_context_window {
                         existing.active_context_window_start = incoming.active_context_window_start;
                         existing.active_context_window_end = incoming.active_context_window_end;
                         existing.active_context_window_tokens =
@@ -1610,6 +1638,25 @@ impl ChatState {
                     thread.active_context_window_start = None;
                     thread.active_context_window_end = None;
                     thread.active_context_window_tokens = None;
+                    normalize_thread_window(thread);
+                }
+            }
+
+            ChatAction::CompactionApplied {
+                thread_id,
+                active_compaction_window_start,
+                total_message_count,
+            } => {
+                if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
+                    thread.total_message_count = thread
+                        .total_message_count
+                        .max(total_message_count)
+                        .max(active_compaction_window_start.saturating_add(1));
+                    thread.active_compaction_window_start = Some(active_compaction_window_start);
+                    thread.active_context_window_start = None;
+                    thread.active_context_window_end = None;
+                    thread.active_context_window_tokens = None;
+                    thread.latest_turn_context_tokens = None;
                     normalize_thread_window(thread);
                 }
             }

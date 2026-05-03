@@ -206,6 +206,17 @@ impl AgentEngine {
                 details: Some(compaction_notice_details),
             });
         }
+        if let Some(thread) = self.threads.read().await.get(thread_id) {
+            let (active_context_window_start, active_messages) =
+                active_compaction_window(&thread.messages);
+            let active_context_window_tokens = estimate_message_tokens(active_messages) as u64;
+            let _ = self.event_tx.send(AgentEvent::ContextWindowUpdate {
+                thread_id: thread_id.to_string(),
+                active_context_window_start,
+                active_context_window_end: thread.messages.len(),
+                active_context_window_tokens,
+            });
+        }
         Ok(true)
     }
 

@@ -508,3 +508,23 @@ fn managed_execution_keeps_yolo_shell_commands_headless() {
         "security_level": "highest"
     })));
 }
+
+#[test]
+fn bash_command_waits_only_for_known_quick_commands() {
+    assert!(bash_command_can_wait_for_completion(
+        &serde_json::json!({ "command": "pwd" })
+    ));
+    assert!(bash_command_can_wait_for_completion(
+        &serde_json::json!({ "command": "printf ready" })
+    ));
+    assert!(!bash_command_can_wait_for_completion(
+        &serde_json::json!({ "command": "bash /tmp/update.sh" })
+    ));
+    assert!(!bash_command_can_wait_for_completion(
+        &serde_json::json!({ "command": "python3 -c \"import time; time.sleep(3)\"" })
+    ));
+    assert!(!bash_command_can_wait_for_completion(&serde_json::json!({
+        "command": "pwd",
+        "wait_for_completion": false
+    })));
+}

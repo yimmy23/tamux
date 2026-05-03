@@ -65,6 +65,36 @@ fn apply_target_agent_reasoning_effort_locally(
     }
 }
 
+fn apply_active_svarog_provider_model_locally(
+    model: &mut TuiModel,
+    provider_id: &str,
+    model_id: &str,
+    context_window_tokens: Option<u32>,
+) {
+    let Some(thread) = model.chat.active_thread_mut() else {
+        return;
+    };
+    let is_svarog_thread = thread
+        .agent_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(|name| {
+            name.eq_ignore_ascii_case(zorai_protocol::AGENT_NAME_SWAROG)
+                || name.eq_ignore_ascii_case(zorai_protocol::AGENT_ID_SWAROG)
+        })
+        .unwrap_or(true);
+    if !is_svarog_thread {
+        return;
+    }
+
+    thread.profile_provider = Some(provider_id.to_string());
+    thread.profile_model = Some(model_id.to_string());
+    thread.profile_context_window_tokens = context_window_tokens;
+    thread.runtime_provider = Some(provider_id.to_string());
+    thread.runtime_model = Some(model_id.to_string());
+}
+
 pub(super) fn begin_custom_model_edit(model: &mut TuiModel) {
     let current = if model.config.custom_model_name.trim().is_empty()
         || model.config.custom_model_name == model.config.model
@@ -800,6 +830,17 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                             &model.config.auth_source,
                             &model.config.model,
                             &model.config.api_transport,
+                        );
+                        let selected_provider = model.config.provider.clone();
+                        let selected_context_window = model
+                            .config
+                            .custom_context_window_tokens
+                            .or(model_context_window);
+                        apply_active_svarog_provider_model_locally(
+                            model,
+                            &selected_provider,
+                            &model_id,
+                            selected_context_window,
                         );
                         model.status_line = format!("Model: {}", model_id);
                         if let Ok(value_json) =

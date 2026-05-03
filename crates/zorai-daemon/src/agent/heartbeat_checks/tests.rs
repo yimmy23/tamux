@@ -183,6 +183,7 @@ async fn make_test_engine(
         stream_cancellations: Mutex::new(HashMap::new()),
         stream_generation: AtomicU64::new(1),
         stalled_turn_candidates: Mutex::new(HashMap::new()),
+        operation_wakeups: Mutex::new(HashMap::new()),
         active_operator_sessions: RwLock::new(HashMap::new()),
         pending_operator_approvals: RwLock::new(HashMap::new()),
         pending_approval_commands: RwLock::new(HashMap::new()),

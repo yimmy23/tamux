@@ -322,6 +322,11 @@ pub enum ChatAction {
     InvalidateContextWindow {
         thread_id: String,
     },
+    CompactionApplied {
+        thread_id: String,
+        active_compaction_window_start: usize,
+        total_message_count: usize,
+    },
     ThreadCreated {
         thread_id: String,
         title: String,

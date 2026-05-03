@@ -352,6 +352,80 @@ async fn persisted_goal_thread_compaction_derives_scope_from_goal_run_record() {
     );
 }
 
+#[tokio::test]
+async fn persisted_compaction_broadcasts_post_compaction_context_window_update() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.auto_compact_context = true;
+    config.max_context_messages = 2;
+    config.keep_recent_on_compact = 1;
+    config.compaction.strategy = CompactionStrategy::Heuristic;
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+    let provider = sample_provider_config();
+    let thread_id = "thread-compaction-context-update";
+    let mut events = engine.event_tx.subscribe();
+
+    {
+        let mut threads = engine.threads.write().await;
+        let mut thread = sample_thread(vec![
+            AgentMessage::user("A".repeat(4_000), 1),
+            AgentMessage::user("B".repeat(4_000), 2),
+            AgentMessage::user("C".repeat(80), 3),
+        ]);
+        thread.id = thread_id.to_string();
+        threads.insert(thread_id.to_string(), thread);
+    }
+
+    let inserted = engine
+        .maybe_persist_compaction_artifact(thread_id, None, &config, &provider)
+        .await
+        .expect("compaction should persist");
+
+    assert!(inserted);
+
+    let first = events.recv().await.expect("reload event");
+    assert!(matches!(
+        first,
+        AgentEvent::ThreadReloadRequired { thread_id: ref id } if id == thread_id
+    ));
+    let second = events.recv().await.expect("workflow notice event");
+    assert!(matches!(
+        second,
+        AgentEvent::WorkflowNotice { thread_id: ref id, ref kind, .. }
+            if id == thread_id && kind == COMPACTION_NOTICE_KIND
+    ));
+    let third = tokio::time::timeout(std::time::Duration::from_secs(1), events.recv())
+        .await
+        .expect("context window update event should be broadcast promptly")
+        .expect("context window update event");
+    match third {
+        AgentEvent::ContextWindowUpdate {
+            thread_id: id,
+            active_context_window_start,
+            active_context_window_end,
+            active_context_window_tokens,
+        } => {
+            let thread = {
+                let threads = engine.threads.read().await;
+                threads
+                    .get(thread_id)
+                    .cloned()
+                    .expect("thread should remain available")
+            };
+            let (expected_start, active_messages) = active_compaction_window(&thread.messages);
+            assert_eq!(id, thread_id);
+            assert_eq!(active_context_window_start, expected_start);
+            assert_eq!(active_context_window_end, thread.messages.len());
+            assert_eq!(
+                active_context_window_tokens,
+                estimate_message_tokens(active_messages) as u64
+            );
+        }
+        other => panic!("expected context window update event, got {other:?}"),
+    }
+}
+
 #[test]
 fn llm_compaction_messages_receive_scope_packet_and_tool_evidence_pointers() {
     let polluted_payload = r#"[

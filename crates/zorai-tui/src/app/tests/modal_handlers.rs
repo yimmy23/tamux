@@ -5898,6 +5898,38 @@ fn seed_active_weles_thread(model: &mut TuiModel) {
         .reduce(chat::ChatAction::SelectThread("thread-weles".to_string()));
 }
 
+fn seed_active_svarog_thread(model: &mut TuiModel) {
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.config.provider = PROVIDER_ID_OPENAI.to_string();
+    model.config.model = "gpt-5.4".to_string();
+    model.auth.loaded = true;
+    model
+        .auth
+        .entries
+        .push(crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_OPENAI.to_string(),
+            provider_name: "OpenAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "gpt-5.4".to_string(),
+        });
+    model
+        .chat
+        .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+            id: "thread-svarog".to_string(),
+            agent_name: Some("Swarog".to_string()),
+            profile_provider: Some(PROVIDER_ID_OPENAI.to_string()),
+            profile_model: Some("gpt-5.4".to_string()),
+            profile_reasoning_effort: Some("high".to_string()),
+            title: "Svarog thread".to_string(),
+            ..Default::default()
+        }));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-svarog".to_string()));
+}
+
 fn seed_dola_subagent(model: &mut TuiModel) {
     model.connected = true;
     model.agent_config_loaded = true;
@@ -6081,6 +6113,55 @@ fn slash_provider_updates_active_thread_owner_provider_after_model_pick() {
         }
     }
     assert!(saw_target_update);
+}
+
+#[test]
+fn slash_provider_updates_active_svarog_thread_header_after_model_pick() {
+    let (mut model, _daemon_rx) = make_model();
+    seed_active_svarog_thread(&mut model);
+    model
+        .auth
+        .entries
+        .push(crate::state::auth::ProviderAuthEntry {
+            provider_id: PROVIDER_ID_XAI.to_string(),
+            provider_name: "xAI".to_string(),
+            authenticated: true,
+            auth_source: "api_key".to_string(),
+            model: "grok-4".to_string(),
+        });
+
+    assert_eq!(
+        model.current_header_agent_profile().provider,
+        PROVIDER_ID_OPENAI
+    );
+    assert_eq!(model.current_header_agent_profile().model, "gpt-5.4");
+
+    assert!(model.execute_slash_command_line("/provider"));
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ProviderPicker));
+    let provider_index = model
+        .filtered_provider_picker_defs()
+        .iter()
+        .position(|provider| provider.id == PROVIDER_ID_XAI)
+        .expect("expected xAI provider");
+    model
+        .modal
+        .reduce(modal::ModalAction::Navigate(provider_index as i32));
+    model.handle_modal_enter(modal::ModalKind::ProviderPicker);
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
+    let model_index = model
+        .available_model_picker_models()
+        .iter()
+        .position(|entry| entry.id == "grok-4")
+        .expect("expected xAI model");
+    model
+        .modal
+        .reduce(modal::ModalAction::Navigate(model_index as i32));
+    model.handle_modal_enter(modal::ModalKind::ModelPicker);
+
+    let profile = model.current_header_agent_profile();
+    assert_eq!(profile.provider, PROVIDER_ID_XAI);
+    assert_eq!(profile.model, "grok-4");
 }
 
 #[test]

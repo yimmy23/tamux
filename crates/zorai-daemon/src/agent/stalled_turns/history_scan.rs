@@ -35,6 +35,7 @@ impl AgentEngine {
             .values()
             .filter(|thread| !active_stream_ids.contains(&thread.id))
             .filter(|thread| !pending_operator_question_thread_ids.contains(&thread.id))
+            .filter(|thread| !thread_has_unanswered_tool_calls(thread))
             .filter(|thread| latest_thread_activity_at(thread) >= recent_cutoff)
             .filter_map(|thread| latest_stalled_turn_observation(thread, &tasks, &goal_runs))
             .collect::<Vec<_>>();
@@ -49,6 +50,9 @@ impl AgentEngine {
                 return None;
             }
             let thread = threads.get(&thread_id)?;
+            if thread_has_unanswered_tool_calls(thread) {
+                return None;
+            }
             if latest_stream_activity_at(thread, &entry) < recent_cutoff {
                 return None;
             }
@@ -113,6 +117,9 @@ impl AgentEngine {
             let Some(thread) = threads.get(thread_id) else {
                 continue;
             };
+            if thread_has_unanswered_tool_calls(thread) {
+                continue;
+            }
 
             let persisted_metrics = if subagent_runtime.contains_key(&task.id) {
                 None
@@ -296,6 +303,45 @@ fn active_work_owns_thread(
         goal_run_matches_thread(goal_run, thread_id)
             && !goal_run_status_is_terminal(goal_run.status)
     })
+}
+
+pub(super) fn thread_has_unanswered_tool_calls(thread: &AgentThread) -> bool {
+    let messages = &thread.messages;
+    let mut index = 0usize;
+
+    while index < messages.len() {
+        let message = &messages[index];
+        let Some(tool_calls) = message.tool_calls.as_ref() else {
+            index += 1;
+            continue;
+        };
+        if message.role != MessageRole::Assistant || tool_calls.is_empty() {
+            index += 1;
+            continue;
+        }
+
+        let expected_ids = tool_calls
+            .iter()
+            .map(|tool_call| tool_call.id.as_str())
+            .collect::<HashSet<_>>();
+        let mut matched_ids = HashSet::new();
+        let mut result_index = index + 1;
+        while result_index < messages.len() && messages[result_index].role == MessageRole::Tool {
+            if let Some(tool_call_id) = messages[result_index].tool_call_id.as_deref() {
+                if expected_ids.contains(tool_call_id) {
+                    matched_ids.insert(tool_call_id);
+                }
+            }
+            result_index += 1;
+        }
+
+        if matched_ids.len() != expected_ids.len() {
+            return true;
+        }
+        index = result_index;
+    }
+
+    false
 }
 
 fn terminal_work_owns_thread(

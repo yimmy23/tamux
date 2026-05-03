@@ -1606,6 +1606,14 @@ async fn internal_delegate_does_not_register_participant() {
     let after = engine.list_thread_participants(thread_id).await;
 
     assert_eq!(before, after);
+    assert_eq!(
+        engine
+            .active_agent_id_for_thread(thread_id)
+            .await
+            .as_deref(),
+        None,
+        "internal delegate should not change the active responder for future operator turns"
+    );
 
     let recorded = recorded_bodies
         .lock()
@@ -1613,17 +1621,17 @@ async fn internal_delegate_does_not_register_participant() {
         .clone();
     assert_eq!(
         recorded.len(),
-        2,
-        "delegate should use DM plus visible-thread continuation"
+        1,
+        "internal DM should not trigger a visible continuation"
     );
     assert!(
-        recorded[0].contains("Continuation requested on visible thread: yes"),
-        "delegate DM should explicitly mention visible-thread continuation: {}",
+        recorded[0].contains("Continuation requested on visible thread: no"),
+        "internal DM should explicitly avoid visible-thread continuation: {}",
         recorded[0]
     );
     assert!(
-        recorded[0].contains("Do not continue work in this internal DM thread."),
-        "delegate DM should explicitly prohibit doing work inside the DM thread: {}",
+        !recorded[0].contains("Do not continue work in this internal DM thread."),
+        "internal DM should not instruct the target to continue visibly: {}",
         recorded[0]
     );
     let first_body: serde_json::Value =
@@ -1656,18 +1664,17 @@ async fn internal_delegate_does_not_register_participant() {
     let visible_thread = threads
         .get(thread_id)
         .expect("visible thread should remain present");
-    let visible_follow_up = visible_thread
-        .messages
-        .iter()
-        .rev()
-        .find(|message| {
-            message.role == MessageRole::Assistant
-                && message.author_agent_id.as_deref() == Some("weles")
-        })
-        .expect("delegate should continue the visible thread as the requested agent");
     assert_eq!(
-        visible_follow_up.content,
-        "Weles continued on the visible thread."
+        visible_thread.agent_name.as_deref(),
+        Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+        "internal delegate should preserve the visible thread owner"
+    );
+    assert!(
+        visible_thread.messages.iter().all(|message| {
+            message.role != MessageRole::Assistant
+                || message.author_agent_id.as_deref() != Some("weles")
+        }),
+        "internal DM should not add a visible-thread Weles response"
     );
 }
 
