@@ -663,6 +663,64 @@ fn daemon_message_roundtrips_agent_memory_tool_result() {
 }
 
 #[test]
+fn client_message_roundtrips_external_runtime_migration_commands() {
+    let messages = [
+        ClientMessage::AgentExternalRuntimeMigrationStatus,
+        ClientMessage::AgentExternalRuntimeMigrationPreview {
+            runtime: "hermes".to_string(),
+            config_path: Some("/tmp/hermes.yaml".to_string()),
+        },
+        ClientMessage::AgentExternalRuntimeMigrationApply {
+            runtime: "openclaw".to_string(),
+            config_path: None,
+            conflict_policy: "stage_for_review".to_string(),
+        },
+        ClientMessage::AgentExternalRuntimeMigrationReport {
+            runtime: None,
+            limit: Some(5),
+        },
+        ClientMessage::AgentExternalRuntimeMigrationShadowRun {
+            runtime: "hermes".to_string(),
+        },
+    ];
+
+    for msg in messages {
+        let bytes = bincode::serialize(&msg).unwrap();
+        let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+        match decoded {
+            ClientMessage::AgentExternalRuntimeMigrationStatus
+            | ClientMessage::AgentExternalRuntimeMigrationPreview { .. }
+            | ClientMessage::AgentExternalRuntimeMigrationApply { .. }
+            | ClientMessage::AgentExternalRuntimeMigrationReport { .. }
+            | ClientMessage::AgentExternalRuntimeMigrationShadowRun { .. } => {}
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn daemon_message_roundtrips_external_runtime_migration_result() {
+    let msg = DaemonMessage::AgentExternalRuntimeMigrationResult {
+        result_json: serde_json::json!({
+            "runtime": "hermes",
+            "dry_run": true,
+            "persisted": false
+        })
+        .to_string(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::AgentExternalRuntimeMigrationResult { result_json } => {
+            let payload: serde_json::Value = serde_json::from_str(&result_json).unwrap();
+            assert_eq!(payload["runtime"], "hermes");
+            assert_eq!(payload["dry_run"], true);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn daemon_message_roundtrips_agent_speech_to_text_result() {
     let msg = DaemonMessage::AgentSpeechToTextResult {
         content: serde_json::json!({

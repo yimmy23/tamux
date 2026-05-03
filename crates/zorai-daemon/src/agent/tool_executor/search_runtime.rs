@@ -40,7 +40,7 @@ fn web_search_request(args: &serde_json::Value) -> Result<WebSearchRequest> {
             .get("max_results")
             .and_then(|v| v.as_u64())
             .unwrap_or(5),
-        timeout_seconds: daemon_tool_timeout_seconds("web_search", args),
+        timeout_seconds: daemon_tool_timeout_seconds(tool_names::WEB_SEARCH, args),
     })
 }
 
@@ -70,7 +70,7 @@ fn fetch_url_request(args: &serde_json::Value) -> Result<FetchUrlRequest> {
             .get("max_length")
             .and_then(|v| v.as_u64())
             .unwrap_or(10_000) as usize,
-        timeout_seconds: daemon_tool_timeout_seconds("fetch_url", args),
+        timeout_seconds: daemon_tool_timeout_seconds(tool_names::FETCH_URL, args),
         profile_id: args
             .get("profile_id")
             .and_then(|value| value.as_str())

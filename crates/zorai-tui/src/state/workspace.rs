@@ -114,6 +114,13 @@ impl WorkspaceState {
         &self.projection
     }
 
+    pub fn tasks_for(&self, workspace_id: &str) -> Vec<&WorkspaceTask> {
+        self.tasks
+            .iter()
+            .filter(|task| task.workspace_id == workspace_id)
+            .collect()
+    }
+
     pub fn filter(&self) -> &WorkspaceFilter {
         &self.filter
     }

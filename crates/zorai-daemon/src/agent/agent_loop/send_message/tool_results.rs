@@ -3,11 +3,11 @@ use super::*;
 const OFFLOAD_SUMMARY_KEY_FINDING_LINES: usize = 3;
 const OFFLOAD_SUMMARY_LINE_CHAR_LIMIT: usize = 160;
 const TOOL_OUTPUT_PREVIEW_ALLOWLIST: &[&str] = &[
-    "bash_command",
-    "run_terminal_command",
-    "execute_managed_command",
-    "web_search",
-    "fetch_url",
+    zorai_protocol::tool_names::BASH_COMMAND,
+    zorai_protocol::tool_names::RUN_TERMINAL_COMMAND,
+    zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND,
+    zorai_protocol::tool_names::WEB_SEARCH,
+    zorai_protocol::tool_names::FETCH_URL,
 ];
 
 fn summarize_offloaded_tool_result(
@@ -194,7 +194,7 @@ pub(crate) async fn prepare_tool_result_thread_message(
 
     if threshold_bytes == 0
         || byte_size <= threshold_bytes
-        || result.name == "read_offloaded_payload"
+        || result.name == zorai_protocol::tool_names::READ_OFFLOADED_PAYLOAD
     {
         return PreparedToolResultThreadMessage {
             content: raw_payload,
@@ -424,6 +424,7 @@ impl<'a> SendMessageRunner<'a> {
                 });
             }
         }
+        self.emit_context_window_update_for_current_thread().await;
 
         let current_tokens = {
             let threads = self.engine.threads.read().await;
@@ -563,7 +564,8 @@ impl<'a> SendMessageRunner<'a> {
             return Ok(ToolCallDisposition::BreakLoop);
         }
 
-        if !result.is_error && tc.function.name == "handoff_thread_agent" {
+        if !result.is_error && tc.function.name == zorai_protocol::tool_names::HANDOFF_THREAD_AGENT
+        {
             let next_agent_name = self
                 .engine
                 .active_agent_id_for_thread(&self.tid)

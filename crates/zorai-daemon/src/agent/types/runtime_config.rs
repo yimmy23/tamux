@@ -325,6 +325,8 @@ pub struct ProviderConfig {
     pub openrouter_provider_ignore: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openrouter_allow_fallbacks: Option<bool>,
+    #[serde(default)]
+    pub openrouter_response_cache_enabled: bool,
 }
 
 /// A named sub-agent definition that the orchestration engine can dispatch work to.

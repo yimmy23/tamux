@@ -2,17 +2,17 @@ use super::*;
 
 #[test]
 fn compute_approach_hash_consistent_for_same_input() {
-    let h1 = compute_approach_hash("read_file", "/src/main.rs");
-    let h2 = compute_approach_hash("read_file", "/src/main.rs");
+    let h1 = compute_approach_hash(zorai_protocol::tool_names::READ_FILE, "/src/main.rs");
+    let h2 = compute_approach_hash(zorai_protocol::tool_names::READ_FILE, "/src/main.rs");
     assert_eq!(h1, h2);
     assert_eq!(h1.len(), 16);
 }
 
 #[test]
 fn compute_approach_hash_different_for_different_input() {
-    let h1 = compute_approach_hash("read_file", "/src/main.rs");
-    let h2 = compute_approach_hash("write_file", "/src/main.rs");
-    let h3 = compute_approach_hash("read_file", "/src/lib.rs");
+    let h1 = compute_approach_hash(zorai_protocol::tool_names::READ_FILE, "/src/main.rs");
+    let h2 = compute_approach_hash(zorai_protocol::tool_names::WRITE_FILE, "/src/main.rs");
+    let h3 = compute_approach_hash(zorai_protocol::tool_names::READ_FILE, "/src/lib.rs");
     assert_ne!(h1, h2);
     assert_ne!(h1, h3);
 }

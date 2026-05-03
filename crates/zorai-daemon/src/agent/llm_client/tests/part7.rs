@@ -26,6 +26,7 @@ fn anthropic_request_defaults_to_top_level_ephemeral_cache_control() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -81,6 +82,7 @@ fn anthropic_request_includes_sampling_and_stop_sequence_fields_when_configured(
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -137,9 +139,10 @@ fn anthropic_request_includes_metadata_and_routing_fields_when_configured() {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -197,9 +200,10 @@ fn anthropic_request_includes_top_level_cache_control_when_configured() {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -255,6 +259,7 @@ fn anthropic_request_uses_configured_max_tokens() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -309,9 +314,10 @@ fn anthropic_request_uses_configured_tool_choice_override() {
             disable_parallel_tool_use: Some(true),
         }),
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -380,6 +386,7 @@ fn anthropic_request_includes_output_effort_when_configured() {
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -435,6 +442,7 @@ fn anthropic_request_includes_output_effort_without_schema() {
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,

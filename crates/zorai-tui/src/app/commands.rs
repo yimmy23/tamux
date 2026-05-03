@@ -1775,7 +1775,9 @@ impl TuiModel {
         let show_plain_preview = message.tool_output_preview_path.is_some()
             || matches!(
                 chip.tool_name.as_str(),
-                "read_file" | "read_skill" | "generate_image"
+                zorai_protocol::tool_names::READ_FILE
+                    | zorai_protocol::tool_names::READ_SKILL
+                    | zorai_protocol::tool_names::GENERATE_IMAGE
             );
         let repo_root = if show_plain_preview {
             None
@@ -3957,10 +3959,6 @@ impl TuiModel {
             widgets::workspace_board::WorkspaceBoardToolbarAction::NewTask => {
                 self.open_workspace_create_modal(zorai_protocol::WorkspaceTaskType::Thread);
             }
-            widgets::workspace_board::WorkspaceBoardToolbarAction::Refresh => {
-                self.refresh_workspace_board();
-                self.status_line = "Refreshing workspace...".to_string();
-            }
             widgets::workspace_board::WorkspaceBoardToolbarAction::ToggleOperator => {
                 let operator =
                     if self.workspace.operator() == zorai_protocol::WorkspaceOperator::User {
@@ -4140,6 +4138,7 @@ impl TuiModel {
                 | "settings"
                 | "view"
                 | "status"
+                | "migrate"
                 | "statistics"
                 | "stats"
                 | "notifications"
@@ -4252,6 +4251,10 @@ impl TuiModel {
                 self.open_status_modal_loading();
                 self.send_daemon_command(DaemonCommand::RequestAgentStatus);
                 self.status_line = "Requesting zorai status...".to_string();
+            }
+            "migrate" => {
+                self.send_daemon_command(DaemonCommand::ExternalRuntimeMigrationStatus);
+                self.status_line = "Checking migration sources...".to_string();
             }
             "statistics" | "stats" => {
                 self.request_statistics_window(self.statistics_modal_window);

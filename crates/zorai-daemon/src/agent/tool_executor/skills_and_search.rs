@@ -340,15 +340,19 @@ async fn execute_list_tools(
     agent: &AgentEngine,
     session_manager: &Arc<SessionManager>,
     agent_data_dir: &std::path::Path,
+    thread_id: &str,
+    task_id: Option<&str>,
 ) -> Result<String> {
     let limit = parse_clamped_non_negative_usize_arg(args, "limit", 20, 200)?;
     let offset = parse_clamped_non_negative_usize_arg(args, "offset", 0, usize::MAX)?;
     let has_workspace_topology = session_manager.read_workspace_topology().is_some();
     let config = agent.config.read().await;
+    let client_surface = resolve_shell_tool_client_surface(agent, thread_id, task_id).await;
     let result = list_available_tools_public(
         &config,
         agent_data_dir,
         has_workspace_topology,
+        client_surface,
         limit,
         offset,
     );
@@ -361,6 +365,8 @@ async fn execute_tool_search(
     agent: &AgentEngine,
     session_manager: &Arc<SessionManager>,
     agent_data_dir: &std::path::Path,
+    thread_id: &str,
+    task_id: Option<&str>,
 ) -> Result<String> {
     let query = args
         .get("query")
@@ -372,10 +378,12 @@ async fn execute_tool_search(
     let offset = parse_clamped_non_negative_usize_arg(args, "offset", 0, usize::MAX)?;
     let has_workspace_topology = session_manager.read_workspace_topology().is_some();
     let config = agent.config.read().await;
+    let client_surface = resolve_shell_tool_client_surface(agent, thread_id, task_id).await;
     let result = search_available_tools_public(
         &config,
         agent_data_dir,
         has_workspace_topology,
+        client_surface,
         query,
         limit,
         offset,

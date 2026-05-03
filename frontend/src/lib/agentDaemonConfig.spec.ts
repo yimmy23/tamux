@@ -29,13 +29,13 @@ assert(
 );
 
 assert(
-  getDaemonOwnedAuthCapability("legacy", daemonBridge).chatgptSubscriptionAvailable,
-  "Legacy backend should expose daemon-owned ChatGPT auth when the daemon bridge is present",
+  getDaemonOwnedAuthCapability("daemon", daemonBridge).chatgptSubscriptionAvailable,
+  "Daemon-only runtime should expose daemon-owned ChatGPT auth when the daemon bridge is present",
 );
 
 assert(
-  !getDaemonOwnedAuthCapability("legacy", null).chatgptSubscriptionAvailable,
-  "Legacy backend should not expose daemon-owned ChatGPT auth without the daemon bridge",
+  !getDaemonOwnedAuthCapability("daemon", null).chatgptSubscriptionAvailable,
+  "Daemon-only runtime should not expose daemon-owned ChatGPT auth without the daemon bridge",
 );
 
 const unsupportedOpenAiSources = getSupportedAuthSources("openai", {
@@ -165,6 +165,7 @@ const customModelDaemonConfig = buildDaemonAgentConfig({
     openrouter_provider_order: ["anthropic", "openai"],
     openrouter_provider_ignore: ["deepinfra"],
     openrouter_allow_fallbacks: false,
+    openrouter_response_cache_enabled: true,
   },
 });
 
@@ -191,6 +192,11 @@ assert(
 assert(
   customModelDaemonConfig.providers?.openrouter?.openrouter_allow_fallbacks === false,
   "Provider config should serialize strict OpenRouter fallback settings",
+);
+
+assert(
+  customModelDaemonConfig.providers?.openrouter?.openrouter_response_cache_enabled === true,
+  "Provider config should serialize OpenRouter response caching",
 );
 
 const namedKnownModelConfig = {

@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { buildDaemonAgentConfig } from "../agentDaemonConfig";
 import {
   DEFAULT_AGENT_SETTINGS,
+  normalizeAgentBackend,
   normalizeAgentSettingsFromSource,
 } from "./settings";
 
@@ -11,6 +12,19 @@ test("xAI defaults use hosted settings", () => {
     model: "grok-4.3",
     api_transport: "responses",
   });
+});
+
+test("agent runtime is daemon-only and legacy/external backend values normalize away", () => {
+  expect(normalizeAgentBackend("daemon")).toBe("daemon");
+  expect(normalizeAgentBackend("legacy")).toBe("daemon");
+  expect(normalizeAgentBackend("hermes")).toBe("daemon");
+  expect(normalizeAgentBackend("openclaw")).toBe("daemon");
+
+  const normalized = normalizeAgentSettingsFromSource({
+    agent_backend: "openclaw",
+  } as any);
+  expect(normalized.agent_backend).toBe("daemon");
+  expect(buildDaemonAgentConfig(normalized).agent_backend).toBe("daemon");
 });
 
 test("xAI settings normalize and serialize for audio flows", () => {
@@ -56,6 +70,23 @@ test("xAI settings normalize and serialize for audio flows", () => {
     base_url: "https://api.x.ai/v1",
     model: "grok-4-voice",
   });
+});
+
+test("auxiliary providers inherit OpenRouter when primary provider is OpenRouter", () => {
+  const normalized = normalizeAgentSettingsFromSource({
+    active_provider: "openrouter",
+    openrouter: {
+      ...DEFAULT_AGENT_SETTINGS.openrouter,
+      api_key: "sk-or",
+    },
+  } as any);
+
+  expect(normalized.audio_stt_provider).toBe("openrouter");
+  expect(normalized.audio_tts_provider).toBe("openrouter");
+  expect(normalized.image_generation_provider).toBe("openrouter");
+  expect(normalized.semantic_embedding_provider).toBe("openrouter");
+  expect(normalized.image_generation_model).toBe("openai/gpt-image-1");
+  expect(normalized.semantic_embedding_model).toBe("openai/text-embedding-3-small");
 });
 
 test("image generation settings prefer nested daemon config over legacy flat keys", () => {

@@ -167,13 +167,27 @@ fn suggest_returns_none_for_unknown_task_type() {
 fn default_graph_has_expected_nodes() {
     let graph = build_default_graph();
     assert!(graph.node_count() >= 9);
-    assert!(graph.nodes.contains_key("bash_command"));
-    assert!(graph.nodes.contains_key("read_file"));
-    assert!(graph.nodes.contains_key("write_file"));
-    assert!(graph.nodes.contains_key("replace_in_file"));
-    assert!(graph.nodes.contains_key("search_files"));
-    assert!(graph.nodes.contains_key("spawn_subagent"));
-    assert!(graph.nodes.contains_key("list_subagents"));
+    assert!(graph
+        .nodes
+        .contains_key(zorai_protocol::tool_names::BASH_COMMAND));
+    assert!(graph
+        .nodes
+        .contains_key(zorai_protocol::tool_names::READ_FILE));
+    assert!(graph
+        .nodes
+        .contains_key(zorai_protocol::tool_names::WRITE_FILE));
+    assert!(graph
+        .nodes
+        .contains_key(zorai_protocol::tool_names::REPLACE_IN_FILE));
+    assert!(graph
+        .nodes
+        .contains_key(zorai_protocol::tool_names::SEARCH_FILES));
+    assert!(graph
+        .nodes
+        .contains_key(zorai_protocol::tool_names::SPAWN_SUBAGENT));
+    assert!(graph
+        .nodes
+        .contains_key(zorai_protocol::tool_names::LIST_SUBAGENTS));
 }
 
 #[test]
@@ -181,26 +195,28 @@ fn default_graph_has_expected_relationships() {
     let graph = build_default_graph();
     assert!(graph.edge_count() >= 7);
 
-    let bash_synergies = graph.get_synergies("bash_command");
+    let bash_synergies = graph.get_synergies(zorai_protocol::tool_names::BASH_COMMAND);
     let synergy_names: Vec<&str> = bash_synergies.iter().map(|(name, _)| *name).collect();
-    assert!(synergy_names.contains(&"read_file"));
-    assert!(synergy_names.contains(&"list_files"));
+    assert!(synergy_names.contains(&zorai_protocol::tool_names::READ_FILE));
+    assert!(synergy_names.contains(&zorai_protocol::tool_names::LIST_FILES));
 
-    assert!(graph.get_dependencies("write_file").contains(&"read_file"));
     assert!(graph
-        .get_dependencies("replace_in_file")
-        .contains(&"read_file"));
+        .get_dependencies(zorai_protocol::tool_names::WRITE_FILE)
+        .contains(&zorai_protocol::tool_names::READ_FILE));
     assert!(graph
-        .get_conflicts("bash_command")
-        .contains(&"execute_managed_command"));
+        .get_dependencies(zorai_protocol::tool_names::REPLACE_IN_FILE)
+        .contains(&zorai_protocol::tool_names::READ_FILE));
+    assert!(graph
+        .get_conflicts(zorai_protocol::tool_names::BASH_COMMAND)
+        .contains(&zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND));
 
-    let search_synergies = graph.get_synergies("search_files");
+    let search_synergies = graph.get_synergies(zorai_protocol::tool_names::SEARCH_FILES);
     let search_names: Vec<&str> = search_synergies.iter().map(|(name, _)| *name).collect();
-    assert!(search_names.contains(&"read_file"));
+    assert!(search_names.contains(&zorai_protocol::tool_names::READ_FILE));
 
-    let spawn_synergies = graph.get_synergies("spawn_subagent");
+    let spawn_synergies = graph.get_synergies(zorai_protocol::tool_names::SPAWN_SUBAGENT);
     let spawn_names: Vec<&str> = spawn_synergies.iter().map(|(name, _)| *name).collect();
-    assert!(spawn_names.contains(&"list_subagents"));
+    assert!(spawn_names.contains(&zorai_protocol::tool_names::LIST_SUBAGENTS));
 }
 
 #[test]

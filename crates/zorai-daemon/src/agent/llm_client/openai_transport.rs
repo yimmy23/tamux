@@ -295,6 +295,17 @@ fn apply_openrouter_attribution_headers(
         )
 }
 
+fn apply_openrouter_response_cache_headers(
+    req: reqwest::RequestBuilder,
+    provider: &str,
+    config: &ProviderConfig,
+) -> reqwest::RequestBuilder {
+    if provider != PROVIDER_ID_OPENROUTER || !config.openrouter_response_cache_enabled {
+        return req;
+    }
+    req.header("X-OpenRouter-Cache", "true")
+}
+
 fn maybe_force_connection_close(
     req: reqwest::RequestBuilder,
     force_connection_close: bool,
@@ -338,9 +349,17 @@ fn apply_openai_auth_headers(
         let auth_method = get_provider_definition(provider)
             .map(|d| d.auth_method)
             .unwrap_or(AuthMethod::Bearer);
-        apply_openrouter_attribution_headers(auth_method.apply(req, &config.api_key), provider)
+        apply_openrouter_response_cache_headers(
+            apply_openrouter_attribution_headers(auth_method.apply(req, &config.api_key), provider),
+            provider,
+            config,
+        )
     } else {
-        apply_openrouter_attribution_headers(req, provider)
+        apply_openrouter_response_cache_headers(
+            apply_openrouter_attribution_headers(req, provider),
+            provider,
+            config,
+        )
     }
 }
 

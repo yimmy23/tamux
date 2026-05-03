@@ -500,7 +500,8 @@ impl AgentEngine {
         };
         if matches!(
             tool_call.function.name.as_str(),
-            "bash_command" | "execute_managed_command"
+            zorai_protocol::tool_names::BASH_COMMAND
+                | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
         ) {
             if let Some(command_family) =
                 command_family_from_tool_args(&tool_call.function.arguments)

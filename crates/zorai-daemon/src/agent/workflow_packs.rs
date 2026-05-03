@@ -946,7 +946,7 @@ impl AgentEngine {
             },
             "replay_guidance": {
                 "message": "Use thread history and task/goal inspection to drill into specific activity. This summary shows aggregate costs and recent system activity. For per-task or per-thread cost detail, query individual threads and tasks.",
-                "drill_down_tools": ["list_tasks", "list_goal_runs", "list_routine_history", "list_trigger_fire_history", "session_search"]
+                "drill_down_tools": [zorai_protocol::tool_names::LIST_TASKS, zorai_protocol::tool_names::LIST_GOAL_RUNS, zorai_protocol::tool_names::LIST_ROUTINE_HISTORY, zorai_protocol::tool_names::LIST_TRIGGER_FIRE_HISTORY, zorai_protocol::tool_names::SESSION_SEARCH]
             }
         }))
     }

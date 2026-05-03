@@ -280,6 +280,10 @@ impl TuiModel {
                 .get("openrouter_allow_fallbacks")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(true);
+            self.config.openrouter_response_cache_enabled = provider_config
+                .get("openrouter_response_cache_enabled")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
             self.config.context_window_tokens = json
                 .get("context_window_tokens")
                 .and_then(|v| v.as_u64())
@@ -322,7 +326,7 @@ impl TuiModel {
             .unwrap_or(self.config.tool_file_ops);
         self.config.tool_web_search = json
             .get("tools")
-            .and_then(|v| v.get("web_search"))
+            .and_then(|v| v.get(zorai_protocol::tool_names::WEB_SEARCH))
             .and_then(|v| v.as_bool())
             .unwrap_or_else(|| get_bool("enableWebSearchTool", "enable_web_search_tool", false));
         self.config.tool_web_browse = json
@@ -507,6 +511,12 @@ impl TuiModel {
         .clamp(0, 24 * 30);
         self.config.max_tool_loops = get_u32("max_tool_loops", "max_tool_loops", 25);
         self.config.max_retries = get_u32("max_retries", "max_retries", 3);
+        self.config.auto_refresh_interval_secs = get_u32(
+            "auto_refresh_interval_secs",
+            "auto_refresh_interval_secs",
+            300,
+        )
+        .clamp(0, 86_400);
         self.config.retry_delay_ms = get_u32("retry_delay_ms", "retry_delay_ms", 5_000);
         self.config.message_loop_delay_ms =
             get_u32("message_loop_delay_ms", "message_loop_delay_ms", 500);

@@ -169,7 +169,7 @@ export function handleGoalRunEvent({ event, activePaneId, activeWorkspace, addNo
   }
 }
 
-export function handleTodoUpdateEvent({ event, daemonLocalThreadRef, daemonThreadIdRef, setDaemonTodosByThread, setThreadTodos }: any) {
+export function handleTodoUpdateEvent({ event, daemonLocalThreadRef, daemonThreadIdRef, setDaemonTodosByThread, setGoalRunsForTrace, setThreadTodos }: any) {
   const daemonThreadId = typeof event.thread_id === "string" ? event.thread_id : null;
   const localThreadId = daemonThreadId && daemonThreadIdRef.current === daemonThreadId
     ? daemonLocalThreadRef.current
@@ -203,6 +203,9 @@ export function handleTodoUpdateEvent({ event, daemonLocalThreadRef, daemonThrea
   }
   if (localThreadId) {
     setThreadTodos(localThreadId, todos);
+  }
+  if (typeof event.goal_run_id === "string" && event.goal_run_id.trim()) {
+    void fetchGoalRuns().then(setGoalRunsForTrace);
   }
 }
 

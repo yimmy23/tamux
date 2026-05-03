@@ -98,7 +98,7 @@ mod tests {
             failure_count: 0,
             recent_operator_messages: 0,
             avg_message_gap_secs: 0,
-            tool_name: "read_file".to_string(),
+            tool_name: zorai_protocol::tool_names::READ_FILE.to_string(),
         };
 
         let meta = compute_embodied_metadata(&signals);

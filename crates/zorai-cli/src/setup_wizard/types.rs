@@ -1,6 +1,7 @@
 use super::*;
 use crossterm::event::{
-    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use crossterm::ExecutableCommand;
 
@@ -106,6 +107,25 @@ impl Drop for RawModeGuard {
             let _ = stdout.execute(PopKeyboardEnhancementFlags);
         }
         let _ = terminal::disable_raw_mode();
+    }
+}
+
+pub(super) struct MouseCaptureGuard;
+
+impl MouseCaptureGuard {
+    pub(super) fn new() -> Result<Self> {
+        let mut stdout = io::stdout();
+        stdout
+            .execute(EnableMouseCapture)
+            .context("Failed to enable mouse capture")?;
+        Ok(Self)
+    }
+}
+
+impl Drop for MouseCaptureGuard {
+    fn drop(&mut self) {
+        let mut stdout = io::stdout();
+        let _ = stdout.execute(DisableMouseCapture);
     }
 }
 

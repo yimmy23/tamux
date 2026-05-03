@@ -4,7 +4,8 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use zorai_protocol::{
-    DaemonMessage, ManagedCommandRequest, ManagedCommandSource, SecurityLevel, SessionId,
+    tool_names, DaemonMessage, ManagedCommandRequest, ManagedCommandSource, SecurityLevel,
+    SessionId,
 };
 use anyhow::{Context, Result};
 use base64::Engine;
@@ -90,8 +91,8 @@ struct FetchUrlRequest {
 
 fn default_timeout_seconds_for_tool(tool_name: &str) -> u64 {
     match tool_name {
-        "onecontext_search" | "fetch_url" | "web_search" => 300,
-        "analyze_image" | "generate_image" | "speech_to_text" | "text_to_speech" => 600,
+        tool_names::ONECONTEXT_SEARCH | tool_names::FETCH_URL | tool_names::WEB_SEARCH => 300,
+        tool_names::ANALYZE_IMAGE | tool_names::GENERATE_IMAGE | tool_names::SPEECH_TO_TEXT | tool_names::TEXT_TO_SPEECH => 600,
         _ => DEFAULT_DAEMON_TOOL_TIMEOUT_SECS,
     }
 }
@@ -119,13 +120,13 @@ fn adapted_timeout_override_for_mode(
     let adapted = match mode {
         crate::agent::operator_model::SatisfactionAdaptationMode::Normal => return None,
         crate::agent::operator_model::SatisfactionAdaptationMode::Tightened => match tool_name {
-            "search_files" => 90,
-            "onecontext_search" | "fetch_url" | "web_search" => 240,
+            tool_names::SEARCH_FILES => 90,
+            tool_names::ONECONTEXT_SEARCH | tool_names::FETCH_URL | tool_names::WEB_SEARCH => 240,
             _ => return None,
         },
         crate::agent::operator_model::SatisfactionAdaptationMode::Minimal => match tool_name {
-            "search_files" => 90,
-            "onecontext_search" | "fetch_url" | "web_search" => 180,
+            tool_names::SEARCH_FILES => 90,
+            tool_names::ONECONTEXT_SEARCH | tool_names::FETCH_URL | tool_names::WEB_SEARCH => 180,
             _ => return None,
         },
     };
@@ -236,7 +237,7 @@ fn onecontext_search_request(args: &serde_json::Value) -> Result<OnecontextSearc
     Ok(OnecontextSearchRequest {
         bounded_query,
         scope: scope.to_string(),
-        timeout_seconds: daemon_tool_timeout_seconds("onecontext_search", args),
+        timeout_seconds: daemon_tool_timeout_seconds(tool_names::ONECONTEXT_SEARCH, args),
     })
 }
 
@@ -298,6 +299,6 @@ fn search_files_request(args: &serde_json::Value) -> Result<SearchFilesRequest> 
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
         max_results,
-        timeout_seconds: daemon_tool_timeout_seconds("search_files", args),
+        timeout_seconds: daemon_tool_timeout_seconds(tool_names::SEARCH_FILES, args),
     })
 }

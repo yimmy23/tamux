@@ -149,6 +149,23 @@ pub enum DaemonCommand {
         key_path: String,
         value_json: String,
     },
+    ExternalRuntimeMigrationStatus,
+    ExternalRuntimeMigrationPreview {
+        runtime: String,
+        config_path: Option<String>,
+    },
+    ExternalRuntimeMigrationApply {
+        runtime: String,
+        config_path: Option<String>,
+        conflict_policy: String,
+    },
+    ExternalRuntimeMigrationReport {
+        runtime: Option<String>,
+        limit: Option<usize>,
+    },
+    ExternalRuntimeMigrationShadowRun {
+        runtime: String,
+    },
     SetProviderModel {
         provider_id: String,
         model: String,

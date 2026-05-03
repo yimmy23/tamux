@@ -1,5 +1,6 @@
 import { FormEvent, MouseEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useAgentChatPanelRuntime } from "@/components/agent-chat-panel/runtime/context";
+import { useAgentStore } from "@/lib/agentStore";
 import {
   actorFromText,
   actorLabel,
@@ -20,6 +21,7 @@ import {
   stopWorkspaceTask,
   taskRunBlocked,
   updateWorkspaceTask,
+  workspaceTasksNeedAutoRefresh,
   type WorkspaceActor,
   type WorkspaceNotice,
   type WorkspaceOperator,
@@ -34,6 +36,7 @@ import { openThreadTarget } from "../threads/openThreadTarget";
 import { WorkspaceActorPickerControl } from "./WorkspaceActorPickerControl";
 
 const WORKSPACE_SELECT_EVENT = "zorai-workspace-select";
+const WORKSPACE_REFRESH_EVENT = "zorai-workspace-refresh";
 const DEFAULT_WORKSPACE_ID = "main";
 
 type TaskForm = {
@@ -117,6 +120,7 @@ export function WorkspacesView() {
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<TaskForm>(emptyForm);
   const [statusLine, setStatusLine] = useState("Workspace board ready.");
+  const autoRefreshIntervalSecs = useAgentStore((state) => state.agentSettings.auto_refresh_interval_secs);
 
   const columns = useMemo(() => projectWorkspaceColumns(tasks, includeDeleted), [tasks, includeDeleted]);
   const noticeSummaries = useMemo(() => latestNoticeSummaries(notices), [notices]);
@@ -155,6 +159,13 @@ export function WorkspacesView() {
   }, [refresh, workspaceId]);
 
   useEffect(() => {
+    const intervalSecs = Math.max(0, Math.trunc(Number(autoRefreshIntervalSecs) || 0));
+    if (intervalSecs <= 0 || !workspaceTasksNeedAutoRefresh(tasks)) return;
+    const timer = window.setInterval(() => void refresh(workspaceId), intervalSecs * 1000);
+    return () => window.clearInterval(timer);
+  }, [autoRefreshIntervalSecs, refresh, tasks, workspaceId]);
+
+  useEffect(() => {
     const onSelect = (event: Event) => {
       const workspace = (event as CustomEvent<{ workspaceId?: string }>).detail?.workspaceId;
       if (workspace) setWorkspaceId(workspace);
@@ -162,6 +173,17 @@ export function WorkspacesView() {
     window.addEventListener(WORKSPACE_SELECT_EVENT, onSelect);
     return () => window.removeEventListener(WORKSPACE_SELECT_EVENT, onSelect);
   }, []);
+
+  useEffect(() => {
+    const onRefresh = (event: Event) => {
+      const refreshWorkspaceId = (event as CustomEvent<{ workspaceId?: string | null }>).detail?.workspaceId;
+      if (!refreshWorkspaceId || refreshWorkspaceId === workspaceId) {
+        void refresh(workspaceId);
+      }
+    };
+    window.addEventListener(WORKSPACE_REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(WORKSPACE_REFRESH_EVENT, onRefresh);
+  }, [refresh, workspaceId]);
 
   const toggleOperator = async () => {
     const next = operator === "user" ? "svarog" : "user";
@@ -187,6 +209,7 @@ export function WorkspacesView() {
     setForm(emptyForm);
     setFormOpen(false);
     setStatusLine("Created workspace task.");
+    if (task) void refresh(workspaceId);
   };
 
   const actOnTask = async (task: WorkspaceTask, action: string) => {
@@ -207,10 +230,12 @@ export function WorkspacesView() {
       const ok = await deleteWorkspaceTask(task.id);
       if (ok) setTasks((items) => items.filter((item) => item.id !== task.id));
       setStatusLine(ok ? "Deleted workspace task." : "Workspace task delete failed.");
+      if (ok) await refresh(workspaceId);
       return;
     }
     if (updated) setTasks((items) => upsertTask(items, updated));
     setStatusLine(workspaceActionStatus(action));
+    if (updated) await refresh(workspaceId);
   };
 
   const openTaskOverlay = (task: WorkspaceTask, mode: TaskOverlay["mode"]) => {
@@ -233,6 +258,7 @@ export function WorkspacesView() {
     if (updated) setTasks((items) => upsertTask(items, updated));
     setTaskOverlay(null);
     setStatusLine(updated ? "Updated workspace task." : "Workspace task update failed.");
+    if (updated) void refresh(workspaceId);
   };
 
   const openTaskRuntime = async (task: WorkspaceTask) => {

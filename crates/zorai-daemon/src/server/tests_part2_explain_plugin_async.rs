@@ -303,7 +303,7 @@ async fn plugin_api_call_async_request_does_not_block_ping() {
         DaemonMessage::OperationAccepted {
             operation_id, kind, ..
         } => {
-            assert_eq!(kind, "plugin_api_call");
+            assert_eq!(kind, zorai_protocol::tool_names::PLUGIN_API_CALL);
             operation_id
         }
         other => panic!("expected plugin api operation acceptance, got {other:?}"),
@@ -342,7 +342,7 @@ async fn plugin_api_call_async_request_does_not_block_ping() {
 
     match conn.recv_with_timeout(Duration::from_secs(2)).await {
         DaemonMessage::OperationStatus { snapshot } => {
-            assert_eq!(snapshot.kind, "plugin_api_call");
+            assert_eq!(snapshot.kind, zorai_protocol::tool_names::PLUGIN_API_CALL);
             assert!(matches!(
                 snapshot.state,
                 zorai_protocol::OperationLifecycleState::Accepted
@@ -402,7 +402,7 @@ async fn plugin_api_call_request_without_declared_capability_still_returns_opera
         DaemonMessage::OperationAccepted {
             operation_id, kind, ..
         } => {
-            assert_eq!(kind, "plugin_api_call");
+            assert_eq!(kind, zorai_protocol::tool_names::PLUGIN_API_CALL);
             operation_id
         }
         other => panic!("expected plugin api operation acceptance, got {other:?}"),

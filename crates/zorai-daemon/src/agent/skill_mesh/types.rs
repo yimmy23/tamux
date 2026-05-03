@@ -41,9 +41,9 @@ pub enum SkillMeshNextStep {
 impl SkillMeshNextStep {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::ReadSkill => "read_skill",
+            Self::ReadSkill => zorai_protocol::tool_names::READ_SKILL,
             Self::ChooseOrBypass => "choose_or_bypass",
-            Self::JustifySkillSkip => "justify_skill_skip",
+            Self::JustifySkillSkip => zorai_protocol::tool_names::JUSTIFY_SKILL_SKIP,
         }
     }
 }

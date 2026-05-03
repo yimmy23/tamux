@@ -757,7 +757,7 @@ impl AgentEngine {
         }
 
         match tool_name {
-            "run_workflow_pack" => {
+            zorai_protocol::tool_names::RUN_WORKFLOW_PACK => {
                 let execution = self
                     .run_workflow_pack_json(&tool_args, Some(effective_thread_id), None)
                     .await?;

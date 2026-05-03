@@ -328,6 +328,7 @@ pub async fn validate_provider_connection(
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         };
         let _ = resolve_openai_codex_request_auth(&client, provider_id, &config).await?;
         return Ok(None);

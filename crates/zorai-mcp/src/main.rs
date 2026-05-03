@@ -105,56 +105,70 @@ async fn handle_tool_call(name: &str, args: &Value) -> Value {
 
 async fn dispatch_tool(name: &str, args: &Value) -> Result<Value> {
     match name {
-        "execute_command" => tool_execute_command(args).await,
-        "search_history" => tool_search_history(args).await,
-        "find_symbol" => tool_find_symbol(args).await,
-        "list_snapshots" => tool_list_snapshots(args).await,
-        "restore_snapshot" => tool_restore_snapshot(args).await,
-        "scrub_sensitive" => tool_scrub_sensitive(args).await,
-        "list_sessions" => tool_list_sessions(args).await,
-        "verify_integrity" => tool_verify_integrity(args).await,
-        "get_terminal_content" => tool_get_terminal_content(args).await,
-        "type_in_terminal" => tool_type_in_terminal(args).await,
-        "read_memory" => tool_read_memory(args).await,
-        "read_user" => tool_read_user(args).await,
-        "read_soul" => tool_read_soul(args).await,
-        "search_memory" => tool_search_memory(args).await,
-        "search_user" => tool_search_user(args).await,
-        "search_soul" => tool_search_soul(args).await,
-        "enqueue_task" => tool_enqueue_task(args).await,
-        "list_tasks" => tool_list_tasks().await,
-        "cancel_task" => tool_cancel_task(args).await,
-        "list_todos" => tool_list_todos().await,
-        "get_todos" => tool_get_todos(args).await,
-        "list_skills" => tool_list_skills(args).await,
-        "discover_skills" => tool_discover_skills(args).await,
-        "list_guidelines" => tool_list_guidelines(args).await,
-        "discover_guidelines" => tool_discover_guidelines(args).await,
-        "ask_questions" => tool_ask_questions(args).await,
-        "read_skill" => tool_read_skill(args).await,
-        "read_guideline" => tool_read_guideline(args).await,
-        "list_skill_variants" => tool_list_skill_variants(args).await,
-        "inspect_skill_variant" => tool_inspect_skill_variant(args).await,
-        "start_goal_run" => tool_start_goal_run(args).await,
-        "list_goal_runs" => tool_list_goal_runs().await,
-        "get_goal_run" => tool_get_goal_run(args).await,
-        "control_goal_run" => tool_control_goal_run(args).await,
-        "get_operator_model" => tool_get_operator_model().await,
-        "reset_operator_model" => tool_reset_operator_model().await,
-        "get_causal_trace_report" => tool_get_causal_trace_report(args).await,
-        "get_counterfactual_report" => tool_get_counterfactual_report(args).await,
-        "get_memory_provenance_report" => tool_get_memory_provenance_report(args).await,
-        "get_provenance_report" => tool_get_provenance_report(args).await,
-        "query_audits" => tool_query_audits(args).await,
-        "generate_soc2_artifact" => tool_generate_soc2_artifact(args).await,
-        "get_collaboration_sessions" => tool_get_collaboration_sessions(args).await,
-        "list_generated_tools" => tool_list_generated_tools().await,
-        "synthesize_tool" => tool_synthesize_tool(args).await,
-        "run_generated_tool" => tool_run_generated_tool(args).await,
-        "promote_generated_tool" => tool_promote_generated_tool(args).await,
-        "activate_generated_tool" => tool_activate_generated_tool(args).await,
-        "get_git_status" => tool_get_git_status(args).await,
-        "semantic_query" => tool_semantic_query(args).await,
+        zorai_protocol::tool_names::EXECUTE_COMMAND => tool_execute_command(args).await,
+        zorai_protocol::tool_names::SEARCH_HISTORY => tool_search_history(args).await,
+        zorai_protocol::tool_names::FIND_SYMBOL => tool_find_symbol(args).await,
+        zorai_protocol::tool_names::LIST_SNAPSHOTS => tool_list_snapshots(args).await,
+        zorai_protocol::tool_names::RESTORE_SNAPSHOT => tool_restore_snapshot(args).await,
+        zorai_protocol::tool_names::SCRUB_SENSITIVE => tool_scrub_sensitive(args).await,
+        zorai_protocol::tool_names::LIST_SESSIONS => tool_list_sessions(args).await,
+        zorai_protocol::tool_names::VERIFY_INTEGRITY => tool_verify_integrity(args).await,
+        zorai_protocol::tool_names::GET_TERMINAL_CONTENT => tool_get_terminal_content(args).await,
+        zorai_protocol::tool_names::TYPE_IN_TERMINAL => tool_type_in_terminal(args).await,
+        zorai_protocol::tool_names::READ_MEMORY => tool_read_memory(args).await,
+        zorai_protocol::tool_names::READ_USER => tool_read_user(args).await,
+        zorai_protocol::tool_names::READ_SOUL => tool_read_soul(args).await,
+        zorai_protocol::tool_names::SEARCH_MEMORY => tool_search_memory(args).await,
+        zorai_protocol::tool_names::SEARCH_USER => tool_search_user(args).await,
+        zorai_protocol::tool_names::SEARCH_SOUL => tool_search_soul(args).await,
+        zorai_protocol::tool_names::ENQUEUE_TASK => tool_enqueue_task(args).await,
+        zorai_protocol::tool_names::LIST_TASKS => tool_list_tasks().await,
+        zorai_protocol::tool_names::CANCEL_TASK => tool_cancel_task(args).await,
+        zorai_protocol::tool_names::LIST_TODOS => tool_list_todos().await,
+        zorai_protocol::tool_names::GET_TODOS => tool_get_todos(args).await,
+        zorai_protocol::tool_names::LIST_SKILLS => tool_list_skills(args).await,
+        zorai_protocol::tool_names::DISCOVER_SKILLS => tool_discover_skills(args).await,
+        zorai_protocol::tool_names::LIST_GUIDELINES => tool_list_guidelines(args).await,
+        zorai_protocol::tool_names::DISCOVER_GUIDELINES => tool_discover_guidelines(args).await,
+        zorai_protocol::tool_names::ASK_QUESTIONS => tool_ask_questions(args).await,
+        zorai_protocol::tool_names::READ_SKILL => tool_read_skill(args).await,
+        zorai_protocol::tool_names::READ_GUIDELINE => tool_read_guideline(args).await,
+        zorai_protocol::tool_names::LIST_SKILL_VARIANTS => tool_list_skill_variants(args).await,
+        zorai_protocol::tool_names::INSPECT_SKILL_VARIANT => tool_inspect_skill_variant(args).await,
+        zorai_protocol::tool_names::START_GOAL_RUN => tool_start_goal_run(args).await,
+        zorai_protocol::tool_names::LIST_GOAL_RUNS => tool_list_goal_runs().await,
+        zorai_protocol::tool_names::GET_GOAL_RUN => tool_get_goal_run(args).await,
+        zorai_protocol::tool_names::CONTROL_GOAL_RUN => tool_control_goal_run(args).await,
+        zorai_protocol::tool_names::GET_OPERATOR_MODEL => tool_get_operator_model().await,
+        zorai_protocol::tool_names::RESET_OPERATOR_MODEL => tool_reset_operator_model().await,
+        zorai_protocol::tool_names::GET_CAUSAL_TRACE_REPORT => {
+            tool_get_causal_trace_report(args).await
+        }
+        zorai_protocol::tool_names::GET_COUNTERFACTUAL_REPORT => {
+            tool_get_counterfactual_report(args).await
+        }
+        zorai_protocol::tool_names::GET_MEMORY_PROVENANCE_REPORT => {
+            tool_get_memory_provenance_report(args).await
+        }
+        zorai_protocol::tool_names::GET_PROVENANCE_REPORT => tool_get_provenance_report(args).await,
+        zorai_protocol::tool_names::QUERY_AUDITS => tool_query_audits(args).await,
+        zorai_protocol::tool_names::GENERATE_SOC2_ARTIFACT => {
+            tool_generate_soc2_artifact(args).await
+        }
+        zorai_protocol::tool_names::GET_COLLABORATION_SESSIONS => {
+            tool_get_collaboration_sessions(args).await
+        }
+        zorai_protocol::tool_names::LIST_GENERATED_TOOLS => tool_list_generated_tools().await,
+        zorai_protocol::tool_names::SYNTHESIZE_TOOL => tool_synthesize_tool(args).await,
+        zorai_protocol::tool_names::RUN_GENERATED_TOOL => tool_run_generated_tool(args).await,
+        zorai_protocol::tool_names::PROMOTE_GENERATED_TOOL => {
+            tool_promote_generated_tool(args).await
+        }
+        zorai_protocol::tool_names::ACTIVATE_GENERATED_TOOL => {
+            tool_activate_generated_tool(args).await
+        }
+        zorai_protocol::tool_names::GET_GIT_STATUS => tool_get_git_status(args).await,
+        zorai_protocol::tool_names::SEMANTIC_QUERY => tool_semantic_query(args).await,
         _ => anyhow::bail!("unknown tool: {name}"),
     }
 }

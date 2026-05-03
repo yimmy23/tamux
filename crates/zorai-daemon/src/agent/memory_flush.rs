@@ -126,7 +126,7 @@ impl AgentEngine {
 
         let mut memory_updated = false;
         for tool_call in &pending_tool_calls {
-            if tool_call.function.name != "update_memory" {
+            if tool_call.function.name != zorai_protocol::tool_names::UPDATE_MEMORY {
                 tracing::warn!(
                     thread_id = %thread_id,
                     tool = %tool_call.function.name,
@@ -331,6 +331,7 @@ mod tests {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         }
     }
 

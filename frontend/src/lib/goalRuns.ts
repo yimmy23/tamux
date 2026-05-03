@@ -797,12 +797,17 @@ export async function controlGoalRun(goalRunId: string, action: GoalRunControlAc
     }
 }
 
-export function isGoalRunTerminal(goalRun: GoalRun): boolean {
-    return goalRun.status === "completed" || goalRun.status === "failed" || goalRun.status === "cancelled";
+export function isGoalRunTerminal(goalRun: GoalRun | GoalRunStatus): boolean {
+    const status = typeof goalRun === "string" ? goalRun : goalRun.status;
+    return status === "completed" || status === "failed" || status === "cancelled";
 }
 
 export function isGoalRunActive(goalRun: GoalRun): boolean {
     return !isGoalRunTerminal(goalRun);
+}
+
+export function goalRunsNeedAutoRefresh(goalRuns: Array<Pick<GoalRun, "status">>): boolean {
+    return goalRuns.some((goalRun) => !isGoalRunTerminal(goalRun.status));
 }
 
 export function formatGoalRunStatus(status: GoalRunStatus): string {

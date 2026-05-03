@@ -555,13 +555,8 @@ impl TuiModel {
                         MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
                     )
                 {
-                    if let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
-                        ref goal_run_id,
-                        ..
-                    }) = self.main_pane_view
-                    {
-                        self.request_full_goal_view_refresh(goal_run_id.clone());
-                        self.status_line = "Refreshing goal, thread, and task metadata".to_string();
+                    if self.request_selected_goal_step_rerun_confirmation() {
+                        self.status_line = "Rerun goal from selected step?".to_string();
                     }
                 } else if self
                     .input_notice
@@ -1009,10 +1004,18 @@ impl TuiModel {
             KeyCode::Char(ch)
                 if self.focus == FocusArea::Chat
                     && Self::matches_shift_char(KeyCode::Char(ch), modifiers, 'r')
-                    && matches!(self.main_pane_view, MainPaneView::Task(_)) =>
+                    && matches!(
+                        self.main_pane_view,
+                        MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
+                    ) =>
             {
-                if self.request_selected_goal_step_rerun_confirmation() {
-                    self.status_line = "Rerun goal from selected step?".to_string();
+                if let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
+                    ref goal_run_id,
+                    ..
+                }) = self.main_pane_view
+                {
+                    self.request_full_goal_view_refresh(goal_run_id.clone());
+                    self.status_line = "Refreshing goal, thread, and task metadata".to_string();
                 }
             }
             KeyCode::Char('m')

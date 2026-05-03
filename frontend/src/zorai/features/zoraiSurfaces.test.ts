@@ -134,8 +134,10 @@ describe("Zorai feature surfaces", () => {
     expect(panelSource).not.toContain('label="Auth" description="Credential source.');
     expect(panelSource).toContain("Backend");
     expect(panelSource).toContain("daemon");
-    expect(panelSource).not.toContain("OpenClaw");
-    expect(panelSource).not.toContain("Hermes");
+    expect(panelSource).toContain("Migrate from Hermes");
+    expect(panelSource).toContain("Migrate from OpenClaw");
+    expect(panelSource).toContain("agentExternalRuntimeMigrationPreview");
+    expect(panelSource).toContain("agentExternalRuntimeMigrationApply");
     expect(panelSource).toContain("selectedConciergeProvider");
     expect(panelSource).toContain("proactive_triage");
     expect(panelSource).toContain("(use Svarog)");

@@ -24,7 +24,11 @@ fn decide_import_blocks_warns_and_passes() {
 
 #[test]
 fn build_scan_report_skips_llm_tier_for_verified_publishers() {
-    let report = build_scan_report("Use `read_file`.", &["read_file".to_string()], true);
+    let report = build_scan_report(
+        "Use `read_file`.",
+        &[zorai_protocol::tool_names::READ_FILE.to_string()],
+        true,
+    );
 
     assert_eq!(report.tier_results.len(), 3);
     assert!(report
@@ -35,7 +39,11 @@ fn build_scan_report_skips_llm_tier_for_verified_publishers() {
 
 #[test]
 fn build_scan_report_warns_unverified_when_llm_review_unavailable() {
-    let report = build_scan_report("Use `read_file`.", &["read_file".to_string()], false);
+    let report = build_scan_report(
+        "Use `read_file`.",
+        &[zorai_protocol::tool_names::READ_FILE.to_string()],
+        false,
+    );
     assert_eq!(report.verdict, ScanVerdict::Warn);
     assert!(report
         .tier_results
@@ -162,7 +170,7 @@ fn to_agentskills_format_strips_zorai_extensions() {
         license: Some("MIT".to_string()),
         compatibility: Some(vec!["zorai>=0.1".to_string()]),
         metadata: Some(serde_yaml::from_str("category: debugging").expect("metadata yaml")),
-        allowed_tools: vec!["read_file".to_string()],
+        allowed_tools: vec![zorai_protocol::tool_names::READ_FILE.to_string()],
         zorai: ZoraiExtensions {
             maturity_status: Some("draft".to_string()),
             provenance_hash: Some("hash".to_string()),
@@ -191,7 +199,10 @@ fn from_agentskills_format_adds_default_zorai_extensions() {
         .expect("agentskills import succeeds");
 
     assert_eq!(imported.name, "debug-rust");
-    assert_eq!(imported.allowed_tools, vec!["read_file".to_string()]);
+    assert_eq!(
+        imported.allowed_tools,
+        vec![zorai_protocol::tool_names::READ_FILE.to_string()]
+    );
     assert_eq!(imported.zorai.context_tags, Vec::<String>::new());
     assert!(imported.zorai.maturity_status.is_none());
     assert!(imported.zorai.variant_id.is_none());

@@ -726,6 +726,7 @@ async fn structured_heartbeat_keeps_consolidation_carryover_quiet_by_default() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());
@@ -1000,6 +1001,7 @@ async fn structured_heartbeat_routes_synthesis_through_weles_runtime() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());

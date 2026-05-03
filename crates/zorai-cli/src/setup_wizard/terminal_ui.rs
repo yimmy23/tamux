@@ -19,6 +19,82 @@ pub(super) fn is_actionable_key_event_kind(kind: KeyEventKind) -> bool {
     matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SelectMove {
+    Previous,
+    Next,
+    PageUp(usize),
+    PageDown(usize),
+    First,
+    Last,
+}
+
+pub(super) fn move_select_index(selected: usize, item_count: usize, movement: SelectMove) -> usize {
+    if item_count == 0 {
+        return 0;
+    }
+
+    match movement {
+        SelectMove::Previous => {
+            if selected == 0 {
+                item_count.saturating_sub(1)
+            } else {
+                selected.saturating_sub(1)
+            }
+        }
+        SelectMove::Next => {
+            let next = selected.saturating_add(1);
+            if next >= item_count {
+                0
+            } else {
+                next
+            }
+        }
+        SelectMove::PageUp(step) => selected.saturating_sub(step.max(1)),
+        SelectMove::PageDown(step) => selected
+            .saturating_add(step.max(1))
+            .min(item_count.saturating_sub(1)),
+        SelectMove::First => 0,
+        SelectMove::Last => item_count.saturating_sub(1),
+    }
+}
+
+pub(super) fn select_visible_window_start(
+    selected: usize,
+    item_count: usize,
+    visible_capacity: usize,
+) -> usize {
+    if item_count <= visible_capacity || visible_capacity == 0 {
+        return 0;
+    }
+    selected
+        .saturating_sub(visible_capacity.saturating_sub(1))
+        .min(item_count.saturating_sub(visible_capacity))
+}
+
+fn select_visible_capacity(
+    title: &str,
+    terminal_height: u16,
+    selected_extra_lines: usize,
+) -> usize {
+    let title_lines = title.lines().count().max(1);
+    let reserved_lines = title_lines
+        .saturating_add(3)
+        .saturating_add(selected_extra_lines);
+    (terminal_height as usize)
+        .saturating_sub(reserved_lines)
+        .max(1)
+}
+
+fn terminal_height() -> u16 {
+    terminal::size().map(|(_, height)| height).unwrap_or(24)
+}
+
+fn selection_status_line(start: usize, end: usize, total: usize) -> Option<String> {
+    (total > end.saturating_sub(start))
+        .then(|| format!("    showing {}-{} of {total}", start + 1, end))
+}
+
 pub(super) fn select_list(
     title: &str,
     items: &[(&str, &str)],
@@ -30,9 +106,13 @@ pub(super) fn select_list(
     let mut stdout = io::stdout();
     let mut selected: usize = default_index.min(items.len().saturating_sub(1));
     let _raw_mode = RawModeGuard::new()?;
+    let _mouse_capture = MouseCaptureGuard::new()?;
 
     (|| -> Result<Option<usize>> {
         loop {
+            let visible_capacity = select_visible_capacity(title, terminal_height(), 0);
+            let start = select_visible_window_start(selected, items.len(), visible_capacity);
+            let end = start.saturating_add(visible_capacity).min(items.len());
             queue!(
                 stdout,
                 style::SetForegroundColor(style::Color::White),
@@ -43,7 +123,7 @@ pub(super) fn select_list(
                 style::Print("\r\n\r\n"),
             )?;
 
-            for (i, (label, desc)) in items.iter().enumerate() {
+            for (i, (label, desc)) in items.iter().enumerate().skip(start).take(end - start) {
                 if i == selected {
                     let mut line = format!("  > {label}");
                     if !desc.is_empty() {
@@ -72,48 +152,80 @@ pub(super) fn select_list(
                     )?;
                 }
             }
+            if let Some(status) = selection_status_line(start, end, items.len()) {
+                queue!(
+                    stdout,
+                    style::SetForegroundColor(style::Color::DarkGrey),
+                    style::Print(status),
+                    style::SetForegroundColor(style::Color::Reset),
+                    style::Print("\r\n"),
+                )?;
+            }
 
             stdout.flush()?;
 
-            if let Event::Key(KeyEvent {
-                code,
-                modifiers,
-                kind,
-                ..
-            }) = event::read()?
-            {
-                if is_actionable_key_event_kind(kind) {
-                    match code {
-                        KeyCode::Up => {
-                            if selected == 0 {
-                                selected = items.len().saturating_sub(1);
-                            } else {
-                                selected -= 1;
-                            }
-                        }
-                        KeyCode::Down => {
-                            selected += 1;
-                            if selected >= items.len() {
-                                selected = 0;
-                            }
-                        }
-                        _ if is_submit_key(code, modifiers) => {
-                            execute!(stdout, style::SetForegroundColor(style::Color::Reset),)?;
-                            return Ok(Some(selected));
-                        }
-                        KeyCode::Esc if allow_esc => {
-                            execute!(stdout, style::SetForegroundColor(style::Color::Reset),)?;
-                            return Ok(None);
-                        }
-                        KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                            anyhow::bail!("Setup cancelled by user");
-                        }
-                        _ => {}
+            match event::read()? {
+                Event::Key(KeyEvent {
+                    code,
+                    modifiers,
+                    kind,
+                    ..
+                }) if is_actionable_key_event_kind(kind) => match code {
+                    KeyCode::Up => {
+                        selected = move_select_index(selected, items.len(), SelectMove::Previous);
                     }
-                }
+                    KeyCode::Down => {
+                        selected = move_select_index(selected, items.len(), SelectMove::Next);
+                    }
+                    KeyCode::PageUp => {
+                        selected = move_select_index(
+                            selected,
+                            items.len(),
+                            SelectMove::PageUp(visible_capacity),
+                        );
+                    }
+                    KeyCode::PageDown => {
+                        selected = move_select_index(
+                            selected,
+                            items.len(),
+                            SelectMove::PageDown(visible_capacity),
+                        );
+                    }
+                    KeyCode::Home => {
+                        selected = move_select_index(selected, items.len(), SelectMove::First);
+                    }
+                    KeyCode::End => {
+                        selected = move_select_index(selected, items.len(), SelectMove::Last);
+                    }
+                    _ if is_submit_key(code, modifiers) => {
+                        execute!(stdout, style::SetForegroundColor(style::Color::Reset),)?;
+                        return Ok(Some(selected));
+                    }
+                    KeyCode::Esc if allow_esc => {
+                        execute!(stdout, style::SetForegroundColor(style::Color::Reset),)?;
+                        return Ok(None);
+                    }
+                    KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                        anyhow::bail!("Setup cancelled by user");
+                    }
+                    _ => {}
+                },
+                Event::Mouse(mouse) => match mouse.kind {
+                    crossterm::event::MouseEventKind::ScrollUp => {
+                        selected = move_select_index(selected, items.len(), SelectMove::Previous);
+                    }
+                    crossterm::event::MouseEventKind::ScrollDown => {
+                        selected = move_select_index(selected, items.len(), SelectMove::Next);
+                    }
+                    _ => {}
+                },
+                _ => {}
             }
 
-            let lines_to_clear = items.len() + 2;
+            let lines_to_clear = title.lines().count().max(1)
+                + 2
+                + end.saturating_sub(start)
+                + usize::from(items.len() > end.saturating_sub(start));
             execute!(
                 stdout,
                 cursor::MoveUp(lines_to_clear as u16),
@@ -134,9 +246,21 @@ pub(super) fn select_rich_list(
     let mut stdout = io::stdout();
     let mut selected: usize = default_index.min(items.len().saturating_sub(1));
     let _raw_mode = RawModeGuard::new()?;
+    let _mouse_capture = MouseCaptureGuard::new()?;
 
     (|| -> Result<Option<usize>> {
         loop {
+            let selected_has_subtitle = items
+                .get(selected)
+                .and_then(|item| item.subtitle.as_deref())
+                .is_some_and(|subtitle| !subtitle.is_empty());
+            let visible_capacity = select_visible_capacity(
+                title,
+                terminal_height(),
+                usize::from(selected_has_subtitle),
+            );
+            let start = select_visible_window_start(selected, items.len(), visible_capacity);
+            let end = start.saturating_add(visible_capacity).min(items.len());
             queue!(
                 stdout,
                 style::SetForegroundColor(style::Color::White),
@@ -147,7 +271,7 @@ pub(super) fn select_rich_list(
                 style::Print("\r\n\r\n"),
             )?;
 
-            for (i, item) in items.iter().enumerate() {
+            for (i, item) in items.iter().enumerate().skip(start).take(end - start) {
                 let mut line = if i == selected {
                     format!("  > {}", item.label)
                 } else {
@@ -177,67 +301,97 @@ pub(super) fn select_rich_list(
                     )?;
                 }
 
-                if let Some(subtitle) = item
-                    .subtitle
-                    .as_deref()
-                    .filter(|subtitle| !subtitle.is_empty())
-                {
-                    queue!(
-                        stdout,
-                        style::SetForegroundColor(style::Color::DarkGrey),
-                        style::Print(format!("      {subtitle}")),
-                        style::SetForegroundColor(style::Color::Reset),
-                        style::Print("\r\n"),
-                    )?;
+                if i == selected {
+                    if let Some(subtitle) = item
+                        .subtitle
+                        .as_deref()
+                        .filter(|subtitle| !subtitle.is_empty())
+                    {
+                        queue!(
+                            stdout,
+                            style::SetForegroundColor(style::Color::DarkGrey),
+                            style::Print(format!("      {subtitle}")),
+                            style::SetForegroundColor(style::Color::Reset),
+                            style::Print("\r\n"),
+                        )?;
+                    }
                 }
+            }
+            if let Some(status) = selection_status_line(start, end, items.len()) {
+                queue!(
+                    stdout,
+                    style::SetForegroundColor(style::Color::DarkGrey),
+                    style::Print(status),
+                    style::SetForegroundColor(style::Color::Reset),
+                    style::Print("\r\n"),
+                )?;
             }
 
             stdout.flush()?;
 
-            if let Event::Key(KeyEvent {
-                code,
-                modifiers,
-                kind,
-                ..
-            }) = event::read()?
-            {
-                if is_actionable_key_event_kind(kind) {
-                    match code {
-                        KeyCode::Up => {
-                            if selected == 0 {
-                                selected = items.len().saturating_sub(1);
-                            } else {
-                                selected -= 1;
-                            }
-                        }
-                        KeyCode::Down => {
-                            selected += 1;
-                            if selected >= items.len() {
-                                selected = 0;
-                            }
-                        }
-                        _ if is_submit_key(code, modifiers) => {
-                            execute!(stdout, style::SetForegroundColor(style::Color::Reset),)?;
-                            return Ok(Some(selected));
-                        }
-                        KeyCode::Esc if allow_esc => {
-                            execute!(stdout, style::SetForegroundColor(style::Color::Reset),)?;
-                            return Ok(None);
-                        }
-                        KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                            anyhow::bail!("Setup cancelled by user");
-                        }
-                        _ => {}
+            match event::read()? {
+                Event::Key(KeyEvent {
+                    code,
+                    modifiers,
+                    kind,
+                    ..
+                }) if is_actionable_key_event_kind(kind) => match code {
+                    KeyCode::Up => {
+                        selected = move_select_index(selected, items.len(), SelectMove::Previous);
                     }
-                }
+                    KeyCode::Down => {
+                        selected = move_select_index(selected, items.len(), SelectMove::Next);
+                    }
+                    KeyCode::PageUp => {
+                        selected = move_select_index(
+                            selected,
+                            items.len(),
+                            SelectMove::PageUp(visible_capacity),
+                        );
+                    }
+                    KeyCode::PageDown => {
+                        selected = move_select_index(
+                            selected,
+                            items.len(),
+                            SelectMove::PageDown(visible_capacity),
+                        );
+                    }
+                    KeyCode::Home => {
+                        selected = move_select_index(selected, items.len(), SelectMove::First);
+                    }
+                    KeyCode::End => {
+                        selected = move_select_index(selected, items.len(), SelectMove::Last);
+                    }
+                    _ if is_submit_key(code, modifiers) => {
+                        execute!(stdout, style::SetForegroundColor(style::Color::Reset),)?;
+                        return Ok(Some(selected));
+                    }
+                    KeyCode::Esc if allow_esc => {
+                        execute!(stdout, style::SetForegroundColor(style::Color::Reset),)?;
+                        return Ok(None);
+                    }
+                    KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                        anyhow::bail!("Setup cancelled by user");
+                    }
+                    _ => {}
+                },
+                Event::Mouse(mouse) => match mouse.kind {
+                    crossterm::event::MouseEventKind::ScrollUp => {
+                        selected = move_select_index(selected, items.len(), SelectMove::Previous);
+                    }
+                    crossterm::event::MouseEventKind::ScrollDown => {
+                        selected = move_select_index(selected, items.len(), SelectMove::Next);
+                    }
+                    _ => {}
+                },
+                _ => {}
             }
 
             let lines_to_clear = title.lines().count()
-                + 1
-                + items
-                    .iter()
-                    .map(|item| 1 + usize::from(item.subtitle.is_some()))
-                    .sum::<usize>();
+                + 2
+                + end.saturating_sub(start)
+                + usize::from(selected_has_subtitle)
+                + usize::from(items.len() > end.saturating_sub(start));
             execute!(
                 stdout,
                 cursor::MoveUp(lines_to_clear as u16),

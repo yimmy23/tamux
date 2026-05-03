@@ -37,11 +37,11 @@ pub(super) const WELES_BUILTIN_ID: &str = super::agent_identity::WELES_BUILTIN_S
 pub(super) const WELES_BUILTIN_NAME: &str = "WELES";
 pub(super) const WELES_PROTECTED_REASON: &str = "Daemon-owned WELES registry entry";
 pub(super) const DEFAULT_WELES_TOOL_BLACKLIST: &[&str] = &[
-    "list_terminals",
-    "read_active_terminal_content",
-    "run_terminal_command",
-    "allocate_terminal",
-    "type_in_terminal",
+    zorai_protocol::tool_names::LIST_TERMINALS,
+    zorai_protocol::tool_names::READ_ACTIVE_TERMINAL_CONTENT,
+    zorai_protocol::tool_names::RUN_TERMINAL_COMMAND,
+    zorai_protocol::tool_names::ALLOCATE_TERMINAL,
+    zorai_protocol::tool_names::TYPE_IN_TERMINAL,
 ];
 
 pub(super) fn is_reserved_builtin_sub_agent_id(id: &str) -> bool {

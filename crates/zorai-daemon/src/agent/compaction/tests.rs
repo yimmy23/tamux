@@ -34,11 +34,47 @@ fn sample_provider_config() -> ProviderConfig {
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     }
 }
 
 fn sample_message(content: &str) -> AgentMessage {
     AgentMessage::user(content, 1)
+}
+
+fn sample_tool_message(tool_name: &str, content: &str, timestamp: u64) -> AgentMessage {
+    AgentMessage {
+        id: format!("tool-{timestamp}"),
+        role: MessageRole::Tool,
+        content: content.to_string(),
+        content_blocks: Vec::new(),
+        tool_calls: None,
+        tool_call_id: Some(format!("call-{timestamp}")),
+        tool_name: Some(tool_name.to_string()),
+        tool_arguments: Some("{}".to_string()),
+        tool_status: Some("done".to_string()),
+        weles_review: None,
+        input_tokens: 0,
+        output_tokens: 0,
+        cost: None,
+        provider: None,
+        model: None,
+        api_transport: None,
+        response_id: None,
+        upstream_message: None,
+        provider_final_result: None,
+        author_agent_id: None,
+        author_agent_name: None,
+        reasoning: None,
+        message_kind: AgentMessageKind::Normal,
+        compaction_strategy: None,
+        compaction_payload: None,
+        offloaded_payload_id: None,
+        tool_output_preview_path: None,
+        structural_refs: Vec::new(),
+        pinned_for_compaction: false,
+        timestamp,
+    }
 }
 
 fn sample_thread(messages: Vec<AgentMessage>) -> AgentThread {
@@ -86,6 +122,274 @@ fn api_text_contents(messages: &[ApiMessage]) -> Vec<String> {
             other => panic!("expected text content, got {other:?}"),
         })
         .collect()
+}
+
+fn sample_compaction_scope() -> CompactionScopeSnapshot {
+    CompactionScopeSnapshot {
+        thread_id: "goal:goal_86e57b78".to_string(),
+        task_id: Some("task-review-blocker".to_string()),
+        goal_run_id: Some("goal_86e57b78".to_string()),
+        active_task_id: Some("task-review-blocker".to_string()),
+        goal_title: Some("ConvGPT benchmarks".to_string()),
+        goal: Some(
+            "Resume the ConvGPT benchmark recovery and complete the missing review todo."
+                .to_string(),
+        ),
+        goal_status: Some("failed".to_string()),
+        root_thread_id: Some("thread-root".to_string()),
+        active_thread_id: Some("goal:goal_86e57b78".to_string()),
+        execution_thread_ids: vec!["goal:goal_86e57b78".to_string()],
+        current_step_title: Some("Execute missing review verification".to_string()),
+        current_step_status: Some("failed".to_string()),
+        current_step_summary: Some(
+            "The blocker is an incomplete review/inspection step.".to_string(),
+        ),
+        plan_summary: Some(
+            "Recover, inspect, execute the missing review, then verify.".to_string(),
+        ),
+        latest_error: Some("Mandatory review step was skipped.".to_string()),
+        recent_events: vec!["list_goal_runs was queried to locate the failed goal.".to_string()],
+    }
+}
+
+fn sample_goal_run_for_compaction(thread_id: &str) -> GoalRun {
+    GoalRun {
+        id: "goal_86e57b78".to_string(),
+        title: "ConvGPT benchmarks".to_string(),
+        goal: "Resume the ConvGPT benchmark recovery and complete the missing review todo."
+            .to_string(),
+        client_request_id: None,
+        status: GoalRunStatus::Failed,
+        priority: TaskPriority::High,
+        created_at: 1,
+        updated_at: 3,
+        started_at: Some(1),
+        completed_at: None,
+        thread_id: Some(thread_id.to_string()),
+        root_thread_id: Some("thread-root".to_string()),
+        active_thread_id: Some(thread_id.to_string()),
+        execution_thread_ids: vec![thread_id.to_string()],
+        session_id: None,
+        current_step_index: 0,
+        current_step_title: Some("Execute missing review verification".to_string()),
+        current_step_kind: None,
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        planner_owner_profile: None,
+        current_step_owner_profile: None,
+        replan_count: 0,
+        max_replans: 1,
+        plan_summary: Some(
+            "Recover, inspect, execute the missing review, then verify.".to_string(),
+        ),
+        reflection_summary: None,
+        memory_updates: Vec::new(),
+        generated_skill_path: None,
+        last_error: Some("Mandatory review step was skipped.".to_string()),
+        failure_cause: None,
+        stopped_reason: None,
+        child_task_ids: Vec::new(),
+        child_task_count: 0,
+        approval_count: 0,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        active_task_id: Some("task-review-blocker".to_string()),
+        duration_ms: None,
+        steps: vec![GoalRunStep {
+            id: "step-review".to_string(),
+            position: 0,
+            title: "Execute missing review verification".to_string(),
+            instructions: "Run the missing review and verification step.".to_string(),
+            kind: GoalRunStepKind::Reason,
+            success_criteria: "Review evidence is captured before completion.".to_string(),
+            session_id: None,
+            status: GoalRunStepStatus::Failed,
+            task_id: Some("task-review-blocker".to_string()),
+            summary: Some("The blocker is an incomplete review/inspection step.".to_string()),
+            error: Some("Review step skipped.".to_string()),
+            started_at: Some(1),
+            completed_at: None,
+        }],
+        events: vec![GoalRunEvent {
+            id: "event-list-goals".to_string(),
+            timestamp: 2,
+            phase: "diagnostic".to_string(),
+            message: "list_goal_runs was queried to locate the failed goal.".to_string(),
+            details: None,
+            step_index: Some(0),
+            todo_snapshot: Vec::new(),
+        }],
+        dossier: None,
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        estimated_cost_usd: None,
+        model_usage: Vec::new(),
+        autonomy_level: crate::agent::AutonomyLevel::Supervised,
+        authorship_tag: None,
+    }
+}
+
+#[test]
+fn checkpoint_summary_uses_structured_goal_scope_instead_of_global_tool_dump() {
+    let polluted_payload = r#"[
+      {"id":"goal_86e57b78","title":"ConvGPT benchmarks","status":"failed"},
+      {"id":"goal_0db2acdd","title":"State-Transition Harness","status":"paused"},
+      {"id":"goal_146ef8c7","title":"unslop clone","status":"failed"},
+      {"id":"goal_drug","title":"Drug Discovery Playground","status":"planning"},
+      {"id":"goal_ingenix","title":"Ingenix.ai learning plan","status":"paused"}
+    ]"#;
+    let scope = sample_compaction_scope();
+    let messages = vec![
+        AgentMessage::user("Continue the active goal recovery.", 1),
+        sample_tool_message(
+            zorai_protocol::tool_names::LIST_GOAL_RUNS,
+            polluted_payload,
+            2,
+        ),
+        AgentMessage::user("Fix the compaction summary for this goal thread.", 3),
+    ];
+
+    let summary = build_compaction_summary_with_scope(&messages, 16_000, Some(&scope));
+
+    assert!(summary.contains("## 🔎 Scope Identity"));
+    assert!(summary.contains("goal_86e57b78"));
+    assert!(summary.contains("task-review-blocker"));
+    assert!(summary.contains("ConvGPT benchmarks"));
+    assert!(summary.contains("Execute missing review verification"));
+    assert!(summary.contains("Fix the compaction summary for this goal thread."));
+    assert!(summary.contains("Tool Evidence Pointers"));
+    assert!(summary.contains(zorai_protocol::tool_names::LIST_GOAL_RUNS));
+    assert!(
+        !summary.contains("State-Transition Harness"),
+        "global list payload should not become active checkpoint state: {summary}"
+    );
+    assert!(
+        !summary.contains("unslop clone"),
+        "unrelated global goal entry should stay out of scoped checkpoint state: {summary}"
+    );
+    assert!(
+        !summary.contains("Drug Discovery Playground"),
+        "unrelated global planning entry should stay out of scoped checkpoint state: {summary}"
+    );
+    assert!(
+        !summary.contains("Ingenix.ai"),
+        "unrelated global learning-plan entry should stay out of scoped checkpoint state: {summary}"
+    );
+}
+
+#[tokio::test]
+async fn persisted_goal_thread_compaction_derives_scope_from_goal_run_record() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.auto_compact_context = true;
+    config.max_context_messages = 2;
+    config.keep_recent_on_compact = 1;
+    config.compaction.strategy = CompactionStrategy::Heuristic;
+    let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
+    let provider = sample_provider_config();
+    let thread_id = "goal:goal_86e57b78";
+    let polluted_payload = r#"[
+      {"id":"goal_86e57b78","title":"ConvGPT benchmarks","status":"failed"},
+      {"id":"goal_0db2acdd","title":"State-Transition Harness","status":"paused"},
+      {"id":"goal_146ef8c7","title":"unslop clone","status":"failed"}
+    ]"#;
+
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(sample_goal_run_for_compaction(thread_id));
+    {
+        let mut threads = engine.threads.write().await;
+        let mut thread = sample_thread(vec![
+            AgentMessage::user("Continue the active goal recovery.", 1),
+            sample_tool_message(
+                zorai_protocol::tool_names::LIST_GOAL_RUNS,
+                polluted_payload,
+                2,
+            ),
+            AgentMessage::user("Fix the compaction summary for this goal thread.", 3),
+        ]);
+        thread.id = thread_id.to_string();
+        threads.insert(thread_id.to_string(), thread);
+    }
+
+    let inserted = engine
+        .maybe_persist_compaction_artifact(thread_id, None, &config, &provider)
+        .await
+        .expect("goal thread compaction should persist");
+
+    assert!(inserted);
+    let thread = {
+        let threads = engine.threads.read().await;
+        threads
+            .get(thread_id)
+            .cloned()
+            .expect("thread should remain available")
+    };
+    let payload = compaction_artifact_message(&thread)
+        .compaction_payload
+        .as_deref()
+        .expect("artifact should carry hidden payload");
+
+    assert!(payload.contains("## 🔎 Scope Identity"));
+    assert!(payload.contains("goal_86e57b78"));
+    assert!(payload.contains("task-review-blocker"));
+    assert!(payload.contains("ConvGPT benchmarks"));
+    assert!(payload.contains(zorai_protocol::tool_names::LIST_GOAL_RUNS));
+    assert!(
+        !payload.contains("State-Transition Harness"),
+        "persisted goal compaction should use goal-run state, not raw global list payload: {payload}"
+    );
+    assert!(
+        !payload.contains("unslop clone"),
+        "persisted goal compaction should not promote unrelated global goal entries: {payload}"
+    );
+}
+
+#[test]
+fn llm_compaction_messages_receive_scope_packet_and_tool_evidence_pointers() {
+    let polluted_payload = r#"[
+      {"id":"goal_86e57b78","title":"ConvGPT benchmarks","status":"failed"},
+      {"id":"goal_0db2acdd","title":"State-Transition Harness","status":"paused"},
+      {"id":"goal_146ef8c7","title":"unslop clone","status":"failed"}
+    ]"#;
+    let scope = sample_compaction_scope();
+    let mut tool = sample_tool_message(
+        zorai_protocol::tool_names::READ_OFFLOADED_PAYLOAD,
+        polluted_payload,
+        2,
+    );
+    tool.offloaded_payload_id = Some("goal_runs_dump.json".to_string());
+    let messages = vec![
+        AgentMessage::user("Continue the active goal recovery.", 1),
+        tool,
+        AgentMessage::user("Keep working on the compaction scoping fix.", 3),
+    ];
+
+    let api_messages =
+        build_llm_compaction_messages_with_scope(&messages, 16_000, 16_000, Some(&scope));
+    let flattened = api_text_contents(&api_messages).join("\n");
+
+    assert!(flattened.contains("Compaction Scope Packet"));
+    assert!(flattened.contains("goal_86e57b78"));
+    assert!(flattened.contains("ConvGPT benchmarks"));
+    assert!(flattened.contains("Tool Evidence Pointers"));
+    assert!(flattened.contains("goal_runs_dump.json"));
+    assert!(flattened.contains("Keep working on the compaction scoping fix."));
+    assert!(
+        !flattened.contains("State-Transition Harness"),
+        "model compaction input should receive scoped state plus evidence pointers, not raw global dumps: {flattened}"
+    );
+    assert!(
+        !flattened.contains("unslop clone"),
+        "model compaction input should not carry unrelated global goal entries: {flattened}"
+    );
 }
 
 fn collect_workflow_notice_messages(
@@ -382,7 +686,7 @@ fn heuristic_compaction_summary_uses_checkpoint_schema() {
                 content_blocks: Vec::new(),
                 tool_calls: None,
                 tool_call_id: Some("call_1".to_string()),
-                tool_name: Some("read_file".to_string()),
+                tool_name: Some(zorai_protocol::tool_names::READ_FILE.to_string()),
                 tool_arguments: Some("{\"path\":\"styles.css\"}".to_string()),
                 tool_status: Some("done".to_string()),
                 weles_review: None,
@@ -474,7 +778,7 @@ fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies(
         tool_calls: Some(vec![ToolCall {
             id: "call_read".to_string(),
             function: ToolFunction {
-                name: "read_file".to_string(),
+                name: zorai_protocol::tool_names::READ_FILE.to_string(),
                 arguments: "{\"path\":\"/tmp/spec.md\"}".to_string(),
             },
             weles_review: None,
@@ -513,7 +817,7 @@ fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies(
         content_blocks: Vec::new(),
         tool_calls: None,
         tool_call_id: Some("call_read".to_string()),
-        tool_name: Some("read_file".to_string()),
+        tool_name: Some(zorai_protocol::tool_names::READ_FILE.to_string()),
         tool_arguments: Some("{\"path\":\"/tmp/spec.md\"}".to_string()),
         tool_status: Some("done".to_string()),
         weles_review: None,
@@ -558,7 +862,7 @@ fn llm_compaction_fallback_keeps_recent_question_context_for_short_user_replies(
         "recent terse user reply should remain visible to the compactor: {flattened}"
     );
     assert!(
-        flattened.contains("read_file"),
+        flattened.contains(zorai_protocol::tool_names::READ_FILE),
         "recent tool usage should preserve tool names for context: {flattened}"
     );
     assert!(
@@ -597,6 +901,7 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
 
     let thread = sample_thread(vec![
@@ -609,7 +914,7 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
             tool_calls: Some(vec![ToolCall {
                 id: "call_1".to_string(),
                 function: ToolFunction {
-                    name: "list_files".to_string(),
+                    name: zorai_protocol::tool_names::LIST_FILES.to_string(),
                     arguments: "{}".to_string(),
                 },
                 weles_review: None,
@@ -647,7 +952,7 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
             content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: Some("call_1".to_string()),
-            tool_name: Some("list_files".to_string()),
+            tool_name: Some(zorai_protocol::tool_names::LIST_FILES.to_string()),
             tool_arguments: Some("{}".to_string()),
             tool_status: Some("done".to_string()),
             weles_review: None,
@@ -780,6 +1085,7 @@ fn github_copilot_responses_request_does_not_use_previous_response_id_for_plain_
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
 
     let thread = sample_thread(vec![
@@ -859,6 +1165,7 @@ fn chatgpt_subscription_responses_request_uses_local_thread_id_instead_of_previo
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
 
     let thread = sample_thread(vec![
@@ -939,6 +1246,7 @@ fn openai_responses_request_keeps_previous_response_id_when_compaction_artifact_
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
 
     let thread = sample_thread(vec![
@@ -1049,6 +1357,7 @@ fn reused_user_turn_is_injected_when_responses_continuation_only_has_weles_notic
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
 
     let mut recovery_notice = AgentMessage::user(
@@ -1139,7 +1448,7 @@ fn reused_user_message_is_injected_for_chat_completions_when_continuation_has_no
             tool_calls: Some(vec![ToolCall {
                 id: "call-1".to_string(),
                 function: ToolFunction {
-                    name: "list_files".to_string(),
+                    name: zorai_protocol::tool_names::LIST_FILES.to_string(),
                     arguments: "{}".to_string(),
                 },
                 weles_review: None,
@@ -1177,7 +1486,7 @@ fn reused_user_message_is_injected_for_chat_completions_when_continuation_has_no
             content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: Some("call-1".to_string()),
-            tool_name: Some("list_files".to_string()),
+            tool_name: Some(zorai_protocol::tool_names::LIST_FILES.to_string()),
             tool_arguments: Some("{}".to_string()),
             tool_status: Some("done".to_string()),
             weles_review: None,
@@ -1818,7 +2127,7 @@ async fn coding_compaction_payload_prefers_structural_digest_and_offload_refs() 
         .upsert_offloaded_payload_metadata(
             "payload-1",
             thread_id,
-            "read_file",
+            zorai_protocol::tool_names::READ_FILE,
             Some("call-1"),
             "text/plain",
             2_048,
@@ -1844,7 +2153,7 @@ async fn coding_compaction_payload_prefers_structural_digest_and_offload_refs() 
                     content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call-1".to_string()),
-                    tool_name: Some("read_file".to_string()),
+                    tool_name: Some(zorai_protocol::tool_names::READ_FILE.to_string()),
                     tool_arguments: Some(
                         serde_json::json!({"filePath":"/repo/src/lib.rs"}).to_string(),
                     ),
@@ -1962,7 +2271,7 @@ async fn coding_compaction_payload_renders_offload_refs_from_metadata_fields() {
         .upsert_offloaded_payload_metadata(
             "payload-1",
             thread_id,
-            "read_file",
+            zorai_protocol::tool_names::READ_FILE,
             Some("call-1"),
             "text/plain",
             2_048,
@@ -1988,7 +2297,7 @@ async fn coding_compaction_payload_renders_offload_refs_from_metadata_fields() {
                     content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call-1".to_string()),
-                    tool_name: Some("read_file".to_string()),
+                    tool_name: Some(zorai_protocol::tool_names::READ_FILE.to_string()),
                     tool_arguments: Some(
                         serde_json::json!({"filePath":"/repo/src/lib.rs"}).to_string(),
                     ),
@@ -2060,7 +2369,7 @@ fn coding_signals_without_structural_state_still_use_conversational_compaction()
             content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: Some("call-1".to_string()),
-            tool_name: Some("read_file".to_string()),
+            tool_name: Some(zorai_protocol::tool_names::READ_FILE.to_string()),
             tool_arguments: Some(
                 serde_json::json!({"filePath":"/repo/crates/zorai-daemon/src/agent/compaction.rs"})
                     .to_string(),
@@ -2320,7 +2629,7 @@ async fn internal_dm_thread_uses_checkpoint_compaction_even_with_structural_stat
                     content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call-1".to_string()),
-                    tool_name: Some("read_file".to_string()),
+                    tool_name: Some(zorai_protocol::tool_names::READ_FILE.to_string()),
                     tool_arguments: Some(
                         serde_json::json!({"filePath":"/repo/src/lib.rs"}).to_string(),
                     ),
@@ -2439,7 +2748,7 @@ async fn coding_compaction_falls_back_to_checkpoint_summary_when_structured_asse
                     content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call-1".to_string()),
-                    tool_name: Some("read_file".to_string()),
+                    tool_name: Some(zorai_protocol::tool_names::READ_FILE.to_string()),
                     tool_arguments: Some(
                         serde_json::json!({"filePath":"/repo/src/lib.rs"}).to_string(),
                     ),
@@ -2648,7 +2957,7 @@ fn compaction_candidate_keeps_unanswered_tool_turn_out_of_summary_boundary() {
             tool_calls: Some(vec![ToolCall {
                 id: "call_read".to_string(),
                 function: ToolFunction {
-                    name: "read_file".to_string(),
+                    name: zorai_protocol::tool_names::READ_FILE.to_string(),
                     arguments: "{\"path\":\"/tmp/spec.md\"}".to_string(),
                 },
                 weles_review: None,
@@ -2711,7 +3020,7 @@ fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
             tool_calls: Some(vec![ToolCall {
                 id: "call_read".to_string(),
                 function: ToolFunction {
-                    name: "read_file".to_string(),
+                    name: zorai_protocol::tool_names::READ_FILE.to_string(),
                     arguments: "{\"path\":\"/tmp/spec.md\"}".to_string(),
                 },
                 weles_review: None,
@@ -2781,7 +3090,7 @@ fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
             content_blocks: Vec::new(),
             tool_calls: None,
             tool_call_id: Some("call_read".to_string()),
-            tool_name: Some("read_file".to_string()),
+            tool_name: Some(zorai_protocol::tool_names::READ_FILE.to_string()),
             tool_arguments: Some("{\"path\":\"/tmp/spec.md\"}".to_string()),
             tool_status: Some("done".to_string()),
             weles_review: None,
@@ -2909,7 +3218,7 @@ async fn coding_compaction_payload_includes_memory_graph_neighbors() {
                     content_blocks: Vec::new(),
                     tool_calls: None,
                     tool_call_id: Some("call-1".to_string()),
-                    tool_name: Some("read_file".to_string()),
+                    tool_name: Some(zorai_protocol::tool_names::READ_FILE.to_string()),
                     tool_arguments: Some(
                         serde_json::json!({"filePath":"/repo/src/lib.rs"}).to_string(),
                     ),

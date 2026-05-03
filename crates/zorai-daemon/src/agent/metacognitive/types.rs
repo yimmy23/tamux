@@ -49,7 +49,7 @@ impl Default for SelfModel {
                 CognitiveBias {
                     name: "sunk_cost".to_string(),
                     trigger_pattern: TriggerPattern {
-                        tool_sequence: vec!["bash_command".to_string()],
+                        tool_sequence: vec![zorai_protocol::tool_names::BASH_COMMAND.to_string()],
                         max_revisions: 3,
                         context_tags: vec!["retry_loop".to_string()],
                     },
@@ -76,9 +76,9 @@ impl Default for SelfModel {
                     name: "confirmation".to_string(),
                     trigger_pattern: TriggerPattern {
                         tool_sequence: vec![
-                            "read_file".to_string(),
-                            "search_files".to_string(),
-                            "list_files".to_string(),
+                            zorai_protocol::tool_names::READ_FILE.to_string(),
+                            zorai_protocol::tool_names::SEARCH_FILES.to_string(),
+                            zorai_protocol::tool_names::LIST_FILES.to_string(),
                         ],
                         max_revisions: 3,
                         context_tags: vec!["selective_validation".to_string()],
@@ -96,9 +96,9 @@ impl Default for SelfModel {
                     avg_success_rate: 0.58,
                     avg_steps: 6,
                     typical_tools: vec![
-                        "read_file".to_string(),
-                        "search_files".to_string(),
-                        "bash_command".to_string(),
+                        zorai_protocol::tool_names::READ_FILE.to_string(),
+                        zorai_protocol::tool_names::SEARCH_FILES.to_string(),
+                        zorai_protocol::tool_names::BASH_COMMAND.to_string(),
                     ],
                 },
                 WorkflowProfile {
@@ -106,9 +106,9 @@ impl Default for SelfModel {
                     avg_success_rate: 0.74,
                     avg_steps: 5,
                     typical_tools: vec![
-                        "read_file".to_string(),
-                        "replace_in_file".to_string(),
-                        "apply_patch".to_string(),
+                        zorai_protocol::tool_names::READ_FILE.to_string(),
+                        zorai_protocol::tool_names::REPLACE_IN_FILE.to_string(),
+                        zorai_protocol::tool_names::APPLY_PATCH.to_string(),
                     ],
                 },
             ],

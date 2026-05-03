@@ -1,11 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchGoalRuns } from "./goalRuns";
+import { fetchGoalRuns, goalRunsNeedAutoRefresh, isGoalRunTerminal } from "./goalRuns";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("goalRuns", () => {
+  it("marks only active goal runs as auto-refresh candidates", () => {
+    expect(isGoalRunTerminal("completed")).toBe(true);
+    expect(isGoalRunTerminal("failed")).toBe(true);
+    expect(isGoalRunTerminal("cancelled")).toBe(true);
+    expect(isGoalRunTerminal("running")).toBe(false);
+    expect(goalRunsNeedAutoRefresh([{ id: "goal-1", status: "planning" } as any])).toBe(true);
+    expect(goalRunsNeedAutoRefresh([{ id: "goal-1", status: "completed" } as any])).toBe(false);
+  });
+
   it("falls back to the database goal_runs table when the agent list endpoint fails", async () => {
     const dbQueryDatabaseRows = vi.fn(async () => ({
       rows: [

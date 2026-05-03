@@ -28,6 +28,29 @@ pub(super) fn current_epoch_secs() -> u64 {
     now_millis() / 1000
 }
 
+impl<'a> SendMessageRunner<'a> {
+    pub(super) fn emit_context_window_update_for_messages(&self, messages: &[AgentMessage]) {
+        let (active_context_window_start, active_messages) =
+            crate::agent::compaction::active_compaction_window(messages);
+        let active_context_window_tokens =
+            crate::agent::compaction::estimate_message_tokens(active_messages) as u64;
+        let _ = self.engine.event_tx.send(AgentEvent::ContextWindowUpdate {
+            thread_id: self.tid.clone(),
+            active_context_window_start,
+            active_context_window_end: messages.len(),
+            active_context_window_tokens,
+        });
+    }
+
+    pub(super) async fn emit_context_window_update_for_current_thread(&self) {
+        let threads = self.engine.threads.read().await;
+        let Some(thread) = threads.get(&self.tid) else {
+            return;
+        };
+        self.emit_context_window_update_for_messages(&thread.messages);
+    }
+}
+
 impl AgentEngine {
     fn parse_content_blocks_json(
         content_blocks_json: Option<&str>,

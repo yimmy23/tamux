@@ -249,10 +249,10 @@ impl AgentEngine {
             .filter(|channel| sent_gateway_channels.insert(channel.clone()))
         {
             let tool_name = match channel.as_str() {
-                "slack" => Some("send_slack_message"),
-                "discord" => Some("send_discord_message"),
-                "telegram" => Some("send_telegram_message"),
-                "whatsapp" => Some("send_whatsapp_message"),
+                "slack" => Some(zorai_protocol::tool_names::SEND_SLACK_MESSAGE),
+                "discord" => Some(zorai_protocol::tool_names::SEND_DISCORD_MESSAGE),
+                "telegram" => Some(zorai_protocol::tool_names::SEND_TELEGRAM_MESSAGE),
+                "whatsapp" => Some(zorai_protocol::tool_names::SEND_WHATSAPP_MESSAGE),
                 other => {
                     tracing::warn!(task_id = %task.id, channel = %other, "unknown task notification channel");
                     None

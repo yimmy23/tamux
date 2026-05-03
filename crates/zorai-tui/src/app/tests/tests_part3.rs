@@ -627,7 +627,7 @@ fn workspace_refresh_key_reloads_current_board() {
 }
 
 #[test]
-fn workspace_arrow_navigation_can_activate_toolbar_refresh() {
+fn workspace_arrow_navigation_skips_removed_refresh_button() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
     let (cmd_tx, mut cmd_rx) = unbounded_channel();
     let mut model = TuiModel::new(daemon_rx, cmd_tx);
@@ -640,14 +640,14 @@ fn workspace_arrow_navigation_can_activate_toolbar_refresh() {
     assert_eq!(
         model.workspace_board_selection,
         Some(widgets::workspace_board::WorkspaceBoardHitTarget::Toolbar(
-            widgets::workspace_board::WorkspaceBoardToolbarAction::Refresh
+            widgets::workspace_board::WorkspaceBoardToolbarAction::ToggleOperator
         ))
     );
     match cmd_rx.try_recv() {
-        Ok(DaemonCommand::GetWorkspaceSettings { workspace_id }) => {
+        Ok(DaemonCommand::SetWorkspaceOperator { workspace_id, .. }) => {
             assert_eq!(workspace_id, "main");
         }
-        other => panic!("expected settings request, got {other:?}"),
+        other => panic!("expected operator update request, got {other:?}"),
     }
 }
 

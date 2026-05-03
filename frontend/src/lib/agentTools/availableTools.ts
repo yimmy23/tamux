@@ -3,6 +3,7 @@ import { useAgentStore } from "../agentStore";
 import { BROWSER_USE_TOOLS, VISION_TOOLS, WEB_BROWSING_TOOLS } from "./toolDefinitionsBrowser";
 import { GATEWAY_TOOLS, SYSTEM_TOOLS, TERMINAL_TOOLS } from "./toolDefinitionsGatewayTerminal";
 import { WORKSPACE_TOOLS } from "./toolDefinitionsWorkspace";
+import { TOOL_NAMES } from "./toolNames";
 import type { ToolDefinition } from "./types";
 
 export function getAvailableTools(options: {
@@ -30,7 +31,7 @@ export function getAvailableTools(options: {
     if (settings.whatsapp_token || settings.whatsapp_allowed_contacts) tools.push(GATEWAY_TOOLS[3]);
   }
   if (useAgentStore.getState().agentSettings.enable_honcho_memory) {
-    const honchoTool = SYSTEM_TOOLS.find((tool) => tool.function.name === "agent_query_memory");
+    const honchoTool = SYSTEM_TOOLS.find((tool) => tool.function.name === TOOL_NAMES.agentQueryMemory);
     if (honchoTool) {
       tools.push(honchoTool);
     }

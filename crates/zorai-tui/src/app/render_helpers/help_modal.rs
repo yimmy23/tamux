@@ -112,11 +112,11 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
             Span::styled("Retry the current goal step", theme.fg_dim),
         ]),
         Line::from(vec![
-            Span::styled("  Shift+R          ", theme.fg_active),
+            Span::styled("  Ctrl+R           ", theme.fg_active),
             Span::styled("Rerun from the current goal step", theme.fg_dim),
         ]),
         Line::from(vec![
-            Span::styled("  Ctrl+R           ", theme.fg_active),
+            Span::styled("  Shift+R          ", theme.fg_active),
             Span::styled("Refresh open goal metadata from the daemon", theme.fg_dim),
         ]),
         Line::raw(""),

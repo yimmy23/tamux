@@ -120,6 +120,7 @@ impl SettingsState {
             "snapshot_max_count",
             "snapshot_max_size_mb",
             "snapshot_stats",
+            "auto_refresh_interval_secs",
         ];
         const WELES_FIELDS: &[&str] = &[
             "managed_sandbox_enabled",
@@ -146,6 +147,7 @@ impl SettingsState {
             "snapshot_max_count",
             "snapshot_max_size_mb",
             "snapshot_stats",
+            "auto_refresh_interval_secs",
         ];
         const CUSTOM_FIELDS: &[&str] = &[
             "managed_sandbox_enabled",
@@ -178,6 +180,7 @@ impl SettingsState {
             "snapshot_max_count",
             "snapshot_max_size_mb",
             "snapshot_stats",
+            "auto_refresh_interval_secs",
         ];
 
         match strategy {
@@ -271,6 +274,7 @@ impl SettingsState {
                 8 => "openrouter_provider_order",
                 9 => "openrouter_provider_ignore",
                 10 => "openrouter_allow_fallbacks",
+                11 => "openrouter_response_cache_enabled",
                 _ => "",
             },
             SettingsTab::Tools => match self.field_cursor {
@@ -422,6 +426,7 @@ impl SettingsState {
                 18 => "snapshot_max_count",
                 19 => "snapshot_max_size_mb",
                 20 => "snapshot_stats",
+                21 => "auto_refresh_interval_secs",
                 _ => "",
             },
             SettingsTab::Plugins => {
@@ -469,7 +474,7 @@ impl SettingsState {
             SettingsTab::SubAgents => 1,
             SettingsTab::Concierge => 5,
             SettingsTab::Features => 29,
-            SettingsTab::Advanced => 21,
+            SettingsTab::Advanced => 22,
             SettingsTab::Plugins => 1,
             SettingsTab::About => 0,
         }
@@ -480,7 +485,7 @@ impl SettingsState {
             return 8;
         }
         if self.active_tab == SettingsTab::Provider && config.provider == PROVIDER_ID_OPENROUTER {
-            return 11;
+            return 12;
         }
         if self.active_tab == SettingsTab::Advanced {
             return Self::advanced_field_names_for_strategy(&config.compaction_strategy).len();

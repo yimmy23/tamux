@@ -3,6 +3,7 @@ import {
   actorLabel,
   chooseWorkspaceWithTasks,
   mergeWorkspaceSettings,
+  workspaceTasksNeedAutoRefresh,
   listWorkspaceTasks,
   nextWorkspaceStatus,
   projectWorkspaceColumns,
@@ -62,6 +63,17 @@ describe("workspaceBoard", () => {
     expect(taskRunBlocked(task("blocked", "todo", 1, 1))).toBe(true);
     expect(taskRunBlocked({ ...task("assigned", "todo", 1, 1), assignee: "svarog" })).toBe(false);
     expect(actorLabel({ agent: "svarog" })).toBe("agent:svarog");
+  });
+
+  it("auto-refreshes workspace boards only while unfinished tasks remain", () => {
+    expect(workspaceTasksNeedAutoRefresh([
+      task("active", "in_progress", 1, 1),
+      task("done", "done", 2, 2),
+    ])).toBe(true);
+    expect(workspaceTasksNeedAutoRefresh([
+      task("done", "done", 1, 1),
+      { ...task("deleted", "in_progress", 2, 2), deleted_at: 20 },
+    ])).toBe(false);
   });
 
   it("adds task-only workspace ids to the workspace list", () => {

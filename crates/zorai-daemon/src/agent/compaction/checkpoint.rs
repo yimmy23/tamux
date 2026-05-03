@@ -1,11 +1,25 @@
 use super::*;
 
 pub(crate) fn build_compaction_summary(messages: &[AgentMessage], target_tokens: usize) -> String {
+    build_compaction_summary_with_scope(messages, target_tokens, None)
+}
+
+pub(crate) fn build_compaction_summary_with_scope(
+    messages: &[AgentMessage],
+    target_tokens: usize,
+    scope: Option<&CompactionScopeSnapshot>,
+) -> String {
     if messages.is_empty() {
         return String::new();
     }
 
-    let primary_objective = checkpoint_primary_objective(messages);
+    let scoped_messages = materialize_compaction_messages_with_scope(messages, scope);
+    let messages = scoped_messages.as_slice();
+
+    let scope_packet = render_compaction_scope_packet(scope)
+        .map(|packet| format!("## 🔎 Scope Identity\n{packet}\n\n"))
+        .unwrap_or_default();
+    let primary_objective = checkpoint_primary_objective_with_scope(messages, scope);
     let completed_phase = checkpoint_completed_phase(messages);
     let current_phase = checkpoint_current_phase(messages);
     let pending_phases = checkpoint_pending_phases(messages);
@@ -16,10 +30,12 @@ pub(crate) fn build_compaction_summary(messages: &[AgentMessage], target_tokens:
     let acquired_knowledge = checkpoint_acquired_knowledge(messages);
     let dead_ends = checkpoint_dead_ends(messages);
     let recent_actions = checkpoint_recent_actions(messages);
+    let tool_evidence_pointers = checkpoint_tool_evidence_pointers(messages);
     let immediate_next_step = checkpoint_immediate_next_step(messages);
 
     let summary = format!(
-        "# 🤖 Agent Context: State Checkpoint\n\n## 🎯 Primary Objective\n> {}\n\n## 🗺️ Execution Map\n* **✅ Completed Phase:** {}\n* **⏳ Current Phase:** {}\n* **⏭️ Pending Phases:** {}\n\n## 📁 Working Environment State\n* **Active Directory:** `{}`\n* **Files Modified (Uncommitted/Pending):**\n{}* **Read-Only Context Files:**\n{}## 🧠 Acquired Knowledge & Constraints\n{}## 🚫 Dead Ends & Resolved Errors\n{}## 🛠️ Recent Action Summary (Last 3-5 Turns)\n{}\n## 🎯 Immediate Next Step\n{}\n",
+        "# 🤖 Agent Context: State Checkpoint\n\n{}## 🎯 Primary Objective\n> {}\n\n## 🗺️ Execution Map\n* **✅ Completed Phase:** {}\n* **⏳ Current Phase:** {}\n* **⏭️ Pending Phases:** {}\n\n## 📁 Working Environment State\n* **Active Directory:** `{}`\n* **Files Modified (Uncommitted/Pending):**\n{}* **Read-Only Context Files:**\n{}## 🧠 Acquired Knowledge & Constraints\n{}## 🚫 Dead Ends & Resolved Errors\n{}## 🛠️ Recent Action Summary (Last 3-5 Turns)\n{}\n## 🔗 Tool Evidence Pointers\n{}## 🎯 Immediate Next Step\n{}\n",
+        scope_packet,
         primary_objective,
         completed_phase,
         current_phase,
@@ -30,6 +46,7 @@ pub(crate) fn build_compaction_summary(messages: &[AgentMessage], target_tokens:
         acquired_knowledge,
         dead_ends,
         recent_actions,
+        tool_evidence_pointers,
         immediate_next_step,
     );
 
@@ -70,7 +87,8 @@ pub(crate) fn summarize_compacted_message(message: &AgentMessage) -> String {
         }
     }
 
-    let content = super::goal_parsing::summarize_text(compaction_runtime_content(message), 160);
+    let content =
+        super::goal_parsing::summarize_text(compaction_summary_content(message).as_ref(), 160);
     if details.is_empty() {
         format!("{role}: {content}")
     } else {
@@ -79,18 +97,51 @@ pub(crate) fn summarize_compacted_message(message: &AgentMessage) -> String {
 }
 
 pub(crate) fn checkpoint_primary_objective(messages: &[AgentMessage]) -> String {
+    checkpoint_primary_objective_with_scope(messages, None)
+}
+
+pub(crate) fn checkpoint_primary_objective_with_scope(
+    messages: &[AgentMessage],
+    scope: Option<&CompactionScopeSnapshot>,
+) -> String {
+    if let Some(scope) = scope {
+        let title = scope
+            .goal_title
+            .as_deref()
+            .or(scope.goal_run_id.as_deref())
+            .unwrap_or("active goal");
+        if let Some(goal) = scope
+            .goal
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            return format!(
+                "{}: {}",
+                title,
+                super::goal_parsing::summarize_text(goal, 220)
+            );
+        }
+        if let Some(step) = scope
+            .current_step_title
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            return format!("{title}: continue current step `{step}`.");
+        }
+    }
+
     let first_user = messages
         .iter()
         .find(|message| message.role == MessageRole::User)
         .map(|message| {
-            super::goal_parsing::summarize_text(compaction_runtime_content(message), 180)
+            super::goal_parsing::summarize_text(compaction_summary_content(message).as_ref(), 180)
         });
     let latest_user = messages
         .iter()
         .rev()
         .find(|message| message.role == MessageRole::User)
         .map(|message| {
-            super::goal_parsing::summarize_text(compaction_runtime_content(message), 180)
+            super::goal_parsing::summarize_text(compaction_summary_content(message).as_ref(), 180)
         });
 
     match (first_user, latest_user) {
@@ -118,11 +169,17 @@ pub(crate) fn checkpoint_current_phase(messages: &[AgentMessage]) -> String {
         .map(|message| match message.role {
             MessageRole::User => format!(
                 "Resume from the latest carried-forward user request: {}",
-                super::goal_parsing::summarize_text(compaction_runtime_content(message), 180)
+                super::goal_parsing::summarize_text(
+                    compaction_summary_content(message).as_ref(),
+                    180,
+                )
             ),
             MessageRole::Assistant => format!(
                 "Continue from the latest assistant state: {}",
-                super::goal_parsing::summarize_text(compaction_runtime_content(message), 180)
+                super::goal_parsing::summarize_text(
+                    compaction_summary_content(message).as_ref(),
+                    180,
+                )
             ),
             MessageRole::Tool => format!(
                 "Continue after the last tool outcome: {}",
@@ -130,7 +187,10 @@ pub(crate) fn checkpoint_current_phase(messages: &[AgentMessage]) -> String {
             ),
             MessageRole::System => format!(
                 "Honor the preserved system guidance: {}",
-                super::goal_parsing::summarize_text(compaction_runtime_content(message), 180)
+                super::goal_parsing::summarize_text(
+                    compaction_summary_content(message).as_ref(),
+                    180,
+                )
             ),
         })
         .unwrap_or_else(|| {
@@ -144,7 +204,7 @@ pub(crate) fn checkpoint_pending_phases(messages: &[AgentMessage]) -> String {
         .rev()
         .find(|message| message.role == MessageRole::User)
         .map(|message| {
-            super::goal_parsing::summarize_text(compaction_runtime_content(message), 140)
+            super::goal_parsing::summarize_text(compaction_summary_content(message).as_ref(), 140)
         });
     match latest_user {
         Some(latest_user) => format!(
@@ -159,7 +219,7 @@ pub(crate) fn checkpoint_active_directory(messages: &[AgentMessage]) -> Option<S
     messages
         .iter()
         .rev()
-        .find_map(|message| extract_labeled_path(compaction_runtime_content(message)))
+        .find_map(|message| extract_labeled_path(compaction_summary_content(message).as_ref()))
 }
 
 pub(crate) fn checkpoint_files_modified(messages: &[AgentMessage]) -> String {
@@ -205,7 +265,7 @@ pub(crate) fn checkpoint_dead_ends(messages: &[AgentMessage]) -> String {
     let dead_ends = messages
         .iter()
         .filter_map(|message| {
-            let content = compaction_runtime_content(message);
+            let content = compaction_summary_content(message);
             let lowered = content.to_ascii_lowercase();
             let is_failure = lowered.contains("error")
                 || lowered.contains("failed")
@@ -261,6 +321,25 @@ pub(crate) fn checkpoint_recent_actions(messages: &[AgentMessage]) -> String {
         .collect()
 }
 
+pub(crate) fn checkpoint_tool_evidence_pointers(messages: &[AgentMessage]) -> String {
+    let pointers = messages
+        .iter()
+        .filter(|message| message.role == MessageRole::Tool)
+        .filter_map(|message| {
+            let content = compaction_runtime_content(message);
+            content
+                .starts_with("Tool Evidence Pointer")
+                .then(|| super::goal_parsing::summarize_text(content, 260))
+        })
+        .collect::<Vec<_>>();
+
+    unique_bullets(
+        &pointers,
+        4,
+        "No offloaded or broad tool payload pointers were captured in this compacted slice.",
+    )
+}
+
 pub(crate) fn checkpoint_immediate_next_step(messages: &[AgentMessage]) -> String {
     messages
         .iter()
@@ -269,7 +348,10 @@ pub(crate) fn checkpoint_immediate_next_step(messages: &[AgentMessage]) -> Strin
         .map(|message| {
             format!(
                 "Answer the latest carried-forward user request: {}",
-                super::goal_parsing::summarize_text(compaction_runtime_content(message), 180)
+                super::goal_parsing::summarize_text(
+                    compaction_summary_content(message).as_ref(),
+                    180,
+                )
             )
         })
         .unwrap_or_else(|| {
@@ -305,8 +387,8 @@ pub(crate) fn collect_context_paths(
 ) -> Vec<String> {
     let mut paths = Vec::new();
     for message in messages {
-        let content = compaction_runtime_content(message);
-        if let Some(path) = extract_labeled_path(content) {
+        let content = compaction_summary_content(message);
+        if let Some(path) = extract_labeled_path(content.as_ref()) {
             if !paths.iter().any(|existing| existing == &path) {
                 paths.push(path);
             }
@@ -315,7 +397,11 @@ pub(crate) fn collect_context_paths(
         let tool_name = message.tool_name.as_deref().unwrap_or_default();
         let modified_tool = matches!(
             tool_name,
-            "write_file" | "create_file" | "apply_patch" | "rename" | "delete"
+            zorai_protocol::tool_names::WRITE_FILE
+                | zorai_protocol::tool_names::CREATE_FILE
+                | zorai_protocol::tool_names::APPLY_PATCH
+                | "rename"
+                | "delete"
         );
         if modified_tool != prefer_modified {
             continue;

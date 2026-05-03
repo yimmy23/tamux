@@ -67,6 +67,7 @@ export type BuiltinAgentProviderId =
   | "xai"
   | "azure-openai"
   | "github-copilot"
+  | "hermes-agent-api"
   | "qwen"
   | "qwen-deepinfra"
   | "kimi"
@@ -100,6 +101,7 @@ export const AGENT_PROVIDER_IDS: BuiltinAgentProviderId[] = [
   "xai",
   "azure-openai",
   "github-copilot",
+  "hermes-agent-api",
   "qwen",
   "qwen-deepinfra",
   "kimi",
@@ -138,6 +140,7 @@ export interface AgentProviderConfig {
   openrouter_provider_order?: string[];
   openrouter_provider_ignore?: string[];
   openrouter_allow_fallbacks?: boolean | null;
+  openrouter_response_cache_enabled?: boolean;
 }
 
 export interface ProviderAuthState {
@@ -189,7 +192,7 @@ export type ApiTransportMode =
   | "chat_completions";
 export type NativeTransportKind = "alibaba_assistant_api";
 export type Modality = "text" | "image" | "video" | "audio" | "embedding";
-export type AgentBackend = "daemon" | "legacy";
+export type AgentBackend = "daemon";
 
 export interface ModelDefinition {
   id: string;

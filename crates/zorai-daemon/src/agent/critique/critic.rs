@@ -3,39 +3,39 @@ use super::types::{Argument, ArgumentPoint, Role};
 fn tool_specific_caution_claim(tool_name: &str, action_summary: &str) -> Option<String> {
     let safe_action_summary = super::sanitize_critique_snippet(action_summary, 96);
     match tool_name {
-        "bash_command" | "run_terminal_command" | "execute_managed_command" => Some(format!(
+        zorai_protocol::tool_names::BASH_COMMAND | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND => Some(format!(
             "Disable network access, enable sandboxing, and downgrade any yolo security level before running {}.",
             safe_action_summary
         )),
-        "send_slack_message"
-        | "send_discord_message"
-        | "send_telegram_message"
-        | "send_whatsapp_message" => Some(format!(
+        zorai_protocol::tool_names::SEND_SLACK_MESSAGE
+        | zorai_protocol::tool_names::SEND_DISCORD_MESSAGE
+        | zorai_protocol::tool_names::SEND_TELEGRAM_MESSAGE
+        | zorai_protocol::tool_names::SEND_WHATSAPP_MESSAGE => Some(format!(
             "Strip explicit messaging targets and broadcast mentions before sending {}.",
             safe_action_summary
         )),
-        "write_file" | "create_file" | "append_to_file" | "replace_in_file"
-        | "apply_file_patch" => Some(format!(
+        zorai_protocol::tool_names::WRITE_FILE | zorai_protocol::tool_names::CREATE_FILE | zorai_protocol::tool_names::APPEND_TO_FILE | zorai_protocol::tool_names::REPLACE_IN_FILE
+        | zorai_protocol::tool_names::APPLY_FILE_PATCH => Some(format!(
             "Narrow the sensitive file path to the minimal basename before applying {}.",
             safe_action_summary
         )),
-        "enqueue_task" => Some(format!(
+        zorai_protocol::tool_names::ENQUEUE_TASK => Some(format!(
             "Schedule this background task for the operator's typical working window instead of dispatching it immediately: {}.",
             safe_action_summary
         )),
-        "spawn_subagent" => Some(format!(
+        zorai_protocol::tool_names::SPAWN_SUBAGENT => Some(format!(
             "Reduce permissions by constraining the child to a smaller tool-call budget and wall-clock window before delegating {}.",
             safe_action_summary
         )),
-        "switch_model" => Some(format!(
+        zorai_protocol::tool_names::SWITCH_MODEL => Some(format!(
             "Require explicit operator confirmation before changing the provider or model for {} because it rewrites persisted agent execution policy.",
             safe_action_summary
         )),
-        "plugin_api_call" => Some(format!(
+        zorai_protocol::tool_names::PLUGIN_API_CALL => Some(format!(
             "Require explicit operator confirmation before invoking plugin endpoint {} because plugin API calls can rewrite plugin execution policy or trigger external side effects.",
             safe_action_summary
         )),
-        "synthesize_tool" => Some(format!(
+        zorai_protocol::tool_names::SYNTHESIZE_TOOL => Some(format!(
             "Require explicit operator confirmation before allowing tool synthesis for {} because synthesizing runtime tools can rewrite runtime tool capability policy.",
             safe_action_summary
         )),

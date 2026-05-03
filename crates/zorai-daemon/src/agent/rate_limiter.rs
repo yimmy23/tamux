@@ -123,18 +123,18 @@ pub fn build_default_limiter() -> RateLimiter {
     let mut limiter = RateLimiter::new();
 
     // Shell commands — moderate limit
-    limiter.with_tool_limit("bash_command", 30, 0.5);
+    limiter.with_tool_limit(zorai_protocol::tool_names::BASH_COMMAND, 30, 0.5);
 
     // File-writing tools — slightly more generous
     let file_rate = 40.0 / 60.0; // ~0.667/sec
-    limiter.with_tool_limit("write_file", 40, file_rate);
-    limiter.with_tool_limit("create_file", 40, file_rate);
-    limiter.with_tool_limit("replace_in_file", 40, file_rate);
+    limiter.with_tool_limit(zorai_protocol::tool_names::WRITE_FILE, 40, file_rate);
+    limiter.with_tool_limit(zorai_protocol::tool_names::CREATE_FILE, 40, file_rate);
+    limiter.with_tool_limit(zorai_protocol::tool_names::REPLACE_IN_FILE, 40, file_rate);
 
     // Network tools — most conservative
     let net_rate = 20.0 / 60.0; // ~0.333/sec
-    limiter.with_tool_limit("web_search", 20, net_rate);
-    limiter.with_tool_limit("fetch_url", 20, net_rate);
+    limiter.with_tool_limit(zorai_protocol::tool_names::WEB_SEARCH, 20, net_rate);
+    limiter.with_tool_limit(zorai_protocol::tool_names::FETCH_URL, 20, net_rate);
 
     limiter
 }
@@ -208,13 +208,13 @@ mod tests {
         // Drain all 30 tokens
         for i in 0..30 {
             assert!(
-                limiter.check("bash_command", now),
+                limiter.check(zorai_protocol::tool_names::BASH_COMMAND, now),
                 "call {} should succeed",
                 i
             );
         }
         // 31st call at the same instant should fail
-        assert!(!limiter.check("bash_command", now));
+        assert!(!limiter.check(zorai_protocol::tool_names::BASH_COMMAND, now));
     }
 
     #[test]
@@ -274,12 +274,24 @@ mod tests {
     #[test]
     fn build_default_limiter_has_expected_tools() {
         let limiter = build_default_limiter();
-        assert!(limiter.buckets.contains_key("bash_command"));
-        assert!(limiter.buckets.contains_key("write_file"));
-        assert!(limiter.buckets.contains_key("create_file"));
-        assert!(limiter.buckets.contains_key("replace_in_file"));
-        assert!(limiter.buckets.contains_key("web_search"));
-        assert!(limiter.buckets.contains_key("fetch_url"));
+        assert!(limiter
+            .buckets
+            .contains_key(zorai_protocol::tool_names::BASH_COMMAND));
+        assert!(limiter
+            .buckets
+            .contains_key(zorai_protocol::tool_names::WRITE_FILE));
+        assert!(limiter
+            .buckets
+            .contains_key(zorai_protocol::tool_names::CREATE_FILE));
+        assert!(limiter
+            .buckets
+            .contains_key(zorai_protocol::tool_names::REPLACE_IN_FILE));
+        assert!(limiter
+            .buckets
+            .contains_key(zorai_protocol::tool_names::WEB_SEARCH));
+        assert!(limiter
+            .buckets
+            .contains_key(zorai_protocol::tool_names::FETCH_URL));
     }
 
     #[test]
@@ -288,12 +300,12 @@ mod tests {
         let now = 2000;
         for i in 0..20 {
             assert!(
-                limiter.check("web_search", now),
+                limiter.check(zorai_protocol::tool_names::WEB_SEARCH, now),
                 "call {} should succeed",
                 i
             );
         }
-        assert!(!limiter.check("web_search", now));
+        assert!(!limiter.check(zorai_protocol::tool_names::WEB_SEARCH, now));
     }
 
     #[test]

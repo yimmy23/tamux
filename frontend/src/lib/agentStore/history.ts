@@ -228,8 +228,8 @@ export function getAgentDbApi(): AgentDbApi | null {
 }
 
 export function shouldPersistHistory(backend: AgentSettings["agent_backend"]): boolean {
-  const bridge = getBridge();
-  return backend === "legacy" && !bridge?.agentSendMessage;
+  void backend;
+  return false;
 }
 
 export function buildHydratedRemoteMessage(

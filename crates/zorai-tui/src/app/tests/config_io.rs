@@ -68,7 +68,8 @@ fn openrouter_provider_routing_round_trips_through_tui_config() {
                 "auth_source": "api_key",
                 "openrouter_provider_order": ["novita/fp8", "azure"],
                 "openrouter_provider_ignore": ["deepinfra"],
-                "openrouter_allow_fallbacks": false
+                "openrouter_allow_fallbacks": false,
+                "openrouter_response_cache_enabled": true
             }
         }
     }));
@@ -76,6 +77,7 @@ fn openrouter_provider_routing_round_trips_through_tui_config() {
     assert_eq!(model.config.openrouter_provider_order, "novita/fp8, azure");
     assert_eq!(model.config.openrouter_provider_ignore, "deepinfra");
     assert!(!model.config.openrouter_allow_fallbacks);
+    assert!(model.config.openrouter_response_cache_enabled);
 
     let json = model.build_config_patch_value();
     assert_eq!(
@@ -89,6 +91,10 @@ fn openrouter_provider_routing_round_trips_through_tui_config() {
     assert_eq!(
         json["providers"][PROVIDER_ID_OPENROUTER]["openrouter_allow_fallbacks"],
         false
+    );
+    assert_eq!(
+        json["providers"][PROVIDER_ID_OPENROUTER]["openrouter_response_cache_enabled"],
+        true
     );
 }
 
@@ -132,6 +138,7 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     model.config.message_loop_delay_ms = 250;
     model.config.tool_call_delay_ms = 750;
     model.config.llm_stream_chunk_timeout_secs = 420;
+    model.config.auto_refresh_interval_secs = 120;
     model.config.auto_retry = false;
     model.config.compact_threshold_pct = 91;
     model.config.keep_recent_on_compact = 17;
@@ -198,6 +205,7 @@ fn build_config_patch_value_covers_all_daemon_backed_tabs() {
     assert_eq!(json["message_loop_delay_ms"], 250);
     assert_eq!(json["tool_call_delay_ms"], 750);
     assert_eq!(json["llm_stream_chunk_timeout_secs"], 420);
+    assert_eq!(json["auto_refresh_interval_secs"], 120);
     assert_eq!(json["auto_retry"], false);
     assert!(
         json.get("context_budget_tokens").is_none(),
@@ -353,6 +361,7 @@ fn build_config_patch_value_round_trips_daemon_backed_settings() {
     model.config.message_loop_delay_ms = 250;
     model.config.tool_call_delay_ms = 750;
     model.config.llm_stream_chunk_timeout_secs = 420;
+    model.config.auto_refresh_interval_secs = 120;
     model.config.auto_retry = false;
     model.config.compact_threshold_pct = 91;
     model.config.keep_recent_on_compact = 17;
@@ -452,6 +461,7 @@ fn build_config_patch_value_round_trips_daemon_backed_settings() {
     assert_eq!(reloaded.config.message_loop_delay_ms, 250);
     assert_eq!(reloaded.config.tool_call_delay_ms, 750);
     assert_eq!(reloaded.config.llm_stream_chunk_timeout_secs, 420);
+    assert_eq!(reloaded.config.auto_refresh_interval_secs, 120);
     assert_eq!(reloaded.config.auto_retry, false);
     assert_eq!(reloaded.config.compact_threshold_pct, 91);
     assert_eq!(reloaded.config.keep_recent_on_compact, 17);

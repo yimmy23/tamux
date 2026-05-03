@@ -71,7 +71,11 @@ mod tests {
         let traces = vec![trace(
             "trace-1",
             "build-pipeline",
-            &["read_file", "apply_patch", "cargo_test"],
+            &[
+                zorai_protocol::tool_names::READ_FILE,
+                zorai_protocol::tool_names::APPLY_PATCH,
+                "cargo_test",
+            ],
             0.92,
         )];
         let variants = vec![
@@ -121,7 +125,11 @@ mod tests {
         let traces = vec![trace(
             "trace-2",
             "build-pipeline",
-            &["read_file", "apply_patch", "cargo_test"],
+            &[
+                zorai_protocol::tool_names::READ_FILE,
+                zorai_protocol::tool_names::APPLY_PATCH,
+                "cargo_test",
+            ],
             0.96,
         )];
         let variants = vec![

@@ -6,7 +6,7 @@ fn add_available_tools_part_b(
 ) {
     // History search (daemon has SQLite FTS)
     tools.push(tool_def(
-        "search_history",
+        tool_names::SEARCH_HISTORY,
         "Search command execution history. Returns matching commands with timestamps and exit codes.",
         serde_json::json!({
             "type": "object",
@@ -18,7 +18,7 @@ fn add_available_tools_part_b(
         }),
     ));
     tools.push(tool_def(
-        "fetch_gateway_history",
+        tool_names::FETCH_GATEWAY_HISTORY,
         "Fetch recent messages from the current gateway conversation thread. Use this when handling platform messages and you need additional prior context.",
         serde_json::json!({
             "type": "object",
@@ -28,7 +28,7 @@ fn add_available_tools_part_b(
         }),
     ));
     tools.push(tool_def(
-        "session_search",
+        tool_names::SESSION_SEARCH,
         "Search prior sessions, transcripts, cognitive traces, and operational history for relevant past context.",
         serde_json::json!({
             "type": "object",
@@ -41,7 +41,7 @@ fn add_available_tools_part_b(
     ));
     if config.enable_honcho_memory && !config.honcho_api_key.trim().is_empty() {
         tools.push(tool_def(
-            "agent_query_memory",
+            tool_names::AGENT_QUERY_MEMORY,
             "Query Honcho cross-session memory for long-term user, workspace, or assistant context.",
             serde_json::json!({
                 "type": "object",
@@ -53,7 +53,7 @@ fn add_available_tools_part_b(
         ));
     }
     tools.push(tool_def(
-        "onecontext_search",
+        tool_names::ONECONTEXT_SEARCH,
         "Search Aline OneContext history for related prior sessions/events/turns.",
         serde_json::json!({
             "type": "object",
@@ -69,7 +69,7 @@ fn add_available_tools_part_b(
 
     if has_workspace_topology {
         tools.push(tool_def(
-            "list_sessions",
+            tool_names::LIST_SESSIONS,
             "List frontend-reported workspace sessions and panes when workspace topology is available.",
             serde_json::json!({ "type": "object", "properties": {} }),
         ));
@@ -77,7 +77,7 @@ fn add_available_tools_part_b(
 
     // Always available: notify and memory tools
     tools.push(tool_def(
-        "notify_user",
+        tool_names::NOTIFY_USER,
         "Send a proactive notification to the user via configured channels.",
         serde_json::json!({
             "type": "object",
@@ -91,7 +91,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "update_todo",
+        tool_names::UPDATE_TODO,
         "Replace the current todo list for this conversation. For goal-owned main tasks, set the todo list once per goal step, then submit the same items with only status changes.",
         serde_json::json!({
             "type": "object",
@@ -123,7 +123,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "get_todos",
+        tool_names::GET_TODOS,
         "Fetch the current planner todos for a thread. Lookup is thread-scoped; optional task_id is only used for task or goal-run context validation.",
         serde_json::json!({
             "type": "object",
@@ -136,7 +136,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "update_memory",
+        tool_names::UPDATE_MEMORY,
         "Update curated persistent memory. Use this only for durable operator preferences or stable project facts, not temporary task state.",
         serde_json::json!({
             "type": "object",
@@ -150,7 +150,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "read_memory",
+        tool_names::READ_MEMORY,
         "Read persistent MEMORY.md plus related structured memory layers. This response is injection-aware and avoids re-sending already injected fresh base markdown unless explicitly requested.",
         serde_json::json!({
             "type": "object",
@@ -166,7 +166,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "read_user",
+        tool_names::READ_USER,
         "Read persistent USER.md plus related structured operator layers. This response is injection-aware and avoids re-sending already injected fresh base markdown unless explicitly requested.",
         serde_json::json!({
             "type": "object",
@@ -182,7 +182,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "read_soul",
+        tool_names::READ_SOUL,
         "Read persistent SOUL.md plus related structured context layers. This response is injection-aware and avoids re-sending already injected fresh base markdown unless explicitly requested.",
         serde_json::json!({
             "type": "object",
@@ -198,7 +198,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "search_memory",
+        tool_names::SEARCH_MEMORY,
         "Search MEMORY.md plus related structured memory layers. This response is injection-aware and skips already injected fresh base markdown unless explicitly requested.",
         serde_json::json!({
             "type": "object",
@@ -216,7 +216,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "search_user",
+        tool_names::SEARCH_USER,
         "Search USER.md plus related structured operator layers. This response is injection-aware and skips already injected fresh base markdown unless explicitly requested.",
         serde_json::json!({
             "type": "object",
@@ -234,7 +234,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "search_soul",
+        tool_names::SEARCH_SOUL,
         "Search SOUL.md plus related structured context layers. This response is injection-aware and skips already injected fresh base markdown unless explicitly requested.",
         serde_json::json!({
             "type": "object",
@@ -252,7 +252,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "list_skills",
+        tool_names::LIST_SKILLS,
         "List reusable local skills available to the zorai agent from ~/.zorai/skills (platform dependent). Includes built-in, generated, community, and plugin-bundled skills.",
         serde_json::json!({
             "type": "object",
@@ -264,7 +264,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "get_current_datetime",
+        tool_names::GET_CURRENT_DATETIME,
         "Fetch the current local and UTC datetime from the daemon host, including a Unix timestamp in milliseconds.",
         serde_json::json!({
             "type": "object",
@@ -273,7 +273,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "semantic_query",
+        tool_names::SEMANTIC_QUERY,
         "Query local workspace manifests, compose services, code import relationships, learned workspace conventions, and recent temporal workspace history.",
         serde_json::json!({
             "type": "object",
@@ -287,7 +287,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "summary",
+        tool_names::SUMMARY,
         "Backward-compatible alias for semantic_query with kind set to summary. Use this to get a workspace summary while preserving legacy tool callers.",
         serde_json::json!({
             "type": "object",
@@ -300,7 +300,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "list_tools",
+        tool_names::LIST_TOOLS,
         "List the tools currently available to the agent in this runtime context, including descriptions and argument schemas.",
         serde_json::json!({
             "type": "object",
@@ -312,7 +312,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "tool_search",
+        tool_names::TOOL_SEARCH,
         "Search the currently available tools by name, description, and parameter names to find the best tool for a task.",
         serde_json::json!({
             "type": "object",
@@ -326,7 +326,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "discover_guidelines",
+        tool_names::DISCOVER_GUIDELINES,
         "Find matching local guidelines before choosing skills.",
         serde_json::json!({
             "type": "object",
@@ -340,7 +340,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "read_guideline",
+        tool_names::READ_GUIDELINE,
         "Read a local guideline document before skill discovery. Accepts a guideline name, relative path, or filename.",
         serde_json::json!({
             "type": "object",
@@ -353,7 +353,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "list_guidelines",
+        tool_names::LIST_GUIDELINES,
         "List local guidelines available above the skill layer.",
         serde_json::json!({
             "type": "object",
@@ -365,7 +365,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "discover_skills",
+        tool_names::DISCOVER_SKILLS,
         "Find matching local skills fast.",
         serde_json::json!({
             "type": "object",
@@ -379,7 +379,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "read_skill",
+        tool_names::READ_SKILL,
         "Read one or more local skill documents before acting. Accepts skill names, relative paths, or generated skill filenames.",
         serde_json::json!({
             "type": "object",
@@ -396,7 +396,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "ask_questions",
+        tool_names::ASK_QUESTIONS,
         "Show a blocking multiple-choice question to the operator in zorai clients and wait for one compact token answer. Put the full prompt and answer text in `content`; keep `options` limited to short ordered tokens like A/B/C/D or 1/2/3/4.",
         serde_json::json!({
             "type": "object",
@@ -414,7 +414,7 @@ fn add_available_tools_part_b(
     ));
 
     tools.push(tool_def(
-        "justify_skill_skip",
+        tool_names::JUSTIFY_SKILL_SKIP,
         "Record an explicit rationale for proceeding without a local skill recommendation when discovery confidence is weak or none.",
         serde_json::json!({
             "type": "object",

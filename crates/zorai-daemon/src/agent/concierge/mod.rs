@@ -26,20 +26,20 @@ pub const CONCIERGE_THREAD_ID: &str = "concierge";
 const WELCOME_REUSE_WINDOW_MS: u64 = 2 * 60 * 60 * 1000;
 const GATEWAY_TRIAGE_MAX_TOOL_ROUNDS: usize = 3;
 const GATEWAY_TRIAGE_SAFE_TOOL_NAMES: &[&str] = &[
-    "search_history",
-    "fetch_gateway_history",
-    "message_agent",
-    "session_search",
-    "agent_query_memory",
-    "onecontext_search",
-    "list_guidelines",
-    "discover_guidelines",
-    "read_guideline",
-    "list_skills",
-    "semantic_query",
-    "discover_skills",
-    "read_skill",
-    "web_search",
+    zorai_protocol::tool_names::SEARCH_HISTORY,
+    zorai_protocol::tool_names::FETCH_GATEWAY_HISTORY,
+    zorai_protocol::tool_names::MESSAGE_AGENT,
+    zorai_protocol::tool_names::SESSION_SEARCH,
+    zorai_protocol::tool_names::AGENT_QUERY_MEMORY,
+    zorai_protocol::tool_names::ONECONTEXT_SEARCH,
+    zorai_protocol::tool_names::LIST_GUIDELINES,
+    zorai_protocol::tool_names::DISCOVER_GUIDELINES,
+    zorai_protocol::tool_names::READ_GUIDELINE,
+    zorai_protocol::tool_names::LIST_SKILLS,
+    zorai_protocol::tool_names::SEMANTIC_QUERY,
+    zorai_protocol::tool_names::DISCOVER_SKILLS,
+    zorai_protocol::tool_names::READ_SKILL,
+    zorai_protocol::tool_names::WEB_SEARCH,
 ];
 
 pub enum GatewayTriage {

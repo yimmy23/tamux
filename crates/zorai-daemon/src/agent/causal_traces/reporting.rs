@@ -8,15 +8,19 @@ impl AgentEngine {
         let mut advisories = Vec::new();
         advisories.extend(
             self.build_pattern_guidance_for_option(
-                "execute_managed_command",
+                zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND,
                 48,
-                "execute_managed_command",
+                zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND,
             )
             .await?,
         );
         advisories.extend(
-            self.build_pattern_guidance_for_option("bash_command", 48, "bash_command")
-                .await?,
+            self.build_pattern_guidance_for_option(
+                zorai_protocol::tool_names::BASH_COMMAND,
+                48,
+                zorai_protocol::tool_names::BASH_COMMAND,
+            )
+            .await?,
         );
         advisories.extend(
             self.build_pattern_guidance_for_option("upstream_recovery", 24, "upstream recovery")

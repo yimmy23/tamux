@@ -15,6 +15,7 @@ fn advanced_single_line_edit_layout(config: &ConfigState, field: &str) -> Option
             "compaction_weles_model" => 26,
             "snapshot_max_count" => 31,
             "snapshot_max_size_mb" => 32,
+            "auto_refresh_interval_secs" => 34,
             _ => return None,
         },
         "custom_model" => match field {
@@ -36,6 +37,7 @@ fn advanced_single_line_edit_layout(config: &ConfigState, field: &str) -> Option
             "compaction_custom_context_window_tokens" => 33,
             "snapshot_max_count" => 37,
             "snapshot_max_size_mb" => 38,
+            "auto_refresh_interval_secs" => 40,
             _ => return None,
         },
         _ => match field {
@@ -52,6 +54,7 @@ fn advanced_single_line_edit_layout(config: &ConfigState, field: &str) -> Option
             "weles_max_concurrent_reviews" => 22,
             "snapshot_max_count" => 29,
             "snapshot_max_size_mb" => 30,
+            "auto_refresh_interval_secs" => 32,
             _ => return None,
         },
     };
@@ -165,6 +168,7 @@ fn advanced_settings_row_hit(config: &ConfigState, row: usize) -> Option<(usize,
             27 => Some((21, None)),
             28 => Some((22, None)),
             29 => Some((23, None)),
+            30 => Some((24, None)),
             _ => None,
         },
         "custom_model" => match row {
@@ -197,6 +201,9 @@ fn advanced_settings_row_hit(config: &ConfigState, row: usize) -> Option<(usize,
             32 => Some((26, None)),
             33 => Some((27, None)),
             34 => Some((28, None)),
+            35 => Some((29, None)),
+            39 => Some((30, None)),
+            40 => Some((31, None)),
             _ => None,
         },
         _ => match row {

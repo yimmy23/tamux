@@ -177,6 +177,23 @@ pub(super) enum AgentBridgeCommand {
     },
     GetConfig,
     GetGatewayConfig,
+    ExternalRuntimeMigrationStatus,
+    ExternalRuntimeMigrationPreview {
+        runtime: String,
+        config_path: Option<String>,
+    },
+    ExternalRuntimeMigrationApply {
+        runtime: String,
+        config_path: Option<String>,
+        conflict_policy: String,
+    },
+    ExternalRuntimeMigrationReport {
+        runtime: Option<String>,
+        limit: Option<usize>,
+    },
+    ExternalRuntimeMigrationShadowRun {
+        runtime: String,
+    },
     SetConfigItem {
         key_path: String,
         value_json: String,

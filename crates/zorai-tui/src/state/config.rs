@@ -52,6 +52,21 @@ fn setting_name_matches(value: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
+fn provider_supports_audio(provider: &str, group: &str) -> bool {
+    match group {
+        "stt" | "tts" => provider == "openrouter",
+        _ => false,
+    }
+}
+
+fn provider_supports_image_generation(provider: &str) -> bool {
+    provider == "openrouter"
+}
+
+fn provider_supports_embeddings(provider: &str) -> bool {
+    provider == "openrouter"
+}
+
 fn dimensions_from_settings_array(settings: &[serde_json::Value]) -> Option<u32> {
     settings.iter().find_map(|setting| {
         let object = setting.as_object()?;
@@ -176,7 +191,7 @@ pub enum ConfigAction {
     SetProvider(String),
     SetModel(String),
     SetReasoningEffort(String),
-    ToggleTool(String), // toggle tool by name: "bash", "file_ops", "web_search", etc.
+    ToggleTool(String), // toggle tool by name: "bash", "file_ops", zorai_protocol::tool_names::WEB_SEARCH, etc.
 }
 
 // ── ConfigState ───────────────────────────────────────────────────────────────
@@ -194,6 +209,7 @@ pub struct ConfigState {
     pub openrouter_provider_order: String,
     pub openrouter_provider_ignore: String,
     pub openrouter_allow_fallbacks: bool,
+    pub openrouter_response_cache_enabled: bool,
     pub openrouter_endpoint_providers: Vec<String>,
     pub custom_context_window_tokens: Option<u32>,
     pub chatgpt_auth_available: bool,
@@ -272,6 +288,7 @@ pub struct ConfigState {
     pub participant_observer_restore_window_hours: u32,
     pub max_tool_loops: u32,
     pub max_retries: u32,
+    pub auto_refresh_interval_secs: u32,
     pub retry_delay_ms: u32,
     pub message_loop_delay_ms: u32,
     pub tool_call_delay_ms: u32,
@@ -321,6 +338,7 @@ impl ConfigState {
             openrouter_provider_order: String::new(),
             openrouter_provider_ignore: String::new(),
             openrouter_allow_fallbacks: true,
+            openrouter_response_cache_enabled: false,
             openrouter_endpoint_providers: Vec::new(),
             custom_context_window_tokens: None,
             chatgpt_auth_available: false,
@@ -385,6 +403,7 @@ impl ConfigState {
             participant_observer_restore_window_hours: 24,
             max_tool_loops: 25,
             max_retries: 3,
+            auto_refresh_interval_secs: 300,
             retry_delay_ms: 5_000,
             message_loop_delay_ms: 500,
             tool_call_delay_ms: 500,
@@ -492,7 +511,9 @@ impl ConfigState {
             ConfigAction::ToggleTool(name) => match name.as_str() {
                 "bash" => self.tool_bash = !self.tool_bash,
                 "file_ops" => self.tool_file_ops = !self.tool_file_ops,
-                "web_search" => self.tool_web_search = !self.tool_web_search,
+                zorai_protocol::tool_names::WEB_SEARCH => {
+                    self.tool_web_search = !self.tool_web_search
+                }
                 "web_browse" => self.tool_web_browse = !self.tool_web_browse,
                 "vision" => self.tool_vision = !self.tool_vision,
                 "system_info" => self.tool_system_info = !self.tool_system_info,
@@ -568,6 +589,10 @@ impl ConfigState {
     fn get_audio_string(&self, group: &str, nested_field: &str, legacy_flat_key: &str) -> String {
         self.get_audio_field(group, nested_field, legacy_flat_key)
             .and_then(|v| v.as_str())
+            .or_else(|| {
+                (nested_field == "provider" && provider_supports_audio(&self.provider, group))
+                    .then_some(self.provider.as_str())
+            })
             .unwrap_or("")
             .to_string()
     }
@@ -603,6 +628,9 @@ impl ConfigState {
     pub fn image_generation_provider(&self) -> String {
         self.get_image_generation_field("provider", "image_generation_provider")
             .and_then(|value| value.as_str())
+            .or_else(|| {
+                provider_supports_image_generation(&self.provider).then_some(self.provider.as_str())
+            })
             .unwrap_or("")
             .to_string()
     }
@@ -631,6 +659,9 @@ impl ConfigState {
     pub fn semantic_embedding_provider(&self) -> String {
         self.get_semantic_embedding_nested_field("provider")
             .and_then(|value| value.as_str())
+            .or_else(|| {
+                provider_supports_embeddings(&self.provider).then_some(self.provider.as_str())
+            })
             .unwrap_or("")
             .to_string()
     }

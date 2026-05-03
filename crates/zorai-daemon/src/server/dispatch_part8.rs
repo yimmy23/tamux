@@ -281,11 +281,11 @@ if matches!(
                     drop(config);
 
                     let whitelist = vec![
-                        "read_file".to_string(),
-                        "write_file".to_string(),
-                        "list_files".to_string(),
+                        zorai_protocol::tool_names::READ_FILE.to_string(),
+                        zorai_protocol::tool_names::WRITE_FILE.to_string(),
+                        zorai_protocol::tool_names::LIST_FILES.to_string(),
                         "create_directory".to_string(),
-                        "search_history".to_string(),
+                        zorai_protocol::tool_names::SEARCH_HISTORY.to_string(),
                     ];
                     if !background_daemon_pending.has_capacity(BackgroundSubsystem::PluginIo) {
                         background_daemon_pending.note_rejection(BackgroundSubsystem::PluginIo);

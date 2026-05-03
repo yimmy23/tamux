@@ -2,6 +2,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use serde_json::Value;
 use unicode_width::UnicodeWidthChar;
+use zorai_protocol::tool_names;
 
 use crate::theme::ThemeTokens;
 
@@ -103,11 +104,11 @@ fn classify_unified_diff_line(line: &str) -> ToolDiffLineKind {
 fn build_tool_diff_sections(tool_name: &str, tool_arguments: &str) -> Option<Vec<ToolDiffSection>> {
     let args: Value = serde_json::from_str(tool_arguments).ok()?;
     match tool_name {
-        "apply_patch" => build_apply_patch_sections(&args),
-        "apply_file_patch" => build_apply_file_patch_sections(&args),
-        "replace_in_file" => build_replace_in_file_sections(&args),
-        "write_file" => build_write_like_sections(&args, "write"),
-        "append_to_file" => build_write_like_sections(&args, "append"),
+        tool_names::APPLY_PATCH => build_apply_patch_sections(&args),
+        tool_names::APPLY_FILE_PATCH => build_apply_file_patch_sections(&args),
+        tool_names::REPLACE_IN_FILE => build_replace_in_file_sections(&args),
+        tool_names::WRITE_FILE => build_write_like_sections(&args, "write"),
+        tool_names::APPEND_TO_FILE => build_write_like_sections(&args, "append"),
         _ => None,
     }
 }
@@ -427,7 +428,7 @@ fn summarize_string_value(
     value: &str,
 ) -> String {
     let field_name = key_path.rsplit('.').next().unwrap_or(key_path);
-    let is_create_file_content = tool_name == "create_file"
+    let is_create_file_content = tool_name == zorai_protocol::tool_names::CREATE_FILE
         && matches!(source, ToolStructuredValueSource::Arguments)
         && matches!(
             field_name,

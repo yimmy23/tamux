@@ -168,19 +168,21 @@ mod tests {
     #[test]
     fn allow_all_permits_everything() {
         let filter = ToolFilter::allow_all();
-        assert!(filter.is_allowed("bash_command"));
-        assert!(filter.is_allowed("read_file"));
+        assert!(filter.is_allowed(zorai_protocol::tool_names::BASH_COMMAND));
+        assert!(filter.is_allowed(zorai_protocol::tool_names::READ_FILE));
         assert!(!filter.has_restrictions());
     }
 
     #[test]
     fn deny_all_blocks_everything() {
         let filter = ToolFilter::deny_all();
-        assert!(!filter.is_allowed("bash_command"));
-        assert!(!filter.is_allowed("read_file"));
+        assert!(!filter.is_allowed(zorai_protocol::tool_names::BASH_COMMAND));
+        assert!(!filter.is_allowed(zorai_protocol::tool_names::READ_FILE));
         assert!(filter.has_restrictions());
         assert_eq!(
-            filter.deny_reason("bash_command").as_deref(),
+            filter
+                .deny_reason(zorai_protocol::tool_names::BASH_COMMAND)
+                .as_deref(),
             Some("tool 'bash_command' is not in the whitelist: []")
         );
     }
@@ -202,18 +204,27 @@ mod tests {
     #[test]
     fn conflict_detection_rejects_overlapping_lists() {
         let result = ToolFilter::new(
-            Some(vec!["bash_command".into(), "read_file".into()]),
-            Some(vec!["read_file".into(), "write_file".into()]),
+            Some(vec![
+                zorai_protocol::tool_names::BASH_COMMAND.into(),
+                zorai_protocol::tool_names::READ_FILE.into(),
+            ]),
+            Some(vec![
+                zorai_protocol::tool_names::READ_FILE.into(),
+                zorai_protocol::tool_names::WRITE_FILE.into(),
+            ]),
         );
         let err = result.unwrap_err();
-        assert_eq!(err.conflicting_tools, vec!["read_file"]);
+        assert_eq!(
+            err.conflicting_tools,
+            vec![zorai_protocol::tool_names::READ_FILE]
+        );
     }
 
     #[test]
     fn no_conflict_when_lists_are_disjoint() {
         let filter = ToolFilter::new(
-            Some(vec!["bash_command".into()]),
-            Some(vec!["write_file".into()]),
+            Some(vec![zorai_protocol::tool_names::BASH_COMMAND.into()]),
+            Some(vec![zorai_protocol::tool_names::WRITE_FILE.into()]),
         );
         assert!(filter.is_ok());
     }
@@ -222,35 +233,55 @@ mod tests {
 
     #[test]
     fn whitelist_allows_listed_tools() {
-        let filter =
-            ToolFilter::new(Some(vec!["bash_command".into(), "read_file".into()]), None).unwrap();
-        assert!(filter.is_allowed("bash_command"));
-        assert!(filter.is_allowed("read_file"));
+        let filter = ToolFilter::new(
+            Some(vec![
+                zorai_protocol::tool_names::BASH_COMMAND.into(),
+                zorai_protocol::tool_names::READ_FILE.into(),
+            ]),
+            None,
+        )
+        .unwrap();
+        assert!(filter.is_allowed(zorai_protocol::tool_names::BASH_COMMAND));
+        assert!(filter.is_allowed(zorai_protocol::tool_names::READ_FILE));
         assert!(filter.has_restrictions());
     }
 
     #[test]
     fn whitelist_blocks_unlisted_tools() {
-        let filter = ToolFilter::new(Some(vec!["bash_command".into()]), None).unwrap();
-        assert!(!filter.is_allowed("write_file"));
-        assert!(!filter.is_allowed("search_files"));
+        let filter = ToolFilter::new(
+            Some(vec![zorai_protocol::tool_names::BASH_COMMAND.into()]),
+            None,
+        )
+        .unwrap();
+        assert!(!filter.is_allowed(zorai_protocol::tool_names::WRITE_FILE));
+        assert!(!filter.is_allowed(zorai_protocol::tool_names::SEARCH_FILES));
     }
 
     // --- Blacklist-only ---
 
     #[test]
     fn blacklist_blocks_listed_tools() {
-        let filter =
-            ToolFilter::new(None, Some(vec!["bash_command".into(), "write_file".into()])).unwrap();
-        assert!(!filter.is_allowed("bash_command"));
-        assert!(!filter.is_allowed("write_file"));
+        let filter = ToolFilter::new(
+            None,
+            Some(vec![
+                zorai_protocol::tool_names::BASH_COMMAND.into(),
+                zorai_protocol::tool_names::WRITE_FILE.into(),
+            ]),
+        )
+        .unwrap();
+        assert!(!filter.is_allowed(zorai_protocol::tool_names::BASH_COMMAND));
+        assert!(!filter.is_allowed(zorai_protocol::tool_names::WRITE_FILE));
     }
 
     #[test]
     fn blacklist_allows_unlisted_tools() {
-        let filter = ToolFilter::new(None, Some(vec!["bash_command".into()])).unwrap();
-        assert!(filter.is_allowed("read_file"));
-        assert!(filter.is_allowed("search_files"));
+        let filter = ToolFilter::new(
+            None,
+            Some(vec![zorai_protocol::tool_names::BASH_COMMAND.into()]),
+        )
+        .unwrap();
+        assert!(filter.is_allowed(zorai_protocol::tool_names::READ_FILE));
+        assert!(filter.is_allowed(zorai_protocol::tool_names::SEARCH_FILES));
     }
 
     // --- Combined ---
@@ -259,11 +290,11 @@ mod tests {
     fn combined_whitelist_and_blacklist() {
         let filter = ToolFilter::new(
             Some(vec![
-                "bash_command".into(),
-                "read_file".into(),
-                "list_files".into(),
+                zorai_protocol::tool_names::BASH_COMMAND.into(),
+                zorai_protocol::tool_names::READ_FILE.into(),
+                zorai_protocol::tool_names::LIST_FILES.into(),
             ]),
-            Some(vec!["bash_command".into()]),
+            Some(vec![zorai_protocol::tool_names::BASH_COMMAND.into()]),
         );
         // bash_command is in both → conflict
         assert!(filter.is_err());
@@ -272,33 +303,48 @@ mod tests {
     #[test]
     fn combined_disjoint_filters_correctly() {
         let filter = ToolFilter::new(
-            Some(vec!["read_file".into(), "list_files".into()]),
-            Some(vec!["write_file".into()]),
+            Some(vec![
+                zorai_protocol::tool_names::READ_FILE.into(),
+                zorai_protocol::tool_names::LIST_FILES.into(),
+            ]),
+            Some(vec![zorai_protocol::tool_names::WRITE_FILE.into()]),
         )
         .unwrap();
-        assert!(filter.is_allowed("read_file"));
-        assert!(filter.is_allowed("list_files"));
+        assert!(filter.is_allowed(zorai_protocol::tool_names::READ_FILE));
+        assert!(filter.is_allowed(zorai_protocol::tool_names::LIST_FILES));
         // Not in whitelist:
-        assert!(!filter.is_allowed("bash_command"));
+        assert!(!filter.is_allowed(zorai_protocol::tool_names::BASH_COMMAND));
         // In blacklist (but also not in whitelist, so blocked by whitelist first):
-        assert!(!filter.is_allowed("write_file"));
+        assert!(!filter.is_allowed(zorai_protocol::tool_names::WRITE_FILE));
     }
 
     // --- filtered_tools ---
 
     #[test]
     fn filtered_tools_returns_only_allowed() {
-        let filter =
-            ToolFilter::new(Some(vec!["read_file".into(), "list_files".into()]), None).unwrap();
+        let filter = ToolFilter::new(
+            Some(vec![
+                zorai_protocol::tool_names::READ_FILE.into(),
+                zorai_protocol::tool_names::LIST_FILES.into(),
+            ]),
+            None,
+        )
+        .unwrap();
         let all_tools = vec![
-            make_tool("read_file"),
-            make_tool("write_file"),
-            make_tool("list_files"),
-            make_tool("bash_command"),
+            make_tool(zorai_protocol::tool_names::READ_FILE),
+            make_tool(zorai_protocol::tool_names::WRITE_FILE),
+            make_tool(zorai_protocol::tool_names::LIST_FILES),
+            make_tool(zorai_protocol::tool_names::BASH_COMMAND),
         ];
         let filtered = filter.filtered_tools(all_tools);
         let names: Vec<&str> = filtered.iter().map(|t| t.function.name.as_str()).collect();
-        assert_eq!(names, vec!["read_file", "list_files"]);
+        assert_eq!(
+            names,
+            vec![
+                zorai_protocol::tool_names::READ_FILE,
+                zorai_protocol::tool_names::LIST_FILES
+            ]
+        );
     }
 
     #[test]
@@ -312,40 +358,62 @@ mod tests {
     #[test]
     fn allow_tools_extends_whitelist_and_removes_blacklist_entries() {
         let mut filter = ToolFilter::new(
-            Some(vec!["cancel_task".into()]),
+            Some(vec![zorai_protocol::tool_names::CANCEL_TASK.into()]),
             Some(vec!["deny_me".into()]),
         )
         .unwrap();
 
-        filter.allow_tools(["workspace_submit_review", "workspace_list_tasks", "deny_me"]);
+        filter.allow_tools([
+            zorai_protocol::tool_names::WORKSPACE_SUBMIT_REVIEW,
+            zorai_protocol::tool_names::WORKSPACE_LIST_TASKS,
+            "deny_me",
+        ]);
 
-        assert!(filter.is_allowed("cancel_task"));
-        assert!(filter.is_allowed("workspace_submit_review"));
-        assert!(filter.is_allowed("workspace_list_tasks"));
+        assert!(filter.is_allowed(zorai_protocol::tool_names::CANCEL_TASK));
+        assert!(filter.is_allowed(zorai_protocol::tool_names::WORKSPACE_SUBMIT_REVIEW));
+        assert!(filter.is_allowed(zorai_protocol::tool_names::WORKSPACE_LIST_TASKS));
         assert!(filter.is_allowed("deny_me"));
-        assert!(!filter.is_allowed("workspace_create_task"));
+        assert!(!filter.is_allowed(zorai_protocol::tool_names::WORKSPACE_CREATE_TASK));
     }
 
     // --- deny_reason ---
 
     #[test]
     fn deny_reason_none_for_allowed_tool() {
-        let filter = ToolFilter::new(Some(vec!["bash_command".into()]), None).unwrap();
-        assert!(filter.deny_reason("bash_command").is_none());
+        let filter = ToolFilter::new(
+            Some(vec![zorai_protocol::tool_names::BASH_COMMAND.into()]),
+            None,
+        )
+        .unwrap();
+        assert!(filter
+            .deny_reason(zorai_protocol::tool_names::BASH_COMMAND)
+            .is_none());
     }
 
     #[test]
     fn deny_reason_whitelist_explains_missing() {
-        let filter = ToolFilter::new(Some(vec!["bash_command".into()]), None).unwrap();
-        let reason = filter.deny_reason("write_file").unwrap();
+        let filter = ToolFilter::new(
+            Some(vec![zorai_protocol::tool_names::BASH_COMMAND.into()]),
+            None,
+        )
+        .unwrap();
+        let reason = filter
+            .deny_reason(zorai_protocol::tool_names::WRITE_FILE)
+            .unwrap();
         assert!(reason.contains("not in the whitelist"));
-        assert!(reason.contains("bash_command"));
+        assert!(reason.contains(zorai_protocol::tool_names::BASH_COMMAND));
     }
 
     #[test]
     fn deny_reason_blacklist_explains_blocked() {
-        let filter = ToolFilter::new(None, Some(vec!["bash_command".into()])).unwrap();
-        let reason = filter.deny_reason("bash_command").unwrap();
+        let filter = ToolFilter::new(
+            None,
+            Some(vec![zorai_protocol::tool_names::BASH_COMMAND.into()]),
+        )
+        .unwrap();
+        let reason = filter
+            .deny_reason(zorai_protocol::tool_names::BASH_COMMAND)
+            .unwrap();
         assert!(reason.contains("blacklisted"));
     }
 }

@@ -244,63 +244,63 @@ pub fn build_default_graph() -> ToolGraph {
     // -- Nodes --
 
     graph.add_node(ToolNode {
-        name: "bash_command".into(),
+        name: zorai_protocol::tool_names::BASH_COMMAND.into(),
         capabilities: vec!["shell_execution".into(), "process_management".into()],
         limitations: vec!["no_interactive".into()],
         category: "execution".into(),
     });
 
     graph.add_node(ToolNode {
-        name: "read_file".into(),
+        name: zorai_protocol::tool_names::READ_FILE.into(),
         capabilities: vec!["file_read".into(), "code_analysis".into()],
         limitations: vec!["read_only".into()],
         category: "file_operations".into(),
     });
 
     graph.add_node(ToolNode {
-        name: "write_file".into(),
+        name: zorai_protocol::tool_names::WRITE_FILE.into(),
         capabilities: vec!["file_write".into(), "file_create".into()],
         limitations: vec!["overwrites_existing".into()],
         category: "file_operations".into(),
     });
 
     graph.add_node(ToolNode {
-        name: "replace_in_file".into(),
+        name: zorai_protocol::tool_names::REPLACE_IN_FILE.into(),
         capabilities: vec!["file_edit".into(), "partial_update".into()],
         limitations: vec!["requires_existing_content".into()],
         category: "file_operations".into(),
     });
 
     graph.add_node(ToolNode {
-        name: "list_files".into(),
+        name: zorai_protocol::tool_names::LIST_FILES.into(),
         capabilities: vec!["directory_listing".into(), "file_discovery".into()],
         limitations: vec!["read_only".into()],
         category: "file_operations".into(),
     });
 
     graph.add_node(ToolNode {
-        name: "search_files".into(),
+        name: zorai_protocol::tool_names::SEARCH_FILES.into(),
         capabilities: vec!["content_search".into(), "pattern_matching".into()],
         limitations: vec!["read_only".into()],
         category: "file_operations".into(),
     });
 
     graph.add_node(ToolNode {
-        name: "execute_managed_command".into(),
+        name: zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND.into(),
         capabilities: vec!["managed_execution".into(), "lifecycle_tracking".into()],
         limitations: vec!["no_interactive".into()],
         category: "execution".into(),
     });
 
     graph.add_node(ToolNode {
-        name: "spawn_subagent".into(),
+        name: zorai_protocol::tool_names::SPAWN_SUBAGENT.into(),
         capabilities: vec!["delegation".into(), "parallel_work".into()],
         limitations: vec!["resource_intensive".into()],
         category: "agent_management".into(),
     });
 
     graph.add_node(ToolNode {
-        name: "list_subagents".into(),
+        name: zorai_protocol::tool_names::LIST_SUBAGENTS.into(),
         capabilities: vec!["agent_monitoring".into(), "status_check".into()],
         limitations: vec!["read_only".into()],
         category: "agent_management".into(),
@@ -310,56 +310,56 @@ pub fn build_default_graph() -> ToolGraph {
 
     // bash_command synergizes with read_file
     graph.add_edge(ToolEdge {
-        from: "bash_command".into(),
-        to: "read_file".into(),
+        from: zorai_protocol::tool_names::BASH_COMMAND.into(),
+        to: zorai_protocol::tool_names::READ_FILE.into(),
         relation: ToolRelation::SynergizesWith,
         weight: 0.8,
     });
 
     // bash_command synergizes with list_files
     graph.add_edge(ToolEdge {
-        from: "bash_command".into(),
-        to: "list_files".into(),
+        from: zorai_protocol::tool_names::BASH_COMMAND.into(),
+        to: zorai_protocol::tool_names::LIST_FILES.into(),
         relation: ToolRelation::SynergizesWith,
         weight: 0.7,
     });
 
     // write_file depends on read_file (read before write)
     graph.add_edge(ToolEdge {
-        from: "write_file".into(),
-        to: "read_file".into(),
+        from: zorai_protocol::tool_names::WRITE_FILE.into(),
+        to: zorai_protocol::tool_names::READ_FILE.into(),
         relation: ToolRelation::DependsOn,
         weight: 0.9,
     });
 
     // replace_in_file depends on read_file
     graph.add_edge(ToolEdge {
-        from: "replace_in_file".into(),
-        to: "read_file".into(),
+        from: zorai_protocol::tool_names::REPLACE_IN_FILE.into(),
+        to: zorai_protocol::tool_names::READ_FILE.into(),
         relation: ToolRelation::DependsOn,
         weight: 0.95,
     });
 
     // bash_command conflicts with execute_managed_command
     graph.add_edge(ToolEdge {
-        from: "bash_command".into(),
-        to: "execute_managed_command".into(),
+        from: zorai_protocol::tool_names::BASH_COMMAND.into(),
+        to: zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND.into(),
         relation: ToolRelation::ConflictsWith,
         weight: 0.6,
     });
 
     // search_files synergizes with read_file
     graph.add_edge(ToolEdge {
-        from: "search_files".into(),
-        to: "read_file".into(),
+        from: zorai_protocol::tool_names::SEARCH_FILES.into(),
+        to: zorai_protocol::tool_names::READ_FILE.into(),
         relation: ToolRelation::SynergizesWith,
         weight: 0.85,
     });
 
     // spawn_subagent synergizes with list_subagents
     graph.add_edge(ToolEdge {
-        from: "spawn_subagent".into(),
-        to: "list_subagents".into(),
+        from: zorai_protocol::tool_names::SPAWN_SUBAGENT.into(),
+        to: zorai_protocol::tool_names::LIST_SUBAGENTS.into(),
         relation: ToolRelation::SynergizesWith,
         weight: 0.75,
     });

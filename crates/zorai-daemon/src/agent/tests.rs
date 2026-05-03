@@ -1374,7 +1374,10 @@ fn behavior_adaptation_profile_requests_clarification_when_strained_and_correcti
     assert!(profile.compact_response);
     assert_eq!(
         profile.preferred_tool_fallbacks,
-        vec!["search_files".to_string(), "read_file".to_string()]
+        vec![
+            zorai_protocol::tool_names::SEARCH_FILES.to_string(),
+            zorai_protocol::tool_names::READ_FILE.to_string()
+        ]
     );
 }
 

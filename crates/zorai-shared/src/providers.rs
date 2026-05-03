@@ -28,6 +28,7 @@ pub const PROVIDER_ID_DEEPSEEK: &str = "deepseek";
 pub const PROVIDER_ID_FEATHERLESS: &str = "featherless";
 pub const PROVIDER_ID_GITHUB_COPILOT: &str = "github-copilot";
 pub const PROVIDER_ID_GROQ: &str = "groq";
+pub const PROVIDER_ID_HERMES_AGENT_API: &str = "hermes-agent-api";
 pub const PROVIDER_ID_HUGGINGFACE: &str = "huggingface";
 pub const PROVIDER_ID_KIMI: &str = "kimi";
 pub const PROVIDER_ID_KIMI_CODING_PLAN: &str = "kimi-coding-plan";
@@ -66,6 +67,9 @@ pub const DEEPSEEK_PROVIDER: ProviderRef = ProviderRef {
 };
 pub const GITHUB_COPILOT_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_GITHUB_COPILOT,
+};
+pub const HERMES_AGENT_API_PROVIDER: ProviderRef = ProviderRef {
+    id: PROVIDER_ID_HERMES_AGENT_API,
 };
 pub const MINIMAX_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_MINIMAX,

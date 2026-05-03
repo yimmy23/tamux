@@ -8,7 +8,6 @@ import {
   normalizeAuthSource,
   normalizeProviderConfig,
 } from "./providers.ts";
-import { normalizeDaemonBackedAgentMode } from "./daemonBackedSettings.ts";
 import type {
   AgentBackend,
   AgentProviderConfig,
@@ -71,6 +70,7 @@ export interface AgentSettings {
   xai: AgentProviderConfig;
   "azure-openai": AgentProviderConfig;
   "github-copilot": AgentProviderConfig;
+  "hermes-agent-api": AgentProviderConfig;
   qwen: AgentProviderConfig;
   "qwen-deepinfra": AgentProviderConfig;
   kimi: AgentProviderConfig;
@@ -166,6 +166,7 @@ export interface AgentSettings {
   react_chat_history_page_size: number;
   tui_chat_history_page_size: number;
   participant_observer_restore_window_hours: number;
+  auto_refresh_interval_secs: number;
   max_tool_loops: number;
   max_retries: number;
   retry_delay_ms: number;
@@ -196,6 +197,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   xai: { base_url: "https://api.x.ai/v1", model: "grok-4.3", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: null },
   "azure-openai": { base_url: "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1", model: "", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: null },
   "github-copilot": { base_url: "https://api.githubcopilot.com", model: "gpt-5.4", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "github_copilot", context_window_tokens: null },
+  "hermes-agent-api": { base_url: "http://localhost:8642/v1", model: "hermes-agent", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   qwen: { base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen-max", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "native_assistant", auth_source: "api_key", context_window_tokens: null },
   "qwen-deepinfra": { base_url: "https://api.deepinfra.com/v1/openai", model: "Qwen/Qwen2.5-72B-Instruct", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   kimi: { base_url: "https://api.moonshot.ai/v1", model: "moonshot-v1-32k", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
@@ -205,7 +207,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   arcee: { base_url: "https://api.arcee.ai/api/v1", model: "trinity-large-thinking", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: 256_000 },
   nvidia: { base_url: "https://integrate.api.nvidia.com/v1", model: "minimaxai/minimax-m2.7", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   "nous-portal": { base_url: "https://inference-api.nousresearch.com/v1", model: "nousresearch/hermes-4-70b", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
-  openrouter: { base_url: "https://openrouter.ai/api/v1", model: "arcee-ai/trinity-large-thinking", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
+  openrouter: { base_url: "https://openrouter.ai/api/v1", model: "arcee-ai/trinity-large-thinking", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null, openrouter_response_cache_enabled: false },
   cerebras: { base_url: "https://api.cerebras.ai/v1", model: "llama-3.3-70b", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   together: { base_url: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   groq: { base_url: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: null },
@@ -291,6 +293,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   react_chat_history_page_size: DEFAULT_CHAT_HISTORY_PAGE_SIZE,
   tui_chat_history_page_size: DEFAULT_CHAT_HISTORY_PAGE_SIZE,
   participant_observer_restore_window_hours: 24,
+  auto_refresh_interval_secs: 300,
   max_tool_loops: 0,
   max_retries: 3,
   retry_delay_ms: 2000,
@@ -330,13 +333,10 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   agent_backend: "daemon",
 };
 
-const VALID_AGENT_BACKENDS = ["daemon", "legacy"] as const;
 const VALID_MANAGED_SECURITY_LEVELS = ["highest", "moderate", "lowest", "yolo"] as const;
 
 export function normalizeAgentBackend(value: unknown): AgentBackend {
-  if (typeof value === "string" && (VALID_AGENT_BACKENDS as readonly string[]).includes(value)) {
-    return value as AgentBackend;
-  }
+  void value;
   return "daemon";
 }
 
@@ -353,6 +353,14 @@ function normalizeParticipantObserverRestoreWindowHours(value: unknown): number 
     return DEFAULT_AGENT_SETTINGS.participant_observer_restore_window_hours;
   }
   return Math.max(0, Math.min(24 * 30, Math.trunc(numericValue)));
+}
+
+export function normalizeAutoRefreshIntervalSecs(value: unknown): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_AGENT_SETTINGS.auto_refresh_interval_secs;
+  }
+  return Math.max(0, Math.min(86_400, Math.trunc(numericValue)));
 }
 
 export function loadAgentSettings(): AgentSettings {
@@ -413,6 +421,7 @@ export type DiskAgentSettings = Partial<AgentSettings> & {
   react_chat_history_page_size?: number;
   tui_chat_history_page_size?: number;
   participant_observer_restore_window_hours?: number;
+  auto_refresh_interval_secs?: number;
   max_tool_loops?: number;
   max_retries?: number;
   retry_delay_ms?: number;
@@ -539,6 +548,18 @@ function providerConfigFromRaw(
   return normalizeProviderConfig(providerId, fallback, mergedValue);
 }
 
+function defaultAuxiliaryProvider(activeProvider: AgentProviderId, fallbackProvider: AgentProviderId): AgentProviderId {
+  return activeProvider === "openrouter" ? activeProvider : fallbackProvider;
+}
+
+function defaultAuxiliaryModel(
+  provider: AgentProviderId,
+  fallbackModel: string,
+  openRouterModel: string,
+): string {
+  return provider === "openrouter" ? openRouterModel : fallbackModel;
+}
+
 export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): AgentSettings {
   const { context_budget_tokens: _legacyContextBudgetTokens, ...sourceSansLegacyBudget } = source as DiskAgentSettings & {
     context_budget_tokens?: number;
@@ -546,6 +567,25 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
   const active_provider = normalizeAgentProviderId(source.active_provider ?? source.provider);
   const activeProviderConfig = providerConfigFromRaw(active_provider, source);
   const authSource = normalizeAuthSource(active_provider, source.auth_source ?? activeProviderConfig.auth_source);
+  const audio_stt_provider = normalizeAgentProviderId(
+    source.audio?.stt?.provider
+      ?? source.audio_stt_provider
+      ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.audio_stt_provider),
+  );
+  const audio_tts_provider = normalizeAgentProviderId(
+    source.audio?.tts?.provider
+      ?? source.audio_tts_provider
+      ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.audio_tts_provider),
+  );
+  const image_generation_provider = normalizeAgentProviderId(
+    source.image?.generation?.provider
+      ?? source.image_generation_provider
+      ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.image_generation_provider),
+  );
+  const semantic_embedding_provider = normalizeAgentProviderId(
+    source.semantic?.embedding?.provider
+      ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.semantic_embedding_provider),
+  );
   return {
     ...DEFAULT_AGENT_SETTINGS,
     ...sourceSansLegacyBudget,
@@ -558,6 +598,7 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     xai: providerConfigFromRaw("xai", source),
     "azure-openai": providerConfigFromRaw("azure-openai", source),
     "github-copilot": providerConfigFromRaw("github-copilot", source),
+    "hermes-agent-api": providerConfigFromRaw("hermes-agent-api", source),
     qwen: providerConfigFromRaw("qwen", source),
     "qwen-deepinfra": providerConfigFromRaw("qwen-deepinfra", source),
     kimi: providerConfigFromRaw("kimi", source),
@@ -582,30 +623,39 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     custom: providerConfigFromRaw("custom", source),
     system_prompt: source.system_prompt ?? DEFAULT_AGENT_SETTINGS.system_prompt,
     audio_stt_enabled: source.audio?.stt?.enabled ?? source.audio_stt_enabled ?? DEFAULT_AGENT_SETTINGS.audio_stt_enabled,
-    audio_stt_provider: normalizeAgentProviderId(source.audio?.stt?.provider ?? source.audio_stt_provider ?? DEFAULT_AGENT_SETTINGS.audio_stt_provider),
-    audio_stt_model: source.audio?.stt?.model ?? source.audio_stt_model ?? DEFAULT_AGENT_SETTINGS.audio_stt_model,
+    audio_stt_provider,
+    audio_stt_model:
+      source.audio?.stt?.model
+      ?? source.audio_stt_model
+      ?? defaultAuxiliaryModel(audio_stt_provider, DEFAULT_AGENT_SETTINGS.audio_stt_model, ""),
     audio_stt_language: source.audio?.stt?.language ?? source.audio_stt_language ?? DEFAULT_AGENT_SETTINGS.audio_stt_language,
     audio_tts_enabled: source.audio?.tts?.enabled ?? source.audio_tts_enabled ?? DEFAULT_AGENT_SETTINGS.audio_tts_enabled,
-    audio_tts_provider: normalizeAgentProviderId(source.audio?.tts?.provider ?? source.audio_tts_provider ?? DEFAULT_AGENT_SETTINGS.audio_tts_provider),
-    audio_tts_model: source.audio?.tts?.model ?? source.audio_tts_model ?? DEFAULT_AGENT_SETTINGS.audio_tts_model,
+    audio_tts_provider,
+    audio_tts_model:
+      source.audio?.tts?.model
+      ?? source.audio_tts_model
+      ?? defaultAuxiliaryModel(audio_tts_provider, DEFAULT_AGENT_SETTINGS.audio_tts_model, ""),
     audio_tts_voice: source.audio?.tts?.voice ?? source.audio_tts_voice ?? DEFAULT_AGENT_SETTINGS.audio_tts_voice,
     audio_tts_auto_speak: source.audio?.tts?.auto_speak ?? source.audio_tts_auto_speak ?? DEFAULT_AGENT_SETTINGS.audio_tts_auto_speak,
-    image_generation_provider: normalizeAgentProviderId(
-      source.image?.generation?.provider
-        ?? source.image_generation_provider
-        ?? DEFAULT_AGENT_SETTINGS.image_generation_provider,
-    ),
+    image_generation_provider,
     image_generation_model:
       source.image?.generation?.model
       ?? source.image_generation_model
-      ?? DEFAULT_AGENT_SETTINGS.image_generation_model,
+      ?? defaultAuxiliaryModel(
+        image_generation_provider,
+        DEFAULT_AGENT_SETTINGS.image_generation_model,
+        "openai/gpt-image-1",
+      ),
     semantic_embedding_enabled:
       source.semantic?.embedding?.enabled ?? DEFAULT_AGENT_SETTINGS.semantic_embedding_enabled,
-    semantic_embedding_provider: normalizeAgentProviderId(
-      source.semantic?.embedding?.provider ?? DEFAULT_AGENT_SETTINGS.semantic_embedding_provider,
-    ),
+    semantic_embedding_provider,
     semantic_embedding_model:
-      source.semantic?.embedding?.model ?? DEFAULT_AGENT_SETTINGS.semantic_embedding_model,
+      source.semantic?.embedding?.model
+      ?? defaultAuxiliaryModel(
+        semantic_embedding_provider,
+        DEFAULT_AGENT_SETTINGS.semantic_embedding_model,
+        "openai/text-embedding-3-small",
+      ),
     semantic_embedding_dimensions:
       source.semantic?.embedding?.dimensions ?? DEFAULT_AGENT_SETTINGS.semantic_embedding_dimensions,
     semantic_embedding_batch_size:
@@ -626,6 +676,10 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     participant_observer_restore_window_hours: normalizeParticipantObserverRestoreWindowHours(
       source.participant_observer_restore_window_hours
         ?? DEFAULT_AGENT_SETTINGS.participant_observer_restore_window_hours,
+    ),
+    auto_refresh_interval_secs: normalizeAutoRefreshIntervalSecs(
+      source.auto_refresh_interval_secs
+        ?? DEFAULT_AGENT_SETTINGS.auto_refresh_interval_secs,
     ),
     max_tool_loops: source.max_tool_loops ?? DEFAULT_AGENT_SETTINGS.max_tool_loops,
     max_retries: source.max_retries ?? DEFAULT_AGENT_SETTINGS.max_retries,
@@ -753,11 +807,10 @@ function normalizeAgentBackendModeFromSource(
   activeProvider: AgentProviderId,
   authSource: AuthSource,
 ): AgentBackend {
-  return normalizeDaemonBackedAgentMode(
-    normalizeAgentBackend(source.agent_backend),
-    activeProvider,
-    authSource,
-  ) as AgentBackend;
+  void source;
+  void activeProvider;
+  void authSource;
+  return "daemon";
 }
 
 export function looksLikeDaemonAgentConfig(value: unknown): value is DiskAgentSettings {

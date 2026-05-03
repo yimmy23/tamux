@@ -39,6 +39,7 @@ async fn provider_auth_states_respect_codex_helper_state() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     let engine: std::sync::Arc<AgentEngine> = AgentEngine::new_test(manager, config, root.path()).await;
@@ -118,6 +119,7 @@ async fn provider_auth_states_use_codex_cli_auth_when_storage_is_empty() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     let engine: std::sync::Arc<AgentEngine> = AgentEngine::new_test(manager, config, root.path()).await;

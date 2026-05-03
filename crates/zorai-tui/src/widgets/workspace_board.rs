@@ -19,7 +19,6 @@ const TASK_TITLE_MAX_LINES: usize = 2;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceBoardToolbarAction {
     NewTask,
-    Refresh,
     ToggleOperator,
 }
 
@@ -179,7 +178,6 @@ pub fn selectable_targets(
 ) -> Vec<WorkspaceBoardHitTarget> {
     let mut targets = vec![
         WorkspaceBoardHitTarget::Toolbar(WorkspaceBoardToolbarAction::NewTask),
-        WorkspaceBoardHitTarget::Toolbar(WorkspaceBoardToolbarAction::Refresh),
         WorkspaceBoardHitTarget::Toolbar(WorkspaceBoardToolbarAction::ToggleOperator),
     ];
     for column in &workspace.projection().columns {
@@ -463,7 +461,7 @@ fn render_toolbar(
 }
 
 fn toolbar_label(operator: zorai_protocol::WorkspaceOperator) -> String {
-    format!("[New task] [Refresh] [operator: {operator:?}]")
+    format!("[New task] [operator: {operator:?}]")
 }
 
 fn toolbar_spans(
@@ -475,10 +473,6 @@ fn toolbar_spans(
         (
             WorkspaceBoardToolbarAction::NewTask,
             "[New task]".to_string(),
-        ),
-        (
-            WorkspaceBoardToolbarAction::Refresh,
-            "[Refresh]".to_string(),
         ),
         (
             WorkspaceBoardToolbarAction::ToggleOperator,
@@ -1090,8 +1084,7 @@ fn toolbar_action_at_x(body_x: u16, position_x: u16) -> Option<WorkspaceBoardToo
     let x = position_x.saturating_sub(body_x);
     match x {
         0..=9 => Some(WorkspaceBoardToolbarAction::NewTask),
-        11..=19 => Some(WorkspaceBoardToolbarAction::Refresh),
-        21..=37 => Some(WorkspaceBoardToolbarAction::ToggleOperator),
+        11..=27 => Some(WorkspaceBoardToolbarAction::ToggleOperator),
         _ => None,
     }
 }

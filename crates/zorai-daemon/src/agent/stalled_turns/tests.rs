@@ -304,7 +304,7 @@ async fn collect_stalled_turn_observations_skips_active_tool_turns() {
                     tool_calls: Some(vec![ToolCall::with_default_weles_review(
                         "call-1".to_string(),
                         ToolFunction {
-                            name: "read_file".to_string(),
+                            name: zorai_protocol::tool_names::READ_FILE.to_string(),
                             arguments: "{}".to_string(),
                         },
                     )]),
@@ -686,7 +686,7 @@ async fn collect_stalled_turn_observations_skips_stream_awaiting_operator_questi
             thread_id,
             generation,
             StreamProgressKind::ToolCalls,
-            "ask_questions",
+            zorai_protocol::tool_names::ASK_QUESTIONS,
         )
         .await;
     {
@@ -1092,16 +1092,40 @@ async fn collect_stalled_turn_observations_detects_recent_subagent_tool_loop() {
             .expect("subagent task should exist")
     };
     engine
-        .record_subagent_tool_result(&task, thread_id, "read_file", false, 100)
+        .record_subagent_tool_result(
+            &task,
+            thread_id,
+            zorai_protocol::tool_names::READ_FILE,
+            false,
+            100,
+        )
         .await;
     engine
-        .record_subagent_tool_result(&task, thread_id, "search_files", false, 110)
+        .record_subagent_tool_result(
+            &task,
+            thread_id,
+            zorai_protocol::tool_names::SEARCH_FILES,
+            false,
+            110,
+        )
         .await;
     engine
-        .record_subagent_tool_result(&task, thread_id, "read_file", false, 120)
+        .record_subagent_tool_result(
+            &task,
+            thread_id,
+            zorai_protocol::tool_names::READ_FILE,
+            false,
+            120,
+        )
         .await;
     engine
-        .record_subagent_tool_result(&task, thread_id, "search_files", false, 130)
+        .record_subagent_tool_result(
+            &task,
+            thread_id,
+            zorai_protocol::tool_names::SEARCH_FILES,
+            false,
+            130,
+        )
         .await;
     {
         let mut runtime = engine.subagent_runtime.write().await;
@@ -1603,16 +1627,40 @@ async fn supervise_stalled_turns_recovers_recent_subagent_tool_loop_via_task_ret
             .expect("subagent task should exist")
     };
     engine
-        .record_subagent_tool_result(&task, thread_id, "read_file", false, 100)
+        .record_subagent_tool_result(
+            &task,
+            thread_id,
+            zorai_protocol::tool_names::READ_FILE,
+            false,
+            100,
+        )
         .await;
     engine
-        .record_subagent_tool_result(&task, thread_id, "search_files", false, 110)
+        .record_subagent_tool_result(
+            &task,
+            thread_id,
+            zorai_protocol::tool_names::SEARCH_FILES,
+            false,
+            110,
+        )
         .await;
     engine
-        .record_subagent_tool_result(&task, thread_id, "read_file", false, 120)
+        .record_subagent_tool_result(
+            &task,
+            thread_id,
+            zorai_protocol::tool_names::READ_FILE,
+            false,
+            120,
+        )
         .await;
     engine
-        .record_subagent_tool_result(&task, thread_id, "search_files", false, 130)
+        .record_subagent_tool_result(
+            &task,
+            thread_id,
+            zorai_protocol::tool_names::SEARCH_FILES,
+            false,
+            130,
+        )
         .await;
     {
         let mut runtime = engine.subagent_runtime.write().await;

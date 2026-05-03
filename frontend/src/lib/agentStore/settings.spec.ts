@@ -97,6 +97,27 @@ assert(
   "Settings normalization should preserve strict OpenRouter fallback mode",
 );
 
+assert(
+  DEFAULT_AGENT_SETTINGS.openrouter.openrouter_response_cache_enabled === false,
+  "OpenRouter response caching should default to disabled",
+);
+
+const normalizedOpenRouterCaching = normalizeAgentSettingsFromSource({
+  active_provider: "openrouter",
+  providers: {
+    openrouter: {
+      base_url: "https://openrouter.ai/api/v1",
+      model: "anthropic/claude-sonnet-4.5",
+      openrouter_response_cache_enabled: true,
+    },
+  },
+});
+
+assert(
+  normalizedOpenRouterCaching.openrouter.openrouter_response_cache_enabled === true,
+  "Settings normalization should preserve OpenRouter response caching",
+);
+
 const normalizedHistoryPageSizes = normalizeAgentSettingsFromSource({
   react_chat_history_page_size: 0,
   tui_chat_history_page_size: 222,

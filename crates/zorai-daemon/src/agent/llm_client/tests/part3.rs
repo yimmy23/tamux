@@ -127,6 +127,7 @@
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         };
 
         let body = build_openai_responses_body(
@@ -191,6 +192,90 @@
         assert_eq!(body["provider"]["allow_fallbacks"], false);
     }
 
+    #[tokio::test]
+    async fn openrouter_chat_request_sends_response_cache_header_only_when_enabled() {
+        let request_texts = Arc::new(Mutex::new(Vec::new()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind openrouter cache listener");
+        let addr = listener.local_addr().expect("openrouter cache listener addr");
+        let request_texts_for_server = request_texts.clone();
+        let server = tokio::spawn(async move {
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.expect("accept request");
+                let mut buf = [0_u8; 8192];
+                let size = tokio::time::timeout(
+                    std::time::Duration::from_secs(1),
+                    tokio::io::AsyncReadExt::read(&mut stream, &mut buf),
+                )
+                .await
+                .expect("read request timed out")
+                .expect("read request");
+                request_texts_for_server
+                    .lock()
+                    .expect("request text lock")
+                    .push(String::from_utf8_lossy(&buf[..size]).to_string());
+                let body = concat!(
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n",
+                    "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1}}\n\n",
+                    "data: [DONE]\n\n"
+                );
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                    .await
+                    .expect("write response");
+            }
+        });
+
+        let client = reqwest::Client::new();
+        for enabled in [false, true] {
+            let mut config =
+                responses_test_config(format!("http://{addr}"), AuthSource::ApiKey);
+            config.model = "anthropic/claude-sonnet-4.5".to_string();
+            config.openrouter_response_cache_enabled = enabled;
+            let stream = send_completion_request(
+                &client,
+                zorai_shared::providers::PROVIDER_ID_OPENROUTER,
+                &config,
+                "system",
+                &[ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("hello".to_string()),
+                    reasoning: None,
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                }],
+                &[],
+                ApiTransport::ChatCompletions,
+                None,
+                None,
+                RetryStrategy::Bounded {
+                    max_retries: 0,
+                    retry_delay_ms: 0,
+                },
+            );
+            let _ = collect_chunks(stream).await;
+        }
+        server.await.expect("openrouter cache server");
+
+        let requests = request_texts.lock().expect("request text lock");
+        assert!(
+            !requests[0].to_ascii_lowercase().contains("x-openrouter-cache: true"),
+            "cache header should be absent when disabled: {}",
+            requests[0]
+        );
+        assert!(
+            requests[1].to_ascii_lowercase().contains("x-openrouter-cache: true"),
+            "cache header should be present when enabled: {}",
+            requests[1]
+        );
+    }
+
     #[test]
     fn github_copilot_full_responses_request_omits_orphaned_function_calls() {
         let config = ProviderConfig {
@@ -218,6 +303,7 @@
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         };
 
         let body = build_openai_responses_body(
@@ -299,6 +385,7 @@
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         };
 
         let body = build_openai_responses_body(
@@ -363,6 +450,7 @@
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         };
 
         let body = build_openai_responses_body(

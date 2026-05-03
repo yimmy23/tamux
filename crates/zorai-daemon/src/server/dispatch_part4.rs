@@ -23,6 +23,11 @@ if matches!(
         ClientMessage::AgentListTools{ .. } |
         ClientMessage::AgentSearchTools{ .. } |
         ClientMessage::AgentGetConfig |
+        ClientMessage::AgentExternalRuntimeMigrationStatus |
+        ClientMessage::AgentExternalRuntimeMigrationPreview{ .. } |
+        ClientMessage::AgentExternalRuntimeMigrationApply{ .. } |
+        ClientMessage::AgentExternalRuntimeMigrationReport{ .. } |
+        ClientMessage::AgentExternalRuntimeMigrationShadowRun{ .. } |
         ClientMessage::AgentGetGatewayConfig |
         ClientMessage::AgentGetEffectiveConfigState |
         ClientMessage::AgentListTaskApprovalRules |
@@ -444,6 +449,7 @@ if matches!(
                         &config,
                         &agent.data_dir,
                         has_workspace_topology,
+                        None,
                         limit.unwrap_or(50),
                         offset.unwrap_or(0),
                     );
@@ -464,6 +470,7 @@ if matches!(
                         &config,
                         &agent.data_dir,
                         has_workspace_topology,
+                        None,
                         &query,
                         limit.unwrap_or(20),
                         offset.unwrap_or(0),
@@ -479,6 +486,125 @@ if matches!(
                     framed
                         .send(DaemonMessage::AgentConfigResponse { config_json: json })
                         .await?;
+                }
+
+                ClientMessage::AgentExternalRuntimeMigrationStatus => {
+                    let payload = agent.external_runtime_migration_status_json().await;
+                    framed
+                        .send(DaemonMessage::AgentExternalRuntimeMigrationResult {
+                            result_json: serde_json::to_string(&payload)
+                                .unwrap_or_else(|_| "{}".to_string()),
+                        })
+                        .await?;
+                }
+
+                ClientMessage::AgentExternalRuntimeMigrationPreview {
+                    runtime,
+                    config_path,
+                } => {
+                    match agent
+                        .import_external_runtime_json(
+                            &runtime,
+                            config_path.as_deref(),
+                            true,
+                            crate::agent::types::ExternalRuntimeConflictPolicy::StageForReview,
+                        )
+                        .await
+                    {
+                        Ok(payload) => {
+                            framed
+                                .send(DaemonMessage::AgentExternalRuntimeMigrationResult {
+                                    result_json: serde_json::to_string(&payload)
+                                        .unwrap_or_else(|_| "{}".to_string()),
+                                })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentExternalRuntimeMigrationApply {
+                    runtime,
+                    config_path,
+                    conflict_policy,
+                } => {
+                    let policy = conflict_policy
+                        .parse::<crate::agent::types::ExternalRuntimeConflictPolicy>()
+                        .unwrap_or_default();
+                    match agent
+                        .import_external_runtime_json(
+                            &runtime,
+                            config_path.as_deref(),
+                            false,
+                            policy,
+                        )
+                        .await
+                    {
+                        Ok(payload) => {
+                            framed
+                                .send(DaemonMessage::AgentExternalRuntimeMigrationResult {
+                                    result_json: serde_json::to_string(&payload)
+                                        .unwrap_or_else(|_| "{}".to_string()),
+                                })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentExternalRuntimeMigrationReport { runtime, limit } => {
+                    match agent
+                        .show_import_report_json(runtime.as_deref(), limit.unwrap_or(20))
+                        .await
+                    {
+                        Ok(payload) => {
+                            framed
+                                .send(DaemonMessage::AgentExternalRuntimeMigrationResult {
+                                    result_json: serde_json::to_string(&payload)
+                                        .unwrap_or_else(|_| "{}".to_string()),
+                                })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentExternalRuntimeMigrationShadowRun { runtime } => {
+                    match agent.preview_shadow_run_json(&runtime).await {
+                        Ok(payload) => {
+                            framed
+                                .send(DaemonMessage::AgentExternalRuntimeMigrationResult {
+                                    result_json: serde_json::to_string(&payload)
+                                        .unwrap_or_else(|_| "{}".to_string()),
+                                })
+                                .await?;
+                        }
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::AgentError {
+                                    message: error.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
                 }
 
                 ClientMessage::AgentGetGatewayConfig => {

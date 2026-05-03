@@ -67,17 +67,22 @@ pub fn compute_temperature(recent_message_count: u32, avg_gap_secs: u64) -> f64 
 pub fn compute_weight(tool_name: &str) -> f64 {
     match tool_name {
         // Heavy actions (state-changing, destructive)
-        "execute_command"
-        | "execute_managed_command"
-        | "write_file"
+        zorai_protocol::tool_names::EXECUTE_COMMAND
+        | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
+        | zorai_protocol::tool_names::WRITE_FILE
         | "delete_file"
         | "deploy"
         | "create_session" => 0.8,
         // Medium actions (state-changing but bounded)
-        "edit_file" | "create_file" | "install_package" => 0.5,
+        "edit_file" | zorai_protocol::tool_names::CREATE_FILE | "install_package" => 0.5,
         // Light actions (read-only)
-        "read_file" | "search_files" | "list_files" | "list_directory" | "web_search"
-        | "web_read" | "symbol_search" => 0.2,
+        zorai_protocol::tool_names::READ_FILE
+        | zorai_protocol::tool_names::SEARCH_FILES
+        | zorai_protocol::tool_names::LIST_FILES
+        | "list_directory"
+        | zorai_protocol::tool_names::WEB_SEARCH
+        | "web_read"
+        | "symbol_search" => 0.2,
         // Default for unknown tools
         _ => 0.5,
     }
@@ -192,12 +197,12 @@ mod tests {
 
     #[test]
     fn weight_heavy_for_execute_command() {
-        assert!(compute_weight("execute_command") >= 0.7);
+        assert!(compute_weight(zorai_protocol::tool_names::EXECUTE_COMMAND) >= 0.7);
     }
 
     #[test]
     fn weight_light_for_read_file() {
-        assert!(compute_weight("read_file") <= 0.3);
+        assert!(compute_weight(zorai_protocol::tool_names::READ_FILE) <= 0.3);
     }
 
     #[test]

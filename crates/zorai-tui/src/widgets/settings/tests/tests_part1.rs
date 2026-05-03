@@ -84,6 +84,51 @@ fn gateway_tab_shows_allowlist_requirement_before_linking() {
 }
 
 #[test]
+fn settings_footer_omits_select_hint_for_read_only_advanced_field() {
+    let mut settings = SettingsState::new();
+    settings.reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));
+    for _ in 0..20 {
+        settings.reduce(SettingsAction::NavigateField(1));
+    }
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let subagents = SubAgentsState::new();
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("base");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
+    let theme = ThemeTokens::default();
+    let backend = ratatui::backend::TestBackend::new(100, 16);
+    let mut terminal = ratatui::Terminal::new(backend).expect("terminal should initialize");
+
+    terminal
+        .draw(|frame| {
+            render(
+                frame,
+                Rect::new(0, 0, 100, 16),
+                &settings,
+                &config,
+                &modal,
+                &auth,
+                &subagents,
+                &concierge,
+                &tier,
+                &plugin_settings,
+                0,
+                &theme,
+            );
+        })
+        .expect("render should succeed");
+
+    let footer = (0..100)
+        .filter_map(|x| terminal.backend().buffer().cell((x, 14)).map(|cell| cell.symbol()))
+        .collect::<String>();
+    assert!(footer.contains("navigate"));
+    assert!(!footer.contains("edit/select"), "{footer}");
+    assert!(!footer.contains("toggle"), "{footer}");
+}
+
+#[test]
 fn settings_tab_bar_uses_swarog_and_rarog_labels() {
     let area = Rect::new(0, 0, 120, 1);
     let mut settings = SettingsState::new();
@@ -856,6 +901,7 @@ fn provider_tab_shows_openrouter_rows_for_openrouter_provider() {
     assert!(text.contains("OR Exclude"));
     assert!(text.contains("deepinfra"));
     assert!(text.contains("OR Fallbacks"));
+    assert!(text.contains("OR Cache"));
 }
 
 #[test]

@@ -566,7 +566,12 @@ async fn tool_hesitation_refreshes_persisted_operator_satisfaction_and_summary()
         .await
         .expect("record operator message");
     engine
-        .record_tool_hesitation("read_file", "search_files", true, false)
+        .record_tool_hesitation(
+            zorai_protocol::tool_names::READ_FILE,
+            zorai_protocol::tool_names::SEARCH_FILES,
+            true,
+            false,
+        )
         .await
         .expect("record tool hesitation");
 
@@ -695,7 +700,12 @@ async fn strained_operator_satisfaction_adds_recovery_guidance() {
         .await
         .expect("record operator message");
     engine
-        .record_tool_hesitation("read_file", "search_files", true, false)
+        .record_tool_hesitation(
+            zorai_protocol::tool_names::READ_FILE,
+            zorai_protocol::tool_names::SEARCH_FILES,
+            true,
+            false,
+        )
         .await
         .expect("record tool hesitation");
 
@@ -1174,7 +1184,10 @@ fn preferred_tool_fallback_targets_deduplicates_and_skips_invalid_pairs() {
 
     assert_eq!(
         preferred,
-        vec!["search_files".to_string(), "read_file".to_string()]
+        vec![
+            zorai_protocol::tool_names::SEARCH_FILES.to_string(),
+            zorai_protocol::tool_names::READ_FILE.to_string()
+        ]
     );
 }
 
@@ -1193,7 +1206,12 @@ async fn implicit_feedback_persistence_records_signal_rows_and_score_history() {
         .await
         .expect("record operator message");
     engine
-        .record_tool_hesitation("read_file", "search_files", true, false)
+        .record_tool_hesitation(
+            zorai_protocol::tool_names::READ_FILE,
+            zorai_protocol::tool_names::SEARCH_FILES,
+            true,
+            false,
+        )
         .await
         .expect("record tool hesitation");
 
@@ -1208,7 +1226,7 @@ async fn implicit_feedback_persistence_records_signal_rows_and_score_history() {
     assert!(signals[0]
         .context_snapshot_json
         .as_deref()
-        .is_some_and(|json| json.contains("search_files")));
+        .is_some_and(|json| json.contains(zorai_protocol::tool_names::SEARCH_FILES)));
 
     let scores = engine
         .history
@@ -1324,7 +1342,7 @@ async fn rapid_revert_persists_thread_scoped_signal_when_agent_file_edit_is_quic
         .record_file_work_context(
             "thread-rapid-revert",
             None,
-            "write_file",
+            zorai_protocol::tool_names::WRITE_FILE,
             file_path.to_str().expect("utf-8 file path"),
         )
         .await;
@@ -1352,7 +1370,8 @@ async fn rapid_revert_persists_thread_scoped_signal_when_agent_file_edit_is_quic
     assert!(signals[0]
         .context_snapshot_json
         .as_deref()
-        .is_some_and(|json| json.contains("src/lib.rs") && json.contains("write_file")));
+        .is_some_and(|json| json.contains("src/lib.rs")
+            && json.contains(zorai_protocol::tool_names::WRITE_FILE)));
 }
 
 #[tokio::test]
@@ -1551,7 +1570,10 @@ fn cognitive_resonance_snapshot_maps_strained_feedback_to_frustrated_state() {
     assert!(resonance.adjustments.memory_urgency >= 0.8);
     assert_eq!(
         resonance.preferred_tool_fallbacks,
-        vec!["search_files".to_string(), "read_file".to_string()]
+        vec![
+            zorai_protocol::tool_names::SEARCH_FILES.to_string(),
+            zorai_protocol::tool_names::READ_FILE.to_string()
+        ]
     );
 }
 
@@ -1589,7 +1611,12 @@ async fn operator_profile_summary_json_exposes_behavior_adaptation_from_satisfac
         .await
         .expect("record operator message");
     engine
-        .record_tool_hesitation("read_file", "search_files", true, false)
+        .record_tool_hesitation(
+            zorai_protocol::tool_names::READ_FILE,
+            zorai_protocol::tool_names::SEARCH_FILES,
+            true,
+            false,
+        )
         .await
         .expect("record tool hesitation");
 
@@ -1625,7 +1652,7 @@ async fn operator_profile_summary_json_exposes_behavior_adaptation_from_satisfac
         .as_array()
         .is_some_and(|items| items
             .iter()
-            .any(|item| item.as_str() == Some("search_files"))));
+            .any(|item| item.as_str() == Some(zorai_protocol::tool_names::SEARCH_FILES))));
     assert_eq!(
         payload["cognitive_resonance"]["state"].as_str(),
         Some("frustrated")
@@ -1660,7 +1687,12 @@ async fn operator_profile_summary_json_exposes_implicit_feedback_learning_histor
         .await
         .expect("record operator message");
     engine
-        .record_tool_hesitation("read_file", "search_files", true, false)
+        .record_tool_hesitation(
+            zorai_protocol::tool_names::READ_FILE,
+            zorai_protocol::tool_names::SEARCH_FILES,
+            true,
+            false,
+        )
         .await
         .expect("record tool hesitation");
 
@@ -1726,7 +1758,12 @@ async fn status_diagnostics_snapshot_includes_persisted_implicit_feedback_histor
         .await
         .expect("record operator message");
     engine
-        .record_tool_hesitation("read_file", "search_files", true, false)
+        .record_tool_hesitation(
+            zorai_protocol::tool_names::READ_FILE,
+            zorai_protocol::tool_names::SEARCH_FILES,
+            true,
+            false,
+        )
         .await
         .expect("record tool hesitation");
 
@@ -2278,7 +2315,10 @@ async fn adaptive_carryover_summary_visible_when_dream_hint_provenance_exists() 
 
     let snapshot = engine.status_diagnostics_snapshot().await;
     let carryover = &snapshot["adaptive_carryover"];
-    assert_eq!(carryover["inspection_tool"].as_str(), Some("show_dreams"));
+    assert_eq!(
+        carryover["inspection_tool"].as_str(),
+        Some(zorai_protocol::tool_names::SHOW_DREAMS)
+    );
     assert_eq!(carryover["persisted_event_count"].as_u64(), Some(1));
     assert_eq!(carryover["dream_hint_event_count"].as_u64(), Some(1));
     assert_eq!(carryover["forge_hint_event_count"].as_u64(), Some(0));

@@ -583,19 +583,19 @@ mod tests {
         assert!(prompt.contains("Current local timestamp:"));
         assert!(prompt.contains("Current UTC timestamp:"));
         assert!(prompt.contains("Unix timestamp (ms):"));
-        assert!(prompt.contains("read_skill"));
-        assert!(prompt.contains("read_guideline"));
-        assert!(prompt.contains("discover_guidelines"));
-        assert!(prompt.contains("justify_skill_skip"));
+        assert!(prompt.contains(zorai_protocol::tool_names::READ_SKILL));
+        assert!(prompt.contains(zorai_protocol::tool_names::READ_GUIDELINE));
+        assert!(prompt.contains(zorai_protocol::tool_names::DISCOVER_GUIDELINES));
+        assert!(prompt.contains(zorai_protocol::tool_names::JUSTIFY_SKILL_SKIP));
         assert!(prompt.contains("source of truth"));
-        assert!(prompt.contains("onecontext_search"));
+        assert!(prompt.contains(zorai_protocol::tool_names::ONECONTEXT_SEARCH));
     }
 
     #[test]
     fn weles_governance_runtime_prompt_includes_current_day_and_skill_guidance() {
         let prompt = build_weles_governance_runtime_prompt(
             &AgentConfig::default(),
-            "apply_patch",
+            zorai_protocol::tool_names::APPLY_PATCH,
             &serde_json::json!({"file": "src/main.rs"}),
             zorai_protocol::SecurityLevel::Moderate,
             &[],
@@ -607,12 +607,12 @@ mod tests {
         assert!(prompt.contains("Current local timestamp:"));
         assert!(prompt.contains("Current UTC timestamp:"));
         assert!(prompt.contains("Unix timestamp (ms):"));
-        assert!(prompt.contains("read_skill"));
-        assert!(prompt.contains("read_guideline"));
-        assert!(prompt.contains("discover_guidelines"));
-        assert!(prompt.contains("justify_skill_skip"));
+        assert!(prompt.contains(zorai_protocol::tool_names::READ_SKILL));
+        assert!(prompt.contains(zorai_protocol::tool_names::READ_GUIDELINE));
+        assert!(prompt.contains(zorai_protocol::tool_names::DISCOVER_GUIDELINES));
+        assert!(prompt.contains(zorai_protocol::tool_names::JUSTIFY_SKILL_SKIP));
         assert!(prompt.contains("source of truth"));
-        assert!(prompt.contains("onecontext_search"));
+        assert!(prompt.contains(zorai_protocol::tool_names::ONECONTEXT_SEARCH));
     }
 
     #[tokio::test]

@@ -92,6 +92,12 @@ pub enum ClientEvent {
     ThreadReloadRequired {
         thread_id: String,
     },
+    ContextWindowUpdate {
+        thread_id: String,
+        active_context_window_start: usize,
+        active_context_window_end: usize,
+        active_context_window_tokens: u64,
+    },
     ParticipantSuggestion {
         thread_id: String,
         suggestion: ThreadParticipantSuggestion,
@@ -136,6 +142,7 @@ pub enum ClientEvent {
     },
     AgentConfig(AgentConfigSnapshot),
     AgentConfigRaw(Value),
+    ExternalRuntimeMigrationResult(Value),
     ModelsFetched(Vec<FetchedModel>),
     HeartbeatItems(Vec<HeartbeatItem>),
     HeartbeatDigest {

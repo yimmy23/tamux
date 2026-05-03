@@ -549,17 +549,6 @@ fn workspace_board_hit_test_tracks_toolbar_actions() {
             Position::new(inner.x + 13, inner.y)
         ),
         Some(WorkspaceBoardHitTarget::Toolbar(
-            WorkspaceBoardToolbarAction::Refresh
-        ))
-    );
-    assert_eq!(
-        hit_test(
-            area,
-            &state,
-            &expanded,
-            Position::new(inner.x + 23, inner.y)
-        ),
-        Some(WorkspaceBoardHitTarget::Toolbar(
             WorkspaceBoardToolbarAction::ToggleOperator
         ))
     );
@@ -569,7 +558,8 @@ fn workspace_board_hit_test_tracks_toolbar_actions() {
 fn workspace_toolbar_has_single_operator_switcher_label() {
     let label = toolbar_label(zorai_protocol::WorkspaceOperator::User);
 
-    assert_eq!(label, "[New task] [Refresh] [operator: User]");
+    assert_eq!(label, "[New task] [operator: User]");
+    assert!(!label.contains("[Refresh]"));
     assert!(!label.contains("[Auto]"));
     assert!(!label.contains("[User]"));
     assert!(!label.contains("  operator:"));

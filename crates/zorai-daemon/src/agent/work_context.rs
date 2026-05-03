@@ -137,12 +137,16 @@ impl AgentEngine {
         args_json: &str,
     ) {
         match tool_name {
-            "create_file" | "write_file" | "append_to_file" | "replace_in_file"
-            | "apply_file_patch" | "apply_patch" => {
+            zorai_protocol::tool_names::CREATE_FILE
+            | zorai_protocol::tool_names::WRITE_FILE
+            | zorai_protocol::tool_names::APPEND_TO_FILE
+            | zorai_protocol::tool_names::REPLACE_IN_FILE
+            | zorai_protocol::tool_names::APPLY_FILE_PATCH
+            | zorai_protocol::tool_names::APPLY_PATCH => {
                 let Ok(args) = serde_json::from_str::<serde_json::Value>(args_json) else {
                     return;
                 };
-                if tool_name == "apply_patch" {
+                if tool_name == zorai_protocol::tool_names::APPLY_PATCH {
                     if let Some(input) = super::tool_executor::get_apply_patch_text_arg(&args) {
                         if let Ok(paths) = super::tool_executor::extract_apply_patch_paths(input) {
                             for path in paths {
@@ -164,7 +168,9 @@ impl AgentEngine {
                 self.record_file_work_context(thread_id, task_id, tool_name, path)
                     .await;
             }
-            "run_terminal_command" | "run_bash" | "bash_command" => {
+            zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
+            | "run_bash"
+            | zorai_protocol::tool_names::BASH_COMMAND => {
                 self.refresh_thread_repo_context(thread_id).await;
             }
             _ => {}

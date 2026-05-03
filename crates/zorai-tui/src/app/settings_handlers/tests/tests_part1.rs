@@ -1319,6 +1319,64 @@ fn commit_subagent_editor_persists_existing_provider_model_and_effort_changes() 
     assert_eq!(entry.reasoning_effort.as_deref(), Some("high"));
 }
 
+#[test]
+fn opening_weles_editor_hides_inherited_main_system_prompt() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "system_prompt": "Main Svarog prompt",
+        "builtin_sub_agents": {
+            "weles": {
+                "provider": PROVIDER_ID_OPENAI,
+                "model": "gpt-5.4-mini"
+            }
+        }
+    }));
+    model.subagents.entries = vec![crate::state::SubAgentEntry {
+        id: "weles_builtin".to_string(),
+        name: "WELES".to_string(),
+        provider: PROVIDER_ID_OPENAI.to_string(),
+        model: "gpt-5.4-mini".to_string(),
+        role: Some("governance".to_string()),
+        enabled: true,
+        builtin: true,
+        immutable_identity: true,
+        disable_allowed: false,
+        delete_allowed: false,
+        protected_reason: Some("Daemon-owned WELES registry entry".to_string()),
+        reasoning_effort: Some("medium".to_string()),
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
+        raw_json: Some(serde_json::json!({
+            "id": "weles_builtin",
+            "name": "WELES",
+            "provider": PROVIDER_ID_OPENAI,
+            "model": "gpt-5.4-mini",
+            "role": "governance",
+            "system_prompt": "Main Svarog prompt",
+            "enabled": true,
+            "builtin": true,
+            "immutable_identity": true,
+            "disable_allowed": false,
+            "delete_allowed": false,
+            "protected_reason": "Daemon-owned WELES registry entry",
+            "reasoning_effort": "medium",
+            "created_at": 0
+        })),
+    }];
+
+    model.open_subagent_editor_existing();
+
+    assert_eq!(
+        model
+            .subagents
+            .editor
+            .as_ref()
+            .map(|editor| editor.system_prompt.as_str()),
+        Some("")
+    );
+}
+
 fn focus_settings_field(model: &mut TuiModel, tab: SettingsTab, field_name: &str) {
     model.settings.reduce(SettingsAction::SwitchTab(tab));
     let count = model.settings.field_count_with_config(&model.config);

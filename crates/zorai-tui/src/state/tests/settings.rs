@@ -397,9 +397,11 @@ fn current_field_name_advanced_tab() {
     assert_eq!(state.current_field_name(), "snapshot_max_size_mb");
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "snapshot_stats");
+    state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "auto_refresh_interval_secs");
     state.reduce(SettingsAction::NavigateField(5));
-    assert_eq!(state.current_field_name(), "snapshot_stats");
-    assert_eq!(state.field_cursor(), 20);
+    assert_eq!(state.current_field_name(), "auto_refresh_interval_secs");
+    assert_eq!(state.field_cursor(), 21);
 }
 
 #[test]
@@ -413,7 +415,7 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::WebSearch));
     assert_eq!(state.field_count(), 8);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
-    assert_eq!(state.field_count(), 24);
+    assert_eq!(state.field_count(), 25);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
     assert_eq!(state.field_count(), 14);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Auth));
@@ -425,9 +427,9 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Concierge));
     assert_eq!(state.field_count(), 5);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Features));
-    assert_eq!(state.field_count(), 25);
+    assert_eq!(state.field_count(), 29);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));
-    assert_eq!(state.field_count(), 21);
+    assert_eq!(state.field_count(), 22);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Plugins));
     assert_eq!(state.field_count(), 1);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::About));

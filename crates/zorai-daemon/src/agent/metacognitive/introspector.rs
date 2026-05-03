@@ -195,7 +195,10 @@ fn detect_confirmation_bias(
     let no_executive_check = recent.iter().all(|outcome| {
         !matches!(
             outcome.tool_name.as_str(),
-            "bash_command" | "run_terminal_command" | "cargo" | "execute_managed_command"
+            zorai_protocol::tool_names::BASH_COMMAND
+                | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
+                | "cargo"
+                | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
         )
     });
     let repeated_probe = input.predicted_repeat_count >= 2

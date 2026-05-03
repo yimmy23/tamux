@@ -118,6 +118,12 @@ enum GoalSidebarSelectionAnchor {
     File { thread_id: String, path: String },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum AutoRefreshTarget {
+    Goal(String),
+    Workspace(String),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SettingsPickerTarget {
     Provider,
@@ -577,6 +583,8 @@ pub struct TuiModel {
     default_session_id: Option<String>,
     tick_counter: u64,
     next_spawned_sidebar_task_refresh_tick: u64,
+    auto_refresh_target: Option<AutoRefreshTarget>,
+    next_auto_refresh_tick: u64,
 
     // Agent activity state (from daemon events, not local buffers)
     agent_activity: Option<String>,
@@ -737,7 +745,7 @@ fn settings_tab_label(tab: SettingsTab) -> &'static str {
     match tab {
         SettingsTab::Provider => "provider",
         SettingsTab::Tools => "tools",
-        SettingsTab::WebSearch => "web_search",
+        SettingsTab::WebSearch => zorai_protocol::tool_names::WEB_SEARCH,
         SettingsTab::Chat => "chat",
         SettingsTab::Gateway => "gateway",
         SettingsTab::Auth => "auth",

@@ -9,6 +9,7 @@ mod config;
 mod logging;
 mod messages;
 mod runtime_paths;
+pub mod tool_names;
 mod update;
 
 pub use codec::{

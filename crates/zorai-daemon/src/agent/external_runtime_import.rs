@@ -934,6 +934,37 @@ fn summarize_assets(assets: &[ImportedRuntimeAsset]) -> serde_json::Value {
 }
 
 impl AgentEngine {
+    pub(crate) async fn external_runtime_migration_status_json(&self) -> serde_json::Value {
+        let mut runtimes = Vec::new();
+        for runtime in ["hermes", "openclaw"] {
+            let default_config_path = runtime_default_config_path(runtime);
+            let default_config_path_text = default_config_path
+                .as_ref()
+                .map(|path| path.display().to_string());
+            let config_exists = default_config_path
+                .as_ref()
+                .is_some_and(|path| path.exists());
+            let status = self.external_agent_status(runtime).await;
+            runtimes.push(serde_json::json!({
+                "runtime": runtime,
+                "installed": status.as_ref().is_some_and(|status| status.available),
+                "executable": status.as_ref().and_then(|status| status.executable.clone()),
+                "default_config_path": default_config_path_text,
+                "config_exists": config_exists,
+                "has_zorai_mcp": status.as_ref().is_some_and(|status| status.has_zorai_mcp),
+                "migration_source": true,
+                "can_preview": config_exists,
+                "can_apply": config_exists,
+            }));
+        }
+
+        serde_json::json!({
+            "runtime": "daemon",
+            "daemon_only": true,
+            "sources": runtimes,
+        })
+    }
+
     pub(crate) async fn import_external_runtime_json(
         &self,
         runtime: &str,

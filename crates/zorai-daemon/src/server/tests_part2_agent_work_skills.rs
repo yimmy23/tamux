@@ -36,7 +36,7 @@ async fn agent_work_queue_saturation_rejects_extra_explain_action_but_accepts_pr
 
         match conn.recv_with_timeout(Duration::from_secs(2)).await {
             DaemonMessage::OperationAccepted { kind, .. } => {
-                assert_eq!(kind, "synthesize_tool");
+                assert_eq!(kind, zorai_protocol::tool_names::SYNTHESIZE_TOOL);
             }
             other => {
                 panic!("expected synthesize-tool acceptance during saturation setup, got {other:?}")
@@ -113,7 +113,7 @@ async fn agent_work_load_does_not_block_config_or_operation_status_queries() {
             DaemonMessage::OperationAccepted {
                 operation_id, kind, ..
             } => {
-                assert_eq!(kind, "synthesize_tool");
+                assert_eq!(kind, zorai_protocol::tool_names::SYNTHESIZE_TOOL);
                 operation_id
             }
             other => panic!("expected first synthesize-tool acceptance, got {other:?}"),
@@ -137,7 +137,7 @@ async fn agent_work_load_does_not_block_config_or_operation_status_queries() {
 
         match conn.recv_with_timeout(Duration::from_secs(2)).await {
             DaemonMessage::OperationAccepted { kind, .. } => {
-                assert_eq!(kind, "synthesize_tool");
+                assert_eq!(kind, zorai_protocol::tool_names::SYNTHESIZE_TOOL);
             }
             other => panic!("expected synthesize-tool acceptance during load setup, got {other:?}"),
         }
@@ -166,7 +166,7 @@ async fn agent_work_load_does_not_block_config_or_operation_status_queries() {
 
     match conn.recv_with_timeout(Duration::from_millis(250)).await {
         DaemonMessage::OperationStatus { snapshot } => {
-            assert_eq!(snapshot.kind, "synthesize_tool");
+            assert_eq!(snapshot.kind, zorai_protocol::tool_names::SYNTHESIZE_TOOL);
             assert!(matches!(
                 snapshot.state,
                 zorai_protocol::OperationLifecycleState::Accepted

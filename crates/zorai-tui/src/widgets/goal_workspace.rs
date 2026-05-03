@@ -902,14 +902,8 @@ fn footer_segments(
         (
             GoalWorkspaceAction::RerunFromStep,
             "[Rerun from here]",
-            "Shift+R",
-            theme.accent_danger,
-        ),
-        (
-            GoalWorkspaceAction::RefreshGoal,
-            "[Refresh]",
             "Ctrl+R",
-            theme.accent_assistant,
+            theme.accent_danger,
         ),
     ] {
         segments.push(FooterSegment {

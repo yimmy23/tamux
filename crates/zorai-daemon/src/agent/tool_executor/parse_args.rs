@@ -3,15 +3,15 @@ fn normalize_tool_dispatch(
     args: &serde_json::Value,
 ) -> (String, serde_json::Value) {
     match tool_name {
-        "summary" => {
+        tool_names::SUMMARY => {
             let mut normalized = args.clone();
             if let serde_json::Value::Object(ref mut map) = normalized {
                 map.insert(
                     "kind".to_string(),
-                    serde_json::Value::String("summary".to_string()),
+                    serde_json::Value::String(tool_names::SUMMARY.to_string()),
                 );
             }
-            ("semantic_query".to_string(), normalized)
+            (tool_names::SEMANTIC_QUERY.to_string(), normalized)
         }
         _ => (tool_name.to_string(), args.clone()),
     }
@@ -21,7 +21,7 @@ pub(crate) fn parse_tool_args(
     tool_name: &str,
     raw_arguments: &str,
 ) -> std::result::Result<serde_json::Value, String> {
-    if matches!(tool_name, "create_file" | "write_file") {
+    if matches!(tool_name, tool_names::CREATE_FILE | tool_names::WRITE_FILE) {
         if let Ok(args) = parse_file_multipart_args(raw_arguments) {
             return Ok(args);
         }

@@ -11,6 +11,7 @@ impl AgentEngine {
         effective_context_window_tokens: usize,
         config: &AgentConfig,
         structural_memory: Option<&ThreadStructuralMemory>,
+        scope: Option<&CompactionScopeSnapshot>,
     ) -> Result<(AgentMessage, CompactionStrategy, Option<String>)> {
         let mut strategy_used = config.compaction.strategy;
         let mut fallback_notice = None;
@@ -23,6 +24,7 @@ impl AgentEngine {
                         messages,
                         target_tokens,
                         structural_memory,
+                        scope,
                     )
                     .await;
                 structural_refs = rule_based.structural_refs;
@@ -33,10 +35,21 @@ impl AgentEngine {
                 let (provider_id, provider_config) =
                     self.resolve_weles_compaction_provider(config)?;
                 match self
-                    .run_llm_compaction(&provider_id, &provider_config, messages, target_tokens)
+                    .run_llm_compaction(
+                        &provider_id,
+                        &provider_config,
+                        messages,
+                        target_tokens,
+                        scope,
+                    )
                     .await
                 {
-                    Ok(payload) if !payload.trim().is_empty() => payload,
+                    Ok(payload)
+                        if !payload.trim().is_empty()
+                            && compaction_payload_matches_scope(&payload, scope) =>
+                    {
+                        payload
+                    }
                     Ok(_) | Err(_) => {
                         strategy_used = CompactionStrategy::Heuristic;
                         let rule_based = self
@@ -45,6 +58,7 @@ impl AgentEngine {
                                 messages,
                                 target_tokens,
                                 structural_memory,
+                                scope,
                             )
                             .await;
                         structural_refs = rule_based.structural_refs;
@@ -63,10 +77,21 @@ impl AgentEngine {
                 let (provider_id, provider_config) =
                     self.resolve_custom_model_compaction_provider(config)?;
                 match self
-                    .run_llm_compaction(&provider_id, &provider_config, messages, target_tokens)
+                    .run_llm_compaction(
+                        &provider_id,
+                        &provider_config,
+                        messages,
+                        target_tokens,
+                        scope,
+                    )
                     .await
                 {
-                    Ok(payload) if !payload.trim().is_empty() => payload,
+                    Ok(payload)
+                        if !payload.trim().is_empty()
+                            && compaction_payload_matches_scope(&payload, scope) =>
+                    {
+                        payload
+                    }
                     Ok(_) | Err(_) => {
                         strategy_used = CompactionStrategy::Heuristic;
                         let rule_based = self
@@ -75,6 +100,7 @@ impl AgentEngine {
                                 messages,
                                 target_tokens,
                                 structural_memory,
+                                scope,
                             )
                             .await;
                         structural_refs = rule_based.structural_refs;
@@ -158,8 +184,10 @@ impl AgentEngine {
         messages: &[AgentMessage],
         target_tokens: usize,
         structural_memory: Option<&ThreadStructuralMemory>,
+        scope: Option<&CompactionScopeSnapshot>,
     ) -> RuleBasedCompactionPayload {
-        let checkpoint_payload = build_checkpoint_compaction_payload(messages, target_tokens);
+        let checkpoint_payload =
+            build_checkpoint_compaction_payload_with_scope(messages, target_tokens, scope);
 
         if crate::agent::agent_identity::is_internal_dm_thread(thread_id)
             || crate::agent::agent_identity::is_participant_playground_thread(thread_id)
@@ -193,6 +221,7 @@ impl AgentEngine {
                         messages,
                         target_tokens,
                         structural_memory,
+                        scope,
                     )
                     .await
                 {
@@ -224,6 +253,7 @@ impl AgentEngine {
         messages: &[AgentMessage],
         target_tokens: usize,
         structural_memory: &ThreadStructuralMemory,
+        scope: Option<&CompactionScopeSnapshot>,
     ) -> Result<(String, Vec<String>)> {
         let seed_structural_refs = collect_message_structural_refs(messages);
         let structural_entries = structural_memory.concise_context_entries(
@@ -254,7 +284,7 @@ impl AgentEngine {
             .collect::<Vec<_>>();
         let mut payload = format!(
             "## Primary Objective\n{}\n\n## Execution Map\n{}\n\n## Structural Context\n{}\n\n## Offloaded Payload References\n{}\n\n## Immediate Next Step\n{}\n",
-            checkpoint_primary_objective(messages),
+            checkpoint_primary_objective_with_scope(messages, scope),
             coding_execution_map(messages),
             render_structural_context(&merged_structural_entries),
             render_offloaded_payload_references(&offloaded_metadata),
@@ -271,12 +301,14 @@ impl AgentEngine {
         provider_config: &ProviderConfig,
         messages: &[AgentMessage],
         target_tokens: usize,
+        scope: Option<&CompactionScopeSnapshot>,
     ) -> Result<String> {
         let transport = select_compaction_transport(provider_id, provider_config);
-        let api_messages = build_llm_compaction_messages(
+        let api_messages = build_llm_compaction_messages_with_scope(
             messages,
             target_tokens,
             llm_compaction_input_budget(provider_id, provider_config),
+            scope,
         );
         self.check_circuit_breaker(provider_id).await?;
 

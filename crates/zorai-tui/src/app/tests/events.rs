@@ -49,6 +49,49 @@ fn saw_list_tasks_command(
     false
 }
 
+fn saw_workspace_task_list_command(
+    daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+    expected_workspace_id: &str,
+) -> bool {
+    while let Ok(command) = daemon_rx.try_recv() {
+        if let DaemonCommand::ListWorkspaceTasks { workspace_id, .. } = command {
+            if workspace_id == expected_workspace_id {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn workspace_task(
+    id: &str,
+    status: zorai_protocol::WorkspaceTaskStatus,
+) -> zorai_protocol::WorkspaceTask {
+    zorai_protocol::WorkspaceTask {
+        id: id.to_string(),
+        workspace_id: "main".to_string(),
+        title: id.to_string(),
+        task_type: zorai_protocol::WorkspaceTaskType::Thread,
+        description: String::new(),
+        definition_of_done: None,
+        priority: zorai_protocol::WorkspacePriority::Normal,
+        status,
+        sort_order: 1,
+        reporter: zorai_protocol::WorkspaceActor::User,
+        assignee: Some(zorai_protocol::WorkspaceActor::Agent("svarog".to_string())),
+        reviewer: None,
+        thread_id: Some(format!("thread-{id}")),
+        goal_run_id: None,
+        runtime_history: Vec::new(),
+        created_at: 1,
+        updated_at: 1,
+        started_at: None,
+        completed_at: None,
+        deleted_at: None,
+        last_notice_id: None,
+    }
+}
+
 #[cfg(unix)]
 fn with_fake_mpv_in_path<F: FnOnce()>(test: F) {
     static PATH_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
@@ -4168,6 +4211,36 @@ fn header_usage_summary_prefers_daemon_active_context_window_tokens() {
 }
 
 #[test]
+fn header_usage_summary_uses_delivered_context_window_update_before_messages() {
+    let mut model = make_model();
+    model.config.provider = "unknown-provider".to_string();
+    model.config.model = "unknown-model".to_string();
+    model.config.context_window_tokens = 1_000;
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-delivered-context".to_string(),
+        title: "Delivered Context".to_string(),
+        agent_name: Some("Swarog".to_string()),
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-delivered-context".to_string(),
+    ));
+
+    assert_eq!(model.current_header_usage_summary().current_tokens, 0);
+
+    model.handle_client_event(ClientEvent::ContextWindowUpdate {
+        thread_id: "thread-delivered-context".to_string(),
+        active_context_window_start: 0,
+        active_context_window_end: 1,
+        active_context_window_tokens: 24_000,
+    });
+
+    let usage = model.current_header_usage_summary();
+    assert_eq!(usage.current_tokens, 24_000);
+    assert!(usage.utilization_pct > 0);
+}
+
+#[test]
 fn header_usage_summary_does_not_estimate_context_tokens_from_loaded_history() {
     let mut model = make_model();
 
@@ -4805,6 +4878,118 @@ fn on_tick_refreshes_spawned_sidebar_tasks_on_cooldown() {
     assert!(
         saw_list_tasks_command(&mut daemon_rx),
         "spawned sidebar should request another task refresh once the cooldown elapses"
+    );
+}
+
+#[test]
+fn on_tick_auto_refreshes_active_goal_until_terminal() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal".to_string(),
+            status: Some(task::GoalRunStatus::Running),
+            ..Default::default()
+        }));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+    model.config.auto_refresh_interval_secs = 1;
+
+    for _ in 0..21 {
+        model.on_tick();
+    }
+
+    assert_eq!(
+        next_goal_run_detail_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunUpdate(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal".to_string(),
+            status: Some(task::GoalRunStatus::Completed),
+            ..Default::default()
+        }));
+
+    for _ in 0..25 {
+        model.on_tick();
+    }
+
+    assert!(
+        next_goal_run_detail_request(&mut daemon_rx).is_none(),
+        "completed goals should stop periodic auto-refresh"
+    );
+}
+
+#[test]
+fn on_tick_auto_refreshes_workspace_until_tasks_done() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.main_pane_view = MainPaneView::Workspace;
+    model.workspace.set_tasks(
+        "main".to_string(),
+        vec![workspace_task(
+            "task-1",
+            zorai_protocol::WorkspaceTaskStatus::InProgress,
+        )],
+    );
+    model.config.auto_refresh_interval_secs = 1;
+
+    for _ in 0..21 {
+        model.on_tick();
+    }
+
+    assert!(
+        saw_workspace_task_list_command(&mut daemon_rx, "main"),
+        "workspace board should auto-refresh while it has active tasks"
+    );
+
+    model.workspace.set_tasks(
+        "main".to_string(),
+        vec![workspace_task(
+            "task-1",
+            zorai_protocol::WorkspaceTaskStatus::Done,
+        )],
+    );
+
+    for _ in 0..25 {
+        model.on_tick();
+    }
+
+    assert!(
+        !saw_workspace_task_list_command(&mut daemon_rx, "main"),
+        "workspace board should stop periodic auto-refresh once tasks are done"
+    );
+}
+
+#[test]
+fn workspace_task_update_refreshes_visible_workspace_board() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.main_pane_view = MainPaneView::Workspace;
+    model.workspace.set_tasks(
+        "main".to_string(),
+        vec![workspace_task(
+            "task-1",
+            zorai_protocol::WorkspaceTaskStatus::Todo,
+        )],
+    );
+
+    model.handle_client_event(ClientEvent::WorkspaceTaskUpdated(workspace_task(
+        "task-1",
+        zorai_protocol::WorkspaceTaskStatus::InProgress,
+    )));
+
+    assert!(
+        saw_workspace_task_list_command(&mut daemon_rx, "main"),
+        "workspace task status changes should trigger a board refresh"
     );
 }
 

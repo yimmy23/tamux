@@ -44,11 +44,11 @@ pub fn default_specialist_profiles() -> Vec<SpecialistProfile> {
                 },
             ],
             tool_filter: Some(vec![
-                "web_search".to_string(),
-                "read_file".to_string(),
+                zorai_protocol::tool_names::WEB_SEARCH.to_string(),
+                zorai_protocol::tool_names::READ_FILE.to_string(),
                 "list_directory".to_string(),
                 "search_codebase".to_string(),
-                "broadcast_contribution".to_string(),
+                zorai_protocol::tool_names::BROADCAST_CONTRIBUTION.to_string(),
             ]),
             system_prompt_snippet: Some(
                 "You are a research specialist. Focus on thorough investigation, \
@@ -369,10 +369,10 @@ pub fn default_specialist_profiles() -> Vec<SpecialistProfile> {
                 },
             ],
             tool_filter: Some(vec![
-                "read_file".to_string(),
+                zorai_protocol::tool_names::READ_FILE.to_string(),
                 "list_directory".to_string(),
                 "search_codebase".to_string(),
-                "broadcast_contribution".to_string(),
+                zorai_protocol::tool_names::BROADCAST_CONTRIBUTION.to_string(),
             ]),
             system_prompt_snippet: Some(
                 "You are a code review specialist. Evaluate code quality, correctness, \

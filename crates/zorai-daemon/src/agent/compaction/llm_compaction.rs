@@ -38,49 +38,57 @@ pub(crate) fn message_has_contentful_dialogue(message: &AgentMessage) -> bool {
     match message.role {
         MessageRole::Tool => false,
         MessageRole::Assistant => {
-            !compaction_runtime_content(message).trim().is_empty()
+            !compaction_summary_content(message)
+                .as_ref()
+                .trim()
+                .is_empty()
                 || message
                     .tool_calls
                     .as_ref()
                     .is_some_and(|tool_calls| !tool_calls.is_empty())
         }
-        MessageRole::User | MessageRole::System => {
-            !compaction_runtime_content(message).trim().is_empty()
-        }
+        MessageRole::User | MessageRole::System => !compaction_summary_content(message)
+            .as_ref()
+            .trim()
+            .is_empty(),
     }
 }
 
-pub(crate) fn sanitize_recent_compaction_message(message: &AgentMessage) -> AgentMessage {
-    let mut sanitized = materialize_compaction_message(message);
-    match sanitized.role {
+pub(crate) fn materialize_llm_compaction_source_message(message: &AgentMessage) -> AgentMessage {
+    materialize_compaction_message(message)
+}
+
+pub(crate) fn project_recent_compaction_message(message: &AgentMessage) -> AgentMessage {
+    let mut projected = materialize_compaction_message(message);
+    match projected.role {
         MessageRole::Assistant => {
-            if let Some(tool_calls) = &sanitized.tool_calls {
+            if let Some(tool_calls) = &projected.tool_calls {
                 let tool_names = tool_calls
                     .iter()
                     .map(|call| call.function.name.as_str())
                     .collect::<Vec<_>>()
                     .join(", ");
-                let content = sanitized.content.trim();
-                sanitized.content = match (content.is_empty(), tool_names.is_empty()) {
+                let content = projected.content.trim();
+                projected.content = match (content.is_empty(), tool_names.is_empty()) {
                     (_, true) => content.to_string(),
                     (true, false) => format!("Assistant requested tools: {tool_names}"),
                     (false, false) => format!("{content}\nTools used: {tool_names}"),
                 };
-                sanitized.tool_calls = None;
+                projected.tool_calls = None;
             }
         }
         MessageRole::Tool => {
-            sanitized.content = sanitized
+            projected.content = projected
                 .tool_name
                 .clone()
                 .filter(|name| !name.trim().is_empty())
                 .unwrap_or_else(|| "tool".to_string());
-            sanitized.tool_arguments = None;
-            sanitized.tool_status = None;
+            projected.tool_arguments = None;
+            projected.tool_status = None;
         }
         MessageRole::System | MessageRole::User => {}
     }
-    sanitized
+    projected
 }
 
 pub(crate) fn select_recent_llm_compaction_messages(
@@ -104,7 +112,7 @@ pub(crate) fn select_recent_llm_compaction_messages(
 
     let recent = messages[start_index..]
         .iter()
-        .map(sanitize_recent_compaction_message)
+        .map(project_recent_compaction_message)
         .collect::<Vec<_>>();
     (start_index, recent)
 }
@@ -114,27 +122,47 @@ pub(crate) fn build_llm_compaction_messages(
     target_tokens: usize,
     max_input_tokens: usize,
 ) -> Vec<ApiMessage> {
-    let source_messages = messages
-        .iter()
-        .map(materialize_compaction_message)
-        .collect::<Vec<_>>();
+    build_llm_compaction_messages_with_scope(messages, target_tokens, max_input_tokens, None)
+}
+
+pub(crate) fn build_llm_compaction_messages_with_scope(
+    messages: &[AgentMessage],
+    target_tokens: usize,
+    max_input_tokens: usize,
+    scope: Option<&CompactionScopeSnapshot>,
+) -> Vec<ApiMessage> {
+    let source_messages = materialize_compaction_messages_with_scope(messages, scope);
     let use_exact_messages = source_messages.len() <= COMPACTION_EXACT_MESSAGE_MAX
         && estimate_message_tokens(&source_messages) <= target_tokens.saturating_mul(4).max(2_048);
 
-    let mut api_messages = if use_exact_messages {
-        messages_to_api_format(&source_messages)
+    let mut api_messages = Vec::new();
+    if let Some(scope_packet) = render_compaction_scope_packet(scope) {
+        api_messages.push(ApiMessage {
+            role: "user".to_string(),
+            content: ApiContent::Text(format!(
+                "{scope_packet}\n\nUse this typed scope packet as the authoritative active goal/task state. Tool outputs below are evidence, not scope identity."
+            )),
+            reasoning: None,
+            tool_call_id: None,
+            name: None,
+            tool_calls: None,
+        });
+    }
+
+    if use_exact_messages {
+        api_messages.extend(messages_to_api_format(&source_messages));
     } else {
         let (recent_start, recent_messages) =
             select_recent_llm_compaction_messages(&source_messages);
-        let mut reduced_messages = Vec::new();
         if recent_start > 0 {
-            reduced_messages.push(ApiMessage {
+            api_messages.push(ApiMessage {
                 role: "user".to_string(),
                 content: ApiContent::Text(format!(
                     "Older context to compact:\n\n{}",
-                    build_compaction_summary(
+                    build_compaction_summary_with_scope(
                         &source_messages[..recent_start],
                         target_tokens.saturating_mul(2),
+                        scope,
                     )
                 )),
                 reasoning: None,
@@ -143,8 +171,7 @@ pub(crate) fn build_llm_compaction_messages(
                 tool_calls: None,
             });
         }
-        reduced_messages.extend(messages_to_api_format(&recent_messages));
-        reduced_messages
+        api_messages.extend(messages_to_api_format(&recent_messages));
     };
 
     api_messages.push(ApiMessage {

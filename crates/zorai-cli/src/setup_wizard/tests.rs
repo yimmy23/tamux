@@ -33,6 +33,26 @@ fn test_select_list_wraps_index() {
 }
 
 #[test]
+fn setup_select_window_keeps_selected_item_visible() {
+    assert_eq!(select_visible_window_start(0, 30, 8), 0);
+    assert_eq!(select_visible_window_start(7, 30, 8), 0);
+    assert_eq!(select_visible_window_start(8, 30, 8), 1);
+    assert_eq!(select_visible_window_start(29, 30, 8), 22);
+    assert_eq!(select_visible_window_start(29, 30, 80), 0);
+}
+
+#[test]
+fn setup_select_navigation_supports_large_steps_and_edges() {
+    assert_eq!(move_select_index(0, 30, SelectMove::Previous), 29);
+    assert_eq!(move_select_index(29, 30, SelectMove::Next), 0);
+    assert_eq!(move_select_index(2, 30, SelectMove::PageDown(8)), 10);
+    assert_eq!(move_select_index(28, 30, SelectMove::PageDown(8)), 29);
+    assert_eq!(move_select_index(6, 30, SelectMove::PageUp(8)), 0);
+    assert_eq!(move_select_index(12, 30, SelectMove::First), 0);
+    assert_eq!(move_select_index(12, 30, SelectMove::Last), 29);
+}
+
+#[test]
 fn test_is_local_provider() {
     assert!(is_local_provider("ollama"));
     assert!(is_local_provider("lmstudio"));
@@ -200,6 +220,20 @@ fn test_gateway_choice_items_include_whatsapp_and_skip() {
     assert_eq!(items.len(), 5);
     assert_eq!(items[3], ("WhatsApp", "whatsapp"));
     assert_eq!(items[4], ("Skip", ""));
+}
+
+#[test]
+fn web_search_setup_maps_api_key_to_search_provider() {
+    assert_eq!(
+        web_search_provider_for_key("firecrawl_api_key"),
+        Some("firecrawl")
+    );
+    assert_eq!(web_search_provider_for_key("exa_api_key"), Some("exa"));
+    assert_eq!(
+        web_search_provider_for_key("tavily_api_key"),
+        Some("tavily")
+    );
+    assert_eq!(web_search_provider_for_key(""), None);
 }
 
 #[test]

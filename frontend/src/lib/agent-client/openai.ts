@@ -4,6 +4,7 @@ import type { ChatChunk, ChatRequest } from "./types";
 import {
   applyDashScopeCodingPlanHeaders,
   applyOpenRouterAttributionHeaders,
+  applyOpenRouterResponseCacheHeaders,
   buildChatCompletionUrl,
   buildChatGptCodexHeaders,
   buildChatGptCodexResponsesUrl,
@@ -283,6 +284,7 @@ export async function* sendOpenAICompatible(
     headers.Authorization = `Bearer ${req.config.api_key}`;
   }
   applyOpenRouterAttributionHeaders(req.provider, headers);
+  applyOpenRouterResponseCacheHeaders(req.provider, req.config, headers);
   applyDashScopeCodingPlanHeaders(
     req.provider,
     req.config.base_url,
@@ -426,6 +428,7 @@ export async function* sendOpenAIResponses(
           : {}),
       };
       applyOpenRouterAttributionHeaders(req.provider, headers);
+      applyOpenRouterResponseCacheHeaders(req.provider, req.config, headers);
       return headers;
     })();
 

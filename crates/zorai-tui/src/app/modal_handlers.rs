@@ -442,6 +442,11 @@ impl TuiModel {
                                     self.config.max_retries = n.clamp(0, 10);
                                 }
                             }
+                            "auto_refresh_interval_secs" => {
+                                if let Ok(n) = value.parse::<u32>() {
+                                    self.config.auto_refresh_interval_secs = n.clamp(0, 86_400);
+                                }
+                            }
                             "retry_delay_ms" => {
                                 if let Ok(n) = value.parse::<u32>() {
                                     self.config.retry_delay_ms = n.clamp(100, 60000);

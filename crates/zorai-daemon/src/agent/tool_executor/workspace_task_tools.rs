@@ -5,41 +5,41 @@ use zorai_protocol::{
 };
 
 const WORKSPACE_READ_TOOLS: &[&str] = &[
-    "workspace_get_settings",
-    "workspace_list_tasks",
-    "workspace_get_task",
-    "workspace_list_notices",
+    tool_names::WORKSPACE_GET_SETTINGS,
+    tool_names::WORKSPACE_LIST_TASKS,
+    tool_names::WORKSPACE_GET_TASK,
+    tool_names::WORKSPACE_LIST_NOTICES,
 ];
 
 const WORKSPACE_MUTATION_TOOLS: &[&str] = &[
-    "workspace_set_operator",
-    "workspace_create_task",
-    "workspace_update_task",
-    "workspace_move_task",
-    "workspace_run_task",
-    "workspace_pause_task",
-    "workspace_stop_task",
-    "workspace_delete_task",
-    "workspace_submit_review",
+    tool_names::WORKSPACE_SET_OPERATOR,
+    tool_names::WORKSPACE_CREATE_TASK,
+    tool_names::WORKSPACE_UPDATE_TASK,
+    tool_names::WORKSPACE_MOVE_TASK,
+    tool_names::WORKSPACE_RUN_TASK,
+    tool_names::WORKSPACE_PAUSE_TASK,
+    tool_names::WORKSPACE_STOP_TASK,
+    tool_names::WORKSPACE_DELETE_TASK,
+    tool_names::WORKSPACE_SUBMIT_REVIEW,
 ];
 
-const WORKSPACE_ASSIGNEE_TOOLS: &[&str] = &["workspace_submit_completion"];
+const WORKSPACE_ASSIGNEE_TOOLS: &[&str] = &[tool_names::WORKSPACE_SUBMIT_COMPLETION];
 
 pub(crate) const WORKSPACE_TASK_TOOL_NAMES: &[&str] = &[
-    "workspace_get_settings",
-    "workspace_list_tasks",
-    "workspace_get_task",
-    "workspace_list_notices",
-    "workspace_set_operator",
-    "workspace_create_task",
-    "workspace_update_task",
-    "workspace_move_task",
-    "workspace_run_task",
-    "workspace_pause_task",
-    "workspace_stop_task",
-    "workspace_delete_task",
-    "workspace_submit_review",
-    "workspace_submit_completion",
+    tool_names::WORKSPACE_GET_SETTINGS,
+    tool_names::WORKSPACE_LIST_TASKS,
+    tool_names::WORKSPACE_GET_TASK,
+    tool_names::WORKSPACE_LIST_NOTICES,
+    tool_names::WORKSPACE_SET_OPERATOR,
+    tool_names::WORKSPACE_CREATE_TASK,
+    tool_names::WORKSPACE_UPDATE_TASK,
+    tool_names::WORKSPACE_MOVE_TASK,
+    tool_names::WORKSPACE_RUN_TASK,
+    tool_names::WORKSPACE_PAUSE_TASK,
+    tool_names::WORKSPACE_STOP_TASK,
+    tool_names::WORKSPACE_DELETE_TASK,
+    tool_names::WORKSPACE_SUBMIT_REVIEW,
+    tool_names::WORKSPACE_SUBMIT_COMPLETION,
 ];
 
 pub(crate) fn workspace_task_tool_names() -> &'static [&'static str] {
@@ -47,30 +47,30 @@ pub(crate) fn workspace_task_tool_names() -> &'static [&'static str] {
 }
 
 fn add_workspace_task_tools(tools: &mut Vec<ToolDefinition>) {
-    tools.push(tool_def("workspace_get_settings", "Read workspace board settings and operator mode.", serde_json::json!({
+    tools.push(tool_def(tool_names::WORKSPACE_GET_SETTINGS, "Read workspace board settings and operator mode.", serde_json::json!({
         "type": "object",
         "properties": { "workspace_id": { "type": "string", "description": "Workspace id, defaults to main" } }
     })));
-    tools.push(tool_def("workspace_list_tasks", "List workspace tasks across todo, in-progress, in-review, and done columns.", serde_json::json!({
+    tools.push(tool_def(tool_names::WORKSPACE_LIST_TASKS, "List workspace tasks across todo, in-progress, in-review, and done columns.", serde_json::json!({
         "type": "object",
         "properties": {
             "workspace_id": { "type": "string", "description": "Workspace id, defaults to main" },
             "include_deleted": { "type": "boolean", "description": "Include soft-deleted tasks" }
         }
     })));
-    tools.push(tool_def("workspace_get_task", "Read a single workspace task by id.", serde_json::json!({
+    tools.push(tool_def(tool_names::WORKSPACE_GET_TASK, "Read a single workspace task by id.", serde_json::json!({
         "type": "object",
         "properties": { "task_id": { "type": "string" } },
         "required": ["task_id"]
     })));
-    tools.push(tool_def("workspace_list_notices", "Read workspace notices, optionally scoped to one task.", serde_json::json!({
+    tools.push(tool_def(tool_names::WORKSPACE_LIST_NOTICES, "Read workspace notices, optionally scoped to one task.", serde_json::json!({
         "type": "object",
         "properties": {
             "workspace_id": { "type": "string", "description": "Workspace id, defaults to main" },
             "task_id": { "type": "string" }
         }
     })));
-    tools.push(tool_def("workspace_set_operator", "Switch workspace operator mode between user-dependent and automatic Svarog operation.", serde_json::json!({
+    tools.push(tool_def(tool_names::WORKSPACE_SET_OPERATOR, "Switch workspace operator mode between user-dependent and automatic Svarog operation.", serde_json::json!({
         "type": "object",
         "properties": {
             "workspace_id": { "type": "string", "description": "Workspace id, defaults to main" },
@@ -78,17 +78,17 @@ fn add_workspace_task_tools(tools: &mut Vec<ToolDefinition>) {
         },
         "required": ["operator"]
     })));
-    tools.push(tool_def("workspace_create_task", "Create a workspace task. New tasks are persisted in todo; assigned tasks may auto-start when the workspace operator is Svarog.", serde_json::json!({
+    tools.push(tool_def(tool_names::WORKSPACE_CREATE_TASK, "Create a workspace task. New tasks are persisted in todo; assigned tasks may auto-start when the workspace operator is Svarog.", serde_json::json!({
         "type": "object",
         "properties": workspace_task_mutation_schema(),
         "required": ["title", "task_type", "description"]
     })));
-    tools.push(tool_def("workspace_update_task", "Update workspace task metadata, assignee, or reviewer.", serde_json::json!({
+    tools.push(tool_def(tool_names::WORKSPACE_UPDATE_TASK, "Update workspace task metadata, assignee, or reviewer.", serde_json::json!({
         "type": "object",
         "properties": workspace_task_update_schema(),
         "required": ["task_id"]
     })));
-    tools.push(tool_def("workspace_move_task", "Move a workspace task to another column.", serde_json::json!({
+    tools.push(tool_def(tool_names::WORKSPACE_MOVE_TASK, "Move a workspace task to another column.", serde_json::json!({
         "type": "object",
         "properties": {
             "task_id": { "type": "string" },
@@ -98,10 +98,10 @@ fn add_workspace_task_tools(tools: &mut Vec<ToolDefinition>) {
         "required": ["task_id", "status"]
     })));
     for (name, description) in [
-        ("workspace_run_task", "Run a workspace task using its assigned agent or subagent."),
-        ("workspace_pause_task", "Pause a running workspace task where the runtime supports pause."),
-        ("workspace_stop_task", "Stop a running workspace task where the runtime supports stop."),
-        ("workspace_delete_task", "Soft-delete a workspace task."),
+        (tool_names::WORKSPACE_RUN_TASK, "Run a workspace task using its assigned agent or subagent."),
+        (tool_names::WORKSPACE_PAUSE_TASK, "Pause a running workspace task where the runtime supports pause."),
+        (tool_names::WORKSPACE_STOP_TASK, "Stop a running workspace task where the runtime supports stop."),
+        (tool_names::WORKSPACE_DELETE_TASK, "Soft-delete a workspace task."),
     ] {
         tools.push(tool_def(name, description, serde_json::json!({
             "type": "object",
@@ -114,7 +114,7 @@ fn add_workspace_task_tools(tools: &mut Vec<ToolDefinition>) {
 }
 
 fn add_workspace_submit_review_tool(tools: &mut Vec<ToolDefinition>) {
-    tools.push(tool_def("workspace_submit_review", "Submit a pass/fail workspace review. Failed reviews move the task back to in-progress with the review message as notice.", serde_json::json!({
+    tools.push(tool_def(tool_names::WORKSPACE_SUBMIT_REVIEW, "Submit a pass/fail workspace review. Failed reviews move the task back to in-progress with the review message as notice.", serde_json::json!({
         "type": "object",
         "properties": {
             "task_id": { "type": "string" },
@@ -126,7 +126,7 @@ fn add_workspace_submit_review_tool(tools: &mut Vec<ToolDefinition>) {
 }
 
 fn add_workspace_submit_completion_tool(tools: &mut Vec<ToolDefinition>) {
-    tools.push(tool_def("workspace_submit_completion", "Submit completion for an assigned in-progress workspace task. This records the delivery summary, moves the task to in-review when a reviewer is set, and queues the reviewer task for agent/subagent reviewers.", serde_json::json!({
+    tools.push(tool_def(tool_names::WORKSPACE_SUBMIT_COMPLETION, "Submit completion for an assigned in-progress workspace task. This records the delivery summary, moves the task to in-review when a reviewer is set, and queues the reviewer task for agent/subagent reviewers.", serde_json::json!({
         "type": "object",
         "properties": {
             "task_id": { "type": "string" },
@@ -142,7 +142,7 @@ async fn execute_workspace_task_tool(
     agent: &AgentEngine,
 ) -> Result<String> {
     if WORKSPACE_MUTATION_TOOLS.contains(&tool_name) && current_agent_scope_id() != MAIN_AGENT_ID {
-        if tool_name == "workspace_submit_review" {
+        if tool_name == tool_names::WORKSPACE_SUBMIT_REVIEW {
             ensure_workspace_review_scope(args, agent).await?;
         } else {
             anyhow::bail!("workspace mutation tool `{tool_name}` is only available to Svarog");
@@ -157,18 +157,18 @@ async fn execute_workspace_task_tool(
         anyhow::bail!("unknown workspace task tool: {tool_name}");
     }
     let value = match tool_name {
-        "workspace_get_settings" => {
+        tool_names::WORKSPACE_GET_SETTINGS => {
             serde_json::to_value(agent.get_or_create_workspace_settings(&workspace_id(args)).await?)?
         }
-        "workspace_list_tasks" => serde_json::to_value(
+        tool_names::WORKSPACE_LIST_TASKS => serde_json::to_value(
             agent
                 .list_workspace_tasks(&workspace_id(args), bool_arg(args, "include_deleted"))
                 .await?,
         )?,
-        "workspace_get_task" => {
+        tool_names::WORKSPACE_GET_TASK => {
             serde_json::to_value(agent.get_workspace_task(&required_str(args, "task_id")?).await?)?
         }
-        "workspace_list_notices" => serde_json::to_value(
+        tool_names::WORKSPACE_LIST_NOTICES => serde_json::to_value(
             agent
                 .list_workspace_notices(
                     &workspace_id(args),
@@ -176,22 +176,22 @@ async fn execute_workspace_task_tool(
                 )
                 .await?,
         )?,
-        "workspace_set_operator" => serde_json::to_value(
+        tool_names::WORKSPACE_SET_OPERATOR => serde_json::to_value(
             agent
                 .set_workspace_operator(&workspace_id(args), parse_operator(&required_str(args, "operator")?)?)
                 .await?,
         )?,
-        "workspace_create_task" => serde_json::to_value(
+        tool_names::WORKSPACE_CREATE_TASK => serde_json::to_value(
             agent
                 .create_workspace_task(create_request(args)?, WorkspaceActor::Agent(MAIN_AGENT_ID.to_string()))
                 .await?,
         )?,
-        "workspace_update_task" => serde_json::to_value(
+        tool_names::WORKSPACE_UPDATE_TASK => serde_json::to_value(
             agent
                 .update_workspace_task(&required_str(args, "task_id")?, update_request(args)?)
                 .await?,
         )?,
-        "workspace_move_task" => serde_json::to_value(
+        tool_names::WORKSPACE_MOVE_TASK => serde_json::to_value(
             agent
                 .move_workspace_task(WorkspaceTaskMove {
                     task_id: required_str(args, "task_id")?,
@@ -200,19 +200,19 @@ async fn execute_workspace_task_tool(
                 })
                 .await?,
         )?,
-        "workspace_run_task" => {
+        tool_names::WORKSPACE_RUN_TASK => {
             serde_json::to_value(agent.run_workspace_task(&required_str(args, "task_id")?).await?)?
         }
-        "workspace_pause_task" => serde_json::to_value(
+        tool_names::WORKSPACE_PAUSE_TASK => serde_json::to_value(
             agent.pause_workspace_task(&required_str(args, "task_id")?).await?,
         )?,
-        "workspace_stop_task" => serde_json::to_value(
+        tool_names::WORKSPACE_STOP_TASK => serde_json::to_value(
             agent.stop_workspace_task(&required_str(args, "task_id")?).await?,
         )?,
-        "workspace_delete_task" => serde_json::to_value(
+        tool_names::WORKSPACE_DELETE_TASK => serde_json::to_value(
             agent.delete_workspace_task(&required_str(args, "task_id")?).await?,
         )?,
-        "workspace_submit_review" => serde_json::to_value(
+        tool_names::WORKSPACE_SUBMIT_REVIEW => serde_json::to_value(
             agent
                 .submit_workspace_review(WorkspaceReviewSubmission {
                     task_id: required_str(args, "task_id")?,
@@ -221,7 +221,7 @@ async fn execute_workspace_task_tool(
                 })
                 .await?,
         )?,
-        "workspace_submit_completion" => serde_json::to_value(
+        tool_names::WORKSPACE_SUBMIT_COMPLETION => serde_json::to_value(
             agent
                 .submit_workspace_completion(
                     WorkspaceCompletionSubmission {

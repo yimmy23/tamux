@@ -9,7 +9,7 @@ fn emit_workflow_notice_for_tool(
     }
 
     let (kind, message, details) = match tool_name {
-        "update_todo" => {
+        tool_names::UPDATE_TODO => {
             let count = args
                 .get("items")
                 .and_then(|value| value.as_array())
@@ -21,7 +21,7 @@ fn emit_workflow_notice_for_tool(
                 None,
             )
         }
-        "update_browser_profile_health" => {
+        tool_names::UPDATE_BROWSER_PROFILE_HEALTH => {
             let profile_id = args
                 .get("profile_id")
                 .and_then(|value| value.as_str())
@@ -79,42 +79,42 @@ fn emit_workflow_notice_for_tool(
                 ),
             )
         }
-        "update_memory" => (
+        tool_names::UPDATE_MEMORY => (
             "memory-updated",
             "Agent updated persistent memory.".to_string(),
             Some(args.to_string()),
         ),
-        "read_memory" | "read_user" | "read_soul" => (
+        tool_names::READ_MEMORY | tool_names::READ_USER | tool_names::READ_SOUL => (
             "memory-consulted",
             format!("Agent consulted persistent memory via {tool_name}."),
             Some(args.to_string()),
         ),
-        "list_tools" | "tool_search" => (
+        tool_names::LIST_TOOLS | tool_names::TOOL_SEARCH => (
             "tool-catalog",
             format!("Agent inspected available tools via {tool_name}."),
             Some(args.to_string()),
         ),
-        "discover_guidelines" | "list_guidelines" | "read_guideline" => (
+        tool_names::DISCOVER_GUIDELINES | tool_names::LIST_GUIDELINES | tool_names::READ_GUIDELINE => (
             "guideline-consulted",
             format!("Agent consulted local guidelines via {tool_name}."),
             Some(args.to_string()),
         ),
-        "discover_skills" | "list_skills" | "read_skill" => (
+        tool_names::DISCOVER_SKILLS | tool_names::LIST_SKILLS | tool_names::READ_SKILL => (
             "skill-consulted",
             format!("Agent consulted local skills via {tool_name}."),
             Some(args.to_string()),
         ),
-        "run_workflow_pack" => (
+        tool_names::RUN_WORKFLOW_PACK => (
             "workflow-pack-run",
             "Agent executed a canonical workflow pack.".to_string(),
             Some(args.to_string()),
         ),
-        "onecontext_search" | "session_search" | "agent_query_memory" => (
+        tool_names::ONECONTEXT_SEARCH | tool_names::SESSION_SEARCH | tool_names::AGENT_QUERY_MEMORY => (
             "history-consulted",
             format!("Agent consulted history via {tool_name}."),
             Some(args.to_string()),
         ),
-        "semantic_query" => (
+        tool_names::SEMANTIC_QUERY => (
             "semantic-query",
             "Agent consulted local workspace semantics.".to_string(),
             Some(args.to_string()),

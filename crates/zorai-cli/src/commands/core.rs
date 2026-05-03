@@ -1,7 +1,9 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 
-use crate::cli::{Cli, Commands, GoalAction, InstallTarget, SettingsAction, ThreadAction};
+use crate::cli::{
+    Cli, Commands, GoalAction, InstallTarget, MigrateAction, SettingsAction, ThreadAction,
+};
 use crate::commands::common::{
     find_sibling_binary, handle_post_setup_action, launch_gui, launch_tui, resolve_dm_target,
     LaunchTarget,
@@ -25,6 +27,7 @@ pub(crate) fn should_check_for_updates(command: &Commands) -> bool {
             | Commands::Operation { .. }
             | Commands::Stats
             | Commands::Settings { .. }
+            | Commands::Migrate { .. }
             | Commands::Thread { .. }
             | Commands::Goal { .. }
             | Commands::Workspace { .. }
@@ -86,6 +89,68 @@ fn format_direct_message_output(
     }
 
     Ok(rendered)
+}
+
+fn format_migration_output(payload: &serde_json::Value, json: bool) -> Result<String> {
+    if json {
+        return serde_json::to_string_pretty(payload).map_err(Into::into);
+    }
+
+    if payload.get("daemon_only").and_then(|value| value.as_bool()) == Some(true) {
+        let mut lines = vec![
+            "Zorai migration status".to_string(),
+            "runtime: daemon".to_string(),
+        ];
+        if let Some(sources) = payload.get("sources").and_then(|value| value.as_array()) {
+            for source in sources {
+                let runtime = source
+                    .get("runtime")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("unknown");
+                let installed = source
+                    .get("installed")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+                let config_exists = source
+                    .get("config_exists")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+                let path = source
+                    .get("default_config_path")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("-");
+                lines.push(format!(
+                    "{runtime}: installed={}, config={}, path={path}",
+                    installed, config_exists
+                ));
+            }
+        }
+        return Ok(lines.join("\n"));
+    }
+
+    if let Some(summary) = payload.get("summary") {
+        return Ok(serde_json::to_string_pretty(summary)?);
+    }
+
+    let runtime = payload
+        .get("runtime")
+        .and_then(|value| value.as_str())
+        .unwrap_or("migration");
+    let dry_run = payload
+        .get("dry_run")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let persisted = payload
+        .get("persisted")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let asset_count = payload
+        .pointer("/asset_summary/count")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0);
+    Ok(format!(
+        "{runtime} migration: dry_run={dry_run}, persisted={persisted}, assets={asset_count}"
+    ))
 }
 
 fn format_thread_list_output(threads: &[client::AgentThreadRecord], json: bool) -> Result<String> {
@@ -1542,6 +1607,45 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
                 };
                 client::send_config_set(json_pointer, value_json).await?;
                 println!("{key} = {value}");
+            }
+        },
+        Commands::Migrate { action } => match action {
+            MigrateAction::Status { json } => {
+                let payload = client::send_external_runtime_migration_status().await?;
+                println!("{}", format_migration_output(&payload, json)?);
+            }
+            MigrateAction::Preview {
+                runtime,
+                config,
+                json,
+            } => {
+                let payload =
+                    client::send_external_runtime_migration_preview(runtime, config).await?;
+                println!("{}", format_migration_output(&payload, json)?);
+            }
+            MigrateAction::Apply {
+                runtime,
+                config,
+                conflict_policy,
+                json,
+            } => {
+                let payload =
+                    client::send_external_runtime_migration_apply(runtime, config, conflict_policy)
+                        .await?;
+                println!("{}", format_migration_output(&payload, json)?);
+            }
+            MigrateAction::Report {
+                runtime,
+                limit,
+                json,
+            } => {
+                let payload =
+                    client::send_external_runtime_migration_report(runtime, Some(limit)).await?;
+                println!("{}", format_migration_output(&payload, json)?);
+            }
+            MigrateAction::ShadowRun { runtime, json } => {
+                let payload = client::send_external_runtime_migration_shadow_run(runtime).await?;
+                println!("{}", format_migration_output(&payload, json)?);
             }
         },
         Commands::Thread { action } => match action {

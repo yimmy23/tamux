@@ -61,6 +61,7 @@ impl TuiModel {
         self.maybe_request_older_chat_history();
         self.maybe_request_older_goal_run_history();
         self.maybe_refresh_spawned_sidebar_tasks();
+        self.maybe_auto_refresh_visible_work();
         self.maybe_schedule_chat_history_collapse();
         self.chat.maybe_collapse_history(self.tick_counter);
         self.clear_expired_queued_prompt_copy_feedback();
@@ -126,6 +127,74 @@ impl TuiModel {
         self.next_spawned_sidebar_task_refresh_tick = self
             .tick_counter
             .saturating_add(SPAWNED_SIDEBAR_TASK_REFRESH_TICKS);
+    }
+
+    fn auto_refresh_interval_ticks(&self) -> Option<u64> {
+        let secs = self.config.auto_refresh_interval_secs;
+        if secs == 0 {
+            return None;
+        }
+        Some(((secs as u64 * 1000) / TUI_TICK_RATE_MS).max(1))
+    }
+
+    fn active_auto_refresh_target(&self) -> Option<AutoRefreshTarget> {
+        match &self.main_pane_view {
+            MainPaneView::Task(target) => {
+                let goal_run_id = target_goal_run_id(self, target)?;
+                let run = self.tasks.goal_run_by_id(&goal_run_id)?;
+                if goal_run_status_is_terminal(run.status.clone()) {
+                    None
+                } else {
+                    Some(AutoRefreshTarget::Goal(goal_run_id))
+                }
+            }
+            MainPaneView::Workspace => {
+                let workspace_id = self.workspace.workspace_id().to_string();
+                self.workspace_has_refreshable_tasks(&workspace_id)
+                    .then_some(AutoRefreshTarget::Workspace(workspace_id))
+            }
+            _ => None,
+        }
+    }
+
+    fn workspace_has_refreshable_tasks(&self, workspace_id: &str) -> bool {
+        self.workspace
+            .tasks_for(workspace_id)
+            .iter()
+            .any(workspace_task_needs_refresh)
+    }
+
+    fn maybe_auto_refresh_visible_work(&mut self) {
+        let Some(interval_ticks) = self.auto_refresh_interval_ticks() else {
+            self.auto_refresh_target = None;
+            self.next_auto_refresh_tick = 0;
+            return;
+        };
+        let Some(target) = self.active_auto_refresh_target() else {
+            self.auto_refresh_target = None;
+            self.next_auto_refresh_tick = 0;
+            return;
+        };
+
+        if self.auto_refresh_target.as_ref() != Some(&target) {
+            self.auto_refresh_target = Some(target);
+            self.next_auto_refresh_tick = self.tick_counter.saturating_add(interval_ticks);
+            return;
+        }
+
+        if self.tick_counter < self.next_auto_refresh_tick {
+            return;
+        }
+
+        match target {
+            AutoRefreshTarget::Goal(goal_run_id) => {
+                self.request_authoritative_goal_run_refresh(goal_run_id);
+            }
+            AutoRefreshTarget::Workspace(_) => {
+                self.refresh_workspace_board();
+            }
+        }
+        self.next_auto_refresh_tick = self.tick_counter.saturating_add(interval_ticks);
     }
 
     pub(crate) fn handle_client_event(&mut self, event: ClientEvent) {
@@ -239,6 +308,21 @@ impl TuiModel {
                     self.handle_thread_reload_required_event(thread_id);
                 }
             }
+            ClientEvent::ContextWindowUpdate {
+                thread_id,
+                active_context_window_start,
+                active_context_window_end,
+                active_context_window_tokens,
+            } => {
+                if !self.deleted_thread_ids.contains(&thread_id) {
+                    self.chat.reduce(chat::ChatAction::ContextWindowUpdated {
+                        thread_id,
+                        active_context_window_start,
+                        active_context_window_end,
+                        active_context_window_tokens,
+                    });
+                }
+            }
             ClientEvent::ParticipantSuggestion {
                 thread_id,
                 suggestion,
@@ -300,6 +384,9 @@ impl TuiModel {
             }
             ClientEvent::WorkspaceTaskUpdated(task) => {
                 let active_runtime_thread_id = workspace_task_active_thread_id(&task);
+                let visible_workspace_updated =
+                    matches!(self.main_pane_view, MainPaneView::Workspace)
+                        && self.workspace.workspace_id() == task.workspace_id.as_str();
                 let should_refresh_active_runtime = active_runtime_thread_id
                     .as_deref()
                     .is_some_and(|thread_id| {
@@ -316,6 +403,9 @@ impl TuiModel {
                     active_runtime_thread_id.filter(|_| should_refresh_active_runtime)
                 {
                     self.request_latest_thread_page(thread_id, true);
+                }
+                if visible_workspace_updated {
+                    self.refresh_workspace_board();
                 }
                 self.status_line = "Workspace task updated".to_string();
             }
@@ -425,6 +515,9 @@ impl TuiModel {
             }
             ClientEvent::AgentConfigRaw(raw) => {
                 self.handle_agent_config_raw_event(raw);
+            }
+            ClientEvent::ExternalRuntimeMigrationResult(raw) => {
+                self.handle_external_runtime_migration_result(raw);
             }
             ClientEvent::SpeechToTextResult { content } => {
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -925,6 +1018,51 @@ impl TuiModel {
             }
         }
     }
+
+    fn handle_external_runtime_migration_result(&mut self, raw: serde_json::Value) {
+        let summary = raw.get("summary").unwrap_or(&raw);
+        let runtime = summary
+            .get("runtime")
+            .and_then(|value| value.as_str())
+            .or_else(|| raw.get("runtime").and_then(|value| value.as_str()))
+            .unwrap_or("external runtime");
+        let persisted = summary
+            .get("persisted")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        let dry_run = summary
+            .get("dry_run")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        let asset_count = summary
+            .get("asset_count")
+            .and_then(|value| value.as_u64())
+            .or_else(|| {
+                raw.get("assets")
+                    .and_then(|value| value.as_array())
+                    .map(|items| items.len() as u64)
+            });
+
+        self.status_line = if raw.get("sources").is_some() {
+            "Migration sources checked".to_string()
+        } else if dry_run {
+            format!(
+                "{runtime} migration preview: {} asset(s)",
+                asset_count.unwrap_or(0)
+            )
+        } else if persisted {
+            format!(
+                "{runtime} migration imported: {} asset(s)",
+                asset_count.unwrap_or(0)
+            )
+        } else {
+            format!("{runtime} migration report ready")
+        };
+
+        let notice = serde_json::to_string_pretty(&raw)
+            .unwrap_or_else(|_| "Migration response could not be formatted".to_string());
+        self.show_input_notice(&notice, InputNoticeKind::Success, 160, true);
+    }
 }
 
 fn workspace_task_active_thread_id(task: &zorai_protocol::WorkspaceTask) -> Option<String> {
@@ -933,6 +1071,19 @@ fn workspace_task_active_thread_id(task: &zorai_protocol::WorkspaceTask) -> Opti
             .iter()
             .find_map(|entry| entry.thread_id.clone())
     })
+}
+
+fn goal_run_status_is_terminal(status: Option<task::GoalRunStatus>) -> bool {
+    matches!(
+        status,
+        Some(task::GoalRunStatus::Completed)
+            | Some(task::GoalRunStatus::Failed)
+            | Some(task::GoalRunStatus::Cancelled)
+    )
+}
+
+fn workspace_task_needs_refresh(task: &&zorai_protocol::WorkspaceTask) -> bool {
+    task.deleted_at.is_none() && task.status != zorai_protocol::WorkspaceTaskStatus::Done
 }
 
 #[cfg(test)]

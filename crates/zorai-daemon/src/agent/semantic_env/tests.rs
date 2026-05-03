@@ -211,7 +211,7 @@ Call `plugin_api_call`:
 
 ```json
 {
-  "tool": "plugin_api_call"
+  "tool": zorai_protocol::tool_names::PLUGIN_API_CALL
 }
 ```
 "#,

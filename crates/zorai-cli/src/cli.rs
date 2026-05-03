@@ -199,6 +199,12 @@ pub(crate) enum Commands {
         action: WorkspaceAction,
     },
 
+    /// Migrate settings and reusable data from another local agent into zorai.
+    Migrate {
+        #[command(subcommand)]
+        action: MigrateAction,
+    },
+
     /// Send a direct message to svarog or Rarog from the CLI.
     Dm {
         /// Continue a specific thread.
@@ -308,6 +314,60 @@ pub(crate) enum InstallTarget {
         /// Overwrite an existing guideline with the same destination name.
         #[arg(long)]
         force: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum MigrateAction {
+    /// Show detected Hermes/OpenClaw installations and import readiness.
+    Status {
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Preview what would be imported without changing zorai state.
+    Preview {
+        /// Migration source runtime: hermes or openclaw.
+        runtime: String,
+        /// Optional config path override.
+        #[arg(long, alias = "config-path")]
+        config: Option<String>,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Apply a migration into zorai.
+    Apply {
+        /// Migration source runtime: hermes or openclaw.
+        runtime: String,
+        /// Optional config path override.
+        #[arg(long, alias = "config-path")]
+        config: Option<String>,
+        /// Conflict policy: skip, merge, replace, or stage_for_review.
+        #[arg(long, default_value = "stage_for_review")]
+        conflict_policy: String,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show the persisted migration report.
+    Report {
+        /// Optional migration source filter: hermes or openclaw.
+        runtime: Option<String>,
+        /// Maximum profiles to include.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Compare an imported source profile against current zorai state.
+    ShadowRun {
+        /// Migration source runtime: hermes or openclaw.
+        runtime: String,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -811,8 +871,8 @@ pub(crate) enum WorkspaceAction {
 #[cfg(test)]
 mod tests {
     use super::{
-        Cli, Commands, GoalAction, GuidelineAction, SkillAction, ThreadAction, ToolAction,
-        WorkspaceAction,
+        Cli, Commands, GoalAction, GuidelineAction, MigrateAction, SkillAction, ThreadAction,
+        ToolAction, WorkspaceAction,
     };
     use clap::{CommandFactory, Parser};
 
@@ -875,6 +935,35 @@ mod tests {
             Some(Commands::Guideline {
                 action: GuidelineAction::List { json },
             }) => assert!(json),
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn migrate_preview_subcommand_parses_runtime_path_and_json_flag() {
+        let cli = Cli::try_parse_from([
+            "zorai",
+            "migrate",
+            "preview",
+            "hermes",
+            "--config",
+            "/tmp/hermes.yaml",
+            "--json",
+        ])
+        .expect("migrate preview subcommand should parse");
+        match cli.command {
+            Some(Commands::Migrate {
+                action:
+                    MigrateAction::Preview {
+                        runtime,
+                        config,
+                        json,
+                    },
+            }) => {
+                assert_eq!(runtime, "hermes");
+                assert_eq!(config.as_deref(), Some("/tmp/hermes.yaml"));
+                assert!(json);
+            }
             other => panic!("parsed unexpected command: {other:?}"),
         }
     }

@@ -3623,6 +3623,7 @@ async fn switch_model_updates_targeted_agent_settings_from_svarog_scope() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {
@@ -3936,6 +3937,7 @@ async fn spawn_subagent_derives_budget_from_effective_subagent_provider_window()
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {
@@ -4025,6 +4027,7 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            openrouter_response_cache_enabled: false,
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {

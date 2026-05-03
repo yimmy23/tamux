@@ -185,8 +185,12 @@ pub fn reorder_tools_by_heuristics(
 
         if prioritize_clarification {
             match (
-                a.function.name.eq_ignore_ascii_case("ask_questions"),
-                b.function.name.eq_ignore_ascii_case("ask_questions"),
+                a.function
+                    .name
+                    .eq_ignore_ascii_case(tool_names::ASK_QUESTIONS),
+                b.function
+                    .name
+                    .eq_ignore_ascii_case(tool_names::ASK_QUESTIONS),
             ) {
                 (true, false) => return std::cmp::Ordering::Less,
                 (false, true) => return std::cmp::Ordering::Greater,
@@ -224,14 +228,36 @@ pub fn get_available_tools(
     tools
 }
 
+pub(crate) fn filter_tools_for_client_surface(
+    tools: &mut Vec<ToolDefinition>,
+    client_surface: Option<zorai_protocol::ClientSurface>,
+) {
+    if matches!(client_surface, Some(zorai_protocol::ClientSurface::Tui)) {
+        tools.retain(|tool| {
+            !matches!(
+                tool.function.name.as_str(),
+                tool_names::LIST_SESSIONS
+                    | tool_names::LIST_TERMINALS
+                    | tool_names::READ_ACTIVE_TERMINAL_CONTENT
+                    | tool_names::RUN_TERMINAL_COMMAND
+                    | tool_names::EXECUTE_MANAGED_COMMAND
+                    | tool_names::ALLOCATE_TERMINAL
+                    | tool_names::TYPE_IN_TERMINAL
+            )
+        });
+    }
+}
+
 pub(crate) fn list_available_tools_public(
     config: &AgentConfig,
     agent_data_dir: &std::path::Path,
     has_workspace_topology: bool,
+    client_surface: Option<zorai_protocol::ClientSurface>,
     limit: usize,
     offset: usize,
 ) -> zorai_protocol::ToolListResultPublic {
-    let tools = get_available_tools(config, agent_data_dir, has_workspace_topology);
+    let mut tools = get_available_tools(config, agent_data_dir, has_workspace_topology);
+    filter_tools_for_client_surface(&mut tools, client_surface);
     let total = tools.len();
     let limit = limit.clamp(1, 200);
     let items = tools
@@ -253,13 +279,16 @@ pub(crate) fn search_available_tools_public(
     config: &AgentConfig,
     agent_data_dir: &std::path::Path,
     has_workspace_topology: bool,
+    client_surface: Option<zorai_protocol::ClientSurface>,
     query: &str,
     limit: usize,
     offset: usize,
 ) -> zorai_protocol::ToolSearchResultPublic {
     let normalized_query = query.trim().to_ascii_lowercase();
     let tokens = query_tokens(&normalized_query);
-    let mut matches = get_available_tools(config, agent_data_dir, has_workspace_topology)
+    let mut tools = get_available_tools(config, agent_data_dir, has_workspace_topology);
+    filter_tools_for_client_surface(&mut tools, client_surface);
+    let mut matches = tools
         .into_iter()
         .filter_map(|tool| score_tool_definition(&tool, &normalized_query, &tokens))
         .collect::<Vec<_>>();
@@ -314,8 +343,8 @@ pub(crate) async fn execute_media_tool_for_ipc(
     }
 
     match tool_name {
-        "speech_to_text" => execute_speech_to_text(args, agent, &agent.http_client).await,
-        "text_to_speech" => execute_text_to_speech(args, agent, &agent.http_client).await,
+        tool_names::SPEECH_TO_TEXT => execute_speech_to_text(args, agent, &agent.http_client).await,
+        tool_names::TEXT_TO_SPEECH => execute_text_to_speech(args, agent, &agent.http_client).await,
         _ => anyhow::bail!("unsupported media tool for IPC: {tool_name}"),
     }
 }

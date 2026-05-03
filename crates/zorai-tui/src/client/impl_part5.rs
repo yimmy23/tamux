@@ -288,6 +288,46 @@ impl DaemonClient {
         })
     }
 
+    pub fn external_runtime_migration_status(&self) -> Result<()> {
+        self.send(ClientMessage::AgentExternalRuntimeMigrationStatus)
+    }
+
+    pub fn external_runtime_migration_preview(
+        &self,
+        runtime: String,
+        config_path: Option<String>,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentExternalRuntimeMigrationPreview {
+            runtime,
+            config_path,
+        })
+    }
+
+    pub fn external_runtime_migration_apply(
+        &self,
+        runtime: String,
+        config_path: Option<String>,
+        conflict_policy: String,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentExternalRuntimeMigrationApply {
+            runtime,
+            config_path,
+            conflict_policy,
+        })
+    }
+
+    pub fn external_runtime_migration_report(
+        &self,
+        runtime: Option<String>,
+        limit: Option<usize>,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentExternalRuntimeMigrationReport { runtime, limit })
+    }
+
+    pub fn external_runtime_migration_shadow_run(&self, runtime: String) -> Result<()> {
+        self.send(ClientMessage::AgentExternalRuntimeMigrationShadowRun { runtime })
+    }
+
     pub fn set_provider_model(&self, provider_id: String, model: String) -> Result<()> {
         self.send(ClientMessage::AgentSetProviderModel { provider_id, model })
     }
