@@ -76,22 +76,81 @@ fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Fields 2–4: API keys (masked, inline edit)
+    // Field 2: duckduckgo_region (inline edit)
+    {
+        let is_selected = settings.field_cursor() == 2;
+        let is_editing =
+            settings.is_editing() && settings.editing_field() == Some("duckduckgo_region");
+        let marker = if is_selected { "> " } else { "  " };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
+        let display_value: String = if is_editing {
+            format!("{}\u{2588}", settings.edit_buffer())
+        } else {
+            config.duckduckgo_region.clone()
+        };
+        let value_style = if is_editing {
+            theme.fg_active
+        } else if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
+        let mut spans = vec![
+            Span::styled(marker, marker_style),
+            Span::styled(format!("{:<16} ", "DDG Region:"), theme.fg_dim),
+            Span::styled(display_value, value_style),
+        ];
+        if is_selected && !is_editing {
+            spans.push(Span::styled("  [Enter: edit]", theme.fg_dim));
+        }
+        lines.push(Line::from(spans));
+    }
+
+    // Field 3: duckduckgo_safe_search (cycle on Enter)
+    {
+        let is_selected = settings.field_cursor() == 3;
+        let marker = if is_selected { "> " } else { "  " };
+        let marker_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
+        let value_style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_active
+        };
+        let mut spans = vec![
+            Span::styled(marker, marker_style),
+            Span::styled(format!("{:<16} ", "DDG Safe:"), theme.fg_dim),
+            Span::styled(config.duckduckgo_safe_search.clone(), value_style),
+        ];
+        if is_selected {
+            spans.push(Span::styled("  [Enter: cycle]", theme.fg_dim));
+        }
+        lines.push(Line::from(spans));
+    }
+
+    // Fields 4–6: API keys (masked, inline edit)
     let api_key_fields: [(usize, &str, &str, &str); 3] = [
         (
-            2,
+            4,
             "Firecrawl Key:  ",
             config.firecrawl_api_key.as_str(),
             "firecrawl_api_key",
         ),
         (
-            3,
+            5,
             "Exa Key:        ",
             config.exa_api_key.as_str(),
             "exa_api_key",
         ),
         (
-            4,
+            6,
             "Tavily Key:     ",
             config.tavily_api_key.as_str(),
             "tavily_api_key",
@@ -135,9 +194,9 @@ fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 5: search_max_results (numeric inline edit)
+    // Field 7: search_max_results (numeric inline edit)
     {
-        let is_selected = settings.field_cursor() == 5;
+        let is_selected = settings.field_cursor() == 7;
         let is_editing =
             settings.is_editing() && settings.editing_field() == Some("search_max_results");
         let marker = if is_selected { "> " } else { "  " };
@@ -172,9 +231,9 @@ fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 6: search_timeout_secs (numeric inline edit)
+    // Field 8: search_timeout_secs (numeric inline edit)
     {
-        let is_selected = settings.field_cursor() == 6;
+        let is_selected = settings.field_cursor() == 8;
         let is_editing =
             settings.is_editing() && settings.editing_field() == Some("search_timeout");
         let marker = if is_selected { "> " } else { "  " };
@@ -212,9 +271,9 @@ fn render_websearch_tab<'a>(
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("  Web Browsing", theme.fg_active)));
 
-    // Field 7: browse_provider (cycle on Enter)
+    // Field 9: browse_provider (cycle on Enter)
     {
-        let is_selected = settings.field_cursor() == 7;
+        let is_selected = settings.field_cursor() == 9;
         let marker = if is_selected { "> " } else { "  " };
         let marker_style = if is_selected {
             theme.accent_primary
@@ -244,4 +303,3 @@ fn render_websearch_tab<'a>(
 
     lines
 }
-

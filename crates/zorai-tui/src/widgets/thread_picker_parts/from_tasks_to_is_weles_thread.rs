@@ -289,14 +289,6 @@ fn fixed_tab_specs() -> Vec<ThreadPickerTabSpec> {
     ]
 }
 
-fn thread_picker_status(
-    thread: &AgentThread,
-    chat: &ChatState,
-    tasks: &TaskState,
-) -> ThreadPickerStatus {
-    ThreadPickerStatusIndex::from_state(chat, tasks).status_for(thread)
-}
-
 fn latest_assistant_message_is_stopped(thread: &AgentThread) -> bool {
     thread
         .messages

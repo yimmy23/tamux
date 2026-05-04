@@ -55,6 +55,10 @@ impl TuiModel {
         patch["context_window_tokens"] =
             serde_json::Value::from(self.effective_current_context_window() as u64);
         patch["search_provider"] = serde_json::Value::String(self.config.search_provider.clone());
+        patch["duckduckgo_region"] =
+            serde_json::Value::String(self.config.duckduckgo_region.clone());
+        patch["duckduckgo_safe_search"] =
+            serde_json::Value::String(self.config.duckduckgo_safe_search.clone());
         patch["firecrawl_api_key"] =
             serde_json::Value::String(self.config.firecrawl_api_key.clone());
         patch["exa_api_key"] = serde_json::Value::String(self.config.exa_api_key.clone());

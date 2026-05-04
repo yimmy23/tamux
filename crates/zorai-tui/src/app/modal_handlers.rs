@@ -374,6 +374,7 @@ impl TuiModel {
                             }
                             "whatsapp_token" => self.config.whatsapp_token = value,
                             "whatsapp_phone_id" => self.config.whatsapp_phone_id = value,
+                            "duckduckgo_region" => self.config.duckduckgo_region = value,
                             "firecrawl_api_key" => self.config.firecrawl_api_key = value,
                             "exa_api_key" => self.config.exa_api_key = value,
                             "tavily_api_key" => self.config.tavily_api_key = value,

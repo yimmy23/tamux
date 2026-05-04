@@ -1992,6 +1992,18 @@ async fn dispatch_tool_execution(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            let duckduckgo_region = config
+                .extra
+                .get("duckduckgo_region")
+                .and_then(|v| v.as_str())
+                .unwrap_or("us-en")
+                .to_string();
+            let duckduckgo_safe_search = config
+                .extra
+                .get("duckduckgo_safe_search")
+                .and_then(|v| v.as_str())
+                .unwrap_or("moderate")
+                .to_string();
             drop(config);
             execute_web_search(
                 args,
@@ -1999,6 +2011,8 @@ async fn dispatch_tool_execution(
                 &search_provider,
                 &exa_api_key,
                 &tavily_api_key,
+                &duckduckgo_region,
+                &duckduckgo_safe_search,
             )
             .await
         }

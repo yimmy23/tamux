@@ -87,6 +87,23 @@ impl TuiModel {
                 provider
             }
         };
+        self.config.duckduckgo_region = {
+            let region = config_string(json, "duckduckgo_region", "duckduckgo_region");
+            if region.is_empty() {
+                "us-en".to_string()
+            } else {
+                region
+            }
+        };
+        self.config.duckduckgo_safe_search = {
+            let safe_search =
+                config_string(json, "duckduckgo_safe_search", "duckduckgo_safe_search");
+            if safe_search.is_empty() {
+                "moderate".to_string()
+            } else {
+                safe_search
+            }
+        };
         self.config.firecrawl_api_key =
             config_string(json, "firecrawl_api_key", "firecrawl_api_key");
         self.config.exa_api_key = config_string(json, "exa_api_key", "exa_api_key");

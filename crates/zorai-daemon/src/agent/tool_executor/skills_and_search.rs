@@ -818,6 +818,8 @@ async fn execute_web_search(
     search_provider: &str,
     exa_api_key: &str,
     tavily_api_key: &str,
+    duckduckgo_region: &str,
+    duckduckgo_safe_search: &str,
 ) -> Result<String> {
     execute_web_search_with_runner(
         args,
@@ -844,7 +846,26 @@ async fn execute_web_search(
                     )
                     .await
                 }
-                _ => execute_ddg_search(http_client, &request.query, request.max_results).await,
+                "duckduckgo" => {
+                    execute_ddg_search(
+                        http_client,
+                        &request.query,
+                        request.max_results,
+                        duckduckgo_region,
+                        duckduckgo_safe_search,
+                    )
+                    .await
+                }
+                _ => {
+                    execute_ddg_search(
+                        http_client,
+                        &request.query,
+                        request.max_results,
+                        duckduckgo_region,
+                        duckduckgo_safe_search,
+                    )
+                    .await
+                }
             }
         },
     )
@@ -867,6 +888,7 @@ where
     let provider = match search_provider {
         "exa" if !exa_api_key.is_empty() => "exa",
         "tavily" if !tavily_api_key.is_empty() => "tavily",
+        "duckduckgo" | "ddg" => "duckduckgo",
         _ => "ddg",
     };
 
@@ -1022,11 +1044,10 @@ async fn execute_ddg_search(
     http_client: &reqwest::Client,
     query: &str,
     max_results: u64,
+    region: &str,
+    safe_search: &str,
 ) -> Result<String> {
-    let url = format!(
-        "https://lite.duckduckgo.com/lite/?q={}&kl=us-en",
-        urlencoding::encode(query)
-    );
+    let url = build_duckduckgo_search_url(query, region, safe_search);
 
     let resp = http_client
         .get(&url)
@@ -1068,5 +1089,33 @@ async fn execute_ddg_search(
             "Web results for \"{query}\":\n\n{}",
             results.join("\n\n")
         ))
+    }
+}
+
+fn build_duckduckgo_search_url(query: &str, region: &str, safe_search: &str) -> String {
+    let region = normalize_duckduckgo_region(region);
+    let safe_search = duckduckgo_safe_search_param(safe_search);
+    format!(
+        "https://lite.duckduckgo.com/lite/?q={}&kl={}&kp={}",
+        urlencoding::encode(query),
+        urlencoding::encode(&region),
+        safe_search
+    )
+}
+
+fn normalize_duckduckgo_region(region: &str) -> String {
+    let trimmed = region.trim();
+    if trimmed.is_empty() {
+        "us-en".to_string()
+    } else {
+        trimmed.to_ascii_lowercase()
+    }
+}
+
+fn duckduckgo_safe_search_param(safe_search: &str) -> &'static str {
+    match safe_search.trim().to_ascii_lowercase().as_str() {
+        "strict" | "on" => "1",
+        "off" => "-2",
+        _ => "-1",
     }
 }

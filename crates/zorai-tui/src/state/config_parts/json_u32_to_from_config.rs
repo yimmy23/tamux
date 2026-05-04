@@ -224,7 +224,9 @@ pub struct ConfigState {
     pub tool_gateway: bool,
 
     // Web search config
-    pub search_provider: String, // "none", "firecrawl", "exa", "tavily"
+    pub search_provider: String, // "none", "firecrawl", "duckduckgo", "exa", "tavily"
+    pub duckduckgo_region: String,
+    pub duckduckgo_safe_search: String,
     pub firecrawl_api_key: String,
     pub exa_api_key: String,
     pub tavily_api_key: String,
@@ -319,4 +321,3 @@ pub struct ConfigState {
     pub snapshot_count: usize,
     pub snapshot_total_size_bytes: u64,
 }
-

@@ -413,7 +413,7 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Tools));
     assert_eq!(state.field_count(), 7);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::WebSearch));
-    assert_eq!(state.field_count(), 8);
+    assert_eq!(state.field_count(), 10);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
     assert_eq!(state.field_count(), 25);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
@@ -435,4 +435,3 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::About));
     assert_eq!(state.field_count(), 0);
 }
-

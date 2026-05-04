@@ -1,11 +1,39 @@
 use super::flow::set_config_item;
 use super::*;
 
+const WEB_SEARCH_CHOICES: [(&str, &str); 5] = [
+    ("Firecrawl", "firecrawl_api_key"),
+    ("DuckDuckGo", "duckduckgo"),
+    ("Exa", "exa_api_key"),
+    ("Tavily", "tavily_api_key"),
+    ("Skip", ""),
+];
+
 pub(super) fn web_search_provider_for_key(key_name: &str) -> Option<&'static str> {
     match key_name {
         "firecrawl_api_key" => Some("firecrawl"),
         "exa_api_key" => Some("exa"),
         "tavily_api_key" => Some("tavily"),
+        _ => None,
+    }
+}
+
+pub(super) fn web_search_choice_items() -> &'static [(&'static str, &'static str)] {
+    &WEB_SEARCH_CHOICES
+}
+
+pub(super) fn web_search_provider_for_choice(choice: &str) -> Option<&'static str> {
+    match choice {
+        "duckduckgo" => Some("duckduckgo"),
+        key_name => web_search_provider_for_key(key_name),
+    }
+}
+
+pub(super) fn web_search_api_key_prompt_for_choice(choice: &str) -> Option<&'static str> {
+    match choice {
+        "firecrawl_api_key" => Some("Enter Firecrawl API key"),
+        "exa_api_key" => Some("Enter Exa API key"),
+        "tavily_api_key" => Some("Enter Tavily API key"),
         _ => None,
     }
 }
@@ -21,6 +49,11 @@ pub(super) async fn configure_web_search(
         Some("Exa")
     } else if read_config_key("tavily_api_key").await.is_some() {
         Some("Tavily")
+    } else if read_config_key("search_provider")
+        .await
+        .is_some_and(|provider| provider == "duckduckgo")
+    {
+        Some("DuckDuckGo")
     } else {
         None
     };
@@ -44,27 +77,25 @@ pub(super) async fn configure_web_search(
     };
 
     if should_configure {
-        let items = [
-            ("Firecrawl", "firecrawl_api_key"),
-            ("Exa", "exa_api_key"),
-            ("Tavily", "tavily_api_key"),
-            ("Skip", ""),
-        ];
+        let items = web_search_choice_items();
         match select_list(
             "Configure web search? (enables agent web browsing)",
-            &items,
+            items,
             true,
             0,
         )? {
-            Some(idx) if idx < 3 => {
-                let (provider_label, key_name) = items[idx];
-                if let Some(key) = text_input(&format!("Enter {provider_label} API key"), "", true)?
-                {
-                    if !key.is_empty() {
+            Some(idx) if idx + 1 < items.len() => {
+                let (provider_label, choice) = items[idx];
+                let api_key = match web_search_api_key_prompt_for_choice(choice) {
+                    Some(prompt) => text_input(&prompt, "", true)?,
+                    None => Some(String::new()),
+                };
+                if let Some(key) = api_key {
+                    if !key.is_empty() || choice == "duckduckgo" {
                         set_config_item(framed, "/tools/web_search", "true")
                             .await
                             .context("Failed to enable web search")?;
-                        if let Some(provider) = web_search_provider_for_key(key_name) {
+                        if let Some(provider) = web_search_provider_for_choice(choice) {
                             set_config_item(
                                 framed,
                                 "/search_provider",
@@ -73,9 +104,11 @@ pub(super) async fn configure_web_search(
                             .await
                             .context("Failed to set web search provider")?;
                         }
-                        set_config_item(framed, format!("/{key_name}"), format!("\"{}\"", key))
-                            .await
-                            .context("Failed to set web search API key")?;
+                        if !key.is_empty() {
+                            set_config_item(framed, format!("/{choice}"), format!("\"{}\"", key))
+                                .await
+                                .context("Failed to set web search API key")?;
+                        }
                         summary.web_search = Some(provider_label.to_string());
                         println!("Web search configured with {provider_label}.");
                     } else {

@@ -236,6 +236,17 @@ fn web_search_setup_maps_api_key_to_search_provider() {
 }
 
 #[test]
+fn web_search_setup_offers_duckduckgo_without_api_key() {
+    let items = web_search_choice_items();
+    assert!(items.contains(&("DuckDuckGo", "duckduckgo")));
+    assert_eq!(
+        web_search_provider_for_choice("duckduckgo"),
+        Some("duckduckgo")
+    );
+    assert_eq!(web_search_api_key_prompt_for_choice("duckduckgo"), None);
+}
+
+#[test]
 fn test_whatsapp_timeout_choice_mapping() {
     let choices = whatsapp_timeout_choices();
     assert_eq!(choices.len(), 2);

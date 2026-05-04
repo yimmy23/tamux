@@ -6,6 +6,7 @@ import {
   serializeConciergeReasoningEffortFromUi,
 } from "./SettingsPanels";
 import { embeddingSettingsPatchForModelSelection } from "./embeddingSettings";
+import { duckDuckGoSafeSearchOptions, searchProviderOptions } from "./searchProviders";
 
 describe("Rarog settings panel", () => {
   it("shows no reasoning as No instead of inheriting from Svarog", () => {
@@ -32,5 +33,13 @@ describe("Rarog settings panel", () => {
       semantic_embedding_model: "vendor/embed",
       semantic_embedding_dimensions: 2048,
     });
+  });
+
+  it("offers DuckDuckGo in the search provider selector", () => {
+    expect(searchProviderOptions).toContain("duckduckgo");
+  });
+
+  it("offers DuckDuckGo safe search settings", () => {
+    expect(duckDuckGoSafeSearchOptions).toEqual(["off", "moderate", "strict"]);
   });
 });

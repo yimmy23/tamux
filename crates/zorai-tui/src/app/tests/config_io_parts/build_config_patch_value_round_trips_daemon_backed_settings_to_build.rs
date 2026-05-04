@@ -13,6 +13,8 @@ fn build_config_patch_value_round_trips_daemon_backed_settings() {
     model.config.tool_system_info = false;
     model.config.tool_gateway = false;
     model.config.search_provider = "exa".to_string();
+    model.config.duckduckgo_region = "pl-pl".to_string();
+    model.config.duckduckgo_safe_search = "off".to_string();
     model.config.firecrawl_api_key = "fc-secret".to_string();
     model.config.exa_api_key = "exa-secret".to_string();
     model.config.tavily_api_key = "tavily-secret".to_string();
@@ -104,6 +106,8 @@ fn build_config_patch_value_round_trips_daemon_backed_settings() {
     assert_eq!(reloaded.config.tool_system_info, false);
     assert_eq!(reloaded.config.tool_gateway, false);
     assert_eq!(reloaded.config.search_provider, "exa");
+    assert_eq!(reloaded.config.duckduckgo_region, "pl-pl");
+    assert_eq!(reloaded.config.duckduckgo_safe_search, "off");
     assert_eq!(reloaded.config.firecrawl_api_key, "fc-secret");
     assert_eq!(reloaded.config.exa_api_key, "exa-secret");
     assert_eq!(reloaded.config.tavily_api_key, "tavily-secret");
@@ -443,4 +447,3 @@ fn build_config_patch_value_preserves_nested_inactive_provider_auth_modes() {
         "github_copilot"
     );
 }
-

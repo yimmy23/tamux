@@ -1802,6 +1802,118 @@ async fn tui_bash_command_wait_false_exposes_failure_payload_via_operation_statu
 }
 
 #[tokio::test]
+async fn tui_bash_command_wait_false_completes_when_descendant_keeps_pipes_open() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-tui-bash-descendant-pipes";
+    engine
+        .set_thread_client_surface(thread_id, zorai_protocol::ClientSurface::Tui)
+        .await;
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-tui-bash-descendant-pipes".to_string(),
+        ToolFunction {
+            name: "bash_command".to_string(),
+            arguments: serde_json::json!({
+                "command": "python3 -c \"import subprocess, sys; subprocess.Popen(['sleep', '5'], stdout=sys.stdout, stderr=sys.stderr); print('parent-done')\"",
+                "wait_for_completion": false,
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "non-blocking TUI bash should return an operation handle: {}",
+        result.content
+    );
+
+    let operation_id = result
+        .content
+        .lines()
+        .find_map(|line| line.strip_prefix("operation_id: "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .expect("backgrounded TUI bash should expose an operation_id");
+
+    let status_call = ToolCall::with_default_weles_review(
+        "tool-tui-bash-descendant-pipes-status".to_string(),
+        ToolFunction {
+            name: "get_operation_status".to_string(),
+            arguments: serde_json::json!({
+                "operation_id": operation_id,
+            })
+            .to_string(),
+        },
+    );
+
+    let mut payload = serde_json::Value::Null;
+    let mut completed = false;
+    for _ in 0..10 {
+        let status = execute_tool(
+            &status_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !status.is_error,
+            "operation status lookup should succeed: {}",
+            status.content
+        );
+
+        payload = serde_json::from_str(&status.content)
+            .expect("operation status payload should be valid JSON");
+        if payload["state"] == "completed" {
+            completed = true;
+            break;
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    assert!(
+        completed,
+        "operation should complete after the primary shell exits, without waiting for descendant-held pipes to close: {}",
+        payload
+    );
+    assert_eq!(payload["operation_id"], operation_id);
+    assert_eq!(payload["state"], "completed");
+    assert_eq!(payload["exit_code"], 0);
+    assert!(
+        payload["terminal_result"]["stdout"]
+            .as_str()
+            .is_some_and(|value| value.contains("parent-done")),
+        "completed background status should include available stdout payload: {}",
+        payload
+    );
+}
+
+#[tokio::test]
 async fn get_operation_status_returns_server_operation_snapshot() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;

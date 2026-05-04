@@ -421,6 +421,33 @@
     }
 
     #[tokio::test]
+    async fn web_search_runtime_routes_explicit_duckduckgo_provider_without_api_key() {
+        let result = execute_web_search_with_runner(
+            &serde_json::json!({ "query": "privacy search", "max_results": 2 }),
+            "duckduckgo",
+            "",
+            "",
+            |_request: super::WebSearchRequest, provider| async move {
+                Ok::<String, anyhow::Error>(format!("provider={provider}"))
+            },
+        )
+        .await
+        .expect("explicit DuckDuckGo search should not require an API key");
+
+        assert_eq!(result, "provider=duckduckgo");
+    }
+
+    #[test]
+    fn duckduckgo_search_url_includes_region_and_safe_search_params() {
+        let url = super::build_duckduckgo_search_url("privacy search", "pl-pl", "off");
+
+        assert_eq!(
+            url,
+            "https://lite.duckduckgo.com/lite/?q=privacy+search&kl=pl-pl&kp=-2"
+        );
+    }
+
+    #[tokio::test]
     async fn web_search_runtime_returns_timeout_error_when_runner_exceeds_limit() {
         let error = execute_web_search_with_runner(
             &serde_json::json!({ "query": "timeout policy", "timeout_seconds": 0 }),

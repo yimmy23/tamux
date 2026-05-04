@@ -544,6 +544,56 @@ fn compact_background_output(raw: &[u8], max_chars: usize) -> String {
     format!("... truncated ...\n{tail}")
 }
 
+struct HeadlessOutputCapture {
+    buffer: Arc<std::sync::Mutex<Vec<u8>>>,
+    task: tokio::task::JoinHandle<Result<(), std::io::Error>>,
+}
+
+fn spawn_headless_output_capture<R>(stream: R) -> HeadlessOutputCapture
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    let buffer = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let task_buffer = Arc::clone(&buffer);
+    let task = tokio::spawn(async move {
+        let mut reader = tokio::io::BufReader::new(stream);
+        let mut chunk = [0u8; 8192];
+        loop {
+            let read = reader.read(&mut chunk).await?;
+            if read == 0 {
+                return Ok(());
+            }
+            let mut captured = task_buffer
+                .lock()
+                .expect("headless command output buffer mutex poisoned");
+            captured.extend_from_slice(&chunk[..read]);
+        }
+    });
+
+    HeadlessOutputCapture { buffer, task }
+}
+
+async fn collect_headless_output_capture(
+    mut capture: HeadlessOutputCapture,
+    max_chars: usize,
+    drain_grace: std::time::Duration,
+) -> Option<String> {
+    tokio::select! {
+        _ = &mut capture.task => {}
+        _ = tokio::time::sleep(drain_grace) => {
+            capture.task.abort();
+            let _ = capture.task.await;
+        }
+    }
+
+    let bytes = capture
+        .buffer
+        .lock()
+        .expect("headless command output buffer mutex poisoned")
+        .clone();
+    Some(compact_background_output(&bytes, max_chars)).filter(|value| !value.is_empty())
+}
+
 async fn execute_headless_shell_command(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
@@ -606,18 +656,8 @@ async fn execute_headless_shell_command(
         .stderr
         .take()
         .ok_or_else(|| anyhow::anyhow!("{tool_name} stderr capture was unavailable"))?;
-    let stdout_task = tokio::spawn(async move {
-        let mut reader = tokio::io::BufReader::new(stdout);
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).await?;
-        Ok::<Vec<u8>, std::io::Error>(buf)
-    });
-    let stderr_task = tokio::spawn(async move {
-        let mut reader = tokio::io::BufReader::new(stderr);
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).await?;
-        Ok::<Vec<u8>, std::io::Error>(buf)
-    });
+    let stdout_capture = spawn_headless_output_capture(stdout);
+    let stderr_capture = spawn_headless_output_capture(stderr);
 
     let full_timeout = std::time::Duration::from_secs(timeout_secs);
     let foreground_wait = foreground_detach_after
@@ -631,8 +671,16 @@ async fn execute_headless_shell_command(
             _ = token.cancelled() => {
                 let _ = child.start_kill();
                 let _ = child.wait().await;
-                let _ = stdout_task.await;
-                let _ = stderr_task.await;
+                let _ = collect_headless_output_capture(
+                    stdout_capture,
+                    usize::MAX,
+                    std::time::Duration::from_secs(5),
+                ).await;
+                let _ = collect_headless_output_capture(
+                    stderr_capture,
+                    usize::MAX,
+                    std::time::Duration::from_secs(5),
+                ).await;
                 anyhow::bail!("{tool_name} cancelled while waiting for command completion");
             }
         }
@@ -651,8 +699,8 @@ async fn execute_headless_shell_command(
                 command.to_string(),
                 cwd.clone(),
                 child,
-                stdout_task,
-                stderr_task,
+                stdout_capture,
+                stderr_capture,
             );
             let cwd_suffix = cwd
                 .as_ref()
@@ -671,17 +719,20 @@ async fn execute_headless_shell_command(
         }
     };
 
-    let stdout = stdout_task
-        .await
-        .context("stdout collection task panicked")?
-        .context("failed to read command stdout")?;
-    let stderr = stderr_task
-        .await
-        .context("stderr collection task panicked")?
-        .context("failed to read command stderr")?;
-
-    let stdout = String::from_utf8_lossy(&stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
+    let stdout = collect_headless_output_capture(
+        stdout_capture,
+        usize::MAX,
+        std::time::Duration::from_secs(5),
+    )
+    .await
+    .unwrap_or_default();
+    let stderr = collect_headless_output_capture(
+        stderr_capture,
+        usize::MAX,
+        std::time::Duration::from_secs(5),
+    )
+    .await
+    .unwrap_or_default();
     let cwd_suffix = cwd
         .as_ref()
         .map(|path| format!(" in {}", path.display()))
@@ -749,18 +800,8 @@ fn spawn_headless_shell_command_background(
         .stderr
         .take()
         .ok_or_else(|| anyhow::anyhow!("{tool_name} stderr capture was unavailable"))?;
-    let stdout_task = tokio::spawn(async move {
-        let mut reader = tokio::io::BufReader::new(stdout);
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).await?;
-        Ok::<Vec<u8>, std::io::Error>(buf)
-    });
-    let stderr_task = tokio::spawn(async move {
-        let mut reader = tokio::io::BufReader::new(stderr);
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf).await?;
-        Ok::<Vec<u8>, std::io::Error>(buf)
-    });
+    let stdout_capture = spawn_headless_output_capture(stdout);
+    let stderr_capture = spawn_headless_output_capture(stderr);
 
     crate::server::operation_registry().mark_started(&operation_id);
     spawn_headless_shell_monitor(
@@ -768,8 +809,8 @@ fn spawn_headless_shell_command_background(
         command.to_string(),
         cwd.clone(),
         child,
-        stdout_task,
-        stderr_task,
+        stdout_capture,
+        stderr_capture,
     );
 
     let cwd_suffix = cwd
@@ -802,25 +843,25 @@ fn spawn_headless_shell_monitor(
     command: String,
     cwd: Option<PathBuf>,
     mut child: tokio::process::Child,
-    stdout_task: tokio::task::JoinHandle<Result<Vec<u8>, std::io::Error>>,
-    stderr_task: tokio::task::JoinHandle<Result<Vec<u8>, std::io::Error>>,
+    stdout_capture: HeadlessOutputCapture,
+    stderr_capture: HeadlessOutputCapture,
 ) {
     let cwd_for_task = cwd.as_ref().map(|path| path.display().to_string());
     let started_at = std::time::Instant::now();
     tokio::spawn(async move {
         let outcome = child.wait().await;
-        let stdout = stdout_task
-            .await
-            .ok()
-            .and_then(|result| result.ok())
-            .map(|bytes| compact_background_output(&bytes, 4000))
-            .filter(|value| !value.is_empty());
-        let stderr = stderr_task
-            .await
-            .ok()
-            .and_then(|result| result.ok())
-            .map(|bytes| compact_background_output(&bytes, 4000))
-            .filter(|value| !value.is_empty());
+        let stdout = collect_headless_output_capture(
+            stdout_capture,
+            4000,
+            std::time::Duration::from_millis(100),
+        )
+        .await;
+        let stderr = collect_headless_output_capture(
+            stderr_capture,
+            4000,
+            std::time::Duration::from_millis(100),
+        )
+        .await;
         let duration_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
 
         match outcome {

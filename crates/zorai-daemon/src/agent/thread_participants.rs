@@ -468,6 +468,13 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Result<()> {
+        {
+            let streams = self.stream_cancellations.lock().await;
+            if streams.contains_key(thread_id) {
+                return Ok(());
+            }
+        }
+
         let acquired_flush_slot = {
             let mut active = self.active_visible_thread_continuation_flushes.lock().await;
             active.insert(thread_id.to_string())
@@ -478,6 +485,13 @@ impl AgentEngine {
 
         let result = async {
             loop {
+                {
+                    let streams = self.stream_cancellations.lock().await;
+                    if streams.contains_key(thread_id) {
+                        break;
+                    }
+                }
+
                 let continuations = {
                     let mut queued = self.deferred_visible_thread_continuations.lock().await;
                     queued.remove(thread_id).unwrap_or_default()

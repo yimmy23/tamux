@@ -30,6 +30,7 @@ import { useSettingsStore } from "@/lib/settingsStore";
 import { BUILTIN_THEMES } from "@/lib/themes";
 import { ZORAI_APP_NAME } from "@/zorai/branding";
 import { embeddingSettingsPatchForModelSelection } from "./embeddingSettings";
+import { duckDuckGoSafeSearchOptions, searchProviderOptions } from "./searchProviders";
 import type { ZoraiSettingsTabId } from "./settingsTabs";
 import {
   formatProviderValidationError,
@@ -368,7 +369,15 @@ function SearchPanel() {
         <SettingRow label="Enable Web Search" description="Mirrors the web search tool toggle."><Switch checked={agentSettings.enable_web_search_tool} onChange={(checked) => updateAgentSetting("enable_web_search_tool", checked)} /></SettingRow>
         <SettingRow label="Provider" description="Search provider used by agent web search.">
           <select className="zorai-input" value={agentSettings.search_provider} onChange={(event) => updateAgentSetting("search_provider", event.target.value as AgentSettings["search_provider"])}>
-            {["none", "firecrawl", "exa", "tavily"].map((value) => <option key={value} value={value}>{value}</option>)}
+            {searchProviderOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+          </select>
+        </SettingRow>
+        <SettingRow label="DDG Region" description="DuckDuckGo region code such as us-en, wt-wt, or pl-pl.">
+          <input className="zorai-input" value={agentSettings.duckduckgo_region} onChange={(event) => updateAgentSetting("duckduckgo_region", event.target.value)} />
+        </SettingRow>
+        <SettingRow label="DDG Safe Search" description="DuckDuckGo Safe Search setting.">
+          <select className="zorai-input" value={agentSettings.duckduckgo_safe_search} onChange={(event) => updateAgentSetting("duckduckgo_safe_search", event.target.value as AgentSettings["duckduckgo_safe_search"])}>
+            {duckDuckGoSafeSearchOptions.map((value) => <option key={value} value={value}>{value}</option>)}
           </select>
         </SettingRow>
         <SecretRow label="Firecrawl Key" value={agentSettings.firecrawl_api_key} onChange={(value) => updateAgentSetting("firecrawl_api_key", value)} />

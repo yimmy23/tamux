@@ -28,6 +28,8 @@ impl ConfigState {
             tool_system_info: true,
             tool_gateway: false,
             search_provider: "none".to_string(),
+            duckduckgo_region: "us-en".to_string(),
+            duckduckgo_safe_search: "moderate".to_string(),
             firecrawl_api_key: String::new(),
             exa_api_key: String::new(),
             tavily_api_key: String::new(),
@@ -373,4 +375,3 @@ impl Default for ConfigState {
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
-

@@ -60,3 +60,25 @@ fn chat_settings_history_page_size_allows_twenty_messages() {
     assert_eq!(model.config.tui_chat_history_page_size, 20);
     assert_eq!(model.settings.editing_field(), None);
 }
+
+#[test]
+fn websearch_provider_cycle_includes_duckduckgo() {
+    let (mut model, _daemon_rx) = make_model();
+    focus_settings_field(&mut model, SettingsTab::WebSearch, "search_provider");
+    model.config.search_provider = "firecrawl".to_string();
+
+    model.activate_settings_field();
+
+    assert_eq!(model.config.search_provider, "duckduckgo");
+}
+
+#[test]
+fn websearch_duckduckgo_safe_search_cycle_is_editable() {
+    let (mut model, _daemon_rx) = make_model();
+    focus_settings_field(&mut model, SettingsTab::WebSearch, "duckduckgo_safe_search");
+    model.config.duckduckgo_safe_search = "moderate".to_string();
+
+    model.activate_settings_field();
+
+    assert_eq!(model.config.duckduckgo_safe_search, "strict");
+}

@@ -122,10 +122,11 @@
             .iter()
             .find(|thread| thread.id == "thread-stopped")
             .expect("stopped thread exists");
+        let index = ThreadPickerStatusIndex::from_state(&chat, &tasks);
 
-        assert_eq!(thread_picker_status(running, &chat, &tasks), ThreadPickerStatus::Running);
-        assert_eq!(thread_picker_status(paused, &chat, &tasks), ThreadPickerStatus::Paused);
-        assert_eq!(thread_picker_status(stopped, &chat, &tasks), ThreadPickerStatus::Stopped);
+        assert_eq!(index.status_for(running), ThreadPickerStatus::Running);
+        assert_eq!(index.status_for(paused), ThreadPickerStatus::Paused);
+        assert_eq!(index.status_for(stopped), ThreadPickerStatus::Stopped);
     }
 
     #[test]

@@ -187,6 +187,15 @@ export function buildDaemonAgentConfig(
     context_window_tokens: providerConfig
       ? getEffectiveContextWindow(providerKey, providerConfig)
       : 128000,
+    search_provider: agentSettings.search_provider,
+    duckduckgo_region: agentSettings.duckduckgo_region,
+    duckduckgo_safe_search: agentSettings.duckduckgo_safe_search,
+    firecrawl_api_key: agentSettings.firecrawl_api_key,
+    exa_api_key: agentSettings.exa_api_key,
+    tavily_api_key: agentSettings.tavily_api_key,
+    search_max_results: agentSettings.search_max_results,
+    search_timeout_secs: agentSettings.search_timeout_secs,
+    browse_provider: agentSettings.browse_provider,
     compact_threshold_pct: agentSettings.compact_threshold_pct,
     keep_recent_on_compact: agentSettings.keep_recent_on_compact,
     builtin_sub_agents: {

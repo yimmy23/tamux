@@ -3,6 +3,31 @@ import { buildDaemonAgentConfig } from "./agentDaemonConfig";
 import { DEFAULT_AGENT_SETTINGS } from "./agentStore/settings";
 
 describe("daemon agent config audio wiring", () => {
+  it("serializes web search provider settings", () => {
+    const daemonConfig = buildDaemonAgentConfig({
+      ...DEFAULT_AGENT_SETTINGS,
+      enable_web_search_tool: true,
+      search_provider: "duckduckgo",
+      duckduckgo_region: "pl-pl",
+      duckduckgo_safe_search: "off",
+      firecrawl_api_key: "fc-key",
+      exa_api_key: "exa-key",
+      tavily_api_key: "tavily-key",
+      search_max_results: 12,
+      search_timeout_secs: 45,
+    });
+
+    expect(daemonConfig.tools.web_search).toBe(true);
+    expect(daemonConfig.search_provider).toBe("duckduckgo");
+    expect(daemonConfig.duckduckgo_region).toBe("pl-pl");
+    expect(daemonConfig.duckduckgo_safe_search).toBe("off");
+    expect(daemonConfig.firecrawl_api_key).toBe("fc-key");
+    expect(daemonConfig.exa_api_key).toBe("exa-key");
+    expect(daemonConfig.tavily_api_key).toBe("tavily-key");
+    expect(daemonConfig.search_max_results).toBe(12);
+    expect(daemonConfig.search_timeout_secs).toBe(45);
+  });
+
   it("serializes participant observer restore window settings", () => {
     const daemonConfig = buildDaemonAgentConfig({
       ...DEFAULT_AGENT_SETTINGS,

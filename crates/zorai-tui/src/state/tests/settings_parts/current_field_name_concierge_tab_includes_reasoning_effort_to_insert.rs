@@ -21,6 +21,10 @@ fn current_field_name_websearch_tab() {
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "search_provider");
     state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "duckduckgo_region");
+    state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "duckduckgo_safe_search");
+    state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "firecrawl_api_key");
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "exa_api_key");

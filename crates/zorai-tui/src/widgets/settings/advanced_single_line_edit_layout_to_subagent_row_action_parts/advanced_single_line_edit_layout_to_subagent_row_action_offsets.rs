@@ -76,11 +76,12 @@ fn single_line_edit_layout(
             _ => None,
         },
         SettingsTab::WebSearch => match field {
-            "firecrawl_api_key" => Some((6, 19)),
-            "exa_api_key" => Some((7, 19)),
-            "tavily_api_key" => Some((8, 19)),
-            "search_max_results" => Some((9, 19)),
-            "search_timeout" => Some((10, 19)),
+            "duckduckgo_region" => Some((6, 19)),
+            "firecrawl_api_key" => Some((8, 19)),
+            "exa_api_key" => Some((9, 19)),
+            "tavily_api_key" => Some((10, 19)),
+            "search_max_results" => Some((11, 19)),
+            "search_timeout" => Some((12, 19)),
             _ => None,
         },
         SettingsTab::Chat => match field {
@@ -249,10 +250,11 @@ fn settings_row_hit(
             .checked_sub(4)
             .filter(|idx| *idx < 7)
             .map(|idx| (idx, None)),
-        SettingsTab::WebSearch => row
-            .checked_sub(4)
-            .filter(|idx| *idx < 7)
-            .map(|idx| (idx, None)),
+        SettingsTab::WebSearch => match row {
+            4..=12 => Some((row - 4, None)),
+            15 => Some((9, None)),
+            _ => None,
+        },
         SettingsTab::Chat => row
             .checked_sub(4)
             .filter(|idx| *idx < 23)
@@ -475,4 +477,3 @@ fn subagent_row_action_offsets(
         toggle_start.saturating_add(toggle_label.chars().count() as u16),
     )
 }
-

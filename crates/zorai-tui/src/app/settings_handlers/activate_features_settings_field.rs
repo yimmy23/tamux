@@ -4,11 +4,25 @@ impl TuiModel {
             "search_provider" => {
                 let next = match self.config.search_provider.as_str() {
                     "none" | "" => "firecrawl",
-                    "firecrawl" => "exa",
+                    "firecrawl" => "duckduckgo",
+                    "duckduckgo" | "ddg" => "exa",
                     "exa" => "tavily",
                     _ => "none",
                 };
                 self.config.search_provider = next.to_string();
+                self.sync_config_to_daemon();
+            }
+            "duckduckgo_region" => self
+                .settings
+                .start_editing("duckduckgo_region", &self.config.duckduckgo_region.clone()),
+            "duckduckgo_safe_search" => {
+                let next = match self.config.duckduckgo_safe_search.as_str() {
+                    "off" => "moderate",
+                    "moderate" | "" => "strict",
+                    "strict" => "off",
+                    _ => "moderate",
+                };
+                self.config.duckduckgo_safe_search = next.to_string();
                 self.sync_config_to_daemon();
             }
             "firecrawl_api_key" => self
