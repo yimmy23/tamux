@@ -31,6 +31,179 @@ fn drain_daemon_commands(
     commands
 }
 
+fn render_plain_rows(model: &mut TuiModel) -> Vec<String> {
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("render should succeed");
+
+    let buffer = terminal.backend().buffer();
+    (0..model.height)
+        .map(|y| {
+            (0..model.width)
+                .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                .collect::<String>()
+        })
+        .collect()
+}
+
+#[test]
+fn active_thread_activity_uses_sticky_chat_row_not_input_placeholder() {
+    let mut model = build_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model.set_active_thread_activity("thinking");
+
+    assert_eq!(model.footer_activity_text().as_deref(), Some("thinking"));
+    assert!(
+        model.actions_bar_visible(),
+        "thread activity should reserve the sticky row above the composer"
+    );
+
+    let input_start_row = model.height.saturating_sub(model.input_height() + 1);
+    let activity_row = input_start_row.saturating_sub(1) as usize;
+    let input_rows = input_start_row as usize..model.height.saturating_sub(1) as usize;
+    let rows = render_plain_rows(&mut model);
+    let input_text = input_rows
+        .map(|row| rows.get(row).cloned().unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        rows.get(activity_row).is_some_and(|row| row.contains("thinking")),
+        "activity should render in the sticky chat row: {}",
+        rows.join("\n")
+    );
+    assert!(
+        !input_text.contains("thinking"),
+        "activity should not render in the input composer placeholder: {input_text}"
+    );
+}
+
+#[test]
+fn sticky_thread_activity_uses_generic_phase_labels_with_top_padding() {
+    let mut model = build_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.set_active_thread_activity("reasoning");
+    model.tick_counter = 0; // Ensure the first variant is selected
+    let input_start_row = model.height.saturating_sub(model.input_height() + 1);
+    let padding_row = input_start_row.saturating_sub(2) as usize;
+    let activity_row = input_start_row.saturating_sub(1) as usize;
+    let rows = render_plain_rows(&mut model);
+    assert!(
+        rows.get(padding_row).is_some_and(|row| row.trim().is_empty()),
+        "sticky activity should reserve a small top spacer: {}",
+        rows.join("\n")
+    );
+    assert!(
+        rows.get(activity_row).is_some_and(|row| row.contains("thinking")),
+        "reasoning activity should use a generic thinking label: {}",
+        rows.join("\n")
+    );
+
+    model.set_active_thread_activity("⚙  fetch_gateway_history");
+    model.tick_counter = 0; // Ensure the first variant is selected
+    let rows = render_plain_rows(&mut model);
+    assert!(
+        rows.get(activity_row)
+            .is_some_and(|row| row.contains("calling tools")),
+        "tool activity should use a generic tools label: {}",
+        rows.join("\n")
+    );
+    assert!(
+        !rows.join("\n").contains("fetch_gateway_history"),
+        "sticky activity should not duplicate the active tool name"
+    );
+
+    model.set_active_thread_activity("writing");
+    model.tick_counter = 0; // Ensure the first variant is selected
+    let rows = render_plain_rows(&mut model);
+    assert!(
+        rows.get(activity_row).is_some_and(|row| row.contains("crafting")),
+        "message delta activity should use a generic crafting label: {}",
+        rows.join("\n")
+    );
+}
+
+#[test]
+fn sticky_thread_activity_phase_labels_rotate_during_same_event() {
+    let mut model = build_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    let mut reasoning_labels = std::collections::BTreeSet::new();
+    for tick in [0, 40, 80, 120] {
+        model.tick_counter = tick;
+        model.set_active_thread_activity("reasoning");
+        let rows = render_plain_rows(&mut model);
+        let activity_row = model
+            .height
+            .saturating_sub(model.input_height() + 1)
+            .saturating_sub(1) as usize;
+        reasoning_labels.insert(rows.get(activity_row).cloned().unwrap_or_default());
+    }
+    assert!(
+        reasoning_labels.len() >= 4,
+        "reasoning should rotate through several labels: {reasoning_labels:?}"
+    );
+
+    let mut tool_labels = std::collections::BTreeSet::new();
+    for tick in [0, 40, 80, 120] {
+        model.tick_counter = tick;
+        model.set_active_thread_activity("⚙  fetch_gateway_history");
+        let rows = render_plain_rows(&mut model);
+        let activity_row = model
+            .height
+            .saturating_sub(model.input_height() + 1)
+            .saturating_sub(1) as usize;
+        tool_labels.insert(rows.get(activity_row).cloned().unwrap_or_default());
+    }
+    assert!(
+        tool_labels.len() >= 4,
+        "tool use should rotate through several labels: {tool_labels:?}"
+    );
+
+    let mut writing_labels = std::collections::BTreeSet::new();
+    for tick in [0, 40, 80, 120] {
+        model.tick_counter = tick;
+        model.set_active_thread_activity("writing");
+        let rows = render_plain_rows(&mut model);
+        let activity_row = model
+            .height
+            .saturating_sub(model.input_height() + 1)
+            .saturating_sub(1) as usize;
+        writing_labels.insert(rows.get(activity_row).cloned().unwrap_or_default());
+    }
+    assert!(
+        writing_labels.len() >= 4,
+        "message output should rotate through several labels: {writing_labels:?}"
+    );
+}
+
 #[test]
 fn background_delta_isolated_to_origin_thread_until_switch() {
     let mut model = build_model();
