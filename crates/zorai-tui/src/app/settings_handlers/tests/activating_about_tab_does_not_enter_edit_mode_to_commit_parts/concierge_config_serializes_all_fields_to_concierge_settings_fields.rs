@@ -24,6 +24,38 @@ fn concierge_config_serializes_all_fields() {
 }
 
 #[test]
+fn concierge_config_write_requests_fresh_settings_snapshot() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.concierge.provider = Some("anthropic".to_string());
+    model.concierge.model = Some("claude-sonnet-4-5".to_string());
+
+    model.send_concierge_config();
+
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::SetConciergeConfig(_))
+    ));
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::GetConciergeConfig)
+    ));
+}
+
+fn expect_concierge_config_update(
+    daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
+) -> serde_json::Value {
+    let payload = match daemon_rx.try_recv() {
+        Ok(DaemonCommand::SetConciergeConfig(payload)) => payload,
+        other => panic!("expected concierge config update, got {other:?}"),
+    };
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::GetConciergeConfig)
+    ));
+    serde_json::from_str(&payload).expect("json")
+}
+
+#[test]
 fn concierge_settings_fields_dispatch_expected_actions() {
     let (mut model, mut daemon_rx) = make_model();
     model
@@ -37,13 +69,8 @@ fn concierge_settings_fields_dispatch_expected_actions() {
         modal::ModalKind::Settings,
     );
     assert!(!quit);
-    match daemon_rx.try_recv() {
-        Ok(DaemonCommand::SetConciergeConfig(payload)) => {
-            let json: serde_json::Value = serde_json::from_str(&payload).expect("json");
-            assert_eq!(json["enabled"], false);
-        }
-        other => panic!("expected concierge config update, got {other:?}"),
-    }
+    let json = expect_concierge_config_update(&mut daemon_rx);
+    assert_eq!(json["enabled"], false);
 
     focus_settings_field(&mut model, SettingsTab::Concierge, "concierge_detail_level");
     let quit = model.handle_key_modal(
@@ -52,13 +79,8 @@ fn concierge_settings_fields_dispatch_expected_actions() {
         modal::ModalKind::Settings,
     );
     assert!(!quit);
-    match daemon_rx.try_recv() {
-        Ok(DaemonCommand::SetConciergeConfig(payload)) => {
-            let json: serde_json::Value = serde_json::from_str(&payload).expect("json");
-            assert_eq!(json["detail_level"], "daily_briefing");
-        }
-        other => panic!("expected concierge detail update, got {other:?}"),
-    }
+    let json = expect_concierge_config_update(&mut daemon_rx);
+    assert_eq!(json["detail_level"], "daily_briefing");
 
     focus_settings_field(&mut model, SettingsTab::Concierge, "concierge_provider");
     let quit = model.handle_key_modal(

@@ -161,6 +161,18 @@ fn raw_mode_guard_requests_only_disambiguate_enhancement_flag() {
 }
 
 #[test]
+fn selection_screen_enter_output_uses_alternate_screen() {
+    let mut output = Vec::new();
+
+    terminal_ui::write_selection_screen_enter(&mut output).expect("write enter sequence");
+
+    let output = String::from_utf8(output).expect("ansi output should be utf8");
+    assert!(output.contains("\x1b[?1049h"));
+    assert!(output.contains("\x1b[2J"));
+    assert!(output.contains("\x1b[1;1H"));
+}
+
+#[test]
 fn actionable_key_event_kind_accepts_press() {
     assert!(terminal_ui::is_actionable_key_event_kind(
         crossterm::event::KeyEventKind::Press

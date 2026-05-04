@@ -19,6 +19,44 @@ pub(super) fn is_actionable_key_event_kind(kind: KeyEventKind) -> bool {
     matches!(kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }
 
+pub(super) fn write_selection_screen_enter<W: Write>(stdout: &mut W) -> io::Result<()> {
+    use crossterm::{cursor, queue};
+
+    queue!(
+        stdout,
+        terminal::EnterAlternateScreen,
+        cursor::Hide,
+        terminal::Clear(terminal::ClearType::All),
+        cursor::MoveTo(0, 0)
+    )
+}
+
+fn write_selection_screen_leave<W: Write>(stdout: &mut W) -> io::Result<()> {
+    use crossterm::{cursor, queue};
+
+    queue!(stdout, cursor::Show, terminal::LeaveAlternateScreen)
+}
+
+struct SelectionScreenGuard;
+
+impl SelectionScreenGuard {
+    fn new() -> Result<Self> {
+        let mut stdout = io::stdout();
+        write_selection_screen_enter(&mut stdout)
+            .context("Failed to enter setup selection screen")?;
+        stdout.flush()?;
+        Ok(Self)
+    }
+}
+
+impl Drop for SelectionScreenGuard {
+    fn drop(&mut self) {
+        let mut stdout = io::stdout();
+        let _ = write_selection_screen_leave(&mut stdout);
+        let _ = stdout.flush();
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SelectMove {
     Previous,
@@ -107,6 +145,7 @@ pub(super) fn select_list(
     let mut selected: usize = default_index.min(items.len().saturating_sub(1));
     let _raw_mode = RawModeGuard::new()?;
     let _mouse_capture = MouseCaptureGuard::new()?;
+    let _selection_screen = SelectionScreenGuard::new()?;
 
     (|| -> Result<Option<usize>> {
         loop {
@@ -115,6 +154,8 @@ pub(super) fn select_list(
             let end = start.saturating_add(visible_capacity).min(items.len());
             queue!(
                 stdout,
+                cursor::MoveTo(0, 0),
+                terminal::Clear(terminal::ClearType::All),
                 style::SetForegroundColor(style::Color::White),
                 style::SetAttribute(style::Attribute::Bold),
                 style::Print(title),
@@ -221,16 +262,6 @@ pub(super) fn select_list(
                 },
                 _ => {}
             }
-
-            let lines_to_clear = title.lines().count().max(1)
-                + 2
-                + end.saturating_sub(start)
-                + usize::from(items.len() > end.saturating_sub(start));
-            execute!(
-                stdout,
-                cursor::MoveUp(lines_to_clear as u16),
-                terminal::Clear(terminal::ClearType::FromCursorDown),
-            )?;
         }
     })()
 }
@@ -247,6 +278,7 @@ pub(super) fn select_rich_list(
     let mut selected: usize = default_index.min(items.len().saturating_sub(1));
     let _raw_mode = RawModeGuard::new()?;
     let _mouse_capture = MouseCaptureGuard::new()?;
+    let _selection_screen = SelectionScreenGuard::new()?;
 
     (|| -> Result<Option<usize>> {
         loop {
@@ -263,6 +295,8 @@ pub(super) fn select_rich_list(
             let end = start.saturating_add(visible_capacity).min(items.len());
             queue!(
                 stdout,
+                cursor::MoveTo(0, 0),
+                terminal::Clear(terminal::ClearType::All),
                 style::SetForegroundColor(style::Color::White),
                 style::SetAttribute(style::Attribute::Bold),
                 style::Print(title),
@@ -386,17 +420,6 @@ pub(super) fn select_rich_list(
                 },
                 _ => {}
             }
-
-            let lines_to_clear = title.lines().count()
-                + 2
-                + end.saturating_sub(start)
-                + usize::from(selected_has_subtitle)
-                + usize::from(items.len() > end.saturating_sub(start));
-            execute!(
-                stdout,
-                cursor::MoveUp(lines_to_clear as u16),
-                terminal::Clear(terminal::ClearType::FromCursorDown),
-            )?;
         }
     })()
 }

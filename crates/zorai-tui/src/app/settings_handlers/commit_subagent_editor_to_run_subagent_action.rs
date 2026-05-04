@@ -285,6 +285,7 @@ impl TuiModel {
                 serde_json::Value::Bool(self.concierge.openrouter_allow_fallbacks);
         }
         self.send_daemon_command(DaemonCommand::SetConciergeConfig(config.to_string()));
+        self.send_daemon_command(DaemonCommand::GetConciergeConfig);
     }
 
     fn open_concierge_openrouter_provider_picker(&mut self, target: SettingsPickerTarget) {
