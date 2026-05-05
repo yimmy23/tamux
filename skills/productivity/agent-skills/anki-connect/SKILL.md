@@ -1,6 +1,8 @@
 ---
 name: anki-connect
 description: This skill is for interacting with Anki through AnkiConnect, and should be used whenever a user asks to interact with Anki, including to read or modify decks, notes, cards, models, media, or sync operations.
+
+tags: [productivity, agent-skills, anki-connect]
 ---
 
 # AnkiConnect

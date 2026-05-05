@@ -2,6 +2,7 @@
 name: geniml
 description: This skill should be used when working with genomic interval data (BED files) for machine learning tasks. Use for training region embeddings (Region2Vec, BEDspace), single-cell ATAC-seq analysis (scEmbed), building consensus peaks (universes), or any ML-based analysis of genomic regions. Applies to BED file collections, scATAC-seq data, chromatin accessibility datasets, and region-based genomic feature learning.
 license: BSD-2-Clause license
+tags: [scientific-skills, geniml, machine-learning, bioinformatics]
 metadata:
     skill-author: K-Dense Inc.
 ---

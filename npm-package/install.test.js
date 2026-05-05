@@ -25,6 +25,7 @@ test("getReleaseAssetInfo maps linux x64 to published zip asset names", function
       "zorai-mcp",
       "zorai-desktop",
     ],
+    requiredAssets: [],
   });
 });
 
@@ -43,8 +44,23 @@ test("getReleaseAssetInfo maps linux arm64 to published zip asset names", functi
       "zorai-tui",
       "zorai-gateway",
       "zorai-mcp",
+      "zorai-desktop",
     ],
+    requiredAssets: [],
   });
+});
+
+test("getReleaseAssetInfo maps macOS targets to full desktop npm installs", function () {
+  for (const arch of ["x64", "arm64"]) {
+    const info = install.getReleaseAssetInfo("darwin", arch, "0.2.0");
+
+    assert.ok(info, "expected macOS " + arch + " release info");
+    assert.ok(
+      info.requiredBinaries.includes("zorai-desktop"),
+      "macOS " + arch + " should install a desktop launcher"
+    );
+    assert.deepEqual(info.requiredAssets, ["zorai-desktop.app.zip"]);
+  }
 });
 
 test("getReleaseAssetInfo maps windows x64 to published zip asset names", function () {
@@ -64,6 +80,28 @@ test("getReleaseAssetInfo maps windows x64 to published zip asset names", functi
       "zorai-mcp.exe",
       "zorai-desktop.exe",
     ],
+    requiredAssets: [],
+  });
+});
+
+test("getReleaseAssetInfo maps windows arm64 to published zip asset names", function () {
+  const info = install.getReleaseAssetInfo("win32", "arm64", "0.2.0");
+
+  assert.deepEqual(info, {
+    archiveName: "zorai-windows-arm64.zip",
+    checksumName: "SHA256SUMS-windows-arm64.txt",
+    bundleChecksumName: "SHA256SUMS.txt",
+    skillsArchiveRoot: "skills",
+    guidelinesArchiveRoot: "guidelines",
+    requiredBinaries: [
+      "zorai.exe",
+      "zorai-daemon.exe",
+      "zorai-tui.exe",
+      "zorai-gateway.exe",
+      "zorai-mcp.exe",
+      "zorai-desktop.exe",
+    ],
+    requiredAssets: [],
   });
 });
 

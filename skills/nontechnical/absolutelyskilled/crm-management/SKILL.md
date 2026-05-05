@@ -7,8 +7,8 @@ description: >
   Salesforce, HubSpot, CRM workflows, pipeline management, deal stages,
   forecasting, CRM automation, and any task requiring CRM architecture
   or process optimization.
+tags: [crm, salesforce, hubspot, pipeline, forecasting, automation, workflow, sales, performance, finance]
 category: sales
-tags: [crm, salesforce, hubspot, pipeline, forecasting, automation]
 recommended_skills: [sales-playbook, lead-scoring, account-management, sales-enablement]
 platforms:
   - claude-code

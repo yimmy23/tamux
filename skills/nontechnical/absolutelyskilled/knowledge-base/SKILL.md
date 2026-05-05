@@ -6,8 +6,8 @@ description: >
   or optimizing search and self-service. Triggers on knowledge base, help center,
   support articles, self-service, article templates, search optimization,
   content taxonomy, and any task requiring help documentation design or management.
+tags: [knowledge-base, help-center, self-service, articles, documentation, experimental-design, writing, performance, search]
 category: operations
-tags: [knowledge-base, help-center, self-service, articles, documentation]
 recommended_skills: [customer-support-ops, internal-docs, technical-writing, second-brain]
 platforms:
   - claude-code

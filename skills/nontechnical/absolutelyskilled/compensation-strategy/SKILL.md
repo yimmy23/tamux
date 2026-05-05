@@ -7,8 +7,8 @@ description: >
   compensation benchmarking, equity grants, stock options, leveling, pay bands,
   total rewards, salary ranges, and any task requiring compensation strategy
   or structure design.
+tags: [compensation, equity, leveling, pay-bands, total-rewards, benefits, experimental-design, strategy]
 category: operations
-tags: [compensation, equity, leveling, pay-bands, total-rewards, benefits]
 recommended_skills: [performance-management, recruiting-ops, financial-modeling, employment-law]
 platforms:
   - claude-code

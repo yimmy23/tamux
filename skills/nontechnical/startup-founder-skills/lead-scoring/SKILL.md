@@ -3,6 +3,8 @@ name: lead-scoring
 description: When a founder needs to qualify inbound leads, define their ICP, build a lead scoring model, set MQL criteria, or route prospects through pipeline stages. Activate when the user mentions lead scoring, ICP, MQL, SQL, lead qualification, inbound leads, or pipeline design.
 related: [cold-outreach, sales-script]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, lead-scoring, workflow, database, experimental-design, sales]
 ---
 
 # Lead Scoring

@@ -10,6 +10,7 @@ if matches!(
         ClientMessage::ListDatabaseTables |
         ClientMessage::QueryDatabaseRows{ .. } |
         ClientMessage::UpdateDatabaseRows{ .. } |
+        ClientMessage::ExecuteDatabaseSql{ .. } |
         ClientMessage::QueueSemanticBackfill{ .. } |
         ClientMessage::GetSemanticIndexStatus{ .. } |
         ClientMessage::GenerateSkill{ .. } |
@@ -300,6 +301,24 @@ if matches!(
                             framed
                                 .send(DaemonMessage::Error {
                                     message: format!("invalid database update payload: {e}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::ExecuteDatabaseSql { sql } => {
+                    match manager.execute_database_sql(&sql).await {
+                        Ok(result) => {
+                            let result_json = serde_json::to_string(&result).unwrap_or_default();
+                            framed
+                                .send(DaemonMessage::DatabaseSqlResult { result_json })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: e.to_string(),
                                 })
                                 .await?;
                         }

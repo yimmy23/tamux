@@ -6,8 +6,8 @@ description: >
   or redlining contracts. Triggers on contract drafting, NDA, MSA, SaaS agreement,
   licensing, redlining, terms of service, data processing agreements, and any
   task requiring commercial contract creation or review.
-category: operations
 tags: [contracts, nda, msa, saas-agreement, licensing, legal]
+category: operations
 recommended_skills: [employment-law, ip-management, privacy-compliance, regulatory-compliance]
 platforms:
   - claude-code

@@ -27,6 +27,7 @@ pub enum ModalKind {
     GoalApprovalRejectPrompt,
     ApprovalCenter,
     OperatorQuestionOverlay,
+    OperatorProfileOnboarding,
     ChatActionConfirm,
     PinnedBudgetExceeded,
     Settings,
@@ -434,4 +435,3 @@ impl WhatsAppLinkState {
         self.last_error.as_deref()
     }
 }
-

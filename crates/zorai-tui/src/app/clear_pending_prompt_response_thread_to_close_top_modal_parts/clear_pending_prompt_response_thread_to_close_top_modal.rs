@@ -40,6 +40,33 @@ impl TuiModel {
                 .unwrap_or(false)
     }
 
+    fn done_arrived_before_pending_prompt_output(&self, thread_id: &str) -> bool {
+        self.pending_prompt_response_threads.contains(thread_id)
+            && self
+                .thread_agent_activity
+                .get(thread_id)
+                .map(String::as_str)
+                == Some("thinking")
+            && !self.chat.is_thread_streaming(thread_id)
+            && self
+                .chat
+                .threads()
+                .iter()
+                .find(|thread| thread.id == thread_id)
+                .and_then(|thread| {
+                    thread
+                        .messages
+                        .iter()
+                        .rev()
+                        .find(|message| {
+                            !message.content.trim().is_empty()
+                                && !matches!(message.role, chat::MessageRole::System)
+                        })
+                        .map(|message| message.role == chat::MessageRole::User)
+                })
+                .unwrap_or(false)
+    }
+
     fn clear_agent_activity_for(&mut self, thread_id: Option<&str>) {
         if let Some(thread_id) = thread_id {
             self.thread_agent_activity.remove(thread_id);
@@ -82,10 +109,12 @@ impl TuiModel {
         self.chat.is_streaming()
     }
 
-    fn clear_expired_queued_prompt_copy_feedback(&mut self) {
+    fn clear_expired_queued_prompt_copy_feedback(&mut self) -> bool {
+        let mut changed = false;
         for prompt in &mut self.queued_prompts {
-            prompt.clear_expired_copy_feedback(self.tick_counter);
+            changed |= prompt.clear_expired_copy_feedback(self.tick_counter);
         }
+        changed
     }
 
     fn sync_queued_prompt_modal_state(&mut self) {
@@ -112,13 +141,14 @@ impl TuiModel {
             return false;
         }
 
-        self.concierge.loading || !self.chat.active_actions().is_empty()
+        self.concierge.loading
+            || !self.chat.active_actions().is_empty()
+            || self.footer_activity_text().is_some()
     }
 
     fn should_show_daemon_connection_loading(&self) -> bool {
         (!self.connected || !self.agent_config_loaded)
             && matches!(self.main_pane_view, MainPaneView::Conversation)
-            && !self.should_show_operator_profile_onboarding()
             && !self.should_show_provider_onboarding()
     }
 
@@ -130,7 +160,6 @@ impl TuiModel {
             && !self.has_mission_control_return_target()
             && !self.chat.is_streaming()
             && !self.concierge.loading
-            && !self.should_show_operator_profile_onboarding()
             && !self.should_show_provider_onboarding()
     }
 
@@ -139,7 +168,6 @@ impl TuiModel {
             && matches!(self.main_pane_view, MainPaneView::Conversation)
             && self.chat.active_thread().is_none()
             && self.chat.streaming_content().is_empty()
-            && !self.should_show_operator_profile_onboarding()
             && !self.concierge.has_active_welcome()
     }
 
@@ -147,7 +175,7 @@ impl TuiModel {
         if self.should_show_concierge_hero_loading() {
             0
         } else if self.actions_bar_visible() {
-            1
+            2
         } else {
             0
         }
@@ -231,7 +259,6 @@ impl TuiModel {
             && matches!(self.main_pane_view, MainPaneView::Conversation)
             && self.chat.active_thread().is_none()
             && self.chat.streaming_content().is_empty()
-            && !self.should_show_operator_profile_onboarding()
     }
 
     fn should_show_operator_profile_onboarding(&self) -> bool {
@@ -247,11 +274,118 @@ impl TuiModel {
         }
     }
 
+    fn normalize_operator_profile_input_kind(input_kind: &str) -> &str {
+        match input_kind {
+            "boolean" | "bool" => "bool",
+            "select" => "select",
+            _ => "text",
+        }
+    }
+
     fn current_operator_profile_select_options(&self) -> Option<&'static [&'static str]> {
         self.operator_profile
             .question
             .as_ref()
-            .and_then(|question| Self::operator_profile_select_options(&question.field_key))
+            .and_then(|question| {
+                if Self::normalize_operator_profile_input_kind(&question.input_kind) == "bool" {
+                    Some(&["yes", "no"][..])
+                } else {
+                    Self::operator_profile_select_options(&question.field_key)
+                }
+            })
+    }
+
+    fn operator_profile_onboarding_view(
+        &self,
+    ) -> widgets::operator_profile_onboarding::OperatorProfileOnboardingView<'_> {
+        let question = self.operator_profile.question.as_ref().map(|question| {
+            widgets::operator_profile_onboarding::OperatorProfileQuestionView {
+                prompt: question.prompt.as_str(),
+                input_kind: question.input_kind.as_str(),
+            }
+        });
+        let progress = self.operator_profile.progress.as_ref().map(|progress| {
+            widgets::operator_profile_onboarding::OperatorProfileProgressView {
+                answered: progress.answered,
+                remaining: progress.remaining,
+                completion_ratio: progress.completion_ratio,
+            }
+        });
+        widgets::operator_profile_onboarding::OperatorProfileOnboardingView { question, progress }
+    }
+
+    fn is_current_operator_profile_bool_question(&self) -> bool {
+        self.operator_profile
+            .question
+            .as_ref()
+            .is_some_and(|question| {
+                Self::normalize_operator_profile_input_kind(&question.input_kind) == "bool"
+            })
+    }
+
+    fn set_operator_profile_bool_answer(&mut self, value: bool) -> bool {
+        if !self.is_current_operator_profile_bool_question() {
+            return false;
+        }
+        self.operator_profile.bool_answer = Some(value);
+        let target = if value { 0 } else { 1 };
+        let current = self.modal.picker_cursor();
+        self.modal
+            .reduce(modal::ModalAction::Navigate(target as i32 - current as i32));
+        self.focus = FocusArea::Chat;
+        true
+    }
+
+    fn open_operator_profile_onboarding_modal(&mut self) {
+        if self.is_current_operator_profile_bool_question() {
+            self.input.set_text("");
+        }
+        if self.modal.top() == Some(modal::ModalKind::OperatorProfileOnboarding) {
+            self.sync_operator_profile_onboarding_item_count();
+            return;
+        }
+        self.modal.reduce(modal::ModalAction::RemoveAll(
+            modal::ModalKind::OperatorProfileOnboarding,
+        ));
+        self.modal.reduce(modal::ModalAction::Push(
+            modal::ModalKind::OperatorProfileOnboarding,
+        ));
+        self.sync_operator_profile_onboarding_item_count();
+    }
+
+    fn close_operator_profile_onboarding_modal(&mut self) {
+        self.modal.reduce(modal::ModalAction::RemoveAll(
+            modal::ModalKind::OperatorProfileOnboarding,
+        ));
+    }
+
+    fn sync_operator_profile_onboarding_item_count(&mut self) {
+        let view = self.operator_profile_onboarding_view();
+        let count = widgets::operator_profile_onboarding::item_count(&view);
+        self.modal.set_picker_item_count(count);
+    }
+
+    fn execute_operator_profile_onboarding_target(
+        &mut self,
+        target: widgets::operator_profile_onboarding::OperatorProfileOnboardingHitTarget,
+    ) -> bool {
+        match target {
+            widgets::operator_profile_onboarding::OperatorProfileOnboardingHitTarget::BoolChoice(
+                value,
+            ) => {
+                self.set_operator_profile_bool_answer(value);
+                self.submit_operator_profile_answer()
+            }
+            widgets::operator_profile_onboarding::OperatorProfileOnboardingHitTarget::Submit => {
+                self.submit_operator_profile_answer()
+            }
+            widgets::operator_profile_onboarding::OperatorProfileOnboardingHitTarget::Skip => {
+                self.skip_operator_profile_question()
+            }
+            widgets::operator_profile_onboarding::OperatorProfileOnboardingHitTarget::Defer => {
+                self.defer_operator_profile_question()
+            }
+        }
     }
 
     fn submit_operator_profile_answer(&mut self) -> bool {
@@ -259,7 +393,8 @@ impl TuiModel {
             return false;
         };
         let answer = self.input.buffer().trim();
-        if answer.is_empty() && !question.optional {
+        let input_kind = Self::normalize_operator_profile_input_kind(&question.input_kind);
+        if answer.is_empty() && !question.optional && input_kind != "bool" {
             self.show_input_notice(
                 "Answer required (Ctrl+S to skip, Ctrl+D to defer)",
                 InputNoticeKind::Warning,
@@ -272,20 +407,12 @@ impl TuiModel {
         let answer_json = if answer.is_empty() && question.optional {
             "null".to_string()
         } else {
-            match question.input_kind.as_str() {
-                "bool" => match answer.to_ascii_lowercase().as_str() {
-                    "true" | "t" | "yes" | "y" | "1" => "true".to_string(),
-                    "false" | "f" | "no" | "n" | "0" => "false".to_string(),
-                    _ => {
-                        self.show_input_notice(
-                            "Use true/false (or yes/no) for this question",
-                            InputNoticeKind::Warning,
-                            80,
-                            true,
-                        );
-                        return true;
-                    }
-                },
+            match input_kind {
+                "bool" => self
+                    .operator_profile
+                    .bool_answer
+                    .unwrap_or(true)
+                    .to_string(),
                 "select" => {
                     let normalized = answer.to_ascii_lowercase();
                     if let Some(options) =
@@ -322,6 +449,7 @@ impl TuiModel {
 
         self.operator_profile.loading = true;
         self.operator_profile.question = None;
+        self.operator_profile.bool_answer = None;
         self.operator_profile.warning = None;
         self.send_daemon_command(DaemonCommand::SubmitOperatorProfileAnswer {
             session_id: question.session_id,
@@ -339,6 +467,7 @@ impl TuiModel {
         };
         self.operator_profile.loading = true;
         self.operator_profile.question = None;
+        self.operator_profile.bool_answer = None;
         self.operator_profile.warning = None;
         self.send_daemon_command(DaemonCommand::SkipOperatorProfileQuestion {
             session_id: question.session_id,
@@ -358,19 +487,23 @@ impl TuiModel {
             .duration_since(std::time::UNIX_EPOCH)
             .ok()
             .map(|duration| duration.as_millis() as u64 + 24 * 60 * 60 * 1_000);
-        self.operator_profile.loading = true;
+        self.operator_profile.visible = false;
+        self.operator_profile.loading = false;
+        self.operator_profile.deferred_session_id = Some(question.session_id.clone());
+        self.operator_profile.session_id = None;
         self.operator_profile.question = None;
+        self.operator_profile.bool_answer = None;
         self.operator_profile.warning = None;
+        self.close_operator_profile_onboarding_modal();
         self.send_daemon_command(DaemonCommand::DeferOperatorProfileQuestion {
             session_id: question.session_id,
             question_id: question.question_id,
             defer_until_unix_ms,
         });
         self.input.reduce(input::InputAction::Clear);
-        self.status_line = "Deferring operator profile question for 24h…".to_string();
+        self.status_line = "Deferring operator profile onboarding for 24h…".to_string();
         true
     }
-
     fn open_settings_tab(&mut self, tab: SettingsTab) {
         if self.modal.top() != Some(modal::ModalKind::Settings) {
             self.modal

@@ -3,6 +3,8 @@ name: process-docs
 description: When the user needs to create SOPs, playbooks, runbooks, or other operational documentation that defines how a recurring process should be executed.
 related: [support-docs, board-update]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, process-docs, documentation]
 ---
 
 # Process Documentation

@@ -395,13 +395,15 @@ impl QueuedPrompt {
         self.copied_until_tick = Some(expires_at_tick);
     }
 
-    fn clear_expired_copy_feedback(&mut self, current_tick: u64) {
+    fn clear_expired_copy_feedback(&mut self, current_tick: u64) -> bool {
         if self
             .copied_until_tick
             .is_some_and(|expires_at| current_tick >= expires_at)
         {
             self.copied_until_tick = None;
+            return true;
         }
+        false
     }
 
     pub(crate) fn display_text(&self) -> String {
@@ -472,6 +474,8 @@ struct OperatorProfileOnboardingState {
     progress: Option<OperatorProfileProgressVm>,
     summary_json: Option<String>,
     warning: Option<String>,
+    bool_answer: Option<bool>,
+    deferred_session_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -495,4 +499,3 @@ enum PendingWorkspaceActorPickerTarget {
     CreateForm,
     EditForm,
 }
-

@@ -1,6 +1,7 @@
 ---
 name: reddit-posts
 description: When the user wants to create Reddit post copy, comments, or optimize for Reddit. Also use when the user mentions "Reddit post," "subreddit," "r/," "Reddit marketing," "post to Reddit," "Reddit thread," "Reddit comment," "Reddit copy," "Reddit content," or "Reddit engagement." For Reddit ads, use reddit-ads.
+tags: [nontechnical, marketing-skills, reddit-posts, writing, marketing]
 metadata:
   version: 1.0.1
 ---

@@ -1,6 +1,8 @@
 ---
 name: btw
 description: Ask a quick side question about your current work without derailing the main task. Answers from existing conversation context only — no tool calls, no file reads, single concise response. Use when you need a fast answer from what is already in this session.
+
+tags: [gsd-2, skills, btw]
 ---
 
 <objective>

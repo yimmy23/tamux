@@ -1,6 +1,8 @@
 ---
 name: review
 description: Review code changes for security, performance, bugs, and quality. Reviews staged changes, unstaged changes, specific commits, or PR-ready diffs.
+
+tags: [gsd-2, skills, review, security, performance]
 ---
 
 <objective>

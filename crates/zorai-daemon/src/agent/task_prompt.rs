@@ -29,6 +29,12 @@ pub(super) fn build_task_prompt(task: &AgentTask) -> String {
         "\nIf this task is large and parallelizable, use spawn_subagent for bounded child work items and monitor them with list_subagents.",
     );
     prompt.push_str(
+        "\nWhen this task involves work on a directory or repository path, explicitly look for `AGENTS.md` in that directory and its nearest relevant parent before planning or editing. If present, read it and follow its repo-specific instructions.",
+    );
+    prompt.push_str(
+        "\nWhen delegating directory or repository work with spawn_subagent, include that `AGENTS.md` path in the child assignment when one exists and tell the child to read it first.",
+    );
+    prompt.push_str(
         "\nDo not use list_agents to check spawned child progress, and do not busy-wait on active subagents. If delegation is in flight and no other useful work remains, send a concise progress update and stop so zorai can resume you when children finish.",
     );
 
@@ -604,6 +610,17 @@ mod tests {
             supervisor_config: None,
             sub_agent_def_id: None,
         }
+    }
+
+    #[test]
+    fn build_task_prompt_requires_agents_md_lookup_for_directory_work() {
+        let prompt = build_task_prompt(&sample_task());
+
+        assert!(prompt.contains("AGENTS.md"));
+        assert!(prompt.contains("directory or repository path"));
+        assert!(prompt.contains("nearest relevant parent"));
+        assert!(prompt.contains("spawn_subagent"));
+        assert!(prompt.contains("include that `AGENTS.md` path"));
     }
 
     #[test]

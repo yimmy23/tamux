@@ -1,6 +1,7 @@
 ---
 name: linkedin-posts
 description: When the user wants to create LinkedIn post copy or optimize for LinkedIn. Also use when the user mentions "LinkedIn post," "LinkedIn article," "professional post," "post to LinkedIn," "LinkedIn content," "LinkedIn copy," "B2B LinkedIn," "LinkedIn engagement," "LinkedIn feed," "share box," "document post," "poll," "Newsletter," "reshare," or "LinkedIn marketing." For LinkedIn ads, use linkedin-ads.
+tags: [nontechnical, marketing-skills, linkedin-posts, writing, marketing]
 metadata:
   version: 1.2.0
 ---

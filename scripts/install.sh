@@ -14,7 +14,8 @@ GITHUB_REPO="zorai"
 GITHUB_API_URL="https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}"
 DOWNLOAD_BASE_URL="https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download"
 DIRECT_INSTALL_MARKER="${INSTALL_DIR}/.zorai-install-source"
-BINARIES="zorai zorai-daemon zorai-tui zorai-gateway zorai-mcp"
+BINARIES="zorai zorai-daemon zorai-tui zorai-gateway zorai-mcp zorai-desktop"
+ASSETS=""
 DRY_RUN=false
 
 for arg in "$@"; do
@@ -72,10 +73,12 @@ detect_platform() {
     darwin:x86_64|darwin:amd64)
       archive_platform="darwin-x86_64"
       checksum_platform="darwin-x86_64"
+      ASSETS="zorai-desktop.app.zip"
       ;;
     darwin:arm64|darwin:aarch64)
       archive_platform="darwin-arm64"
       checksum_platform="darwin-arm64"
+      ASSETS="zorai-desktop.app.zip"
       ;;
     *) die "Unsupported architecture for $platform: $arch_name" ;;
   esac
@@ -193,6 +196,20 @@ verify_binary() {
   fi
 }
 
+verify_asset() {
+  asset_name="$1"
+  expected_hash="$(lookup_checksum "$asset_name")"
+
+  if [ -z "$expected_hash" ]; then
+    die "Checksum not found for ${asset_name} in ${checksum_name}"
+  fi
+
+  actual_hash="$(sha256_file "$EXTRACT_DIR/$asset_name")"
+  if [ "$actual_hash" != "$expected_hash" ]; then
+    die "SHA256 mismatch for ${asset_name}"
+  fi
+}
+
 install_binaries() {
   verify_extracted_binaries="${1:-true}"
   mkdir -p "$INSTALL_DIR"
@@ -215,6 +232,26 @@ install_binaries() {
   } > "$DIRECT_INSTALL_MARKER"
 
   echo "Installed: ${BINARIES} -> ${INSTALL_DIR}"
+}
+
+install_assets() {
+  verify_extracted_assets="${1:-true}"
+  mkdir -p "$INSTALL_DIR"
+
+  for asset_name in $ASSETS; do
+    if [ ! -f "$EXTRACT_DIR/$asset_name" ]; then
+      die "Release bundle is missing required asset ${asset_name}"
+    fi
+
+    if [ "$verify_extracted_assets" = true ]; then
+      verify_asset "$asset_name"
+    fi
+    cp "$EXTRACT_DIR/$asset_name" "$INSTALL_DIR/$asset_name"
+  done
+
+  if [ -n "$ASSETS" ]; then
+    echo "Installed assets: ${ASSETS} -> ${INSTALL_DIR}"
+  fi
 }
 
 install_cli_alias() {
@@ -332,6 +369,7 @@ if [ "$DRY_RUN" = true ]; then
   echo "Skills directory: ${SKILLS_DIR}"
   echo "Guidelines directory: ${GUIDELINES_DIR}"
   echo "Binaries: ${BINARIES}"
+  echo "Assets: ${ASSETS:-none}"
   echo "Dry run complete -- no files downloaded or modified."
   exit 0
 fi
@@ -360,6 +398,7 @@ extract_archive
 
 echo "Verifying extracted binaries..."
 install_binaries "$verify_extracted_binaries"
+install_assets "$verify_extracted_binaries"
 install_cli_alias
 install_skills
 install_guidelines

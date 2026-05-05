@@ -105,6 +105,49 @@ fn reconnect_config_load_restores_last_thread_instead_of_requesting_concierge() 
 }
 
 #[test]
+fn reconnect_config_load_still_requests_operator_profile_autostart_summary() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Recovered Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.handle_reconnecting_event(3);
+    model.handle_connected_event();
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.handle_agent_config_raw_event(serde_json::json!({
+        "provider": PROVIDER_ID_OPENAI,
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-5.4",
+    }));
+
+    let mut saw_summary = false;
+    let mut saw_welcome = false;
+    while let Ok(command) = daemon_rx.try_recv() {
+        match command {
+            DaemonCommand::GetOperatorProfileSummary => saw_summary = true,
+            DaemonCommand::RequestConciergeWelcome => saw_welcome = true,
+            _ => {}
+        }
+    }
+
+    assert!(
+        saw_summary,
+        "operator profile autostart should not depend on showing concierge welcome"
+    );
+    assert!(
+        !saw_welcome,
+        "reconnect restore should still avoid replacing the restored thread with concierge"
+    );
+}
+
+#[test]
 fn reconnect_restore_resumes_thread_only_if_it_was_streaming_before_disconnect() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
@@ -318,6 +361,40 @@ fn operator_profile_completion_starts_concierge_loading_before_response() {
 }
 
 #[test]
+fn operator_profile_completion_preserves_active_concierge_welcome() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.handle_concierge_welcome_event(
+        "Existing welcome".to_string(),
+        vec![crate::state::ConciergeActionVm {
+            label: "Resume".to_string(),
+            action_type: "resume".to_string(),
+            thread_id: None,
+        }],
+    );
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.operator_profile.visible = true;
+    model.operator_profile.loading = true;
+    model.handle_operator_profile_session_completed_event(
+        "session-1".to_string(),
+        vec!["enabled".to_string()],
+    );
+
+    assert!(model.concierge.has_active_welcome());
+    assert_eq!(
+        model.concierge.welcome_content.as_deref(),
+        Some("Existing welcome")
+    );
+    assert!(!model.concierge.loading);
+    while let Ok(command) = daemon_rx.try_recv() {
+        assert!(
+            !matches!(command, DaemonCommand::RequestConciergeWelcome),
+            "completion should not request a replacement welcome while one is active"
+        );
+    }
+}
+
+#[test]
 fn partial_concierge_welcome_keeps_loading_animation_until_final_actions_arrive() {
     let mut model = make_model();
 
@@ -356,6 +433,119 @@ fn partial_concierge_welcome_keeps_loading_animation_until_final_actions_arrive(
     assert!(
         !model.concierge.loading,
         "final concierge welcome should clear the loading animation"
+    );
+}
+
+#[test]
+fn final_concierge_welcome_requests_operator_profile_autostart_after_incomplete_summary() {
+    let (_event_tx, event_rx) = std::sync::mpsc::channel();
+    let (daemon_tx, mut daemon_rx) = unbounded_channel();
+    let mut model = TuiModel::new(event_rx, daemon_tx);
+
+    model.handle_concierge_welcome_event(
+        "Final welcome".to_string(),
+        vec![crate::state::ConciergeActionVm {
+            label: "Send a message".to_string(),
+            action_type: "focus_chat".to_string(),
+            thread_id: None,
+        }],
+    );
+
+    let mut requested_summary = false;
+    while let Ok(command) = daemon_rx.try_recv() {
+        if matches!(
+            command,
+            crate::state::DaemonCommand::GetOperatorProfileSummary
+        ) {
+            requested_summary = true;
+            break;
+        }
+    }
+    assert!(
+        requested_summary,
+        "final concierge welcome should request profile summary before auto-starting onboarding"
+    );
+
+    model.handle_client_event(ClientEvent::OperatorProfileSummary {
+        summary_json: serde_json::json!({
+            "field_count": 0,
+            "fields": {},
+            "consents": {
+                "enabled": true
+            }
+        })
+        .to_string(),
+    });
+
+    let mut started_onboarding = false;
+    while let Ok(command) = daemon_rx.try_recv() {
+        if matches!(
+            command,
+            crate::state::DaemonCommand::StartOperatorProfileSession { kind }
+                if kind == "first_run_onboarding"
+        ) {
+            started_onboarding = true;
+            break;
+        }
+    }
+    assert!(
+        started_onboarding,
+        "incomplete profile summary should start first-run operator profile onboarding"
+    );
+}
+
+#[test]
+fn final_concierge_welcome_skips_operator_profile_autostart_after_consent_summary() {
+    let (_event_tx, event_rx) = std::sync::mpsc::channel();
+    let (daemon_tx, mut daemon_rx) = unbounded_channel();
+    let mut model = TuiModel::new(event_rx, daemon_tx);
+
+    model.handle_concierge_welcome_event(
+        "Final welcome".to_string(),
+        vec![crate::state::ConciergeActionVm {
+            label: "Send a message".to_string(),
+            action_type: "focus_chat".to_string(),
+            thread_id: None,
+        }],
+    );
+
+    while let Ok(command) = daemon_rx.try_recv() {
+        if matches!(
+            command,
+            crate::state::DaemonCommand::GetOperatorProfileSummary
+        ) {
+            break;
+        }
+    }
+
+    model.handle_client_event(ClientEvent::OperatorProfileSummary {
+        summary_json: serde_json::json!({
+            "model": {},
+            "consents": {
+                "enabled": true,
+                "allow_message_statistics": false,
+                "allow_approval_learning": true,
+                "allow_attention_tracking": false,
+                "allow_implicit_feedback": true
+            }
+        })
+        .to_string(),
+    });
+
+    let mut started_onboarding = false;
+    while let Ok(command) = daemon_rx.try_recv() {
+        if matches!(
+            command,
+            crate::state::DaemonCommand::StartOperatorProfileSession { kind }
+                if kind == "first_run_onboarding"
+        ) {
+            started_onboarding = true;
+            break;
+        }
+    }
+    assert!(
+        !started_onboarding,
+        "completed consent summary should not reopen first-run operator profile onboarding"
     );
 }
 
@@ -456,4 +646,3 @@ fn tts_request_surfaces_pending_footer_activity_until_audio_starts() {
         "pending TTS activity should clear once audio is ready to play"
     );
 }
-

@@ -7,8 +7,8 @@ description: >
   on GDPR, CCPA, data privacy, consent management, DPIA, data subject rights,
   privacy policy, cookie consent, and any task requiring privacy regulation
   compliance or data protection design.
+tags: [privacy, gdpr, ccpa, consent, dpia, data-protection, experimental-design, compliance]
 category: operations
-tags: [privacy, gdpr, ccpa, consent, dpia, data-protection]
 recommended_skills: [regulatory-compliance, appsec-owasp, cloud-security, contract-drafting]
 platforms:
   - claude-code

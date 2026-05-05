@@ -1801,7 +1801,10 @@ async fn supervise_stalled_turns_recovers_recent_subagent_tool_loop_via_task_ret
             tool_blacklist: None,
             override_provider: None,
             override_model: None,
-            override_system_prompt: None,
+            override_system_prompt: Some(
+                "Agent persona: Dazhbog\nAgent persona id: dazhbog\nTask-owned builtin persona."
+                    .to_string(),
+            ),
             context_budget_tokens: None,
             context_overflow_action: None,
             termination_conditions: None,
@@ -1891,6 +1894,15 @@ async fn supervise_stalled_turns_recovers_recent_subagent_tool_loop_via_task_ret
         message.role == MessageRole::Assistant
             && message.content.contains("Recovered child thread.")
     }));
+    let dm_thread_id =
+        crate::agent::agent_identity::internal_dm_thread_id(WELES_AGENT_ID, "dazhbog");
+    let dm_thread = threads
+        .get(&dm_thread_id)
+        .expect("stalled-turn recovery should notify the owning subagent");
+    assert_eq!(
+        dm_thread.agent_name.as_deref(),
+        Some(crate::agent::agent_identity::DAZHBOG_AGENT_NAME)
+    );
 }
 
 #[tokio::test]

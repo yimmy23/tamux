@@ -3,6 +3,7 @@ name: pyzotero
 description: Interact with Zotero reference management libraries using the pyzotero Python client. Retrieve, create, update, and delete items, collections, tags, and attachments via the Zotero Web API v3. Use this skill when working with Zotero libraries programmatically, managing bibliographic references, exporting citations, searching library contents, uploading PDF attachments, or building research automation workflows that integrate with Zotero.
 allowed-tools: Read Write Edit Bash
 license: MIT License
+tags: [scientific-skills, pyzotero, python, api, workflow, citation-management]
 metadata:
     skill-author: K-Dense Inc.
 ---

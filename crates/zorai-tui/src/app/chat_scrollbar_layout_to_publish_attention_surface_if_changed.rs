@@ -82,6 +82,9 @@ impl TuiModel {
                     "modal:goal_approval_reject".to_string()
                 }
                 modal::ModalKind::OperatorQuestionOverlay => "modal:operator_question".to_string(),
+                modal::ModalKind::OperatorProfileOnboarding => {
+                    "modal:operator_profile_onboarding".to_string()
+                }
                 modal::ModalKind::ApprovalCenter => "modal:approval_center".to_string(),
                 modal::ModalKind::ChatActionConfirm => "modal:chat_action_confirm".to_string(),
                 modal::ModalKind::PinnedBudgetExceeded => {
@@ -93,12 +96,8 @@ impl TuiModel {
                 modal::ModalKind::GoalPicker => "modal:goal_picker".to_string(),
                 modal::ModalKind::WorkspacePicker => "modal:workspace_picker".to_string(),
                 modal::ModalKind::WorkspaceCreate => "modal:workspace_create".to_string(),
-                modal::ModalKind::WorkspaceCreateTask => {
-                    "modal:workspace_create_task".to_string()
-                }
-                modal::ModalKind::WorkspaceReviewTask => {
-                    "modal:workspace_review_task".to_string()
-                }
+                modal::ModalKind::WorkspaceCreateTask => "modal:workspace_create_task".to_string(),
+                modal::ModalKind::WorkspaceReviewTask => "modal:workspace_review_task".to_string(),
                 modal::ModalKind::WorkspaceEditTask => "modal:workspace_edit_task".to_string(),
                 modal::ModalKind::WorkspaceTaskDetail => "modal:workspace_task_detail".to_string(),
                 modal::ModalKind::WorkspaceTaskHistory => {

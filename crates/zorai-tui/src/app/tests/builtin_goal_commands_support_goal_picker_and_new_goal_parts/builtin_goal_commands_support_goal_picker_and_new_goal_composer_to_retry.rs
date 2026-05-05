@@ -113,8 +113,7 @@
             "upstream transport error".to_string(),
         );
 
-        let input_start_row = model.height.saturating_sub(model.input_height() + 1);
-        let chat_area = Rect::new(0, 3, model.width, input_start_row.saturating_sub(3));
+        let chat_area = model.pane_layout().chat;
         let retry_pos = (chat_area.y..chat_area.y.saturating_add(chat_area.height))
             .find_map(|row| {
                 (chat_area.x..chat_area.x.saturating_add(chat_area.width)).find_map(|column| {
@@ -183,8 +182,7 @@
             "upstream transport error".to_string(),
         );
 
-        let input_start_row = model.height.saturating_sub(model.input_height() + 1);
-        let chat_area = Rect::new(0, 3, model.width, input_start_row.saturating_sub(3));
+        let chat_area = model.pane_layout().chat;
         let retry_pos = (chat_area.y..chat_area.y.saturating_add(chat_area.height))
             .find_map(|row| {
                 (chat_area.x..chat_area.x.saturating_add(chat_area.width)).find_map(|column| {

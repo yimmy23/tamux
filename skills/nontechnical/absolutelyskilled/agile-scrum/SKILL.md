@@ -7,8 +7,8 @@ description: >
   grooming, or team workflow optimization. Triggers on any task involving sprint
   ceremonies, agile metrics, user story writing, capacity planning, or continuous
   improvement processes.
+tags: [agile, scrum, kanban, sprint, estimation, retrospective, strategy, performance, writing, workflow, project-management]
 category: operations
-tags: [agile, scrum, kanban, sprint, estimation, retrospective]
 recommended_skills: [project-execution, user-stories, remote-collaboration, absolute-human]
 platforms:
   - claude-code

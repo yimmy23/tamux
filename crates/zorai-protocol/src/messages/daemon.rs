@@ -179,6 +179,7 @@ pub enum DaemonMessage {
     DatabaseTables { tables_json: String },
     DatabaseRows { rows_json: String },
     DatabaseUpdateAck { updated_rows: usize },
+    DatabaseSqlResult { result_json: String },
     SemanticBackfillQueued { result_json: String },
     SemanticIndexStatus { status_json: String },
 }

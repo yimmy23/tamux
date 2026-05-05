@@ -5,6 +5,7 @@ impl TuiModel {
     ) -> Self {
         let mut system_monitor_sampler = crate::system_monitor::SystemMonitorSampler::new();
         let system_monitor = system_monitor_sampler.sample();
+        let ticks_per_second = (1_000 / TUI_TICK_RATE_MS).max(1);
 
         Self {
             chat: chat::ChatState::new(),
@@ -46,7 +47,8 @@ impl TuiModel {
             next_auto_refresh_tick: 0,
             system_monitor,
             system_monitor_sampler,
-            next_system_monitor_tick: 0,
+            next_system_monitor_tick: ticks_per_second * 3,
+            image_preview_cache_revision: widgets::image_preview::preview_cache_revision(),
             agent_activity: None,
             thread_agent_activity: std::collections::HashMap::new(),
             bootstrap_pending_activity_threads: std::collections::HashSet::new(),
@@ -100,6 +102,8 @@ impl TuiModel {
             pending_reconnect_restore: None,
             pending_goal_hydration_refreshes: std::collections::HashSet::new(),
             ignore_pending_concierge_welcome: false,
+            operator_profile_auto_start_requested: false,
+            operator_profile_auto_start_pending_summary: false,
             gateway_statuses: Vec::new(),
             weles_health: None,
             recent_actions: Vec::new(),
@@ -466,5 +470,4 @@ impl TuiModel {
             .as_deref()
             .unwrap_or("PROMPT")
     }
-
 }

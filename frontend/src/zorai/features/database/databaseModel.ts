@@ -1,4 +1,4 @@
-import type { DatabaseRowUpdate, DatabaseSortState, DatabaseTablePage } from "./databaseTypes";
+import type { DatabaseColumnInfo, DatabaseRow, DatabaseRowUpdate, DatabaseSortState, DatabaseTablePage } from "./databaseTypes";
 
 export const DEFAULT_DATABASE_PAGE_SIZE = 100;
 export const MAX_DATABASE_PAGE_SIZE = 500;
@@ -32,6 +32,78 @@ export function sortDatabaseRowsForDisplay(page: DatabaseTablePage | null, sort:
     if (result !== 0) return result * directionMultiplier;
     return (left.rowid ?? 0) - (right.rowid ?? 0);
   });
+}
+
+export type DatabaseCellCoordinate = {
+  rowIndex: number;
+  columnIndex: number;
+};
+
+export type DatabaseCellSelection = {
+  anchor: DatabaseCellCoordinate;
+  focus: DatabaseCellCoordinate;
+} | null;
+
+export function isDatabaseCellSelected(
+  selection: DatabaseCellSelection,
+  rowIndex: number,
+  columnIndex: number,
+): boolean {
+  if (!selection) return false;
+  const bounds = getDatabaseSelectionBounds(selection);
+  return (
+    rowIndex >= bounds.startRowIndex
+    && rowIndex <= bounds.endRowIndex
+    && columnIndex >= bounds.startColumnIndex
+    && columnIndex <= bounds.endColumnIndex
+  );
+}
+
+export function getDatabaseSelectedDraftKeys(
+  page: DatabaseTablePage | null,
+  rows: DatabaseRow[],
+  columns: DatabaseColumnInfo[],
+  selection: DatabaseCellSelection,
+): string[] {
+  if (!page?.editable || !selection) return [];
+  const bounds = getDatabaseSelectionBounds(selection);
+  const keys: string[] = [];
+  for (let rowIndex = bounds.startRowIndex; rowIndex <= bounds.endRowIndex; rowIndex += 1) {
+    const row = rows[rowIndex];
+    if (!row || typeof row.rowid !== "number") continue;
+    for (let columnIndex = bounds.startColumnIndex; columnIndex <= bounds.endColumnIndex; columnIndex += 1) {
+      const column = columns[columnIndex];
+      if (!column?.editable) continue;
+      const originalValue = row.values[column.name];
+      if (isBlobPlaceholder(originalValue)) continue;
+      keys.push(databaseDraftKey(row.rowid, column.name));
+    }
+  }
+  return keys;
+}
+
+export function applyDatabaseSelectionDraftValue(
+  page: DatabaseTablePage | null,
+  rows: DatabaseRow[],
+  columns: DatabaseColumnInfo[],
+  selection: DatabaseCellSelection,
+  drafts: Record<string, string>,
+  nextValue: string,
+): Record<string, string> {
+  const keys = getDatabaseSelectedDraftKeys(page, rows, columns, selection);
+  if (keys.length === 0) return drafts;
+  const nextDrafts = { ...drafts };
+  for (const key of keys) nextDrafts[key] = nextValue;
+  return nextDrafts;
+}
+
+function getDatabaseSelectionBounds(selection: NonNullable<DatabaseCellSelection>) {
+  return {
+    startRowIndex: Math.min(selection.anchor.rowIndex, selection.focus.rowIndex),
+    endRowIndex: Math.max(selection.anchor.rowIndex, selection.focus.rowIndex),
+    startColumnIndex: Math.min(selection.anchor.columnIndex, selection.focus.columnIndex),
+    endColumnIndex: Math.max(selection.anchor.columnIndex, selection.focus.columnIndex),
+  };
 }
 
 function compareDatabaseValues(left: unknown, right: unknown): number {

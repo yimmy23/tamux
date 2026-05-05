@@ -1,6 +1,8 @@
 ---
 name: ray-so-code-snippet
 description: Generate beautiful code snippet images using ray.so. This skill should be used when the user asks to create a code image, code screenshot, code snippet image, or wants to make their code look pretty for sharing. Saves images locally to the current working directory or a user-specified path.
+
+tags: [productivity, agent-skills, ray-so-code-snippet, computer-vision]
 ---
 
 # ray.so Code Snippet Image Generator

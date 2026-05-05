@@ -1,6 +1,8 @@
 ---
 name: youtube-transcript
 description: Extract transcripts from YouTube videos. Use when the user asks for a transcript, subtitles, or captions of a YouTube video and provides a YouTube URL (youtube.com/watch?v=, youtu.be/, or similar). Supports output with or without timestamps.
+
+tags: [productivity, agent-skills, youtube-transcript]
 ---
 
 # YouTube Transcript

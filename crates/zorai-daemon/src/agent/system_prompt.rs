@@ -112,6 +112,7 @@ pub(super) fn build_system_prompt(
              - Guidelines are documentation-only workflow orchestrators. They should be discovered and read before skill discovery when a task is non-trivial.\n\
              - Use `discover_guidelines` with a brief 3-6 word intent query, then `read_guideline` for the best match. Follow its recommended skills, checks, and step order.\n\
              - Guidelines do not replace skills; they sit above skills and tell you which skills to consult and what failure modes to consider.\n\
+             - When the operator asks for work on a directory or repository path, explicitly look for `AGENTS.md` in that directory and its nearest relevant parent before planning or editing. If present, read it and follow its repo-specific instructions.\n\
 \n\
              ## Local Skills\n\
              - Skills root: {}\n\
@@ -277,6 +278,7 @@ pub(super) fn build_system_prompt(
         "\n\n## Subagent Supervision\n\
          - For large tasks with clearly separable work, call `spawn_subagent` to create bounded child tasks instead of trying to do everything in one loop.\n\
             - If a child should use a specific provider or model, call `fetch_authenticated_providers` first and `fetch_provider_models` for the chosen provider before setting `spawn_subagent.provider` or `spawn_subagent.model`.\n\
+         - When spawning a child for directory or repository work, include the relevant path in the assignment and tell the child to read that `AGENTS.md` first when one exists.\n\
          - Keep each subagent narrow in scope and avoid creating duplicate child assignments.\n\
          - Monitor child progress with `list_subagents` and integrate their results before declaring the parent task complete.\n\
          - Do not use `list_agents` to check spawned child progress; it only lists runtime targets.\n\
@@ -613,6 +615,39 @@ mod tests {
         assert!(prompt.contains(zorai_protocol::tool_names::JUSTIFY_SKILL_SKIP));
         assert!(prompt.contains("source of truth"));
         assert!(prompt.contains(zorai_protocol::tool_names::ONECONTEXT_SEARCH));
+    }
+
+    #[tokio::test]
+    async fn system_prompt_requires_agents_md_lookup_for_directory_work_and_delegation() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let engine =
+            crate::agent::AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let prompt = build_system_prompt(
+            &AgentConfig::default(),
+            "Base prompt",
+            &crate::agent::types::AgentMemory::default(),
+            &crate::agent::task_prompt::memory_paths_for_scope(
+                root.path(),
+                crate::agent::agent_identity::MAIN_AGENT_ID,
+            ),
+            crate::agent::agent_identity::MAIN_AGENT_ID,
+            &engine.list_sub_agents().await,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert!(prompt.contains("AGENTS.md"));
+        assert!(prompt.contains("directory or repository path"));
+        assert!(prompt.contains("nearest relevant parent"));
+        assert!(prompt.contains("spawn_subagent"));
+        assert!(prompt.contains("tell the child to read that `AGENTS.md`"));
     }
 
     #[tokio::test]

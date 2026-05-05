@@ -1,6 +1,7 @@
 ---
 name: copywriting
 description: When the user wants to write or optimize short-form marketing copy—headlines, CTAs, ad copy, landing page copy, email copy. Also use when the user mentions "copywriting," "headline," "CTA copy," "ad copy," "landing page copy," "sales copy," "conversion copy," "PAS," "AIDA," "BAB," "copy formula," or "differentiation." For long-form article bodies (blog posts, guides), use article-content.
+tags: [nontechnical, marketing-skills, copywriting, writing, sales, marketing]
 metadata:
   version: 1.2.0
 ---

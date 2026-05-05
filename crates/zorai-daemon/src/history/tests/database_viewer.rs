@@ -212,3 +212,65 @@ async fn database_viewer_rejects_unknown_update_columns() {
     assert!(error.to_string().contains("unknown column"));
     fs::remove_dir_all(root).expect("cleanup history root");
 }
+
+#[tokio::test]
+async fn database_viewer_executes_sql_select_and_returns_rows() {
+    let (store, root) = make_test_store().await.expect("create history store");
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "CREATE TABLE database_viewer_sql_items (id INTEGER PRIMARY KEY, name TEXT NOT NULL, priority INTEGER)",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO database_viewer_sql_items (name, priority) VALUES ('alpha', 1), ('beta', 2)",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("seed sql console table");
+
+    let result = store
+        .execute_database_sql(
+            "SELECT name, priority FROM database_viewer_sql_items ORDER BY priority DESC",
+        )
+        .await
+        .expect("execute sql select");
+
+    assert_eq!(result.columns, ["name", "priority"]);
+    assert_eq!(result.rows.len(), 2);
+    assert_eq!(result.rows[0]["name"], serde_json::json!("beta"));
+    assert_eq!(result.rows[0]["priority"], serde_json::json!(2));
+    assert_eq!(result.rows_affected, 0);
+
+    fs::remove_dir_all(root).expect("cleanup history root");
+}
+
+#[tokio::test]
+async fn database_viewer_executes_sql_write_and_reports_affected_rows() {
+    let (store, root) = make_test_store().await.expect("create history store");
+
+    let result = store
+        .execute_database_sql(
+            "CREATE TABLE database_viewer_sql_writes (id INTEGER PRIMARY KEY, name TEXT); \
+             INSERT INTO database_viewer_sql_writes (name) VALUES ('created')",
+        )
+        .await
+        .expect("execute sql write batch");
+
+    assert_eq!(result.columns.len(), 0);
+    assert_eq!(result.rows.len(), 0);
+    assert_eq!(result.rows_affected, 1);
+
+    let page = store
+        .query_database_table_rows("database_viewer_sql_writes", 0, 100, None, None)
+        .await
+        .expect("query table created through sql console");
+    assert_eq!(page.total_rows, 1);
+    assert_eq!(page.rows[0].values["name"], serde_json::json!("created"));
+
+    fs::remove_dir_all(root).expect("cleanup history root");
+}

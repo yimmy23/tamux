@@ -7,8 +7,8 @@ description: >
   communication. Triggers on designing async processes, writing RFCs or decision docs,
   preparing meeting agendas, running standups or retros, establishing communication
   norms, reducing meeting load, or improving handoff quality across time zones.
+tags: [remote-work, async, meetings, documentation, collaboration, distributed-teams, writing]
 category: operations
-tags: [remote-work, async, meetings, documentation, collaboration, distributed-teams]
 recommended_skills: [agile-scrum, project-execution, internal-docs, knowledge-base]
 platforms:
   - claude-code

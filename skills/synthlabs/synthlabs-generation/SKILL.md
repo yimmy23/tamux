@@ -1,6 +1,8 @@
 ---
 name: synthlabs-generation
 description: Use when you need to drive SynthLabs generation through backend routes instead of the UI.
+
+tags: [synthlabs, synthlabs-generation]
 ---
 
 # SynthLabs Generation

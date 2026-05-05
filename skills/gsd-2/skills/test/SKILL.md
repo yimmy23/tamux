@@ -1,6 +1,8 @@
 ---
 name: test
 description: Generate or run tests. Auto-detects test framework, generates comprehensive tests for source files, or runs existing test suites with failure analysis.
+
+tags: [gsd-2, skills, test]
 ---
 
 <objective>

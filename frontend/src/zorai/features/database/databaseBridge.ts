@@ -1,5 +1,5 @@
 import { getBridge } from "@/lib/bridge";
-import type { DatabaseTablePage, DatabaseTableSummary, DatabaseRowUpdate, DatabaseSortState } from "./databaseTypes";
+import type { DatabaseTablePage, DatabaseTableSummary, DatabaseRowUpdate, DatabaseSortState, DatabaseSqlResult } from "./databaseTypes";
 
 function toCamelTable(raw: any): DatabaseTableSummary {
   return {
@@ -36,6 +36,22 @@ function toCamelPage(raw: any): DatabaseTablePage | null {
   };
 }
 
+function toCamelSqlResult(raw: any): DatabaseSqlResult {
+  if (raw && typeof raw === "object" && "error" in raw && typeof (raw as { error?: unknown }).error === "string") {
+    throw new Error(String((raw as { error: string }).error));
+  }
+  const source = raw && typeof raw === "object" ? raw : {};
+  return {
+    columns: Array.isArray(source.columns) ? source.columns.map((column: unknown) => String(column)) : [],
+    rows: Array.isArray(source.rows)
+      ? source.rows.map((row: unknown) => row && typeof row === "object" ? row as Record<string, unknown> : {})
+      : [],
+    rowsAffected: Number(source.rows_affected ?? source.rowsAffected ?? 0),
+    statementCount: Number(source.statement_count ?? source.statementCount ?? 0),
+    message: String(source.message ?? ""),
+  };
+}
+
 export async function listDatabaseTables(): Promise<DatabaseTableSummary[]> {
   const bridge = getBridge();
   const rows = await bridge?.dbListDatabaseTables?.();
@@ -64,4 +80,10 @@ export async function updateDatabaseRows(tableName: string, updates: DatabaseRow
     return (result as { updatedRows: number }).updatedRows;
   }
   return 0;
+}
+
+export async function executeDatabaseSql(sql: string): Promise<DatabaseSqlResult> {
+  const bridge = getBridge();
+  const result = await bridge?.dbExecuteDatabaseSql?.(sql);
+  return toCamelSqlResult(result);
 }

@@ -1,6 +1,7 @@
 ---
 name: daily-brief
 description: Canonical daily brief pack for day-start summaries across tasks, routines, approvals, notices, and optional Gmail/Calendar connectors.
+tags: [daily, brief, morning, inbox, calendar, approvals, routines]
 keywords:
   - daily
   - brief

@@ -7,8 +7,8 @@ description: >
   engagement, surveys, pulse checks, retention strategies, culture building,
   eNPS, team health, and any task requiring engagement measurement or
   improvement programs.
-category: operations
 tags: [engagement, surveys, retention, culture, enps, team-health]
+category: operations
 recommended_skills: [performance-management, onboarding, remote-collaboration, community-management]
 platforms:
   - claude-code

@@ -3,6 +3,8 @@ name: fundraising-email
 description: When the user wants to write an email to an investor — cold outreach, warm intro request, follow-up after a meeting, monthly investor update, or thank-you note. Also activates for "intro email", "investor email", "follow up with VC", or "investor update".
 related: [pitch-deck, investor-research]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, fundraising-email]
 ---
 
 # Fundraising Email

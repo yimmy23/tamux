@@ -82,8 +82,10 @@ impl TuiModel {
     ) {
         self.operator_profile.loading = false;
         self.operator_profile.question = None;
+        self.operator_profile.bool_answer = None;
         self.operator_profile.warning = None;
         self.operator_profile.visible = false;
+        self.close_operator_profile_onboarding_modal();
         self.operator_profile.session_id = Some(session_id);
         self.operator_profile.progress = Some(super::OperatorProfileProgressVm {
             answered: updated_fields.len() as u32,
@@ -98,7 +100,9 @@ impl TuiModel {
             120,
             true,
         );
-        self.request_concierge_welcome();
+        if !self.concierge.has_active_welcome() {
+            self.request_concierge_welcome();
+        }
     }
 
     pub(in crate::app) fn handle_error_event(&mut self, message: String) {
@@ -240,6 +244,42 @@ impl TuiModel {
         );
     }
 
+    fn should_apply_workflow_agent_activity(&self, thread_id: Option<&str>) -> bool {
+        let Some(thread_id) = thread_id else {
+            return self.chat.is_streaming() || self.current_thread_agent_activity().is_some();
+        };
+
+        if self.chat.is_thread_streaming(thread_id)
+            || self.thread_agent_activity.contains_key(thread_id)
+            || self.pending_prompt_response_threads.contains(thread_id)
+            || self.bootstrap_pending_activity_threads.contains(thread_id)
+        {
+            return true;
+        }
+
+        let latest_role = self
+            .chat
+            .threads()
+            .iter()
+            .find(|thread| thread.id == thread_id)
+            .and_then(|thread| {
+                thread
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|message| {
+                        !message.content.trim().is_empty()
+                            && !matches!(message.role, chat::MessageRole::System)
+                    })
+                    .map(|message| message.role)
+            });
+
+        !matches!(
+            latest_role,
+            Some(chat::MessageRole::Assistant | chat::MessageRole::Tool)
+        )
+    }
+
     pub(in crate::app) fn handle_workflow_notice_event(
         &mut self,
         thread_id: Option<String>,
@@ -262,7 +302,9 @@ impl TuiModel {
         {
             self.status_line = status_line;
             if let Some(agent_activity) = agent_activity {
-                self.set_agent_activity_for(thread_id.clone(), agent_activity);
+                if self.should_apply_workflow_agent_activity(thread_id.as_deref()) {
+                    self.set_agent_activity_for(thread_id.clone(), agent_activity);
+                }
             }
         } else {
             self.status_line = if let Some(details) = details_ref {
@@ -312,6 +354,7 @@ impl TuiModel {
             };
             self.operator_profile.warning = Some(warning);
             self.operator_profile.loading = false;
+            self.open_operator_profile_onboarding_modal();
             self.show_input_notice(
                 "operator profile warning (Ctrl+R to retry)",
                 InputNoticeKind::Warning,

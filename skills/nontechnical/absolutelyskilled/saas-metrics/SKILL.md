@@ -8,8 +8,8 @@ description: >
   reporting, unit economics, payback period, or SaaS financial modeling. Covers
   metric definitions, formulas, spreadsheet implementation, cohort tables, and
   board-ready reporting for founders, finance teams, and growth operators.
+tags: [saas, mrr, churn, ltv, cac, cohort-analysis, board-reporting, finance, sales, presentation, simulation]
 category: analytics
-tags: [saas, mrr, churn, ltv, cac, cohort-analysis, board-reporting]
 recommended_skills: [product-analytics, pricing-strategy, financial-modeling, growth-hacking]
 platforms:
   - claude-code

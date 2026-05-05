@@ -35,10 +35,38 @@ fn concierge_mouse_click_executes_visible_action() {
         },
     });
 
+    let concierge_area = model.pane_layout().concierge;
+    let action_pos = (concierge_area.y..concierge_area.y.saturating_add(concierge_area.height))
+        .find_map(|row| {
+            (concierge_area.x..concierge_area.x.saturating_add(concierge_area.width)).find_map(
+                |column| {
+                    let pos = Position::new(column, row);
+                    if widgets::concierge::hit_test(
+                        concierge_area,
+                        model.chat.active_actions(),
+                        model.concierge.selected_action,
+                        Some(
+                            model
+                                .current_conversation_agent_profile()
+                                .agent_label
+                                .as_str(),
+                        ),
+                        pos,
+                    ) == Some(widgets::concierge::ConciergeHitTarget::Action(1))
+                    {
+                        Some(pos)
+                    } else {
+                        None
+                    }
+                },
+            )
+        })
+        .expect("concierge welcome should expose a clickable second action");
+
     model.handle_mouse(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
-        column: 8,
-        row: 35,
+        column: action_pos.x,
+        row: action_pos.y,
         modifiers: KeyModifiers::NONE,
     });
 
@@ -475,4 +503,3 @@ fn in_review_run_action_opens_queued_review_task_thread() {
         }
     }
 }
-

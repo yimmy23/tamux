@@ -3,6 +3,8 @@ name: competitive-analysis
 description: When the user needs to evaluate competitors, understand the competitive landscape, or position their product against alternatives.
 related: [market-research, prd-writing]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, competitive-analysis]
 ---
 
 # Competitive Analysis

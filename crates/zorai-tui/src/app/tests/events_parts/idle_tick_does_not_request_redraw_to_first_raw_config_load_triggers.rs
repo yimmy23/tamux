@@ -90,6 +90,152 @@ fn activity_tick_redraws_only_when_spinner_frame_changes() {
     );
 }
 
+#[test]
+fn image_preview_cache_revision_redraws_once_per_cache_change() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = true;
+
+    let path =
+        std::env::temp_dir().join(format!("zorai-preview-redraw-{}.png", uuid::Uuid::new_v4()));
+    image::RgbaImage::from_fn(48, 32, |x, y| {
+        image::Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255])
+    })
+    .save(&path)
+    .expect("fixture PNG should write");
+
+    let _ = widgets::image_preview::render_image_preview_lines(
+        path.to_str().expect("temp path should be valid UTF-8"),
+        24,
+        8,
+        &ThemeTokens::default(),
+    );
+
+    assert!(
+        model.on_tick(),
+        "queueing async image preview work should request one redraw"
+    );
+    assert!(
+        !model.on_tick(),
+        "unchanged preview cache revision should not create a redraw loop"
+    );
+
+    assert!(
+        widgets::image_preview::process_preview_jobs_for_path_until_stable_for_tests(
+            path.to_str().expect("temp path should be valid UTF-8")
+        ),
+        "queued preview work should produce a cached preview"
+    );
+
+    assert!(
+        model.on_tick(),
+        "ready async image preview cache should request one redraw from cache"
+    );
+    assert!(
+        !model.on_tick(),
+        "unchanged ready cache should not keep redrawing"
+    );
+}
+
+#[test]
+fn streaming_chat_wants_fast_tick_even_without_footer_activity() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model.chat.reduce(chat::ChatAction::Delta {
+        thread_id: "thread-user".to_string(),
+        content: "streaming".to_string(),
+    });
+
+    assert!(model.chat.is_streaming());
+    assert!(
+        model.footer_activity_text().is_none(),
+        "this reproduces streaming chat without a separate visible activity string"
+    );
+    assert!(
+        model.wants_fast_tick(),
+        "streaming chat should keep daemon event polling on the fast cadence"
+    );
+    assert!(
+        !model.on_tick(),
+        "fast polling for streaming chat should not redraw without a state change"
+    );
+}
+
+#[test]
+fn live_goal_view_redraws_on_animation_tick() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal".to_string(),
+            status: Some(task::GoalRunStatus::Running),
+            current_step_index: 0,
+            steps: vec![task::GoalRunStep {
+                id: "step-1".to_string(),
+                title: "Implement".to_string(),
+                status: Some(task::GoalRunStatus::Running),
+                order: 0,
+                ..Default::default()
+            }],
+            events: vec![task::GoalRunEvent {
+                id: "event-1".to_string(),
+                phase: "tool".to_string(),
+                message: "Working".to_string(),
+                step_index: Some(0),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    assert!(
+        model.wants_fast_tick(),
+        "live goal view animations should keep the loop on the fast cadence"
+    );
+    assert!(
+        model.on_tick(),
+        "live goal view animations should request redraw when their tick frame changes"
+    );
+}
+
+#[test]
+fn queued_prompt_copy_expiry_requests_one_redraw() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.next_system_monitor_tick = u64::MAX;
+    model.queued_prompts.push(QueuedPrompt::new("copy me"));
+    model.open_queued_prompts_modal();
+    model.queued_prompt_action = QueuedPromptAction::Copy;
+
+    model.execute_selected_queued_prompt_action();
+
+    assert!(model.queued_prompts[0].is_copied(model.tick_counter));
+    assert!(
+        model.on_tick_elapsed(100),
+        "visible queued prompt copy feedback expiry should request a redraw"
+    );
+    assert!(!model.queued_prompts[0].is_copied(model.tick_counter));
+    assert!(
+        !model.on_tick(),
+        "expired queued prompt copy feedback should not create a redraw loop"
+    );
+}
+
 fn saw_list_tasks_command(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> bool {
@@ -429,4 +575,3 @@ fn first_raw_config_load_triggers_concierge_welcome_request() {
         "config load should release deferred startup follow-up requests"
     );
 }
-

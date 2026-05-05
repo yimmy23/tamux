@@ -148,6 +148,16 @@ if matches!(
                                     })
                                     .await
                                     .ok();
+                            } else if progress.remaining > 0 {
+                                framed
+                                    .send(DaemonMessage::AgentOperatorProfileProgress {
+                                        session_id: progress.session_id,
+                                        answered: progress.answered,
+                                        remaining: progress.remaining,
+                                        completion_ratio: progress.completion_ratio,
+                                    })
+                                    .await
+                                    .ok();
                             } else {
                                 match agent.complete_operator_profile_session(&session_id).await {
                                     Ok(done) => {
@@ -173,6 +183,13 @@ if matches!(
                             }
                         }
                         Err(error) => {
+                            if is_unknown_operator_profile_session_error(&error) {
+                                tracing::debug!(
+                                    session_id = %session_id,
+                                    "ignored stale operator profile next-question request"
+                                );
+                                continue;
+                            }
                             framed
                                 .send(DaemonMessage::AgentError {
                                     message: format!(
@@ -207,6 +224,16 @@ if matches!(
                                     })
                                     .await
                                     .ok();
+                                framed
+                                    .send(DaemonMessage::AgentOperatorProfileProgress {
+                                        session_id: progress.session_id,
+                                        answered: progress.answered,
+                                        remaining: progress.remaining,
+                                        completion_ratio: progress.completion_ratio,
+                                    })
+                                    .await
+                                    .ok();
+                            } else if progress.remaining > 0 {
                                 framed
                                     .send(DaemonMessage::AgentOperatorProfileProgress {
                                         session_id: progress.session_id,
@@ -351,6 +378,16 @@ if matches!(
                                     })
                                     .await
                                     .ok();
+                                framed
+                                    .send(DaemonMessage::AgentOperatorProfileProgress {
+                                        session_id: progress.session_id,
+                                        answered: progress.answered,
+                                        remaining: progress.remaining,
+                                        completion_ratio: progress.completion_ratio,
+                                    })
+                                    .await
+                                    .ok();
+                            } else if progress.remaining > 0 {
                                 framed
                                     .send(DaemonMessage::AgentOperatorProfileProgress {
                                         session_id: progress.session_id,

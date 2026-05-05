@@ -3,6 +3,8 @@ name: pitch-deck
 description: When the user wants to create, review, or restructure a fundraising pitch deck for seed or Series A. Also activates when the user mentions "deck", "pitch", "investor presentation", or "slide structure".
 related: [investor-research, data-room, fundraising-email]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, pitch-deck, presentation]
 ---
 
 # Pitch Deck

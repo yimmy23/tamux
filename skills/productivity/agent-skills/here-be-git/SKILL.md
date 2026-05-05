@@ -1,6 +1,8 @@
 ---
 name: here-be-git
 description: Initialise a git repository with optional agent commit instructions and .gitignore. Use when users say "here be git", "init git", "initialise git", or otherwise indicate they want to set up version control in the current directory.
+
+tags: [productivity, agent-skills, here-be-git, git]
 ---
 
 # Here Be Git

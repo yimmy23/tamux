@@ -3,6 +3,8 @@ name: cold-outreach
 description: When a founder needs to write cold emails or LinkedIn messages to prospects, partners, or investors. Activate when the user mentions cold email, outbound, prospecting, LinkedIn outreach, or needs help getting replies from people who don't know them.
 related: [lead-scoring, sales-script]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, cold-outreach]
 ---
 
 # Cold Outreach

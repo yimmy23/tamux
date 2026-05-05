@@ -1,6 +1,7 @@
 ---
 name: approval-checkpoint-long-task
 description: Canonical long-task pack for daemon-managed work with deliberate approval checkpoints, status summaries, rollback notes, and mobile-safe governance-aware updates.
+tags: [approval, long task, checkpoint, rollback, pause and resume, governed execution]
 keywords:
   - approval
   - long task

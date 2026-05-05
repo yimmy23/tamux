@@ -1,6 +1,8 @@
 ---
 name: github-workflows
 description: Work with GitHub Actions CI/CD workflows - read live syntax, monitor runs, and debug failures. Use when writing, running, or debugging GitHub Actions workflows.
+
+tags: [gsd-2, skills, github-workflows, github, writing, debugging, ci-cd, git]
 ---
 
 # GitHub Workflows

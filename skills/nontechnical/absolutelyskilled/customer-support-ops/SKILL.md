@@ -6,8 +6,8 @@ description: >
   macros, or building escalation workflows. Triggers on ticket triage, SLA
   management, support macros, escalation workflows, support queue, first response
   time, and any task requiring customer support process design or optimization.
+tags: [support, triage, sla, macros, escalation, ticketing, experimental-design, performance]
 category: operations
-tags: [support, triage, sla, macros, escalation, ticketing]
 recommended_skills: [knowledge-base, support-analytics, customer-success-playbook, community-management]
 platforms:
   - claude-code

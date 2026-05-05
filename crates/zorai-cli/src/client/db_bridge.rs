@@ -119,6 +119,9 @@ pub async fn run_db_bridge() -> Result<()> {
                             DbBridgeCommand::UpdateDatabaseRows { table_name, updates_json } => {
                                 framed.send(ClientMessage::UpdateDatabaseRows { table_name, updates_json }).await?;
                             }
+                            DbBridgeCommand::ExecuteDatabaseSql { sql } => {
+                                framed.send(ClientMessage::ExecuteDatabaseSql { sql }).await?;
+                            }
                             DbBridgeCommand::QueueSemanticBackfill { limit } => {
                                 framed.send(ClientMessage::QueueSemanticBackfill { limit }).await?;
                             }
@@ -181,6 +184,10 @@ pub async fn run_db_bridge() -> Result<()> {
                     }
                     Some(Ok(DaemonMessage::DatabaseUpdateAck { updated_rows })) => {
                         let msg = serde_json::json!({"type":"database-update-ack","data":{"updatedRows":updated_rows}});
+                        emit_db_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::DatabaseSqlResult { result_json })) => {
+                        let msg = serde_json::json!({"type":"database-sql-result","data":serde_json::from_str::<serde_json::Value>(&result_json).unwrap_or_default()});
                         emit_db_event(&msg.to_string())?;
                     }
                     Some(Ok(DaemonMessage::SemanticBackfillQueued { result_json })) => {

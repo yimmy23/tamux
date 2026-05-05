@@ -454,6 +454,17 @@ pub(super) fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect 
         .split(popup_layout[1])[1]
 }
 
+pub(super) fn centered_fixed_rect(max_width: u16, max_height: u16, area: Rect) -> Rect {
+    let width = area.width.min(max_width);
+    let height = area.height.min(max_height);
+    Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

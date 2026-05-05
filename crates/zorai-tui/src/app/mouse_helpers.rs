@@ -793,7 +793,7 @@ impl TuiModel {
                 modal::ModalKind::Settings => {
                     self.step_settings_modal_scroll(-3);
                 }
-                modal::ModalKind::CommandPalette => {
+                modal::ModalKind::CommandPalette | modal::ModalKind::OperatorProfileOnboarding => {
                     self.modal_navigate(-1);
                 }
                 modal::ModalKind::ThreadPicker
@@ -844,7 +844,7 @@ impl TuiModel {
                 modal::ModalKind::Settings => {
                     self.step_settings_modal_scroll(3);
                 }
-                modal::ModalKind::CommandPalette => {
+                modal::ModalKind::CommandPalette | modal::ModalKind::OperatorProfileOnboarding => {
                     self.modal_navigate(1);
                 }
                 modal::ModalKind::ThreadPicker
@@ -1234,6 +1234,17 @@ impl TuiModel {
                             self.handle_modal_enter(kind);
                         }
                         None => {}
+                    }
+                }
+                modal::ModalKind::OperatorProfileOnboarding => {
+                    let view = self.operator_profile_onboarding_view();
+                    if let Some(index) = widgets::operator_profile_onboarding::index_at_position(
+                        overlay_area,
+                        &view,
+                        Position::new(mouse.column, mouse.row),
+                    ) {
+                        self.modal_navigate_to(index);
+                        self.handle_modal_enter(kind);
                     }
                 }
                 modal::ModalKind::GoalPicker => {

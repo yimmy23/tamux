@@ -3,6 +3,8 @@ name: contract-review
 description: When the user needs to review an existing contract, assess risk in proposed terms, or evaluate a contract before signing.
 related: [terms-of-service, privacy-policy]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, contract-review]
 ---
 
 # Contract Review

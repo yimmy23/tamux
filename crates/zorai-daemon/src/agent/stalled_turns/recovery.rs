@@ -56,10 +56,14 @@ impl AgentEngine {
             thread_id: candidate.thread_id.clone(),
         });
 
-        let responder_agent_id = self
-            .active_agent_id_for_thread(&candidate.thread_id)
-            .await
-            .unwrap_or_else(|| crate::agent::agent_identity::MAIN_AGENT_ID.to_string());
+        let responder_agent_id = if let Some(task_id) = candidate.task_id.as_deref() {
+            self.agent_scope_id_for_turn(Some(&candidate.thread_id), Some(task_id))
+                .await
+        } else {
+            self.active_agent_id_for_thread(&candidate.thread_id)
+                .await
+                .unwrap_or_else(|| crate::agent::agent_identity::MAIN_AGENT_ID.to_string())
+        };
         if crate::agent::agent_identity::canonical_agent_id(&responder_agent_id)
             != crate::agent::agent_identity::WELES_AGENT_ID
         {

@@ -7,8 +7,8 @@ description: >
   OKRs, performance reviews, calibration, PIPs, career ladders, leveling
   frameworks, feedback cycles, and any task requiring performance management
   system design.
+tags: [performance, okrs, reviews, career-ladders, calibration, pips, experimental-design, writing]
 category: operations
-tags: [performance, okrs, reviews, career-ladders, calibration, pips]
 recommended_skills: [compensation-strategy, employee-engagement, interview-design, onboarding]
 platforms:
   - claude-code

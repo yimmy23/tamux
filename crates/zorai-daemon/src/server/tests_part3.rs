@@ -1,3 +1,12 @@
+#[test]
+fn unknown_operator_profile_session_errors_are_stale_fetches() {
+    let error = anyhow::anyhow!("unknown operator profile session: ops_done");
+    assert!(super::is_unknown_operator_profile_session_error(&error));
+
+    let other = anyhow::anyhow!("failed to parse operator profile answer");
+    assert!(!super::is_unknown_operator_profile_session_error(&other));
+}
+
 #[tokio::test]
 async fn gateway_send_results_use_canonical_discord_dm_channel_keys() {
     let mut config = AgentConfig::default();
@@ -1060,7 +1069,7 @@ fn wait_for_listener_and_send_callback(state: &str, code: &str) {
 }
 
 #[tokio::test]
-async fn thread_list_subscription_registers_threads_for_live_agent_events() {
+async fn thread_list_does_not_subscribe_client_to_live_agent_events() {
     let mut conn = spawn_test_connection().await;
     let thread_id = "thread-list-subscription";
 
@@ -1102,6 +1111,50 @@ async fn thread_list_subscription_registers_threads_for_live_agent_events() {
             DaemonMessage::AgentThreadList { .. } => break,
             DaemonMessage::AgentEvent { .. } => continue,
             other => panic!("expected thread list before live event test, got {other:?}"),
+        }
+    }
+
+    let _ = conn.agent.event_tx.send(AgentEvent::Delta {
+        thread_id: thread_id.to_string(),
+        content: "background chunk".to_string(),
+    });
+
+    let leaked = timeout(Duration::from_millis(250), async {
+        loop {
+            match conn.framed.next().await {
+                Some(Ok(DaemonMessage::AgentEvent { event_json })) => {
+                    let parsed: serde_json::Value =
+                        serde_json::from_str(&event_json).expect("parse agent event");
+                    if parsed.get("type").and_then(|value| value.as_str()) == Some("delta") {
+                        return parsed;
+                    }
+                }
+                Some(Ok(_)) => continue,
+                Some(Err(error)) => panic!("codec failure while waiting for leaked event: {error}"),
+                None => panic!("connection closed while waiting for leaked event"),
+            }
+        }
+    })
+    .await;
+    assert!(
+        leaked.is_err(),
+        "listing threads must not subscribe the client to live per-thread events"
+    );
+
+    conn.framed
+        .send(ClientMessage::AgentGetThread {
+            thread_id: thread_id.to_string(),
+            message_limit: None,
+            message_offset: None,
+        })
+        .await
+        .expect("request thread detail");
+    loop {
+        match conn.recv().await {
+            DaemonMessage::AgentThreadDetail { .. }
+            | DaemonMessage::AgentThreadDetailChunk { .. } => break,
+            DaemonMessage::AgentEvent { .. } => continue,
+            other => panic!("expected thread detail before live event test, got {other:?}"),
         }
     }
 

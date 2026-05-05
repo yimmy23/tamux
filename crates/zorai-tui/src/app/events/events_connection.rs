@@ -15,7 +15,11 @@ impl TuiModel {
         self.connected = true;
         self.agent_config_loaded = false;
         self.ignore_pending_concierge_welcome = false;
+        self.operator_profile_auto_start_requested = false;
+        self.operator_profile_auto_start_pending_summary = false;
         self.operator_profile.loading = false;
+        self.operator_profile.bool_answer = None;
+        self.close_operator_profile_onboarding_modal();
         self.status_line = "Connected to daemon".to_string();
         self.send_daemon_command(DaemonCommand::Refresh);
         self.send_daemon_command(DaemonCommand::GetConfig);
@@ -33,6 +37,9 @@ impl TuiModel {
         self.thread_loading_id = None;
         self.operator_profile.visible = false;
         self.operator_profile.loading = false;
+        self.operator_profile.bool_answer = None;
+        self.close_operator_profile_onboarding_modal();
+        self.operator_profile_auto_start_pending_summary = false;
         self.concierge
             .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
         self.chat.reduce(chat::ChatAction::ResetStreaming);
@@ -58,6 +65,9 @@ impl TuiModel {
         self.thread_loading_id = None;
         self.operator_profile.visible = false;
         self.operator_profile.loading = false;
+        self.operator_profile.bool_answer = None;
+        self.close_operator_profile_onboarding_modal();
+        self.operator_profile_auto_start_pending_summary = false;
         self.concierge
             .reduce(crate::state::ConciergeAction::WelcomeLoading(false));
         self.chat.reduce(chat::ChatAction::ResetStreaming);

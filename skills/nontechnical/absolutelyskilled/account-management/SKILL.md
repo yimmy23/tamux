@@ -6,8 +6,8 @@ description: >
   or mapping stakeholders. Triggers on account management, expansion playbooks,
   QBR preparation, stakeholder mapping, renewal strategy, upsell, cross-sell,
   and any task requiring strategic account planning or relationship management.
+tags: [account-management, expansion, qbr, stakeholder-mapping, renewals, strategy]
 category: sales
-tags: [account-management, expansion, qbr, stakeholder-mapping, renewals]
 recommended_skills: [customer-success-playbook, crm-management, sales-playbook, partnership-strategy]
 platforms:
   - claude-code

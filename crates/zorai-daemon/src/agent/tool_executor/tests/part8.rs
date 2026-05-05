@@ -3901,6 +3901,46 @@ async fn allowlisted_small_tool_result_writes_preview_file_and_keeps_inline_cont
 }
 
 #[tokio::test]
+async fn allowlisted_shell_tool_preview_includes_argument_and_result_sections() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.offload_tool_result_threshold_bytes = 512;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let raw_payload = "hello from bash\n".to_string();
+    let arguments = r#"{"command":"printf 'hello from bash\n'","timeout_seconds":30}"#;
+    let prepared = crate::agent::agent_loop::send_message::tool_results::prepare_tool_result_thread_message_with_arguments(
+        &engine,
+        "thread-preview-with-argument",
+        None,
+        &ToolResult {
+            tool_call_id: "tool-call-preview-with-argument".to_string(),
+            name: "bash_command".to_string(),
+            content: raw_payload.clone(),
+            is_error: false,
+            weles_review: None,
+            pending_approval: None,
+        },
+        Some(arguments),
+        1_700_000_121,
+    )
+    .await;
+
+    let preview_path = engine.history.tool_output_preview_path(
+        "thread-preview-with-argument",
+        None,
+        "bash_command",
+        1_700_000_121,
+    );
+    assert_eq!(prepared.content, raw_payload);
+    assert_eq!(
+        std::fs::read_to_string(&preview_path).expect("preview file should exist"),
+        "argument:\n{\n  \"command\": \"printf 'hello from bash\\n'\",\n  \"timeout_seconds\": 30\n}\n\nresult:\nhello from bash\n"
+    );
+}
+
+#[tokio::test]
 async fn large_allowlisted_tool_result_keeps_preview_path_and_summary_content() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

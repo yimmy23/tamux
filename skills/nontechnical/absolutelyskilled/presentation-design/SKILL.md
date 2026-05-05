@@ -9,8 +9,8 @@ description: >
   Problem-Solution-Benefit), narrative arc, speaker notes, or chart selection for
   presentations. Covers slide structure, visual hierarchy, data-driven storytelling,
   and deck architecture from executive summaries to conference keynotes.
+tags: [presentation, slides, storytelling, data-visualization, pitch-deck, public-speaking, visualization, experimental-design]
 category: design
-tags: [presentation, slides, storytelling, data-visualization, pitch-deck, public-speaking]
 recommended_skills: [absolute-ui, copywriting, video-production, figma-to-code]
 platforms:
   - claude-code

@@ -7,8 +7,8 @@ description: >
   counts from duration, or interviewing users about video requirements. Triggers
   on video script, storyboard, scene planning, narration writing, video pacing,
   and structured video content planning.
+tags: [scriptwriting, video-script, storyboard, yaml, content-planning, pacing, strategy, writing]
 category: video
-tags: [scriptwriting, video-script, storyboard, yaml, content-planning, pacing]
 recommended_skills: [video-creator, remotion-video, video-audio-design, copywriting]
 platforms:
   - claude-code

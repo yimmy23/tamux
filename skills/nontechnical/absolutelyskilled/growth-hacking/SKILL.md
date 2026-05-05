@@ -6,8 +6,8 @@ description: >
   activation funnels, or improving retention. Triggers on growth loops, referral
   programs, activation funnels, retention strategies, viral coefficient, product-led
   growth, AARRR metrics, and any task requiring growth experimentation or optimization.
+tags: [growth, viral-loops, referral, activation, retention, plg, performance]
 category: marketing
-tags: [growth, viral-loops, referral, activation, retention, plg]
 recommended_skills: [product-analytics, email-marketing, saas-metrics, sales-playbook]
 platforms:
   - claude-code

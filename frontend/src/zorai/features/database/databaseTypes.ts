@@ -33,6 +33,14 @@ export type DatabaseRowUpdate = {
   values: Record<string, unknown>;
 };
 
+export type DatabaseSqlResult = {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  rowsAffected: number;
+  statementCount: number;
+  message: string;
+};
+
 export type DatabaseSortDirection = "asc" | "desc";
 
 export type DatabaseSortState = {

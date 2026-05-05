@@ -7,8 +7,8 @@ description: >
   brand voice, tone guidelines, brand architecture, brand story, messaging
   hierarchy, competitive positioning, and any task requiring brand strategy
   development or documentation.
+tags: [brand, positioning, voice-tone, storytelling, messaging, identity, documentation, strategy]
 category: marketing
-tags: [brand, positioning, voice-tone, storytelling, messaging, identity]
 recommended_skills: [copywriting, social-media-strategy, competitive-analysis, product-strategy]
 platforms:
   - claude-code

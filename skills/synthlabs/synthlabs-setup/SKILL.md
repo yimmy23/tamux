@@ -1,6 +1,8 @@
 ---
 name: synthlabs-setup
 description: Use when you need to locate, start, and verify a local SynthLabs backend before API-dependent work.
+
+tags: [synthlabs, synthlabs-setup, api]
 ---
 
 # SynthLabs Setup

@@ -372,7 +372,11 @@ if ($SkipElectron) {
 
         Get-ChildItem (Join-Path $FrontendDir "release") -Filter "zorai*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
         Get-ChildItem (Join-Path $FrontendDir "release") -Filter "zorai*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-        & npx electron-builder --win portable nsis
+        $electronArgs = @("electron-builder", "--win", "portable", "nsis")
+        if ($Target -match "aarch64|arm64") {
+            $electronArgs += "--arm64"
+        }
+        & npx @electronArgs
         if ($LASTEXITCODE -ne 0) { throw "Electron build failed" }
 
         # Copy Electron artifacts
@@ -380,6 +384,11 @@ if ($SkipElectron) {
         Get-ChildItem $releaseDir -Filter "zorai*.exe" -ErrorAction SilentlyContinue | ForEach-Object {
             Copy-Item $_.FullName $OutDir -Force
             Write-Ok "Electron: $($_.Name)"
+        }
+        $portable = Join-Path $releaseDir "zorai-portable.exe"
+        if (Test-Path $portable) {
+            Copy-Item $portable (Join-Path $OutDir "zorai-desktop.exe") -Force
+            Write-Ok "Electron launcher: zorai-desktop.exe"
         }
     } finally {
         Pop-Location
@@ -406,8 +415,9 @@ $bundleArtifacts = Get-ChildItem $OutDir -File | Where-Object {
 } | Select-Object -ExpandProperty Name
 
 if ($bundleArtifacts.Count -gt 0) {
-    $checksumsFile = Join-Path $OutDir "SHA256SUMS-windows-x64.txt"
-    $bundleFile = Join-Path $OutDir "zorai-windows-x64.zip"
+    $artifactArch = if ($Target -match "aarch64|arm64") { "arm64" } else { "x64" }
+    $checksumsFile = Join-Path $OutDir "SHA256SUMS-windows-$artifactArch.txt"
+    $bundleFile = Join-Path $OutDir "zorai-windows-$artifactArch.zip"
     $notesFile = Join-Path $OutDir "RELEASE_NOTES.md"
 
     if (-not (Test-Path $notesFile)) {

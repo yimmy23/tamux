@@ -269,17 +269,16 @@ impl TuiModel {
         }
         let active_thread_id = self.chat.active_thread_id().map(str::to_string);
         let pending_loading_thread_id = self.thread_loading_id.clone();
-        let preserve_missing_active_thread = active_thread_id.as_ref().and_then(|thread_id| {
-            let active_thread = self.chat.active_thread()?;
-            let is_missing_from_refresh = !threads.iter().any(|thread| thread.id == *thread_id);
-            let should_preserve = is_missing_from_refresh
-                && (thread_id.starts_with("local-")
-                    || thread_id.starts_with("workspace-thread:")
-                    || pending_loading_thread_id.as_deref() == Some(thread_id.as_str())
-                    || self.pending_prompt_response_threads.contains(thread_id)
-                    || self.assistant_busy());
-            should_preserve.then(|| active_thread.clone())
-        });
+        // ThreadList events can be paginated, filtered, or IPC-truncated refresh pages; absence
+        // from one page is not a deletion signal. Keep locally cached threads until ThreadDeleted
+        // or an explicit detail/list entry replaces them.
+        let preserve_missing_threads = self
+            .chat
+            .threads()
+            .iter()
+            .filter(|existing| !threads.iter().any(|thread| thread.id == existing.id))
+            .cloned()
+            .collect::<Vec<_>>();
         let should_refresh_active_thread = active_thread_id.as_ref().is_some_and(|thread_id| {
             threads.iter().any(|thread| {
                 thread.id == *thread_id
@@ -306,9 +305,12 @@ impl TuiModel {
             })
             .map(conversion::convert_thread)
             .collect::<Vec<_>>();
-        if let Some(active_thread) = preserve_missing_active_thread {
-            if !threads.iter().any(|thread| thread.id == active_thread.id) {
-                threads.push(active_thread);
+        for existing_thread in preserve_missing_threads {
+            if !threads
+                .iter()
+                .any(|thread| thread.id == existing_thread.id)
+            {
+                threads.push(existing_thread);
             }
         }
         self.chat

@@ -7,8 +7,8 @@ description: >
   analyzing animation timing, extracting color palettes, or understanding
   audio-visual sync. Triggers on video analysis, frame extraction, scene
   detection, ffprobe, motion analysis, and AI vision analysis of video content.
+tags: [ffmpeg, video-analysis, frame-extraction, ai-vision, scene-detection, design-system, experimental-design, writing]
 category: video
-tags: [ffmpeg, video-analysis, frame-extraction, ai-vision, scene-detection, design-system]
 recommended_skills: [remotion-video, video-creator, video-scriptwriting]
 platforms:
   - claude-code

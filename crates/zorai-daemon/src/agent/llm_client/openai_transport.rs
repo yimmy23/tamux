@@ -10,8 +10,8 @@ use zorai_shared::providers::{
 };
 
 const OPENROUTER_ATTRIBUTION_URL: &str = "https://zorai.app";
-const OPENROUTER_ATTRIBUTION_TITLE: &str = "zorai";
-const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent";
+const OPENROUTER_ATTRIBUTION_TITLE: &str = "Zorai";
+const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent,personal-agent";
 
 fn build_chat_completion_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');

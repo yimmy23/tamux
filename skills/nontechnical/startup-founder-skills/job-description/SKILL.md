@@ -3,6 +3,8 @@ name: job-description
 description: When the user needs to write, review, or improve a job posting for a startup role.
 related: [interview-kit, sourcing-outreach, employer-brand]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, job-description]
 ---
 
 # Job Description

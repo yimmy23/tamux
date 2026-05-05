@@ -1,6 +1,8 @@
 ---
 name: lint
 description: Lint and format code. Auto-detects ESLint, Biome, Prettier, or language-native formatters and runs them with auto-fix. Reports remaining issues with actionable suggestions.
+
+tags: [gsd-2, skills, lint]
 ---
 
 <objective>

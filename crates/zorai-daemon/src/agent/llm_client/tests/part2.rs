@@ -794,14 +794,14 @@ use zorai_shared::providers::{
                 .headers()
                 .get("x-openrouter-title")
                 .and_then(|value| value.to_str().ok()),
-            Some("zorai")
+            Some("Zorai")
         );
         assert_eq!(
             request
                 .headers()
                 .get("x-openrouter-categories")
                 .and_then(|value| value.to_str().ok()),
-            Some("cli-agent")
+            Some("cli-agent,personal-agent")
         );
     }
 

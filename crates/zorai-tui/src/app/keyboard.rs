@@ -24,6 +24,7 @@ impl TuiModel {
     }
 
     pub fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) -> bool {
+        let event_modifiers = modifiers;
         self.update_held_modifier(code, true);
         let modifiers = modifiers | self.held_key_modifiers;
 
@@ -31,34 +32,15 @@ impl TuiModel {
             return false;
         }
 
-        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
-
-        if self.should_show_operator_profile_onboarding() && ctrl {
-            match code {
-                KeyCode::Char('s') => {
-                    if self.skip_operator_profile_question() {
-                        return false;
-                    }
-                }
-                KeyCode::Char('d') => {
-                    if self.defer_operator_profile_question() {
-                        return false;
-                    }
-                }
-                KeyCode::Char('r') => {
-                    self.retry_operator_profile_request();
-                    self.status_line = "Retrying operator profile operation…".to_string();
-                    self.show_input_notice(
-                        "Retrying operator profile operation…",
-                        InputNoticeKind::Success,
-                        40,
-                        true,
-                    );
-                    return false;
-                }
-                _ => {}
-            }
+        if self.modal.top() == Some(modal::ModalKind::OperatorProfileOnboarding) {
+            return self.handle_key_modal(
+                code,
+                event_modifiers,
+                modal::ModalKind::OperatorProfileOnboarding,
+            );
         }
+
+        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
 
         if code == KeyCode::Char('e') && ctrl {
             if self.modal.top() == Some(modal::ModalKind::ErrorViewer) {
@@ -122,6 +104,9 @@ impl TuiModel {
             return false;
         }
         if let Some(modal_kind) = self.modal.top() {
+            if modal_kind == modal::ModalKind::OperatorProfileOnboarding {
+                return self.handle_key_modal(code, event_modifiers, modal_kind);
+            }
             return self.handle_key_modal(code, modifiers, modal_kind);
         }
 

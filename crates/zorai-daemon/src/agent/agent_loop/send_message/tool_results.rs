@@ -52,6 +52,38 @@ fn should_persist_tool_output_preview(tool_name: &str) -> bool {
     TOOL_OUTPUT_PREVIEW_ALLOWLIST.contains(&tool_name)
 }
 
+fn should_include_argument_in_tool_output_preview(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        zorai_protocol::tool_names::BASH_COMMAND
+            | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
+            | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
+    )
+}
+
+fn format_tool_output_preview_argument(raw_arguments: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(raw_arguments)
+        .ok()
+        .and_then(|value| serde_json::to_string_pretty(&value).ok())
+        .unwrap_or_else(|| raw_arguments.trim().to_string())
+}
+
+fn format_tool_output_preview_body(result: &ToolResult, tool_arguments: Option<&str>) -> String {
+    if !should_include_argument_in_tool_output_preview(&result.name) {
+        return result.content.clone();
+    }
+
+    let Some(tool_arguments) = tool_arguments
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return result.content.clone();
+    };
+
+    let argument = format_tool_output_preview_argument(tool_arguments);
+    format!("argument:\n{argument}\n\nresult:\n{}", result.content)
+}
+
 fn extract_offload_key_findings(raw_payload: &str) -> Vec<String> {
     let findings = raw_payload
         .lines()
@@ -124,6 +156,25 @@ pub(crate) async fn prepare_tool_result_thread_message(
     result: &ToolResult,
     created_at: u64,
 ) -> PreparedToolResultThreadMessage {
+    prepare_tool_result_thread_message_with_arguments(
+        engine,
+        thread_id,
+        goal_run_id,
+        result,
+        None,
+        created_at,
+    )
+    .await
+}
+
+pub(crate) async fn prepare_tool_result_thread_message_with_arguments(
+    engine: &AgentEngine,
+    thread_id: &str,
+    goal_run_id: Option<&str>,
+    result: &ToolResult,
+    tool_arguments: Option<&str>,
+    created_at: u64,
+) -> PreparedToolResultThreadMessage {
     let threshold_bytes = {
         engine
             .config
@@ -156,7 +207,8 @@ pub(crate) async fn prepare_tool_result_thread_message(
             tokio::fs::create_dir_all(parent).await.with_context(|| {
                 format!("create tool output preview directory {}", parent.display())
             })?;
-            tokio::fs::write(&preview_path, raw_payload.as_bytes())
+            let preview_body = format_tool_output_preview_body(result, tool_arguments);
+            tokio::fs::write(&preview_path, preview_body.as_bytes())
                 .await
                 .with_context(|| {
                     format!("write tool output preview file {}", preview_path.display())
@@ -350,13 +402,14 @@ impl<'a> SendMessageRunner<'a> {
             }
         }
 
-        let prepared_tool_result = prepare_tool_result_thread_message(
+        let prepared_tool_result = prepare_tool_result_thread_message_with_arguments(
             self.engine,
             &self.tid,
             self.current_task_snapshot
                 .as_ref()
                 .and_then(|task| task.goal_run_id.as_deref()),
             result,
+            Some(&tc.function.arguments),
             now_epoch_secs,
         )
         .await;

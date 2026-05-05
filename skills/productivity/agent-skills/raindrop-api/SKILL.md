@@ -6,6 +6,8 @@ description: >
   (bookmarks), tags, highlights, filters, import/export, and backups. Use this skill whenever the user asks
   to work with their bookmarks from Raindrop.io, including reading, creating, updating, deleting, searching,
   or organising bookmarks and collections.
+
+tags: [productivity, agent-skills, raindrop-api, api]
 ---
 
 # Raindrop.io API Skill

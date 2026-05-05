@@ -7,8 +7,8 @@ description: >
   testing, user journey maps, A/B test design, survey design, persona creation,
   card sorting, tree testing, and any task requiring user experience research
   methodology or analysis.
+tags: [ux-research, usability, user-interviews, journey-maps, testing, experimental-design, strategy, experimentation]
 category: design
-tags: [ux-research, usability, user-interviews, journey-maps, testing]
 recommended_skills: [product-discovery, customer-research, accessibility-wcag, absolute-ui]
 platforms:
   - claude-code

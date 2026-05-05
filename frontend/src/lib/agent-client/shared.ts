@@ -3,8 +3,8 @@ import { getProviderDefinition } from "../agentStore";
 import type { ApiChatMessage, ChatRequest } from "./types";
 
 const OPENROUTER_ATTRIBUTION_URL = "https://zorai.app";
-const OPENROUTER_ATTRIBUTION_TITLE = "zorai";
-const OPENROUTER_ATTRIBUTION_CATEGORIES = "cli-agent";
+const OPENROUTER_ATTRIBUTION_TITLE = "Zorai";
+const OPENROUTER_ATTRIBUTION_CATEGORIES = "cli-agent,personal-agent";
 
 export class TransportCompatibilityError extends Error {
   constructor(message: string) {

@@ -71,6 +71,7 @@ impl TuiModel {
         let voice_player_active_before = self.voice_player.is_some();
         let input_notice_active_before = self.input_notice.is_some();
         let system_monitor_before = self.system_monitor;
+        let image_preview_cache_revision_before = self.image_preview_cache_revision;
 
         self.tick_counter = self.tick_counter.saturating_add(elapsed_ticks.max(1));
         self.maybe_refresh_system_monitor();
@@ -81,7 +82,7 @@ impl TuiModel {
         self.maybe_auto_refresh_visible_work();
         self.maybe_schedule_chat_history_collapse();
         self.chat.maybe_collapse_history(self.tick_counter);
-        self.clear_expired_queued_prompt_copy_feedback();
+        let queued_prompt_copy_feedback_changed = self.clear_expired_queued_prompt_copy_feedback();
 
         if let Some(player) = self.voice_player.as_mut() {
             match player.try_wait() {
@@ -121,6 +122,7 @@ impl TuiModel {
             self.input_notice = None;
         }
         self.publish_attention_surface_if_changed();
+        self.image_preview_cache_revision = widgets::image_preview::preview_cache_revision();
 
         self.chat.render_revision() != render_revision_before
             || tick_driven_render_before != self.tick_driven_render_epoch(self.tick_counter)
@@ -128,10 +130,12 @@ impl TuiModel {
             || self.voice_player.is_some() != voice_player_active_before
             || self.input_notice.is_some() != input_notice_active_before
             || self.system_monitor != system_monitor_before
+            || self.image_preview_cache_revision != image_preview_cache_revision_before
+            || queued_prompt_copy_feedback_changed
     }
 
     pub(crate) fn wants_fast_tick(&self) -> bool {
-        self.tick_driven_render_epoch(self.tick_counter).is_some()
+        self.chat.is_streaming() || self.tick_driven_render_epoch(self.tick_counter).is_some()
     }
 
     fn tick_driven_render_epoch(&self, tick: u64) -> Option<u64> {
@@ -162,6 +166,15 @@ impl TuiModel {
             include(tick / ticks_per_second);
         }
 
+        if self
+            .chat
+            .active_thread()
+            .is_some_and(|thread| thread.created_at > 0)
+        {
+            let ticks_per_second = (1_000 / TUI_TICK_RATE_MS).max(1);
+            include(tick / ticks_per_second);
+        }
+
         if self.voice_recording || self.voice_player.is_some() {
             include(tick / 8);
         }
@@ -170,7 +183,42 @@ impl TuiModel {
             include(tick / 10);
         }
 
+        if let Some(value) = self.visible_goal_animation_epoch(tick) {
+            include(value);
+        }
+
         epoch
+    }
+
+    fn visible_goal_animation_epoch(&self, tick: u64) -> Option<u64> {
+        let MainPaneView::Task(target) = &self.main_pane_view else {
+            return None;
+        };
+        let goal_run_id = target_goal_run_id(self, target)?;
+        let status = self.tasks.goal_run_by_id(&goal_run_id)?.status.clone();
+
+        match target {
+            sidebar::SidebarItemTarget::GoalRun { .. }
+                if matches!(
+                    status,
+                    Some(task::GoalRunStatus::Planning | task::GoalRunStatus::Running)
+                ) =>
+            {
+                Some(tick)
+            }
+            _ if matches!(
+                status,
+                Some(
+                    task::GoalRunStatus::Planning
+                        | task::GoalRunStatus::Running
+                        | task::GoalRunStatus::AwaitingApproval
+                )
+            ) =>
+            {
+                Some(tick / 4)
+            }
+            _ => None,
+        }
     }
 
     fn maybe_refresh_spawned_sidebar_tasks(&mut self) {

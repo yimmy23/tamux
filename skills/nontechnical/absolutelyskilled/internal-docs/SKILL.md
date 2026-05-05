@@ -7,8 +7,8 @@ description: >
   on drafting a design proposal, writing an RFC, creating a post-mortem after an
   incident, building an operational runbook, organizing team knowledge, or improving
   existing documentation for clarity and completeness.
+tags: [rfc, design-docs, post-mortem, runbook, knowledge-management, documentation, experimental-design, writing, grants]
 category: writing
-tags: [rfc, design-docs, post-mortem, runbook, knowledge-management, documentation]
 recommended_skills: [technical-writing, knowledge-base, remote-collaboration, second-brain]
 platforms:
   - claude-code

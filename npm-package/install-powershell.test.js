@@ -17,6 +17,7 @@ test("powershell installer uses GitHub release zip assets and full binary set", 
   assert.match(script, /SHA256SUMS-windows-\$script:ArchName\.txt/);
   assert.match(script, /zorai-gateway\.exe/);
   assert.match(script, /zorai-mcp\.exe/);
+  assert.match(script, /zorai-desktop\.exe/);
   assert.doesNotMatch(script, /gitlab\.com\/api\/v4\/projects/);
   assert.doesNotMatch(script, /zorai-binaries-/);
 });

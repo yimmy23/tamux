@@ -3,6 +3,8 @@ name: earned-media-outreach
 description: When the user wants to get press coverage, appear on podcasts, or build relationships with journalists and content creators. Also use when the user mentions "podcast guesting", "press outreach", "PR", "media exposure", "get on podcasts", or "journalist outreach".
 related: [founder-thought-leadership, cold-outreach, content-strategy, launch-strategy]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, earned-media-outreach, writing]
 ---
 
 # Earned Media Outreach

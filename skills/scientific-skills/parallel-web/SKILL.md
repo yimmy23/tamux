@@ -4,6 +4,7 @@ description: Search the web, extract URL content, and run deep research using th
 allowed-tools: Read Write Edit Bash
 license: MIT license
 compatibility: PARALLEL_API_KEY required
+tags: [scientific-skills, parallel-web, api, writing, search]
 metadata:
     skill-author: K-Dense Inc.
 ---

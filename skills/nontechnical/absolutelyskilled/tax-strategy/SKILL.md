@@ -6,8 +6,8 @@ description: >
   managing transfer pricing, or ensuring tax compliance. Triggers on corporate
   tax, R&D tax credits, transfer pricing, tax compliance, sales tax, VAT,
   international tax, and any task requiring tax planning or compliance strategy.
+tags: [tax, r-and-d-credits, transfer-pricing, compliance, corporate-tax, strategy, sales]
 category: operations
-tags: [tax, r-and-d-credits, transfer-pricing, compliance, corporate-tax]
 recommended_skills: [financial-reporting, budgeting-planning, regulatory-compliance, bookkeeping-automation]
 platforms:
   - claude-code

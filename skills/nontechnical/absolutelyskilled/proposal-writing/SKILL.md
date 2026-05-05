@@ -6,8 +6,8 @@ description: >
   or developing pricing strategies. Triggers on proposal writing, RFP response,
   statement of work, pricing strategy, win themes, executive summary, and any
   task requiring business proposal creation or optimization.
+tags: [proposals, rfp, sow, pricing, win-themes, business-writing, strategy, performance, writing, grants]
 category: sales
-tags: [proposals, rfp, sow, pricing, win-themes, business-writing]
 recommended_skills: [sales-playbook, copywriting, competitive-analysis, pricing-strategy]
 platforms:
   - claude-code

@@ -6,8 +6,8 @@ description: >
   board decks, or KPI dashboards. Triggers on financial statements, P&L, balance
   sheet, cash flow statement, board reporting, KPI dashboards, investor reporting,
   and any task requiring financial report preparation or presentation.
+tags: [financial-reporting, p-and-l, balance-sheet, cash-flow, board-decks, dash, presentation]
 category: operations
-tags: [financial-reporting, p-and-l, balance-sheet, cash-flow, board-decks]
 recommended_skills: [financial-modeling, budgeting-planning, bookkeeping-automation, spreadsheet-modeling]
 platforms:
   - claude-code

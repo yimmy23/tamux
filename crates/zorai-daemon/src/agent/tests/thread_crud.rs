@@ -942,6 +942,78 @@ async fn paged_persisted_thread_detail_keeps_full_history_lazy() {
 }
 
 #[tokio::test]
+async fn continuing_paged_persisted_thread_keeps_hydration_pending_until_loaded() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-paged-continue-safe";
+    let messages = (0..12)
+        .map(|index| AgentMessage::user(format!("message-{index}"), index))
+        .collect::<Vec<_>>();
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Paged persisted thread",
+            false,
+            1,
+            12,
+            messages,
+        ),
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(root.path()).await,
+        AgentConfig::default(),
+        root.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    let detail = rehydrated
+        .get_thread_filtered(thread_id, false, Some(3), 0)
+        .await
+        .expect("paged detail should load");
+    assert_eq!(detail.thread.messages.len(), 3);
+    assert!(
+        rehydrated
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id),
+        "paged detail should leave full message hydration pending"
+    );
+
+    let (continued_thread_id, created) = rehydrated
+        .get_or_create_thread(Some(thread_id), "follow up")
+        .await;
+    assert_eq!(continued_thread_id, thread_id);
+    assert!(!created);
+    assert!(
+        rehydrated
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id),
+        "continuing an existing lazy thread must not clear pending hydration"
+    );
+
+    assert!(rehydrated.ensure_thread_messages_loaded(thread_id).await);
+    let in_memory = rehydrated.threads.read().await;
+    let thread = in_memory
+        .get(thread_id)
+        .expect("continued thread should remain in memory");
+    assert_eq!(thread.messages.len(), 12);
+    assert_eq!(
+        thread.messages.last().map(|message| message.content.as_str()),
+        Some("message-11")
+    );
+}
+
+#[tokio::test]
 async fn get_thread_capped_for_ipc_truncates_oversized_thread_detail_payload() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;

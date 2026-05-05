@@ -1,6 +1,8 @@
 ---
 name: create-workflow
 description: Conversational guide for creating valid YAML workflow definitions. Use when asked to "create a workflow", "new workflow definition", "build a workflow", "workflow YAML", "define workflow steps", or "workflow from template".
+
+tags: [gsd-2, skills, create-workflow, workflow]
 ---
 
 <essential_principles>

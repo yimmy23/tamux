@@ -7,8 +7,8 @@ description: >
   blog strategy, content calendar, SEO content, content repurposing, editorial
   workflow, content pillars, topic clusters, and any task requiring content
   marketing planning or execution.
+tags: [content-marketing, blog, seo-content, editorial, content-strategy, workflow, strategy, writing, marketing]
 category: marketing
-tags: [content-marketing, blog, seo-content, editorial, content-strategy]
 recommended_skills: [copywriting, absolute-seo, email-marketing, social-media-strategy]
 platforms:
   - claude-code

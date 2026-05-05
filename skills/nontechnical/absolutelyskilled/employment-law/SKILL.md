@@ -7,8 +7,8 @@ description: >
   process, contractor vs employee, workplace policies, employment agreements,
   severance, non-compete, and any task requiring employment law guidance or
   HR legal compliance.
+tags: [employment-law, offer-letters, termination, contractor, policies, compliance]
 category: operations
-tags: [employment-law, offer-letters, termination, contractor, policies]
 recommended_skills: [contract-drafting, recruiting-ops, compensation-strategy, ip-management]
 platforms:
   - claude-code

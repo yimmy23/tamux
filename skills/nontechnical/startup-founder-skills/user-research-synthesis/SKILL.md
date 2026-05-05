@@ -3,6 +3,8 @@ name: user-research-synthesis
 description: When the user has raw customer interview transcripts, survey responses, support tickets, or other qualitative data and needs to extract actionable insights.
 related: [prd-writing, competitive-analysis]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, user-research-synthesis]
 ---
 
 # User Research Synthesis

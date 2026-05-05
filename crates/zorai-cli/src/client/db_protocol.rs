@@ -81,6 +81,9 @@ pub(super) enum DbBridgeCommand {
         table_name: String,
         updates_json: String,
     },
+    ExecuteDatabaseSql {
+        sql: String,
+    },
     QueueSemanticBackfill {
         limit: Option<usize>,
     },
@@ -144,6 +147,21 @@ mod tests {
                 assert_eq!(dimensions, 1536);
             }
             other => panic!("expected semantic status command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_execute_database_sql_command() {
+        let command = serde_json::from_str::<DbBridgeCommand>(
+            r#"{"type":"execute-database-sql","sql":"SELECT 1"}"#,
+        )
+        .expect("execute database sql command should parse");
+
+        match command {
+            DbBridgeCommand::ExecuteDatabaseSql { sql } => {
+                assert_eq!(sql, "SELECT 1");
+            }
+            other => panic!("expected execute database sql command, got {other:?}"),
         }
     }
 }

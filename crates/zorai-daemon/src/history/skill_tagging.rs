@@ -221,9 +221,14 @@ fn parse_skill_tag_metadata(content: &str) -> ParsedSkillTagMetadata {
 
 fn collect_explicit_context_tags(frontmatter: Option<&Value>) -> Vec<String> {
     let mut tags = extract_frontmatter_list(frontmatter, "context_tags");
+    tags.extend(extract_frontmatter_list(frontmatter, "tags"));
     tags.extend(extract_nested_frontmatter_list(
         frontmatter,
         &["metadata", "context_tags"],
+    ));
+    tags.extend(extract_nested_frontmatter_list(
+        frontmatter,
+        &["metadata", "tags"],
     ));
     tags.extend(extract_nested_frontmatter_list(
         frontmatter,
@@ -292,16 +297,23 @@ fn extract_nested_frontmatter_list(frontmatter: Option<&Value>, path: &[&str]) -
 
 fn value_to_string_list(value: &Value) -> Vec<String> {
     match value {
-        Value::String(item) => vec![item.trim().to_string()],
+        Value::String(item) => split_scalar_list(item),
         Value::Sequence(items) => items
             .iter()
             .filter_map(Value::as_str)
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .map(ToOwned::to_owned)
+            .flat_map(split_scalar_list)
             .collect(),
         _ => Vec::new(),
     }
+}
+
+fn split_scalar_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 fn extract_headings(body: &str) -> Vec<String> {

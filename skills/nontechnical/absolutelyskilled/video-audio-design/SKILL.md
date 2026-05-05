@@ -7,8 +7,8 @@ description: >
   FFmpeg, implementing audio ducking, or mixing multiple audio layers in Remotion.
   Triggers on ElevenLabs, text-to-speech, voice generation, background music,
   sound effects, audio mixing, and volume ducking.
+tags: [elevenlabs, tts, audio-design, sfx, background-music, audio-mixing, experimental-design]
 category: video
-tags: [elevenlabs, tts, audio-design, sfx, background-music, audio-mixing]
 recommended_skills: [remotion-video, video-creator, video-scriptwriting]
 platforms:
   - claude-code

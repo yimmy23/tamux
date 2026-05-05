@@ -3,6 +3,8 @@ name: proposal-generation
 description: When a founder needs to create a sales proposal, statement of work, contract, NDA, or master service agreement. Activate when the user mentions proposal, SOW, quote, contract, NDA, MSA, or needs to formalize a deal.
 related: [sales-script, cold-outreach]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, proposal-generation, sales, grants]
 ---
 
 # Proposal Generation

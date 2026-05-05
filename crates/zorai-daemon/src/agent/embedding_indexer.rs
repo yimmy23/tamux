@@ -12,9 +12,9 @@ const MAX_EMBEDDING_DELETIONS_PER_TICK: usize = 16;
 #[cfg(feature = "lancedb-vector")]
 const OPENROUTER_ATTRIBUTION_URL: &str = "https://zorai.app";
 #[cfg(feature = "lancedb-vector")]
-const OPENROUTER_ATTRIBUTION_TITLE: &str = "zorai";
+const OPENROUTER_ATTRIBUTION_TITLE: &str = "Zorai";
 #[cfg(feature = "lancedb-vector")]
-const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent";
+const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent,personal-agent";
 
 #[cfg(feature = "lancedb-vector")]
 #[derive(Debug, serde::Deserialize)]
@@ -571,11 +571,11 @@ mod tests {
             "expected OpenRouter embedding request to include attribution referer header, got {request_text}"
         );
         assert!(
-            request_text.contains("x-openrouter-title: zorai\r\n"),
+            request_text.contains("x-openrouter-title: Zorai\r\n"),
             "expected OpenRouter embedding request to include attribution title header, got {request_text}"
         );
         assert!(
-            request_text.contains("x-openrouter-categories: cli-agent\r\n"),
+            request_text.contains("x-openrouter-categories: cli-agent,personal-agent\r\n"),
             "expected OpenRouter embedding request to include attribution categories header, got {request_text}"
         );
         assert_eq!(embeddings, vec![vec![0.1, 0.2]]);

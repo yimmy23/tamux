@@ -2,6 +2,7 @@
 name: rust-programming
 description: Use when writing, reviewing, or refactoring Rust code, especially workspace crates, public APIs, error handling, async code, ownership choices, or performance-sensitive paths.
 license: MIT
+tags: [development, rust-programming, writing, performance, rust]
 metadata:
   source_references:
     - https://github.com/udapy/rust-agentic-skills

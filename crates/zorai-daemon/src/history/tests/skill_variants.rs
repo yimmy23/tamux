@@ -80,6 +80,53 @@ async fn register_skill_document_prefers_explicit_frontmatter_tags() -> Result<(
 }
 
 #[tokio::test]
+async fn register_skill_document_splits_comma_separated_frontmatter_tags() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let skill_path = root.join("skills/generated/compact-tags.md");
+    fs::write(
+        &skill_path,
+        "---\nname: compact_tags\ndescription: Uses compact tag metadata.\ntags: a, b, c, d\n---\n# Compact Tags\n",
+    )?;
+
+    let record = store.register_skill_document(&skill_path).await?;
+
+    assert_eq!(
+        record.context_tags,
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string(),
+        ]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn register_skill_document_reads_frontmatter_tags_array() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let skill_path = root.join("skills/generated/array-tags.md");
+    fs::write(
+        &skill_path,
+        "---\nname: array_tags\ndescription: Uses array tag metadata.\ntags: [a, b, c]\n---\n# Array Tags\n",
+    )?;
+
+    let record = store.register_skill_document(&skill_path).await?;
+
+    assert_eq!(
+        record.context_tags,
+        vec!["a".to_string(), "b".to_string(), "c".to_string()]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn register_skill_document_reads_nested_zorai_context_tags() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;

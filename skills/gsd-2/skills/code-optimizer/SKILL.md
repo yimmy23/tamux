@@ -12,6 +12,8 @@ description: >
   "improve code efficiency", "reduce latency", "optimize performance", "code smell detection",
   "find slow code", "optimize this project", "performance audit", "code optimization".
   Also triggers on: "optimizar codigo", "encontrar cuellos de botella", "mejorar rendimiento".
+
+tags: [gsd-2, skills, code-optimizer, performance, devops, security, database, code-review, compliance]
 ---
 
 # Code Optimizer

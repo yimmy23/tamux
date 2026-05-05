@@ -7,8 +7,8 @@ description: >
   media strategy, content scheduling, engagement tactics, platform analytics,
   community building, hashtag strategy, and any task requiring social media
   planning or optimization.
+tags: [social-media, content, engagement, analytics, community, strategy, performance, writing]
 category: marketing
-tags: [social-media, content, engagement, analytics, community]
 recommended_skills: [content-marketing, copywriting, video-production, brand-strategy]
 platforms:
   - claude-code

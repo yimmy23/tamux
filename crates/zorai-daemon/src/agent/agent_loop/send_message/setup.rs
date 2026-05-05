@@ -393,6 +393,11 @@ impl<'a> SendMessageRunner<'a> {
             }
         }
         if !reuse_existing_user_message {
+            if record_operator {
+                engine
+                    .clear_deferred_visible_thread_continuations(&tid)
+                    .await;
+            }
             {
                 let mut threads = engine.threads.write().await;
                 if let Some(thread) = threads.get_mut(&tid) {

@@ -1,6 +1,8 @@
 ---
 name: test-driven-development
 description: Use when implementing any feature or bugfix, before writing implementation code
+
+tags: [development, superpowers, test-driven-development, writing]
 ---
 
 # Test-Driven Development (TDD)

@@ -42,6 +42,15 @@ pub struct DatabaseRowUpdate {
     pub values: BTreeMap<String, serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DatabaseSqlResult {
+    pub columns: Vec<String>,
+    pub rows: Vec<BTreeMap<String, serde_json::Value>>,
+    pub rows_affected: usize,
+    pub statement_count: usize,
+    pub message: String,
+}
+
 struct TableSchema {
     name: String,
     table_type: String,
@@ -212,6 +221,81 @@ impl HistoryStore {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
+
+    pub async fn execute_database_sql(&self, sql: &str) -> Result<DatabaseSqlResult> {
+        let sql = sql.trim().to_string();
+        if sql.is_empty() {
+            anyhow::bail!("SQL query is empty");
+        }
+        self.conn
+            .call(move |conn: &mut Connection| {
+                let statement_count = count_sql_statements(&sql);
+                if statement_count == 1 {
+                    let mut stmt = conn.prepare(&sql)?;
+                    let column_count = stmt.column_count();
+                    if column_count > 0 {
+                        let columns = (0..column_count)
+                            .map(|index| {
+                                stmt.column_name(index)
+                                    .map(str::to_string)
+                                    .unwrap_or_else(|_| format!("column_{}", index + 1))
+                            })
+                            .collect::<Vec<_>>();
+                        let mut result_rows = stmt.query([])?;
+                        let mut rows = Vec::new();
+                        while let Some(row) = result_rows.next()? {
+                            let mut values = BTreeMap::new();
+                            for (index, column) in columns.iter().enumerate() {
+                                values.insert(
+                                    column.clone(),
+                                    sqlite_value_to_json(row.get_ref(index)?),
+                                );
+                            }
+                            rows.push(values);
+                        }
+                        let message = format!(
+                            "Returned {} row{}.",
+                            rows.len(),
+                            if rows.len() == 1 { "" } else { "s" },
+                        );
+                        return Ok::<DatabaseSqlResult, tokio_rusqlite::Error>(DatabaseSqlResult {
+                            columns,
+                            rows,
+                            rows_affected: 0,
+                            statement_count,
+                            message,
+                        });
+                    }
+                    drop(stmt);
+                }
+
+                let before_changes = conn.total_changes();
+                conn.execute_batch(&sql)?;
+                let rows_affected = conn.total_changes().saturating_sub(before_changes) as usize;
+                Ok::<DatabaseSqlResult, tokio_rusqlite::Error>(DatabaseSqlResult {
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                    rows_affected,
+                    statement_count,
+                    message: format!(
+                        "Executed {} statement{}; {} row{} affected.",
+                        statement_count,
+                        if statement_count == 1 { "" } else { "s" },
+                        rows_affected,
+                        if rows_affected == 1 { "" } else { "s" },
+                    ),
+                })
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+}
+
+fn count_sql_statements(sql: &str) -> usize {
+    sql.split(';')
+        .filter(|part| !part.trim().is_empty())
+        .count()
+        .max(1)
 }
 
 fn load_table_schema(conn: &Connection, table_name: &str) -> rusqlite::Result<TableSchema> {

@@ -6,8 +6,8 @@ description: >
   rolling forecasts, or allocating costs. Triggers on FP&A, budgeting, variance
   analysis, rolling forecasts, cost allocation, headcount planning, department
   budgets, and any task requiring financial planning or budget management.
+tags: [budgeting, fpa, variance-analysis, forecasting, cost-allocation, finance, strategy]
 category: operations
-tags: [budgeting, fpa, variance-analysis, forecasting, cost-allocation]
 recommended_skills: [financial-modeling, financial-reporting, tax-strategy, saas-metrics]
 platforms:
   - claude-code

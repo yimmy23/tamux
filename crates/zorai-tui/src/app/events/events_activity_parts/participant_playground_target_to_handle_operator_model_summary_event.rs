@@ -290,6 +290,9 @@ impl TuiModel {
         {
             return;
         }
+        if self.done_arrived_before_pending_prompt_output(thread_id.as_str()) {
+            return;
+        }
         self.clear_bootstrap_pending_activity_thread(thread_id.as_str());
         self.clear_pending_prompt_response_thread(thread_id.as_str());
         self.clear_agent_activity_for(Some(thread_id.as_str()));
@@ -335,8 +338,11 @@ impl TuiModel {
         self.operator_profile.loading = true;
         self.operator_profile.session_id = Some(session_id);
         self.operator_profile.session_kind = Some(kind);
+        self.operator_profile.deferred_session_id = None;
         self.operator_profile.question = None;
+        self.operator_profile.bool_answer = None;
         self.operator_profile.warning = None;
+        self.open_operator_profile_onboarding_modal();
         self.set_main_pane_conversation(FocusArea::Input);
         self.status_line = "Operator profile onboarding started".to_string();
         self.send_daemon_command(DaemonCommand::GetOperatorProfileSummary);
@@ -352,9 +358,15 @@ impl TuiModel {
         input_kind: String,
         optional: bool,
     ) {
+        if self.operator_profile.deferred_session_id.as_deref() == Some(session_id.as_str()) {
+            self.close_operator_profile_onboarding_modal();
+            return;
+        }
         self.operator_profile.visible = true;
         self.operator_profile.loading = false;
         self.operator_profile.session_id = Some(session_id.clone());
+        let is_bool_question =
+            TuiModel::normalize_operator_profile_input_kind(&input_kind) == "bool";
         self.operator_profile.question = Some(super::OperatorProfileQuestionVm {
             session_id,
             question_id,
@@ -363,12 +375,20 @@ impl TuiModel {
             input_kind,
             optional,
         });
+        self.operator_profile.bool_answer = is_bool_question.then_some(true);
         self.operator_profile.warning = None;
-        self.set_main_pane_conversation(FocusArea::Input);
+        self.open_operator_profile_onboarding_modal();
+        self.set_main_pane_conversation(if is_bool_question {
+            FocusArea::Chat
+        } else {
+            FocusArea::Input
+        });
         self.input.reduce(input::InputAction::Clear);
-        if let Some(options) = self.current_operator_profile_select_options() {
-            if let Some(first) = options.first() {
-                self.input.set_text(first);
+        if !is_bool_question {
+            if let Some(options) = self.current_operator_profile_select_options() {
+                if let Some(first) = options.first() {
+                    self.input.set_text(first);
+                }
             }
         }
         self.status_line = "Operator profile question ready".to_string();
@@ -387,6 +407,10 @@ impl TuiModel {
         remaining: u32,
         completion_ratio: f64,
     ) {
+        if self.operator_profile.deferred_session_id.as_deref() == Some(session_id.as_str()) {
+            self.close_operator_profile_onboarding_modal();
+            return;
+        }
         self.operator_profile.visible = true;
         self.operator_profile.loading = true;
         self.operator_profile.session_id = Some(session_id.clone());
@@ -395,6 +419,7 @@ impl TuiModel {
             remaining,
             completion_ratio,
         });
+        self.open_operator_profile_onboarding_modal();
         self.send_daemon_command(DaemonCommand::NextOperatorProfileQuestion { session_id });
         self.status_line = format!(
             "Operator profile progress: {} answered, {} remaining",
@@ -472,6 +497,55 @@ impl TuiModel {
                 });
             }
         }
+        if self.operator_profile_auto_start_pending_summary {
+            self.operator_profile_auto_start_pending_summary = false;
+            if !Self::operator_profile_summary_has_completed_onboarding(&summary_json)
+                && !self.operator_profile.loading
+                && self.operator_profile.session_id.is_none()
+                && self.operator_profile.question.is_none()
+            {
+                self.send_daemon_command(DaemonCommand::StartOperatorProfileSession {
+                    kind: "first_run_onboarding".to_string(),
+                });
+            }
+        }
+    }
+
+    fn operator_profile_summary_has_completed_onboarding(summary_json: &str) -> bool {
+        let Ok(summary) = serde_json::from_str::<serde_json::Value>(summary_json) else {
+            return false;
+        };
+        let fields = summary.get("fields").and_then(serde_json::Value::as_object);
+        let has_required_fields = ["name", "role", "primary_language"]
+            .iter()
+            .all(|field_key| fields.is_some_and(|fields| fields.contains_key(*field_key)));
+        if has_required_fields {
+            return true;
+        }
+
+        let Some(consents) = summary.get("consents") else {
+            return false;
+        };
+        let required_consents = [
+            "enabled",
+            "allow_message_statistics",
+            "allow_approval_learning",
+            "allow_attention_tracking",
+            "allow_implicit_feedback",
+        ];
+        if let Some(consents) = consents.as_object() {
+            return required_consents
+                .iter()
+                .all(|consent_key| consents.contains_key(*consent_key));
+        }
+        let Some(consents) = consents.as_array() else {
+            return false;
+        };
+        required_consents.iter().all(|required_key| {
+            consents.iter().any(|entry| {
+                entry.get("consent_key").and_then(serde_json::Value::as_str) == Some(*required_key)
+            })
+        })
     }
 
     pub(in crate::app) fn handle_operator_model_summary_event(&mut self, model_json: String) {
@@ -485,5 +559,4 @@ impl TuiModel {
             .reduce(modal::ModalAction::Push(modal::ModalKind::ErrorViewer));
         self.status_line = "Operator model snapshot loaded".to_string();
     }
-
 }

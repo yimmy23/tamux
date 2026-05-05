@@ -6,8 +6,8 @@ description: >
   or analyzing support trends. Triggers on CSAT, NPS, resolution time, deflection
   rate, support metrics, trend analysis, support reporting, and any task requiring
   customer support data analysis or reporting.
+tags: [support-analytics, csat, nps, resolution-time, deflection, metrics, data-science]
 category: operations
-tags: [support-analytics, csat, nps, resolution-time, deflection, metrics]
 recommended_skills: [customer-support-ops, customer-success-playbook, product-analytics, saas-metrics]
 platforms:
   - claude-code

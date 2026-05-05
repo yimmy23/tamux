@@ -104,6 +104,7 @@ impl TuiModel {
             if !restored_thread {
                 self.request_concierge_welcome();
             }
+            self.maybe_request_operator_profile_autostart_summary();
             self.send_daemon_command(DaemonCommand::RefreshServices);
             self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
             self.send_daemon_command(DaemonCommand::GetOpenAICodexAuthStatus);

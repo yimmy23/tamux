@@ -1,6 +1,7 @@
 ---
 name: pr-issue-triage
 description: Canonical PR/Issue triage pack combining repo review queues with work tracker context and approval-gated write-backs.
+tags: [pr, pull request, issue, triage, github, gitlab, linear, jira]
 keywords:
   - pr
   - pull request

@@ -1,6 +1,8 @@
 ---
 name: auditing-goal-artifacts
 description: Use when reviewing recent zorai goal run outputs, closure markers, ledgers, or evidence bundles to judge whether completion is credible or to identify remaining uncertainty.
+
+tags: [zorai-mcp, operating, auditing-goal-artifacts, zorai, zora, compliance]
 ---
 
 # Auditing Goal Artifacts

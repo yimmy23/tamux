@@ -2,6 +2,7 @@
 name: accessibility
 description: Audit and improve web accessibility following WCAG 2.1 guidelines. Use when asked to "improve accessibility", "a11y audit", "WCAG compliance", "screen reader support", "keyboard navigation", or "make accessible".
 license: MIT
+tags: [gsd-2, skills, accessibility, compliance]
 metadata:
   author: web-quality-skills
   version: "1.0"

@@ -16,6 +16,7 @@ pub(crate) struct ConversationAgentProfile {
 struct HeaderContextVm {
     profile: ConversationAgentProfile,
     usage: widgets::header::HeaderUsageDisplay,
+    session_duration_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,6 +24,22 @@ enum ConversationAgentKind {
     Swarog,
     Rarog,
     Weles,
+}
+
+fn current_unix_time_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
+}
+
+fn session_duration_secs_from_created_at(created_at_ms: u64, now_ms: u64) -> Option<u64> {
+    if created_at_ms == 0 || created_at_ms > now_ms {
+        return None;
+    }
+
+    Some(now_ms.saturating_sub(created_at_ms) / 1000)
 }
 
 fn comma_list_contains(list: &str, needle: &str) -> bool {
@@ -185,6 +202,43 @@ fn render_runtime_effort_picker(
 }
 
 impl TuiModel {
+    fn sticky_thread_activity_text(&self, activity: &str) -> String {
+        let normalized = activity.trim().to_ascii_lowercase();
+        let variants = if normalized == "thinking"
+            || normalized == "reasoning"
+            || normalized == "skill gate"
+        {
+            &[
+                "thinking",
+                "analyzing",
+                "working through",
+                "mapping context",
+                "sorting context",
+            ][..]
+        } else if normalized == "writing" || normalized.contains("crafting response") {
+            &[
+                "crafting",
+                "writing",
+                "composing",
+                "drafting",
+                "shaping reply",
+            ][..]
+        } else if normalized.starts_with('\u{2699}') || normalized.contains("tool") {
+            &[
+                "calling tools",
+                "using tools",
+                "checking tools",
+                "running tools",
+                "waiting on tools",
+            ][..]
+        } else {
+            return activity.trim().to_string();
+        };
+        let variant_index = ((self.tick_counter / 40) as usize) % variants.len();
+
+        variants[variant_index].to_string()
+    }
+
     fn latest_daemon_turn_context_tokens(thread: &chat::AgentThread) -> u64 {
         thread.latest_turn_context_tokens.unwrap_or_else(|| {
             thread
@@ -936,9 +990,16 @@ impl TuiModel {
 
     fn current_header_context_vm(&self) -> HeaderContextVm {
         let profile = self.current_header_profile_for_active_pane();
-        let usage = self
-            .current_header_usage_summary_for_profile(&profile, self.current_header_usage_thread());
-        HeaderContextVm { profile, usage }
+        let thread = self.current_header_usage_thread();
+        let usage = self.current_header_usage_summary_for_profile(&profile, thread);
+        let session_duration_secs = thread.and_then(|thread| {
+            session_duration_secs_from_created_at(thread.created_at, current_unix_time_ms())
+        });
+        HeaderContextVm {
+            profile,
+            usage,
+            session_duration_secs,
+        }
     }
 
     #[cfg(test)]
@@ -1012,35 +1073,6 @@ impl TuiModel {
     }
 
     fn render_conversation_panel(&mut self, frame: &mut Frame, area: Rect) {
-        if self.should_show_operator_profile_onboarding() {
-            let question = self.operator_profile.question.as_ref().map(|question| {
-                widgets::operator_profile_onboarding::OperatorProfileQuestionView {
-                    field_key: question.field_key.as_str(),
-                    prompt: question.prompt.as_str(),
-                    input_kind: question.input_kind.as_str(),
-                    optional: question.optional,
-                }
-            });
-            let progress = self.operator_profile.progress.as_ref().map(|progress| {
-                widgets::operator_profile_onboarding::OperatorProfileProgressView {
-                    answered: progress.answered,
-                    remaining: progress.remaining,
-                    completion_ratio: progress.completion_ratio,
-                }
-            });
-            let view = widgets::operator_profile_onboarding::OperatorProfileOnboardingView {
-                session_kind: self.operator_profile.session_kind.as_deref(),
-                question,
-                progress,
-                loading: self.operator_profile.loading,
-                warning: self.operator_profile.warning.as_deref(),
-                input_value: self.input.buffer(),
-                select_options: self.current_operator_profile_select_options(),
-            };
-            widgets::operator_profile_onboarding::render(frame, area, &view, &self.theme);
-            return;
-        }
-
         if self.should_show_provider_onboarding() {
             widgets::onboarding::render(frame, area, &self.config, &self.theme);
             return;
@@ -1383,6 +1415,7 @@ impl TuiModel {
             &header.profile.model,
             header.profile.reasoning_effort.as_deref(),
             &header.usage,
+            header.session_duration_secs,
             &self.theme,
             self.approval.pending_approvals().len(),
             self.modal.top() == Some(modal::ModalKind::ApprovalCenter),
@@ -1756,6 +1789,12 @@ impl TuiModel {
             widgets::anticipatory::render(frame, chunks[2], &self.anticipatory, &self.theme);
         }
 
+        let footer_activity = self.footer_activity_text();
+        let sticky_activity = footer_activity
+            .as_deref()
+            .map(|activity| self.sticky_thread_activity_text(activity));
+        let sticky_owner_label = self.current_conversation_agent_profile().agent_label;
+
         if concierge_height > 0 {
             widgets::concierge::render(
                 frame,
@@ -1764,10 +1803,11 @@ impl TuiModel {
                 &self.chat,
                 &self.theme,
                 self.focus == FocusArea::Chat,
+                sticky_activity.as_deref(),
+                &sticky_owner_label,
             );
         }
 
-        let footer_activity = self.footer_activity_text();
         let thread_budget_notice = self.active_thread_budget_exceeded_notice();
         let footer_notice = thread_budget_notice
             .as_deref()
@@ -1782,7 +1822,7 @@ impl TuiModel {
             self.modal.top().is_some(),
             &self.attachments,
             self.tick_counter,
-            footer_activity.as_deref(),
+            None,
             footer_notice,
         );
         widgets::footer::render_status_bar(
@@ -1809,6 +1849,9 @@ impl TuiModel {
                 }
                 modal::ModalKind::OperatorQuestionOverlay => {
                     render_helpers::centered_rect(68, 34, area)
+                }
+                modal::ModalKind::OperatorProfileOnboarding => {
+                    render_helpers::centered_fixed_rect(92, 21, area)
                 }
                 modal::ModalKind::ApprovalCenter => render_helpers::centered_rect(86, 82, area),
                 modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),
@@ -2052,6 +2095,16 @@ impl TuiModel {
                     );
                 }
                 modal::ModalKind::OperatorQuestionOverlay => {}
+                modal::ModalKind::OperatorProfileOnboarding => {
+                    let view = self.operator_profile_onboarding_view();
+                    widgets::operator_profile_onboarding::render(
+                        frame,
+                        overlay_area,
+                        &view,
+                        self.modal.picker_cursor(),
+                        &self.theme,
+                    );
+                }
                 modal::ModalKind::ApprovalCenter => {
                     widgets::approval_center::render(
                         frame,
@@ -2290,6 +2343,9 @@ impl TuiModel {
             }
             modal::ModalKind::OperatorQuestionOverlay => {
                 render_helpers::centered_rect(68, 34, area)
+            }
+            modal::ModalKind::OperatorProfileOnboarding => {
+                render_helpers::centered_fixed_rect(92, 21, area)
             }
             modal::ModalKind::ApprovalCenter => render_helpers::centered_rect(86, 82, area),
             modal::ModalKind::ChatActionConfirm => render_helpers::centered_rect(48, 28, area),

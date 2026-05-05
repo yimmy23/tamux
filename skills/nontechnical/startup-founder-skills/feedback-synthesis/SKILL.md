@@ -3,6 +3,8 @@ name: feedback-synthesis
 description: When the user needs to analyze, categorize, or extract actionable insights from customer feedback across multiple sources, especially feature requests.
 related: [user-research-synthesis, churn-analysis, prd-writing]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, feedback-synthesis]
 ---
 
 # Feedback Synthesis

@@ -7,8 +7,8 @@ description: >
   of accounts, bank reconciliation, accounts payable, accounts receivable,
   month-end close, journal entries, accruals, and any task requiring bookkeeping
   process design or automation.
+tags: [bookkeeping, reconciliation, ap-ar, month-end, chart-of-accounts, workflow, visualization, experimental-design]
 category: operations
-tags: [bookkeeping, reconciliation, ap-ar, month-end, chart-of-accounts]
 recommended_skills: [financial-reporting, tax-strategy, budgeting-planning, no-code-automation]
 platforms:
   - claude-code

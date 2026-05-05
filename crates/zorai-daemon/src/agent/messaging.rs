@@ -312,6 +312,19 @@ impl AgentEngine {
             None => return, // Can't seed without a thread ID
         };
 
+        let has_pending_persisted_messages = self
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(&tid);
+        if has_pending_persisted_messages && !self.ensure_thread_messages_loaded(&tid).await {
+            tracing::warn!(
+                thread_id = %tid,
+                "skipped frontend context seeding because persisted thread hydration failed"
+            );
+            return;
+        }
+
         let mut threads = self.threads.write().await;
         // Only seed if the thread doesn't exist yet or has no messages
         let needs_seeding = match threads.get(&tid) {
@@ -546,7 +559,9 @@ impl AgentEngine {
         if let Some(target) = resolved_target.as_ref().filter(|_| !created) {
             self.retarget_existing_thread_to_agent(&id, target).await;
         }
-        self.clear_thread_message_hydration_pending(&id).await;
+        if created {
+            self.clear_thread_message_hydration_pending(&id).await;
+        }
         (id, created)
     }
 

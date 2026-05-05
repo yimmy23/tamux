@@ -8,8 +8,8 @@ description: >
   undo/redo, and replays. Triggers on game architecture, game loop design, entity
   management, finite state machines, object pools, observer/event bus, command queues,
   and gameplay programming patterns.
+tags: [game-dev, design-patterns, state-machine, object-pool, event-system, command-pattern, experimental-design, performance]
 category: engineering
-tags: [game-dev, design-patterns, state-machine, object-pool, event-system, command-pattern]
 recommended_skills: [unity-development, game-balancing, clean-architecture]
 platforms:
   - claude-code

@@ -3,6 +3,8 @@ name: terms-of-service
 description: When the user needs to draft, review, or update terms of service for their SaaS product or web application.
 related: [privacy-policy, contract-review]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, terms-of-service]
 ---
 
 # Terms of Service

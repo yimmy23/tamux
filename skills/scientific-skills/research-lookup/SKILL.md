@@ -4,6 +4,7 @@ description: Look up current research information using the Parallel Chat API (p
 allowed-tools: Read Write Edit Bash
 license: MIT license
 compatibility: PARALLEL_API_KEY and OPENROUTER_API_KEY required
+tags: [scientific-skills, research-lookup, api, search, academic-writing]
 metadata:
     skill-author: K-Dense Inc.
 ---

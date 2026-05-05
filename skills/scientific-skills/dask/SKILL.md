@@ -2,6 +2,7 @@
 name: dask
 description: Distributed computing for larger-than-RAM pandas/NumPy workflows. Use when you need to scale existing pandas/NumPy code beyond memory or across clusters. Best for parallel file processing, distributed ML, integration with existing pandas code. For out-of-core analytics on single machine use vaex; for in-memory speed use polars.
 license: BSD-3-Clause license
+tags: [scientific-skills, dask, pandas, polars, numpy, machine-learning]
 metadata:
     skill-author: K-Dense Inc.
 ---

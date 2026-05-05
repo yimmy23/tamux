@@ -1,6 +1,8 @@
 ---
 name: synthlabs-ui-operator
 description: Use when SynthLabs work must be driven through the visual app for verifier review, data preview, settings changes, DEEP mode, or other browser-led workflows.
+
+tags: [synthlabs, synthlabs-ui-operator]
 ---
 
 # SynthLabs UI Operator

@@ -52,6 +52,7 @@ pub fn render(
     model: &str,
     reasoning_effort: Option<&str>,
     usage: &HeaderUsageDisplay,
+    session_duration_secs: Option<u64>,
     theme: &ThemeTokens,
     pending_approvals: usize,
     approvals_open: bool,
@@ -119,7 +120,10 @@ pub fn render(
     }
 
     top_spans.push(Span::raw("  "));
-    top_spans.push(Span::styled(build_total_usage_label(usage), theme.fg_dim));
+    top_spans.push(Span::styled(
+        build_total_usage_label(usage, session_duration_secs),
+        theme.fg_dim,
+    ));
 
     let (top_line_area, bottom_line_area) = if title_area.height >= 2 {
         let rows = Layout::default()
@@ -189,13 +193,37 @@ pub fn render(
     );
 }
 
-fn build_total_usage_label(usage: &HeaderUsageDisplay) -> String {
-    let mut label = format_token_count(usage.total_thread_tokens);
+fn build_total_usage_label(
+    usage: &HeaderUsageDisplay,
+    session_duration_secs: Option<u64>,
+) -> String {
+    let mut label = format!("⚡ {}", format_token_count(usage.total_thread_tokens));
     if let Some(total_cost_usd) = usage.total_cost_usd {
         label.push(' ');
         label.push_str(&format!("${total_cost_usd:.4}"));
     }
+    if let Some(session_duration_secs) = session_duration_secs {
+        label.push_str("  🕒 ");
+        label.push_str(&format_session_duration(session_duration_secs));
+    }
     label
+}
+
+fn format_session_duration(duration_secs: u64) -> String {
+    let days = duration_secs / 86_400;
+    let hours = (duration_secs % 86_400) / 3_600;
+    let minutes = (duration_secs % 3_600) / 60;
+    let seconds = duration_secs % 60;
+
+    if days > 0 {
+        format!("{days}d {hours:02}h")
+    } else if hours > 0 {
+        format!("{hours}h {minutes:02}m")
+    } else if minutes > 0 {
+        format!("{minutes}m")
+    } else {
+        format!("{seconds}s")
+    }
 }
 
 fn build_system_monitor_label(system_monitor: &SystemMonitorDisplay) -> String {
@@ -207,6 +235,16 @@ fn build_system_monitor_label(system_monitor: &SystemMonitorDisplay) -> String {
     );
     if let Some(gpu_percent) = system_monitor.gpu_percent {
         label.push_str(&format!("  GPU {:.0}%", gpu_percent));
+        if let (Some(gpu_used_bytes), Some(gpu_total_bytes)) = (
+            system_monitor.gpu_memory_used_bytes,
+            system_monitor.gpu_memory_total_bytes,
+        ) {
+            label.push_str(&format!(
+                " {:.1}/{:.0}G",
+                bytes_to_gib(gpu_used_bytes),
+                bytes_to_gib(gpu_total_bytes)
+            ));
+        }
     }
     label
 }
@@ -364,23 +402,62 @@ mod tests {
 
     #[test]
     fn total_usage_label_includes_thread_tokens_and_cost() {
-        let label = build_total_usage_label(&HeaderUsageDisplay {
-            total_thread_tokens: 21_000_000,
-            current_tokens: 64_000,
-            context_window_tokens: 128_000,
-            compaction_target_tokens: 102_400,
-            utilization_pct: 50,
-            total_cost_usd: Some(1.25),
-        });
+        let label = build_total_usage_label(
+            &HeaderUsageDisplay {
+                total_thread_tokens: 21_000_000,
+                current_tokens: 64_000,
+                context_window_tokens: 128_000,
+                compaction_target_tokens: 102_400,
+                utilization_pct: 50,
+                total_cost_usd: Some(1.25),
+            },
+            None,
+        );
 
         assert!(
             label.contains("21.0M tok"),
             "label should include cumulative thread tokens: {label}"
         );
         assert!(
+            label.starts_with("⚡ "),
+            "label should prefix cumulative thread tokens with a thunder icon: {label}"
+        );
+        assert!(
             label.contains("$1.2500"),
             "label should include total cost: {label}"
         );
+    }
+
+    #[test]
+    fn total_usage_label_includes_friendly_session_duration() {
+        let label = build_total_usage_label(
+            &HeaderUsageDisplay {
+                total_thread_tokens: 141_300_000,
+                current_tokens: 240_000,
+                context_window_tokens: 400_000,
+                compaction_target_tokens: 320_000,
+                utilization_pct: 60,
+                total_cost_usd: None,
+            },
+            Some(65 * 60),
+        );
+
+        assert!(
+            label.contains("141.3M tok"),
+            "label should keep cumulative thread tokens: {label}"
+        );
+        assert!(
+            label.contains("🕒 1h 05m"),
+            "label should include a clock icon with friendly elapsed time: {label}"
+        );
+    }
+
+    #[test]
+    fn friendly_session_duration_formats_seconds_minutes_hours_and_days() {
+        assert_eq!(format_session_duration(42), "42s");
+        assert_eq!(format_session_duration(5 * 60), "5m");
+        assert_eq!(format_session_duration(65 * 60), "1h 05m");
+        assert_eq!(format_session_duration(26 * 60 * 60), "1d 02h");
     }
 
     #[test]
@@ -492,9 +569,11 @@ mod tests {
             memory_used_bytes: 8 * 1024 * 1024 * 1024,
             memory_total_bytes: 32 * 1024 * 1024 * 1024,
             gpu_percent: Some(47.6),
+            gpu_memory_used_bytes: Some(3277 * 1024 * 1024),
+            gpu_memory_total_bytes: Some(24 * 1024 * 1024 * 1024),
         });
 
-        assert_eq!(label, "CPU 12%  MEM 8.0/32G  GPU 48%");
+        assert_eq!(label, "CPU 12%  MEM 8.0/32G  GPU 48% 3.2/24G");
     }
 
     #[test]
@@ -504,6 +583,8 @@ mod tests {
             memory_used_bytes: 512 * 1024 * 1024,
             memory_total_bytes: 2 * 1024 * 1024 * 1024,
             gpu_percent: None,
+            gpu_memory_used_bytes: None,
+            gpu_memory_total_bytes: None,
         });
 
         assert_eq!(label, "CPU 4%  MEM 0.5/2G");

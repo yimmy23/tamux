@@ -9,8 +9,8 @@ description: >
   infrastructure hardening, DNS TXT record configuration for email, and
   diagnosing why emails land in spam. Acts as a senior email infrastructure
   advisor for engineers and marketers managing transactional or marketing email.
+tags: [email, deliverability, spf, dkim, dmarc, reputation, devops, strategy, marketing]
 category: communication
-tags: [email, deliverability, spf, dkim, dmarc, reputation]
 recommended_skills: [email-marketing, absolute-seo, privacy-compliance]
 platforms:
   - claude-code

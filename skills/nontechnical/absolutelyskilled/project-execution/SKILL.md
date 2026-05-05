@@ -8,8 +8,8 @@ description: >
   tracking, stakeholder updates, escalation decisions, timeline estimation, resource
   allocation, and project recovery. Covers RAID logs, critical path analysis, and
   communication cadences.
+tags: [project-management, risk-management, dependencies, stakeholder-communication, execution, planning, strategy]
 category: operations
-tags: [project-management, risk-management, dependencies, stakeholder-communication, execution, planning]
 recommended_skills: [agile-scrum, remote-collaboration, incident-management, product-launch]
 platforms:
   - claude-code

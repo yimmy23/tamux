@@ -120,7 +120,7 @@ jobs:
           retention-days: 5
 
   # ================================================================
-  # Linux arm64 — Rust cross-compile for npm binary distribution
+  # Linux arm64 — Rust cross-compile + Electron packaging
   # ================================================================
   build-linux-arm64:
     runs-on: ubuntu-latest
@@ -153,8 +153,55 @@ jobs:
             cp target/aarch64-unknown-linux-gnu/release/$bin dist-release/linux-arm64/
           done
 
+      - name: Build frontend
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm install + build
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+
+          max_attempts=3
+          for attempt in $(seq 1 "$max_attempts"); do
+            if npm ci --prefer-offline --no-audit; then
+              break
+            fi
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              exit 1
+            fi
+            echo "npm ci failed on attempt $attempt of $max_attempts; retrying after transient npm/network failure." >&2
+            sleep $((15 * attempt))
+          done
+          npm run build
+        working-directory: frontend
+
+      - name: Copy Linux arm64 binaries to frontend/dist
+        run: |
+          cp dist-release/linux-arm64/zorai-daemon frontend/dist/
+          cp dist-release/linux-arm64/zorai frontend/dist/
+          cp dist-release/linux-arm64/zoi frontend/dist/
+          cp dist-release/linux-arm64/zorai-tui frontend/dist/
+          cp dist-release/linux-arm64/zorai-mcp frontend/dist/
+          cp dist-release/linux-arm64/zorai-gateway frontend/dist/
+
+      - name: Electron package (Linux arm64 AppImage)
+        run: npx electron-builder --linux AppImage --arm64
+        working-directory: frontend
+
       - name: Stage bundled skills and guidelines
         run: |
+          LINUX_APPIMAGE="$(find frontend/release -maxdepth 1 -type f -name "*.AppImage" -print -quit)"
+          if [ -z "$LINUX_APPIMAGE" ]; then
+            echo "Electron Linux arm64 AppImage was not produced" >&2
+            exit 1
+          fi
+          cp "$LINUX_APPIMAGE" dist-release/linux-arm64/zorai-desktop
+          chmod 755 dist-release/linux-arm64/zorai-desktop
           cp -R skills dist-release/linux-arm64/
           cp -R guidelines dist-release/linux-arm64/
 
@@ -162,7 +209,7 @@ jobs:
         run: |
           cd dist-release/linux-arm64
           ZIP="zorai-linux-aarch64.zip"
-          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway skills guidelines
+          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway zorai-desktop skills guidelines
           sha256sum "$ZIP" > "SHA256SUMS-linux-aarch64.txt"
 
       - name: Upload Linux arm64 artifacts
@@ -172,6 +219,7 @@ jobs:
           path: |
             dist-release/linux-arm64/*.zip
             dist-release/linux-arm64/SHA256SUMS*.txt
+            frontend/release/*.AppImage
           retention-days: 5
 
   # ================================================================
@@ -275,6 +323,107 @@ jobs:
           retention-days: 5
 
   # ================================================================
+  # Windows arm64 — Rust cross-compile + Electron packaging
+  # ================================================================
+  build-windows-arm64:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: aarch64-pc-windows-msvc
+
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rust build (Windows arm64)
+        shell: pwsh
+        run: cargo build --release --target aarch64-pc-windows-msvc
+
+      - name: Collect Windows arm64 binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist-release/windows-arm64 | Out-Null
+          foreach ($bin in "zorai-daemon", "zorai", "zoi", "zorai-tui", "zorai-mcp", "zorai-gateway") {
+            Copy-Item "target/aarch64-pc-windows-msvc/release/$bin.exe" "dist-release/windows-arm64/$bin.exe"
+          }
+
+      - name: Build frontend
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm install + build
+        shell: pwsh
+        run: |
+          npm config set fetch-retries 5
+          npm config set fetch-retry-mintimeout 20000
+          npm config set fetch-retry-maxtimeout 120000
+
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            npm ci --prefer-offline --no-audit
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -eq $maxAttempts) { exit $LASTEXITCODE }
+            Write-Warning "npm ci failed on attempt $attempt of $maxAttempts; retrying after transient npm/network failure."
+            Start-Sleep -Seconds (15 * $attempt)
+          }
+          npm run build
+        working-directory: frontend
+
+      - name: Copy Windows arm64 binaries to frontend/dist
+        shell: pwsh
+        run: |
+          Copy-Item dist-release/windows-arm64/zorai-daemon.exe frontend/dist/
+          Copy-Item dist-release/windows-arm64/zorai.exe frontend/dist/
+          Copy-Item dist-release/windows-arm64/zoi.exe frontend/dist/
+          Copy-Item dist-release/windows-arm64/zorai-tui.exe frontend/dist/
+          Copy-Item dist-release/windows-arm64/zorai-mcp.exe frontend/dist/
+          Copy-Item dist-release/windows-arm64/zorai-gateway.exe frontend/dist/
+
+      - name: Electron package (Windows arm64 portable + nsis)
+        shell: pwsh
+        run: npx electron-builder --win portable nsis --arm64
+        working-directory: frontend
+
+      - name: Stage bundled skills and guidelines
+        shell: pwsh
+        run: |
+          Copy-Item frontend/release/zorai-portable.exe dist-release/windows-arm64/zorai-desktop.exe
+          Copy-Item -Recurse skills dist-release/windows-arm64/
+          Copy-Item -Recurse guidelines dist-release/windows-arm64/
+
+      - name: Package Windows arm64 binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+        shell: pwsh
+        working-directory: dist-release/windows-arm64
+        run: |
+          $zip = "zorai-windows-arm64.zip"
+          Compress-Archive -Path zorai-daemon.exe, zorai.exe, zoi.exe, zorai-tui.exe, zorai-mcp.exe, zorai-gateway.exe, zorai-desktop.exe, skills, guidelines -DestinationPath $zip -Force
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $zip" | Out-File -FilePath SHA256SUMS-windows-arm64.txt -Encoding ascii
+
+      - name: Upload Windows arm64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-arm64
+          path: |
+            dist-release/windows-arm64/*.zip
+            dist-release/windows-arm64/SHA256SUMS*.txt
+            frontend/release/*.exe
+          retention-days: 5
+
+  # ================================================================
   # macOS x64 (Intel) — native build
   # ================================================================
   build-darwin-x64:
@@ -347,6 +496,27 @@ jobs:
 
       - name: Stage bundled skills and guidelines
         run: |
+          rm -rf dist-release/macos/zorai-desktop.app
+          cp -R frontend/release/mac/zorai.app dist-release/macos/zorai-desktop.app
+          cat > dist-release/macos/zorai-desktop <<'SH'
+          #!/bin/sh
+          set -eu
+          dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+          app="$dir/zorai-desktop.app"
+          zip="$dir/zorai-desktop.app.zip"
+          if [ ! -x "$app/Contents/MacOS/zorai" ]; then
+            rm -rf "$app"
+            if command -v ditto >/dev/null 2>&1; then
+              ditto -x -k "$zip" "$dir"
+            else
+              unzip -q "$zip" -d "$dir"
+            fi
+          fi
+          exec "$app/Contents/MacOS/zorai" "$@"
+          SH
+          chmod 755 dist-release/macos/zorai-desktop
+          (cd dist-release/macos && ditto -c -k --sequesterRsrc --keepParent zorai-desktop.app zorai-desktop.app.zip)
+          rm -rf dist-release/macos/zorai-desktop.app
           cp -R skills dist-release/macos/
           cp -R guidelines dist-release/macos/
 
@@ -356,7 +526,7 @@ jobs:
         run: |
           cd dist-release/macos
           ZIP="zorai-darwin-x86_64.zip"
-          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway skills guidelines
+          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway zorai-desktop zorai-desktop.app.zip skills guidelines
           shasum -a 256 "$ZIP" > "SHA256SUMS-darwin-x86_64.txt"
 
       - name: Upload macOS Intel artifacts
@@ -443,6 +613,27 @@ jobs:
 
       - name: Stage bundled skills and guidelines
         run: |
+          rm -rf dist-release/macos/zorai-desktop.app
+          cp -R frontend/release/mac/zorai.app dist-release/macos/zorai-desktop.app
+          cat > dist-release/macos/zorai-desktop <<'SH'
+          #!/bin/sh
+          set -eu
+          dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+          app="$dir/zorai-desktop.app"
+          zip="$dir/zorai-desktop.app.zip"
+          if [ ! -x "$app/Contents/MacOS/zorai" ]; then
+            rm -rf "$app"
+            if command -v ditto >/dev/null 2>&1; then
+              ditto -x -k "$zip" "$dir"
+            else
+              unzip -q "$zip" -d "$dir"
+            fi
+          fi
+          exec "$app/Contents/MacOS/zorai" "$@"
+          SH
+          chmod 755 dist-release/macos/zorai-desktop
+          (cd dist-release/macos && ditto -c -k --sequesterRsrc --keepParent zorai-desktop.app zorai-desktop.app.zip)
+          rm -rf dist-release/macos/zorai-desktop.app
           cp -R skills dist-release/macos/
           cp -R guidelines dist-release/macos/
 
@@ -452,7 +643,7 @@ jobs:
         run: |
           cd dist-release/macos
           ZIP="zorai-darwin-arm64.zip"
-          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway skills guidelines
+          zip -r "$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway zorai-desktop zorai-desktop.app.zip skills guidelines
           shasum -a 256 "$ZIP" > "SHA256SUMS-darwin-arm64.txt"
 
       - name: Upload macOS ARM64 artifacts
@@ -470,7 +661,7 @@ jobs:
   # Release — collect all artifacts, create GitHub Release
   # ================================================================
   release:
-    needs: [build-linux-x64, build-linux-arm64, build-windows-x64, build-darwin-x64, build-darwin-arm64]
+    needs: [build-linux-x64, build-linux-arm64, build-windows-x64, build-windows-arm64, build-darwin-x64, build-darwin-arm64]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write

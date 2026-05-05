@@ -14,7 +14,7 @@ const DEFAULT_TTS_OUTPUT_FORMAT: &str = "mp3";
 
 const OPENROUTER_ATTRIBUTION_URL: &str = "https://zorai.app";
 const OPENROUTER_ATTRIBUTION_TITLE: &str = "zorai";
-const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent";
+const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent,personal-agent";
 
 fn media_tool_timeout(tool_name: &str, args: &serde_json::Value) -> std::time::Duration {
     std::time::Duration::from_secs(daemon_tool_timeout_seconds(tool_name, args))

@@ -2,6 +2,7 @@
 name: rust-compiler-diagnostics
 description: Use when Rust code fails to compile, Clippy reports lints, borrow checker errors appear, lifetimes are unclear, or cargo diagnostics need systematic triage.
 license: MIT
+tags: [development, rust-compiler-diagnostics, rust]
 metadata:
   source_references:
     - https://github.com/udapy/rust-agentic-skills

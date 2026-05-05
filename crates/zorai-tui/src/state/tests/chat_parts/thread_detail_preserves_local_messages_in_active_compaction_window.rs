@@ -450,6 +450,158 @@ fn shifted_latest_page_collapses_adjacent_optimistic_prompt_echo() {
 }
 
 #[test]
+fn shifted_latest_page_collapses_adjacent_local_assistant_final_echo() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Existing".into(),
+        total_message_count: 120,
+        loaded_message_start: 70,
+        loaded_message_end: 120,
+        messages: (70..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("old {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+    state.reduce(ChatAction::Delta {
+        thread_id: "t1".into(),
+        content: "Done.\n\nRestarted from checkpoint-300.".into(),
+    });
+    state.reduce(ChatAction::TurnDone {
+        thread_id: "t1".into(),
+        input_tokens: 10,
+        output_tokens: 20,
+        cost: None,
+        provider: None,
+        model: None,
+        tps: None,
+        generation_ms: None,
+        reasoning: None,
+        provider_final_result_json: None,
+    });
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Existing".into(),
+        total_message_count: 121,
+        loaded_message_start: 120,
+        loaded_message_end: 121,
+        messages: vec![AgentMessage {
+            id: Some("persisted-assistant".into()),
+            role: MessageRole::Assistant,
+            content: "Done.\n\nRestarted from checkpoint-300.".into(),
+            message_kind: "normal".into(),
+            author_agent_id: Some("svarog".into()),
+            author_agent_name: Some("Svarog".into()),
+            timestamp: 101,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+
+    let thread = state
+        .active_thread()
+        .expect("thread should remain selected");
+    let final_count = thread
+        .messages
+        .iter()
+        .filter(|message| {
+            message.role == MessageRole::Assistant
+                && message.content == "Done.\n\nRestarted from checkpoint-300."
+        })
+        .count();
+    assert_eq!(
+        final_count, 1,
+        "persisted assistant echo should replace the local finalized stream instead of duplicating it"
+    );
+    let final_message = thread.messages.last().expect("final message should exist");
+    assert_eq!(final_message.id.as_deref(), Some("persisted-assistant"));
+    assert_eq!(final_message.author_agent_name.as_deref(), Some("Svarog"));
+}
+
+#[test]
+fn tail_reload_without_wire_start_collapses_local_assistant_final_echo() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Existing".into(),
+        total_message_count: 120,
+        loaded_message_start: 70,
+        loaded_message_end: 120,
+        messages: (70..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::Assistant,
+                content: format!("old {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+    state.reduce(ChatAction::Delta {
+        thread_id: "t1".into(),
+        content: "Done.\n\nRestarted from checkpoint-300.".into(),
+    });
+    state.reduce(ChatAction::TurnDone {
+        thread_id: "t1".into(),
+        input_tokens: 10,
+        output_tokens: 20,
+        cost: None,
+        provider: None,
+        model: None,
+        tps: None,
+        generation_ms: None,
+        reasoning: None,
+        provider_final_result_json: None,
+    });
+
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Existing".into(),
+        total_message_count: 121,
+        loaded_message_start: 0,
+        loaded_message_end: 121,
+        messages: vec![AgentMessage {
+            id: Some("persisted-assistant".into()),
+            role: MessageRole::Assistant,
+            content: "Done.\n\nRestarted from checkpoint-300.".into(),
+            message_kind: "normal".into(),
+            author_agent_id: Some("svarog".into()),
+            author_agent_name: Some("Svarog".into()),
+            timestamp: 101,
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+
+    let thread = state
+        .active_thread()
+        .expect("thread should remain selected");
+    let final_count = thread
+        .messages
+        .iter()
+        .filter(|message| {
+            message.role == MessageRole::Assistant
+                && message.content == "Done.\n\nRestarted from checkpoint-300."
+        })
+        .count();
+    assert_eq!(
+        final_count, 1,
+        "latest-page assistant echo without wire start should not duplicate local finalized stream"
+    );
+    let final_message = thread.messages.last().expect("final message should exist");
+    assert_eq!(final_message.id.as_deref(), Some("persisted-assistant"));
+    assert_eq!(final_message.author_agent_name.as_deref(), Some("Svarog"));
+}
+
+#[test]
 fn dismiss_concierge_welcome_removes_only_welcome_messages() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadCreated {
@@ -483,4 +635,3 @@ fn dismiss_concierge_welcome_removes_only_welcome_messages() {
     assert_eq!(thread.messages[0].content, "Follow-up");
     assert!(!thread.messages[0].is_concierge_welcome);
 }
-

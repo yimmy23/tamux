@@ -8,8 +8,8 @@ description: >
   reseller programs, affiliate commission structures, partner enablement,
   partner portals, referral programs, joint go-to-market, ecosystem development,
   and any task involving building or managing business partnerships.
+tags: [partnerships, co-marketing, integrations, affiliates, channel, ecosystem, strategy, sales, marketing]
 category: sales
-tags: [partnerships, co-marketing, integrations, affiliates, channel, ecosystem]
 recommended_skills: [account-management, sales-enablement, brand-strategy, growth-hacking]
 platforms:
   - claude-code

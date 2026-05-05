@@ -3,6 +3,7 @@ mod core;
 mod guideline_sync;
 mod guidelines;
 mod plugins;
+mod skill_sync;
 mod skills;
 mod tools;
 mod workspace;

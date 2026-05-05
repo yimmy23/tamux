@@ -114,20 +114,14 @@ impl AgentEngine {
     fn operator_profile_progress(
         session: &OperatorProfileSessionState,
     ) -> OperatorProfileProgressPayload {
-        let now = now_millis();
         let answered = session
             .questions
             .iter()
             .filter(|question| {
-                session.answers.get(&question.id).is_some_and(|state| {
-                    if state.answer_json.is_some() || state.skipped {
-                        return true;
-                    }
-                    match state.deferred_until_unix_ms {
-                        Some(until) => until > now,
-                        None => false,
-                    }
-                })
+                session
+                    .answers
+                    .get(&question.id)
+                    .is_some_and(|state| state.answer_json.is_some() || state.skipped)
             })
             .count() as u32;
         let total = session.questions.len() as u32;
@@ -170,6 +164,21 @@ impl AgentEngine {
                 optional: question.optional,
             })
         })
+    }
+
+    fn defer_pending_operator_profile_questions(
+        session: &mut OperatorProfileSessionState,
+        defer_until_unix_ms: u64,
+    ) {
+        for question in &session.questions {
+            let state = session.answers.entry(question.id.clone()).or_default();
+            if state.answer_json.is_some() || state.skipped {
+                continue;
+            }
+            state.deferred_until_unix_ms = Some(defer_until_unix_ms);
+            state.skipped = false;
+            state.skip_reason = None;
+        }
     }
 
     fn apply_operator_profile_answers(
@@ -350,9 +359,8 @@ impl AgentEngine {
             anyhow::bail!("unknown question_id for session {session_id}: {question_id}");
         }
         let now = now_millis();
-        let state = session.answers.entry(question_id.to_string()).or_default();
-        state.deferred_until_unix_ms = Some(defer_until_unix_ms.unwrap_or(now + 15 * 60_000));
-        state.skipped = false;
+        let defer_until = defer_until_unix_ms.unwrap_or(now + 24 * 60 * 60_000);
+        Self::defer_pending_operator_profile_questions(session, defer_until);
         session.updated_at = now;
         let session_json = serde_json::to_string(session)?;
         self.history
@@ -495,5 +503,59 @@ impl AgentEngine {
             session_id: session.session_id,
             updated_fields,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn test_session() -> OperatorProfileSessionState {
+        OperatorProfileSessionState {
+            version: OPERATOR_PROFILE_VERSION.to_string(),
+            session_id: "sess-1".to_string(),
+            kind: "first_run_onboarding".to_string(),
+            created_at: 1,
+            updated_at: 1,
+            questions: AgentEngine::operator_profile_questions_for_kind("first_run_onboarding"),
+            answers: HashMap::new(),
+            completed: false,
+        }
+    }
+
+    #[test]
+    fn deferred_operator_profile_questions_do_not_count_as_answered() {
+        let mut session = test_session();
+        AgentEngine::defer_pending_operator_profile_questions(&mut session, u64::MAX);
+
+        let progress = AgentEngine::operator_profile_progress(&session);
+
+        assert_eq!(progress.answered, 0);
+        assert_eq!(progress.remaining, session.questions.len() as u32);
+        assert!(AgentEngine::next_operator_profile_question(&session).is_none());
+    }
+
+    #[test]
+    fn defer_pending_operator_profile_questions_preserves_answered_fields() {
+        let mut session = test_session();
+        session
+            .answers
+            .entry("enabled".to_string())
+            .or_default()
+            .answer_json = Some("true".to_string());
+
+        AgentEngine::defer_pending_operator_profile_questions(&mut session, u64::MAX);
+
+        let progress = AgentEngine::operator_profile_progress(&session);
+        assert_eq!(progress.answered, 1);
+        assert_eq!(
+            session
+                .answers
+                .get("enabled")
+                .and_then(|state| state.answer_json.as_deref()),
+            Some("true")
+        );
+        assert!(AgentEngine::next_operator_profile_question(&session).is_none());
     }
 }

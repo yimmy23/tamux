@@ -38,7 +38,7 @@ test("shell installer dry-run targets GitHub release zip assets", { skip: proces
 
 test("shell installer provisions bundled skills into canonical zorai root", function () {
   const scriptPath = path.join(__dirname, "..", "scripts", "install.sh");
-  const script = childProcess.execFileSync("sed", ["-n", "1,380p", scriptPath], {
+  const script = childProcess.execFileSync("sed", ["-n", "1,430p", scriptPath], {
     cwd: path.join(__dirname, ".."),
     encoding: "utf8",
   });
@@ -46,6 +46,7 @@ test("shell installer provisions bundled skills into canonical zorai root", func
   assert.match(script, /SKILLS_DIR="\$\{ZORAI_SKILLS_DIR:-\$HOME\/\.zorai\/skills\}"/);
   assert.match(script, /GUIDELINES_DIR="\$\{ZORAI_GUIDELINES_DIR:-\$HOME\/\.zorai\/guidelines\}"/);
   assert.match(script, /Extracting binaries, skills, and guidelines/);
+  assert.match(script, /BINARIES="zorai zorai-daemon zorai-tui zorai-gateway zorai-mcp zorai-desktop"/);
   assert.match(script, /verify_extracted_binaries="\$\{1:-true\}"/);
   assert.match(script, /cp -R "\$EXTRACT_DIR\/skills\/\." "\$SKILLS_DIR\/"/);
   assert.match(script, /install_guidelines\(\)/);
@@ -87,6 +88,7 @@ test("shell installer accepts archive-only checksum manifests", { skip: process.
     "zorai-tui",
     "zorai-gateway",
     "zorai-mcp",
+    "zorai-desktop",
   ];
   const binaryHashes = new Map();
   for (const name of binaries) {

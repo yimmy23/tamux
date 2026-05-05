@@ -1,6 +1,7 @@
 ---
 name: email-marketing
 description: When the user wants to plan email marketing, EDM, newsletter strategy, or email deliverability. Also use when the user mentions "email marketing," "EDM," "newsletter," "SPF," "DKIM," "DMARC," "email deliverability," "email content strategy," "email campaigns," "newsletter strategy," "email automation," or "cold email." For signup UI, use newsletter-signup-generator.
+tags: [nontechnical, marketing-skills, email-marketing, workflow, strategy, writing, marketing]
 metadata:
   version: 1.0.1
 ---

@@ -7,8 +7,8 @@ description: >
   on pixel art, sprite sheet, sprite animation, tileset, tile map, pixel palette,
   indexed color, dithering, sub-pixel animation, NES palette, walk cycle sprite,
   and any task involving low-resolution raster art for games or retro aesthetics.
-category: design
 tags: [pixel-art, sprites, animation, tilesets, palette, gamedev]
+category: design
 recommended_skills: [unity-development, game-audio, absolute-ui]
 platforms:
   - claude-code

@@ -251,6 +251,16 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 model.execute_command(&command);
             }
         }
+        modal::ModalKind::OperatorProfileOnboarding => {
+            model.sync_operator_profile_onboarding_item_count();
+            let view = model.operator_profile_onboarding_view();
+            if let Some(target) = widgets::operator_profile_onboarding::target_at_index(
+                &view,
+                model.modal.picker_cursor(),
+            ) {
+                let _ = model.execute_operator_profile_onboarding_target(target);
+            }
+        }
         modal::ModalKind::ThreadPicker => {
             let cursor = model.modal.picker_cursor();
             let thread_picker_tab = model.modal.thread_picker_tab();

@@ -1,6 +1,7 @@
 ---
 name: watch-monitor
 description: Canonical watch/monitor pack for meaningful change detection across web sources, connectors, repo activity, or triggers, with false-positive suppression and alert summaries.
+tags: [watch, monitor, alert, webhook, trigger, repo activity, change detection]
 keywords:
   - watch
   - monitor

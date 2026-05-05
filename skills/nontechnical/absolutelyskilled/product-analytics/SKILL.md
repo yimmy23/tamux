@@ -6,8 +6,8 @@ description: >
   feature adoption, or defining product metrics. Triggers on product analytics,
   funnel analysis, cohort analysis, feature adoption, north star metric, AARRR,
   retention curves, and any task requiring product data analysis or metrics design.
+tags: [product-analytics, funnels, cohorts, metrics, adoption, retention, experimental-design, data-science]
 category: product
-tags: [product-analytics, funnels, cohorts, metrics, adoption, retention]
 recommended_skills: [saas-metrics, product-strategy, growth-hacking, data-science]
 platforms:
   - claude-code

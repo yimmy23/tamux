@@ -12,6 +12,7 @@ pub struct ThemeTokens {
     pub accent_secondary: Style, // amber
     pub accent_success: Style,   // green
     pub accent_danger: Style,    // red
+    pub meta_cognitive: Style,    // purple
 }
 
 impl Default for ThemeTokens {
@@ -24,6 +25,7 @@ impl Default for ThemeTokens {
             accent_secondary: Style::default().fg(Color::Indexed(178)),
             accent_success: Style::default().fg(Color::Indexed(78)),
             accent_danger: Style::default().fg(Color::Indexed(203)),
+            meta_cognitive: Style::default().fg(Color::Indexed(141)),
         }
     }
 }

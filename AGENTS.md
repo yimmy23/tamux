@@ -37,6 +37,7 @@ Run from repo root unless noted:
 - Prefer unit tests close to implementation in Rust (`#[cfg(test)] mod tests` in source files).
 - Name tests by behavior (example: `run_prefix_routes`).
 - For TUI changes, run the TUI against a live daemon or equivalent local setup and smoke-test the affected flows manually.
+- Never run overlapping Cargo commands in this workspace. Wait for any active `cargo`/`rustc` process to finish before starting another, and avoid broad workspace builds/tests unless the change scope requires them. Prefer the narrowest single crate/test target that verifies the change, then run any broader command only once at the end.
 - No formal frontend test suite is committed yet; for UI changes, validate with `npm run lint`, `npm run build`, and manual Electron smoke checks.
 - No coverage threshold is enforced currently; add tests for any new parsing, routing, policy, or state logic.
 

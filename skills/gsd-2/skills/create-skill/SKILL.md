@@ -1,6 +1,8 @@
 ---
 name: create-skill
 description: Expert guidance for creating, writing, building, and refining GSD skills. Use when working with SKILL.md files, authoring new skills, improving existing skills, or understanding skill structure and best practices.
+
+tags: [gsd-2, skills, create-skill, writing]
 ---
 
 <essential_principles>

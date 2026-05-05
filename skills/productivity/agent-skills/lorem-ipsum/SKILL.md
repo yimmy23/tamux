@@ -1,6 +1,8 @@
 ---
 name: lorem-ipsum
 description: Generate lorem ipsum placeholder text. This skill should be used when users ask to generate lorem ipsum content, placeholder text, dummy text, or filler text. Supports various structures including plain paragraphs, headings with sections, lists, and continuous text. Output can be saved to a file or used directly as requested by the user.
+
+tags: [productivity, agent-skills, lorem-ipsum, writing]
 ---
 
 # Lorem Ipsum Generator

@@ -1,6 +1,8 @@
 ---
 name: subagent-driven-development
 description: Use when executing implementation plans with independent tasks in the current session
+
+tags: [development, superpowers, subagent-driven-development]
 ---
 
 # Subagent-Driven Development

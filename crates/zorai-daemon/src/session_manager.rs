@@ -13,7 +13,9 @@ use zorai_protocol::{
     TranscriptIndexEntry, WorkspaceTopology,
 };
 
-use crate::history::{DatabaseRowUpdate, DatabaseTablePage, DatabaseTableSummary, HistoryStore};
+use crate::history::{
+    DatabaseRowUpdate, DatabaseSqlResult, DatabaseTablePage, DatabaseTableSummary, HistoryStore,
+};
 use crate::pty_session::PtySession;
 use crate::snapshot::SnapshotStore;
 use crate::state::{save_state, DaemonState, SavedSession};

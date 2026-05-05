@@ -1,6 +1,8 @@
 ---
 name: synthlabs-curation
 description: Use when SynthLabs dataset curation should run as repeatable background HTTP jobs instead of manual UI work.
+
+tags: [synthlabs, synthlabs-curation]
 ---
 
 # SynthLabs Curation

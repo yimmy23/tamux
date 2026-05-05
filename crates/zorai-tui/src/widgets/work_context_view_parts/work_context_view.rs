@@ -5,8 +5,8 @@ use crate::theme::ThemeTokens;
 use crate::widgets::chat::SelectionPoint;
 use crate::widgets::image_preview;
 use crate::widgets::message::{render_markdown_pub, wrap_text};
+use crate::widgets::tool_diff::render_unified_diff;
 use ratatui::prelude::*;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
-

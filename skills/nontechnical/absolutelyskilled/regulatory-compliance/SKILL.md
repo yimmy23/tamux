@@ -6,8 +6,8 @@ description: >
   audits, or implementing security controls. Triggers on SOC 2, HIPAA, PCI-DSS,
   compliance audit, security controls, risk assessment, control frameworks,
   and any task requiring regulatory compliance planning or audit preparation.
+tags: [compliance, soc2, hipaa, pci-dss, audit, controls, security, strategy]
 category: operations
-tags: [compliance, soc2, hipaa, pci-dss, audit, controls]
 recommended_skills: [privacy-compliance, contract-drafting, cloud-security, tax-strategy]
 platforms:
   - claude-code

@@ -112,6 +112,25 @@ pub fn hit_test(
     mouse: Position,
     theme: &ThemeTokens,
 ) -> Option<WorkContextHitTarget> {
+    if active_tab == SidebarTab::Files {
+        let snapshot =
+            sticky_files_snapshot(area, tasks, thread_id, selected_index, theme, scroll)?;
+        if !snapshot.header_area.contains(mouse) {
+            return None;
+        }
+        let row = mouse
+            .y
+            .saturating_sub(snapshot.header_area.y)
+            .min(snapshot.header_area.height.saturating_sub(1)) as usize;
+        return snapshot.header_lines.get(row).and_then(|line| {
+            if line.close_preview {
+                Some(WorkContextHitTarget::ClosePreview)
+            } else {
+                None
+            }
+        });
+    }
+
     let layout = scrollbar_layout(
         area,
         tasks,
@@ -161,6 +180,87 @@ pub fn render(
     mouse_selection: Option<(SelectionPoint, SelectionPoint)>,
 ) {
     if area.width == 0 || area.height == 0 {
+        return;
+    }
+
+    if active_tab == SidebarTab::Files {
+        let Some(mut snapshot) =
+            sticky_files_snapshot(area, tasks, thread_id, selected_index, theme, scroll)
+        else {
+            return;
+        };
+
+        if let Some((start, end)) = mouse_selection {
+            let (start_point, end_point) =
+                if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+                    (start, end)
+                } else {
+                    (end, start)
+                };
+            let highlight = Style::default().bg(Color::Indexed(31));
+            for row in start_point.row..=end_point.row {
+                let line = if row < snapshot.header_lines.len() {
+                    snapshot.header_lines.get_mut(row)
+                } else {
+                    snapshot
+                        .body_lines
+                        .get_mut(row.saturating_sub(snapshot.header_lines.len()))
+                };
+                if let Some(line) = line {
+                    let line_width = line_display_width(&line.line);
+                    let from = if row == start_point.row {
+                        start_point.col.min(line_width)
+                    } else {
+                        0
+                    };
+                    let to = if row == end_point.row {
+                        end_point.col.min(line_width).max(from)
+                    } else {
+                        line_width
+                    };
+                    highlight_line_range(&mut line.line, from, to, highlight);
+                }
+            }
+        }
+
+        if snapshot.header_area.height > 0 {
+            let visible_header = snapshot
+                .header_lines
+                .into_iter()
+                .take(snapshot.header_area.height as usize)
+                .map(|line| line.line)
+                .collect::<Vec<_>>();
+            frame.render_widget(Paragraph::new(visible_header), snapshot.header_area);
+        }
+
+        let visible_body = snapshot
+            .body_lines
+            .into_iter()
+            .skip(snapshot.scroll)
+            .take(snapshot.body_area.height as usize)
+            .map(|line| line.line)
+            .collect::<Vec<_>>();
+
+        if let Some(layout) = snapshot.layout {
+            frame.render_widget(Paragraph::new(visible_body), layout.content);
+
+            let scrollbar_lines = (0..layout.scrollbar.height)
+                .map(|offset| {
+                    let y = layout.scrollbar.y.saturating_add(offset);
+                    let (glyph, style) = if y >= layout.thumb.y
+                        && y < layout.thumb.y.saturating_add(layout.thumb.height)
+                    {
+                        ("█", theme.accent_primary)
+                    } else {
+                        ("│", theme.fg_dim)
+                    };
+                    Line::from(Span::styled(glyph, style))
+                })
+                .collect::<Vec<_>>();
+            frame.render_widget(Paragraph::new(scrollbar_lines), layout.scrollbar);
+        } else {
+            frame.render_widget(Paragraph::new(visible_body), snapshot.body_area);
+        }
         return;
     }
 
@@ -252,6 +352,12 @@ pub fn max_scroll(
         return 0;
     }
 
+    if active_tab == SidebarTab::Files {
+        return sticky_files_snapshot(area, tasks, thread_id, selected_index, theme, 0)
+            .map(|snapshot| snapshot.max_scroll)
+            .unwrap_or(0);
+    }
+
     scrollbar_layout(area, tasks, thread_id, active_tab, selected_index, theme, 0)
         .map(|layout| layout.max_scroll)
         .unwrap_or_else(|| {
@@ -272,6 +378,11 @@ fn scrollbar_layout(
 ) -> Option<WorkContextScrollbarLayout> {
     if area.width <= SCROLLBAR_WIDTH || area.height == 0 {
         return None;
+    }
+
+    if active_tab == SidebarTab::Files {
+        return sticky_files_snapshot(area, tasks, thread_id, selected_index, theme, scroll)
+            .and_then(|snapshot| snapshot.layout);
     }
 
     let full_lines = build_lines(
@@ -325,26 +436,19 @@ pub fn terminal_image_overlay_spec(
         return None;
     }
 
-    let content = scrollbar_layout(
+    let content = sticky_files_snapshot(
         area,
         tasks,
         Some(thread_id),
-        active_tab,
         selected_index,
         theme,
         scroll,
     )
-    .map(|layout| layout.content)
+    .map(|snapshot| snapshot.body_area)
     .unwrap_or(area);
     let path = image_preview::resolve_local_image_path(&entry.path)?;
-    let image_row = content
-        .y
-        .saturating_add(WORK_CONTEXT_IMAGE_HEADER_LINES)
-        .saturating_add(TERMINAL_IMAGE_HEADER_LINES);
-    let image_rows = content
-        .height
-        .saturating_sub(WORK_CONTEXT_IMAGE_HEADER_LINES)
-        .saturating_sub(TERMINAL_IMAGE_HEADER_LINES);
+    let image_row = content.y.saturating_add(TERMINAL_IMAGE_HEADER_LINES);
+    let image_rows = content.height.saturating_sub(TERMINAL_IMAGE_HEADER_LINES);
     if content.width == 0 || image_rows == 0 {
         return None;
     }
@@ -357,4 +461,3 @@ pub fn terminal_image_overlay_spec(
         rows: image_rows,
     })
 }
-

@@ -56,7 +56,9 @@ pub struct HistoryStore {
 }
 
 mod database_viewer;
-pub(crate) use database_viewer::{DatabaseRowUpdate, DatabaseTablePage, DatabaseTableSummary};
+pub(crate) use database_viewer::{
+    DatabaseRowUpdate, DatabaseSqlResult, DatabaseTablePage, DatabaseTableSummary,
+};
 
 pub struct ManagedHistoryRecord {
     pub execution_id: String,

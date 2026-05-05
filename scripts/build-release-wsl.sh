@@ -305,6 +305,10 @@ if [[ -d "$RELEASE_DIR" ]]; then
         cp "$f" "$OUT_DIR/"
         echo "  Collected $(basename "$f")"
     done
+    if [[ -f "$RELEASE_DIR/zorai-portable.exe" ]]; then
+        cp "$RELEASE_DIR/zorai-portable.exe" "$OUT_DIR/zorai-desktop.exe"
+        echo "  Collected zorai-desktop.exe"
+    fi
 fi
 
 # -----------------------------------------------------------

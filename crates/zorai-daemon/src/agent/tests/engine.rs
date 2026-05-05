@@ -213,6 +213,86 @@ async fn hydrate_keeps_persisted_thread_messages_lazy_until_thread_detail_is_req
 }
 
 #[tokio::test]
+async fn seed_thread_context_does_not_replace_lazy_hydrated_history() {
+    let (engine, temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let thread_id = "thread-seed-preserves-lazy-history";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        AgentThread {
+            id: thread_id.to_string(),
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Existing Thread".to_string(),
+            messages: vec![
+                AgentMessage::user("original request", 1_000),
+                AgentMessage::user("prior context", 2_000),
+            ],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            created_at: 1_000,
+            updated_at: 2_000,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+        },
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(temp_dir.path()).await,
+        AgentConfig::default(),
+        temp_dir.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    assert!(
+        rehydrated
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id),
+        "persisted messages should be pending lazy hydration"
+    );
+
+    rehydrated
+        .seed_thread_context(
+            Some(thread_id),
+            &[zorai_protocol::AgentDbMessage {
+                id: "partial-context-1".to_string(),
+                thread_id: thread_id.to_string(),
+                created_at: 3_000,
+                role: "user".to_string(),
+                content: "do it".to_string(),
+                provider: None,
+                model: None,
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(0),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            }],
+        )
+        .await;
+
+    let loaded = rehydrated
+        .get_thread(thread_id)
+        .await
+        .expect("thread should remain readable");
+    let contents = loaded
+        .messages
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(contents, vec!["original request", "prior context"]);
+}
+
+#[tokio::test]
 async fn hydrate_restores_user_defined_subagent_thread_identity() {
     let mut config = AgentConfig::default();
     config.sub_agents.push(SubAgentDefinition {

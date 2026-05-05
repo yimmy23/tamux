@@ -2,6 +2,7 @@
 name: statistical-analysis
 description: Guided statistical analysis with test selection and reporting. Use when you need help choosing appropriate tests for your data, assumption checking, power analysis, and APA-formatted results. Best for academic research reporting, test selection guidance. For implementing specific models programmatically use statsmodels.
 license: MIT license
+tags: [scientific-skills, statistical-analysis, statsmodels, statistics]
 metadata:
     skill-author: K-Dense Inc.
 ---

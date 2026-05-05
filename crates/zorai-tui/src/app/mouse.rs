@@ -24,6 +24,35 @@ impl TuiModel {
             self.clear_dismissable_input_notice();
         }
 
+        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+            && self.should_show_operator_profile_onboarding()
+        {
+            let overlay_area = if let Some((modal::ModalKind::OperatorProfileOnboarding, area)) =
+                self.current_modal_area()
+            {
+                area
+            } else {
+                self.open_operator_profile_onboarding_modal();
+                self.current_modal_area()
+                    .map(|(_, area)| area)
+                    .unwrap_or_else(|| Rect::new(0, 0, self.width, self.height))
+            };
+            let index = {
+                let view = self.operator_profile_onboarding_view();
+                widgets::operator_profile_onboarding::index_at_position(
+                    overlay_area,
+                    &view,
+                    Position::new(mouse.column, mouse.row),
+                )
+            };
+            if let Some(index) = index {
+                self.modal_navigate_to(index);
+                self.handle_modal_enter(modal::ModalKind::OperatorProfileOnboarding);
+                self.input.set_mode(input::InputMode::Insert);
+                return;
+            }
+        }
+
         if self.modal.top().is_some() {
             self.handle_modal_mouse(mouse);
             self.input.set_mode(input::InputMode::Insert);
@@ -351,6 +380,11 @@ impl TuiModel {
                             concierge_area,
                             self.chat.active_actions(),
                             self.concierge.selected_action,
+                            Some(
+                                self.current_conversation_agent_profile()
+                                    .agent_label
+                                    .as_str(),
+                            ),
                             Position::new(mouse.column, mouse.row),
                         )
                     {

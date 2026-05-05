@@ -149,6 +149,10 @@ impl SessionManager {
             .await
     }
 
+    pub async fn execute_database_sql(&self, sql: &str) -> Result<DatabaseSqlResult> {
+        self.history.execute_database_sql(sql).await
+    }
+
     pub async fn queue_semantic_backfill(
         &self,
         limit: Option<usize>,

@@ -246,6 +246,9 @@ impl TuiModel {
                 .reduce(crate::state::ConciergeAction::WelcomeLoading(
                     !welcome_complete,
                 ));
+            if welcome_complete {
+                self.maybe_request_operator_profile_autostart_summary();
+            }
             return;
         }
         self.ignore_pending_concierge_welcome = false;
@@ -323,6 +326,22 @@ impl TuiModel {
         }
         self.main_pane_view = MainPaneView::Conversation;
         self.focus = FocusArea::Chat;
+        if welcome_complete {
+            self.maybe_request_operator_profile_autostart_summary();
+        }
+    }
+
+    pub(in crate::app) fn maybe_request_operator_profile_autostart_summary(&mut self) {
+        if self.operator_profile_auto_start_requested
+            || self.operator_profile.loading
+            || self.operator_profile.session_id.is_some()
+            || self.operator_profile.question.is_some()
+        {
+            return;
+        }
+        self.operator_profile_auto_start_requested = true;
+        self.operator_profile_auto_start_pending_summary = true;
+        self.send_daemon_command(DaemonCommand::GetOperatorProfileSummary);
     }
 
     pub(in crate::app) fn handle_concierge_welcome_dismissed_event(&mut self) {

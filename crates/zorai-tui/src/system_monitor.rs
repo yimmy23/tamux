@@ -7,6 +7,8 @@ pub(crate) struct SystemMonitorDisplay {
     pub(crate) memory_used_bytes: u64,
     pub(crate) memory_total_bytes: u64,
     pub(crate) gpu_percent: Option<f64>,
+    pub(crate) gpu_memory_used_bytes: Option<u64>,
+    pub(crate) gpu_memory_total_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,11 +30,14 @@ impl SystemMonitorSampler {
     pub(crate) fn sample(&mut self) -> Option<SystemMonitorDisplay> {
         let memory = read_memory_usage()?;
         let cpu_percent = self.cpu_percent();
+        let gpu = read_first_gpu_usage();
         Some(SystemMonitorDisplay {
             cpu_percent,
             memory_used_bytes: memory.used_bytes,
             memory_total_bytes: memory.total_bytes,
-            gpu_percent: read_first_gpu_percent(),
+            gpu_percent: gpu.map(|usage| usage.percent),
+            gpu_memory_used_bytes: gpu.map(|usage| usage.memory_used_bytes),
+            gpu_memory_total_bytes: gpu.map(|usage| usage.memory_total_bytes),
         })
     }
 
@@ -53,6 +58,13 @@ impl SystemMonitorSampler {
 struct MemoryUsage {
     used_bytes: u64,
     total_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GpuUsage {
+    percent: f64,
+    memory_used_bytes: u64,
+    memory_total_bytes: u64,
 }
 
 fn read_cpu_times() -> Option<CpuTimes> {
@@ -120,10 +132,10 @@ fn parse_memory_usage(meminfo: &str) -> Option<MemoryUsage> {
     })
 }
 
-fn read_first_gpu_percent() -> Option<f64> {
+fn read_first_gpu_usage() -> Option<GpuUsage> {
     let output = Command::new("nvidia-smi")
         .args([
-            "--query-gpu=utilization.gpu",
+            "--query-gpu=utilization.gpu,memory.used,memory.total",
             "--format=csv,noheader,nounits",
         ])
         .output()
@@ -132,10 +144,21 @@ fn read_first_gpu_percent() -> Option<f64> {
         return None;
     }
     let stdout = String::from_utf8(output.stdout).ok()?;
-    stdout
-        .lines()
-        .find_map(|line| line.trim().parse::<f64>().ok())
-        .map(|value| value.clamp(0.0, 100.0))
+    parse_first_gpu_usage(&stdout)
+}
+
+fn parse_first_gpu_usage(stdout: &str) -> Option<GpuUsage> {
+    stdout.lines().find_map(|line| {
+        let mut parts = line.split(',').map(str::trim);
+        let percent = parts.next()?.parse::<f64>().ok()?.clamp(0.0, 100.0);
+        let used_mib = parts.next()?.parse::<u64>().ok()?;
+        let total_mib = parts.next()?.parse::<u64>().ok()?;
+        Some(GpuUsage {
+            percent,
+            memory_used_bytes: used_mib.saturating_mul(1024 * 1024),
+            memory_total_bytes: total_mib.saturating_mul(1024 * 1024),
+        })
+    })
 }
 
 #[cfg(test)]
@@ -176,5 +199,14 @@ mod tests {
 
         assert_eq!(usage.total_bytes, 2048 * 1024);
         assert_eq!(usage.used_bytes, 1536 * 1024);
+    }
+
+    #[test]
+    fn parse_first_gpu_usage_reads_utilization_and_vram() {
+        let usage = parse_first_gpu_usage("18, 3277, 24576\n").unwrap();
+
+        assert_eq!(usage.percent, 18.0);
+        assert_eq!(usage.memory_used_bytes, 3277 * 1024 * 1024);
+        assert_eq!(usage.memory_total_bytes, 24576 * 1024 * 1024);
     }
 }

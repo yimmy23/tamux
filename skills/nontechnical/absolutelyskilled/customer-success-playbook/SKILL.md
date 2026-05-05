@@ -6,8 +6,8 @@ description: >
   expansion signals, or running QBRs. Triggers on customer success, health scores,
   churn prediction, expansion signals, customer QBRs, onboarding playbooks,
   NRR optimization, and any task requiring customer success strategy or operations.
+tags: [customer-success, health-scores, churn, expansion, nrr, retention, strategy, performance]
 category: operations
-tags: [customer-success, health-scores, churn, expansion, nrr, retention]
 recommended_skills: [account-management, support-analytics, customer-support-ops, saas-metrics]
 platforms:
   - claude-code

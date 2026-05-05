@@ -7,8 +7,8 @@ description: >
   vision, roadmapping, prioritization, RICE scoring, product strategy, feature
   prioritization, OKRs for product, and any task requiring product direction
   or planning decisions.
+tags: [product-strategy, roadmap, prioritization, rice, vision, planning, strategy]
 category: product
-tags: [product-strategy, roadmap, prioritization, rice, vision, planning]
 recommended_skills: [product-discovery, competitive-analysis, product-analytics, user-stories]
 platforms:
   - claude-code

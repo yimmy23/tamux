@@ -3,6 +3,8 @@ name: community-discovery
 description: When the user wants to find Slack groups, Discord servers, Reddit communities, forums, or online communities where their target audience hangs out. Also use when the user mentions "where to promote", "find communities", "community marketing", or "distribution channels".
 related: [cold-outreach, content-strategy, launch-strategy, landing-page]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, community-discovery, marketing, slack, discord]
 ---
 
 # Community Discovery

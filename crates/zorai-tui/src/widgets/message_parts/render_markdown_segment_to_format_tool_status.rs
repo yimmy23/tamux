@@ -107,10 +107,35 @@ pub(crate) fn is_meta_cognition_message(msg: &AgentMessage) -> bool {
         && is_meta_cognition_content(&msg.content)
 }
 
+pub(crate) fn is_collapsible_system_notice_message(msg: &AgentMessage) -> bool {
+    collapsible_system_notice_label(msg).is_some()
+}
+
+pub(crate) fn collapsible_system_notice_label(msg: &AgentMessage) -> Option<&'static str> {
+    if is_meta_cognition_message(msg) {
+        Some("🕵🏻‍♂️ Meta-cognition")
+    } else if msg.role == MessageRole::System {
+        background_operation_finished_label(&msg.content)
+    } else {
+        None
+    }
+}
+
 fn is_meta_cognition_content(content: &str) -> bool {
     content
         .trim_start()
         .starts_with("Meta-cognitive intervention")
+}
+
+fn background_operation_finished_label(content: &str) -> Option<&'static str> {
+    let content = content.trim_start();
+    if content.starts_with("Background operations finished.") {
+        Some("🖥️ Background operations finished")
+    } else if content.starts_with("Background operation finished.") {
+        Some("🖥️ Background operation finished")
+    } else {
+        None
+    }
 }
 
 fn toggle_glyph(expanded: bool) -> &'static str {
@@ -339,11 +364,11 @@ fn render_compact(
             .map(|s| Line::from(Span::styled(s, theme.fg_active)))
             .collect()
     };
-    if is_meta_cognition_message(msg) {
+    if let Some(label) = collapsible_system_notice_label(msg) {
         let is_expanded = expanded.contains(&msg_index);
         lines.push(Line::from(vec![Span::styled(
-            format!("{} Meta-cognition", toggle_glyph(is_expanded)),
-            theme.fg_dim,
+            format!("{} {label}", toggle_glyph(is_expanded)),
+            theme.meta_cognitive,
         )]));
 
         if is_expanded {

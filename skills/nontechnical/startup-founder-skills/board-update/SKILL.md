@@ -3,6 +3,8 @@ name: board-update
 description: When the user needs to write a monthly or quarterly investor update, prepare a board deck, or communicate company progress to stakeholders.
 related: [process-docs, pitch-deck]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, board-update, presentation]
 ---
 
 # Board Update

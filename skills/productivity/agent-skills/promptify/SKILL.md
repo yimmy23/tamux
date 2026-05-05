@@ -1,6 +1,8 @@
 ---
 name: promptify
 description: Transform user requests into detailed, precise prompts for AI models. Use when users say "promptify", "promptify this", or explicitly request prompt engineering or improvement of their request for better AI responses.
+
+tags: [productivity, agent-skills, promptify]
 ---
 
 # Promptify

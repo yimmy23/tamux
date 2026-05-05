@@ -450,10 +450,35 @@ impl AgentEngine {
                 .map(|task| task.id.clone());
         }
         let mut queued = self.deferred_visible_thread_continuations.lock().await;
-        queued
-            .entry(thread_id.to_string())
-            .or_default()
-            .push(continuation);
+        let entry = queued.entry(thread_id.to_string()).or_default();
+        if entry.iter().any(|queued| queued == &continuation) {
+            tracing::info!(
+                thread_id = %thread_id,
+                agent_id = %continuation.agent_id,
+                "skipping duplicate deferred visible-thread continuation"
+            );
+            return;
+        }
+        entry.push(continuation);
+    }
+
+    pub(in crate::agent) async fn clear_deferred_visible_thread_continuations(
+        &self,
+        thread_id: &str,
+    ) -> usize {
+        let mut queued = self.deferred_visible_thread_continuations.lock().await;
+        let removed = queued
+            .remove(thread_id)
+            .map(|items| items.len())
+            .unwrap_or(0);
+        if removed > 0 {
+            tracing::info!(
+                thread_id = %thread_id,
+                removed,
+                "cleared deferred visible-thread continuations"
+            );
+        }
+        removed
     }
 
     pub(crate) async fn deferred_visible_thread_continuations_for(
@@ -583,7 +608,13 @@ impl AgentEngine {
             .unwrap_or_else(|| llm_user_content.to_string());
         let mut current_thread_id = thread_id.to_string();
         let mut current_llm_user_content = llm_user_content.to_string();
-        let mut current_agent_scope_id = canonical_agent_id(agent_id).to_string();
+        let resolved_canonical_id = canonical_agent_id(agent_id);
+        let mut current_agent_scope_id =
+            if resolved_canonical_id == MAIN_AGENT_ID && !is_main_agent_scope(agent_id) {
+                agent_id.trim().to_string()
+            } else {
+                resolved_canonical_id.to_string()
+            };
 
         loop {
             let thread_for_turn = current_thread_id.clone();

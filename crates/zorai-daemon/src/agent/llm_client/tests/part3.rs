@@ -927,11 +927,11 @@ providers:
             "expected OpenRouter embedding model fetch to include attribution referer header, got {request_text}"
         );
         assert!(
-            request_text.contains("x-openrouter-title: zorai\r\n"),
+            request_text.contains("x-openrouter-title: Zorai\r\n"),
             "expected OpenRouter embedding model fetch to include attribution title header, got {request_text}"
         );
         assert!(
-            request_text.contains("x-openrouter-categories: cli-agent\r\n"),
+            request_text.contains("x-openrouter-categories: cli-agent,personal-agent\r\n"),
             "expected OpenRouter embedding model fetch to include attribution categories header, got {request_text}"
         );
         assert_eq!(models.len(), 2);

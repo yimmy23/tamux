@@ -22,26 +22,37 @@ const PLATFORM_MAP = {
     archivePlatform: "linux-x86_64",
     checksumPlatform: "linux-x86_64",
     requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp", "zorai-desktop"],
+    requiredAssets: [],
   },
   "linux-arm64": {
     archivePlatform: "linux-aarch64",
     checksumPlatform: "linux-aarch64",
-    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp"],
+    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp", "zorai-desktop"],
+    requiredAssets: [],
   },
   "darwin-arm64": {
     archivePlatform: "darwin-arm64",
     checksumPlatform: "darwin-arm64",
-    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp"],
+    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp", "zorai-desktop"],
+    requiredAssets: ["zorai-desktop.app.zip"],
   },
   "darwin-x64": {
     archivePlatform: "darwin-x86_64",
     checksumPlatform: "darwin-x86_64",
-    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp"],
+    requiredBinaries: ["zorai", "zorai-daemon", "zorai-tui", "zorai-gateway", "zorai-mcp", "zorai-desktop"],
+    requiredAssets: ["zorai-desktop.app.zip"],
   },
   "win32-x64": {
     archivePlatform: "windows-x64",
     checksumPlatform: "windows-x64",
     requiredBinaries: ["zorai.exe", "zorai-daemon.exe", "zorai-tui.exe", "zorai-gateway.exe", "zorai-mcp.exe", "zorai-desktop.exe"],
+    requiredAssets: [],
+  },
+  "win32-arm64": {
+    archivePlatform: "windows-arm64",
+    checksumPlatform: "windows-arm64",
+    requiredBinaries: ["zorai.exe", "zorai-daemon.exe", "zorai-tui.exe", "zorai-gateway.exe", "zorai-mcp.exe", "zorai-desktop.exe"],
+    requiredAssets: [],
   },
 };
 
@@ -260,6 +271,7 @@ function getReleaseAssetInfo(platform, arch, version) {
     checksumName: "SHA256SUMS-" + target.checksumPlatform + ".txt",
     bundleChecksumName: "SHA256SUMS.txt",
     requiredBinaries: target.requiredBinaries.slice(),
+    requiredAssets: target.requiredAssets.slice(),
     skillsArchiveRoot: "skills",
     guidelinesArchiveRoot: "guidelines",
   };
@@ -458,23 +470,31 @@ async function maybeRefreshDaemonAfterInstall(options, installWork, deps) {
 }
 
 function extractRequiredBinaries(archiveData, releaseInfo) {
+  extractRequiredFiles(archiveData, releaseInfo.requiredBinaries, "binary");
+}
+
+function extractRequiredAssets(archiveData, releaseInfo) {
+  extractRequiredFiles(archiveData, releaseInfo.requiredAssets || [], "asset");
+}
+
+function extractRequiredFiles(archiveData, requiredFiles, kind) {
   var AdmZip = require("adm-zip");
   var archive = new AdmZip(archiveData);
   var entries = archive.getEntries();
 
-  for (var i = 0; i < releaseInfo.requiredBinaries.length; i++) {
-    var binaryName = releaseInfo.requiredBinaries[i];
+  for (var i = 0; i < requiredFiles.length; i++) {
+    var fileName = requiredFiles[i];
     var entry = entries.find(function (item) {
-      return item.entryName === binaryName;
+      return item.entryName === fileName;
     });
 
     if (!entry) {
       throw new Error(
-        "Release bundle is missing required binary " + binaryName
+        "Release bundle is missing required " + kind + " " + fileName
       );
     }
 
-    fs.writeFileSync(path.join(BIN_DIR, binaryName), entry.getData());
+    fs.writeFileSync(path.join(BIN_DIR, fileName), entry.getData());
   }
 }
 
@@ -516,23 +536,24 @@ function extractBundledGuidelines(archiveData, releaseInfo, guidelinesDir) {
 }
 
 async function verifyExtractedBinaries(checksumsData, releaseInfo) {
-  for (var i = 0; i < releaseInfo.requiredBinaries.length; i++) {
-    var binaryName = releaseInfo.requiredBinaries[i];
-    var expectedHash = parseChecksumFile(checksumsData, binaryName);
+  var requiredFiles = releaseInfo.requiredBinaries.concat(releaseInfo.requiredAssets || []);
+  for (var i = 0; i < requiredFiles.length; i++) {
+    var fileName = requiredFiles[i];
+    var expectedHash = parseChecksumFile(checksumsData, fileName);
     if (!expectedHash) {
       throw new Error(
-        "Could not find checksum for required binary " + binaryName
+        "Could not find checksum for required file " + fileName
       );
     }
 
-    var binaryPath = path.join(BIN_DIR, binaryName);
-    if (!fs.existsSync(binaryPath)) {
-      throw new Error("Required binary was not extracted: " + binaryName);
+    var filePath = path.join(BIN_DIR, fileName);
+    if (!fs.existsSync(filePath)) {
+      throw new Error("Required file was not extracted: " + fileName);
     }
 
-    var valid = await verifyChecksum(binaryPath, expectedHash);
+    var valid = await verifyChecksum(filePath, expectedHash);
     if (!valid) {
-      throw new Error("SHA256 checksum mismatch for " + binaryName);
+      throw new Error("SHA256 checksum mismatch for " + fileName);
     }
   }
 }
@@ -542,9 +563,10 @@ function cleanupExtractedBinaries(releaseInfo) {
     return;
   }
 
-  for (var i = 0; i < releaseInfo.requiredBinaries.length; i++) {
+  var requiredFiles = releaseInfo.requiredBinaries.concat(releaseInfo.requiredAssets || []);
+  for (var i = 0; i < requiredFiles.length; i++) {
     try {
-      fs.unlinkSync(path.join(BIN_DIR, releaseInfo.requiredBinaries[i]));
+      fs.unlinkSync(path.join(BIN_DIR, requiredFiles[i]));
     } catch (_e) {
       /* ignore cleanup errors */
     }
@@ -619,6 +641,7 @@ async function main() {
       async function () {
         console.log("zorai: extracting binaries, skills, and guidelines...");
         extractRequiredBinaries(archiveData, releaseInfo);
+        extractRequiredAssets(archiveData, releaseInfo);
         extractBundledSkills(archiveData, releaseInfo, runtimeSkillsDir);
         extractBundledGuidelines(archiveData, releaseInfo, runtimeGuidelinesDir);
         console.log(

@@ -44,7 +44,7 @@ $RequestHeaders = @{
     "User-Agent" = "zorai-installer"
 }
 $DirectInstallMarker = Join-Path $InstallDir ".zorai-install-source"
-$Binaries = @("zorai.exe", "zorai-daemon.exe", "zorai-tui.exe", "zorai-gateway.exe", "zorai-mcp.exe")
+$Binaries = @("zorai.exe", "zorai-daemon.exe", "zorai-tui.exe", "zorai-gateway.exe", "zorai-mcp.exe", "zorai-desktop.exe")
 
 function Normalize-Version {
     param([string]$Value)

@@ -33,6 +33,12 @@ include!("server/subsystem_metrics.rs");
 include!("server/operation_retention.rs");
 include!("server/operations_registry.rs");
 
+fn is_unknown_operator_profile_session_error(error: &anyhow::Error) -> bool {
+    error
+        .to_string()
+        .contains("unknown operator profile session:")
+}
+
 #[cfg(test)]
 mod tests {
     include!("server/tests_part1.rs");

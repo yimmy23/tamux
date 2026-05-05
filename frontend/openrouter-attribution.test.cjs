@@ -10,8 +10,8 @@ const openAiSrc = fs.readFileSync(openAiPath, "utf8");
 
 test("shared helper defines OpenRouter attribution constants", () => {
   assert.match(sharedSrc, /const OPENROUTER_ATTRIBUTION_URL = "https:\/\/zorai\.app";/);
-  assert.match(sharedSrc, /const OPENROUTER_ATTRIBUTION_TITLE = "zorai";/);
-  assert.match(sharedSrc, /const OPENROUTER_ATTRIBUTION_CATEGORIES = "cli-agent";/);
+  assert.match(sharedSrc, /const OPENROUTER_ATTRIBUTION_TITLE = "Zorai";/);
+  assert.match(sharedSrc, /const OPENROUTER_ATTRIBUTION_CATEGORIES = "cli-agent,personal-agent";/);
   assert.match(sharedSrc, /export function applyOpenRouterAttributionHeaders\(/);
   assert.match(sharedSrc, /headers\["HTTP-Referer"\] = OPENROUTER_ATTRIBUTION_URL;/);
   assert.match(sharedSrc, /headers\["X-OpenRouter-Title"\] = OPENROUTER_ATTRIBUTION_TITLE;/);

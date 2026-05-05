@@ -2,6 +2,7 @@
 name: scanpy
 description: Standard single-cell RNA-seq analysis pipeline. Use for QC, normalization, dimensionality reduction (PCA/UMAP/t-SNE), clustering, differential expression, and visualization. Best for exploratory scRNA-seq analysis with established workflows. For deep learning models use scvi-tools; for data format questions use anndata.
 license: SD-3-Clause license
+tags: [scientific-skills, scanpy, workflow, deep-learning, data-science, bioinformatics, visualization, sales, anndata]
 metadata:
     skill-author: K-Dense Inc.
 ---

@@ -6,6 +6,8 @@ use crate::cli::SkillAction;
 use crate::client;
 use crate::output::truncate_for_display;
 
+use super::skill_sync::{fetch_remote_skill_documents, sync_skill_documents};
+
 pub(crate) async fn run(action: SkillAction) -> Result<()> {
     match action {
         SkillAction::List {
@@ -48,6 +50,17 @@ pub(crate) async fn run(action: SkillAction) -> Result<()> {
                     println!("Next cursor: {next_cursor}");
                 }
             }
+        }
+        SkillAction::Sync { force } => {
+            let root = zorai_protocol::zorai_skills_dir();
+            let documents = fetch_remote_skill_documents().await?;
+            let summary = sync_skill_documents(&root, &documents, force)?;
+            println!("Synced skills from https://github.com/mkurman/zorai/tree/main/skills");
+            println!("Skills root: {}", root.display());
+            println!(
+                "Installed: {} | Overwritten: {} | Skipped existing: {}",
+                summary.installed, summary.overwritten, summary.skipped_existing
+            );
         }
         SkillAction::Discover {
             query,

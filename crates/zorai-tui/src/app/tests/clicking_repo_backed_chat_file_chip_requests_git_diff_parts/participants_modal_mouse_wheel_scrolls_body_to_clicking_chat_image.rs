@@ -216,7 +216,7 @@ fn attention_surface_uses_sidebar_tab_for_sidebar_focus() {
 }
 
 #[test]
-fn operator_profile_onboarding_takes_precedence_over_provider_onboarding() {
+fn operator_profile_onboarding_uses_modal_over_provider_onboarding() {
     let mut model = build_model();
     model.connected = true;
     model.auth.loaded = true;
@@ -230,14 +230,20 @@ fn operator_profile_onboarding_takes_precedence_over_provider_onboarding() {
         input_kind: "text".to_string(),
         optional: false,
     });
+    model.open_operator_profile_onboarding_modal();
 
     assert!(
         model.should_show_operator_profile_onboarding(),
         "operator profile onboarding should be active"
     );
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::OperatorProfileOnboarding),
+        "operator profile onboarding should own modal input"
+    );
     assert!(
-        !model.should_show_provider_onboarding(),
-        "provider onboarding should not mask operator profile onboarding"
+        model.should_show_provider_onboarding(),
+        "provider onboarding can remain as the background view while operator profile owns the modal"
     );
 }
 
@@ -441,4 +447,3 @@ fn clicking_chat_image_attachment_requests_file_preview() {
     }
     assert!(matches!(model.main_pane_view, MainPaneView::FilePreview(_)));
 }
-

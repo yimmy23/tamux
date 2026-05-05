@@ -3,6 +3,8 @@ name: event-hosting
 description: When the user wants to host a tech event, meetup, workshop, or community gathering — especially using Luma. Also use when the user mentions "host an event", "meetup", "workshop", "Luma event", or "community event".
 related: [community-discovery, founder-thought-leadership, content-strategy, employer-brand]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, event-hosting]
 ---
 
 # Event Hosting

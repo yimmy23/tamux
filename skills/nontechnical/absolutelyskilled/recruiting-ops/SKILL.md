@@ -7,8 +7,8 @@ description: >
   job descriptions, candidate sourcing, screening criteria, interview loops,
   recruiting pipelines, offer management, and any task requiring talent
   acquisition process design.
+tags: [recruiting, hiring, sourcing, screening, talent-acquisition, experimental-design, writing]
 category: operations
-tags: [recruiting, hiring, sourcing, screening, talent-acquisition]
 recommended_skills: [interview-design, onboarding, employment-law, technical-interviewing]
 platforms:
   - claude-code

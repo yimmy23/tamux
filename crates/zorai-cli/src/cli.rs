@@ -418,6 +418,12 @@ pub(crate) enum SkillAction {
         #[arg(long)]
         all: bool,
     },
+    /// Download the latest default skills from the zorai repository.
+    Sync {
+        /// Overwrite existing local skills with upstream versions.
+        #[arg(long)]
+        force: bool,
+    },
     /// Rank installed skills for a task and suggest the next action.
     Discover {
         /// Task or problem description to match against installed skills.
@@ -975,6 +981,18 @@ mod tests {
         match cli.command {
             Some(Commands::Guideline {
                 action: GuidelineAction::Sync { force },
+            }) => assert!(force),
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn skill_sync_subcommand_parses_force_flag() {
+        let cli = Cli::try_parse_from(["zorai", "skill", "sync", "--force"])
+            .expect("skill sync should parse");
+        match cli.command {
+            Some(Commands::Skill {
+                action: SkillAction::Sync { force },
             }) => assert!(force),
             other => panic!("parsed unexpected command: {other:?}"),
         }

@@ -128,6 +128,102 @@ fn meta_cognition_message_expands_with_reasoning_state() {
 }
 
 #[test]
+fn background_operation_finished_message_collapses_by_default_and_expands() {
+    let msg = AgentMessage {
+        role: MessageRole::System,
+        content: "Background operation finished.\n\noperation_id: op-123\ntool: shell\nstate: succeeded\nregistered_at: 123\n\nOperation status:\n{\"state\":\"succeeded\"}".into(),
+        ..Default::default()
+    };
+
+    let collapsed = message_to_lines(
+        &msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &empty_expanded(),
+        &empty_tools(),
+    );
+    let collapsed_plain = plain_lines(&collapsed).join("\n");
+
+    assert!(
+        collapsed_plain.contains("Background operation finished"),
+        "collapsed background operation should show a disclosure header: {collapsed_plain}"
+    );
+    assert!(
+        !collapsed_plain.contains("operation_id: op-123")
+            && !collapsed_plain.contains("Operation status:"),
+        "collapsed background operation should hide details: {collapsed_plain}"
+    );
+
+    let mut expanded = empty_expanded();
+    expanded.insert(0);
+    let expanded_lines = message_to_lines(
+        &msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &expanded,
+        &empty_tools(),
+    );
+    let expanded_plain = plain_lines(&expanded_lines).join("\n");
+
+    assert!(
+        expanded_plain.contains("operation_id: op-123")
+            && expanded_plain.contains("Operation status:"),
+        "expanded background operation should show details: {expanded_plain}"
+    );
+}
+
+#[test]
+fn batched_background_operations_message_collapses_by_default_and_expands() {
+    let msg = AgentMessage {
+        role: MessageRole::System,
+        content: "Background operations finished.\n\nOperation results:\n[{\"operation_id\":\"op-123\",\"state\":\"completed\"},{\"operation_id\":\"op-456\",\"state\":\"failed\"}]".into(),
+        ..Default::default()
+    };
+
+    let collapsed = message_to_lines(
+        &msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &empty_expanded(),
+        &empty_tools(),
+    );
+    let collapsed_plain = plain_lines(&collapsed).join("\n");
+
+    assert!(
+        collapsed_plain.contains("Background operations finished"),
+        "collapsed background operations should show a disclosure header: {collapsed_plain}"
+    );
+    assert!(
+        !collapsed_plain.contains("op-123") && !collapsed_plain.contains("Operation results:"),
+        "collapsed background operations should hide details: {collapsed_plain}"
+    );
+
+    let mut expanded = empty_expanded();
+    expanded.insert(0);
+    let expanded_lines = message_to_lines(
+        &msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &expanded,
+        &empty_tools(),
+    );
+    let expanded_plain = plain_lines(&expanded_lines).join("\n");
+
+    assert!(
+        expanded_plain.contains("op-123") && expanded_plain.contains("op-456"),
+        "expanded background operations should show batched details: {expanded_plain}"
+    );
+}
+
+#[test]
 fn tools_mode_skips_non_tool_messages() {
     let msg = AgentMessage {
         role: MessageRole::User,

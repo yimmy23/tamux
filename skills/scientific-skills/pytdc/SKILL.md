@@ -2,6 +2,7 @@
 name: pytdc
 description: Therapeutics Data Commons. AI-ready drug discovery datasets (ADME, toxicity, DTI), benchmarks, scaffold splits, molecular oracles, for therapeutic ML and pharmacological prediction.
 license: MIT license
+tags: [scientific-skills, pytdc, machine-learning, cheminformatics]
 metadata:
     skill-author: K-Dense Inc.
 ---

@@ -9,8 +9,8 @@ description: >
   XLOOKUP/INDEX-MATCH lookups, array formulas, and workbook architecture.
   Covers advanced Excel and Google Sheets for analysts, finance professionals,
   and operations teams.
+tags: [excel, google-sheets, formulas, pivot-tables, dashboards, macros, writing, workflow, finance, experimental-design, dash, simulation, compliance]
 category: data
-tags: [excel, google-sheets, formulas, pivot-tables, dashboards, macros]
 recommended_skills: [financial-modeling, budgeting-planning, financial-reporting, no-code-automation]
 platforms:
   - claude-code

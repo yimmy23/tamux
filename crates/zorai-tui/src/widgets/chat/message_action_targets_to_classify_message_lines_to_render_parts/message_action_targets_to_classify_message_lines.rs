@@ -33,7 +33,7 @@ pub(crate) fn message_action_targets(
             .reasoning
             .as_deref()
             .is_some_and(|reasoning| !reasoning.is_empty()))
-        || super::message::is_meta_cognition_message(msg))
+        || super::message::is_collapsible_system_notice_message(msg))
         && matches!(chat.transcript_mode(), TranscriptMode::Compact)
     {
         let toggle_label = if chat.expanded_reasoning().contains(&msg_index) {
@@ -272,7 +272,7 @@ fn classify_message_lines(
                 return Vec::new();
             }
 
-            if super::message::is_meta_cognition_message(msg) {
+            if super::message::is_collapsible_system_notice_message(msg) {
                 let mut kinds = vec![reasoning_toggle_kind];
                 if reasoning_expanded {
                     let detail_width = content_width.saturating_sub(2).max(1);

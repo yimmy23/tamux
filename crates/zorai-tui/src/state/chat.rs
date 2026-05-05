@@ -215,7 +215,10 @@ fn message_snapshot_matches(existing: &AgentMessage, incoming: &AgentMessage) ->
         _ => {
             existing.role == incoming.role
                 && existing.content == incoming.content
-                && existing.message_kind == incoming.message_kind
+                && message_kinds_match(
+                    existing.message_kind.as_str(),
+                    incoming.message_kind.as_str(),
+                )
                 && existing.tool_call_id == incoming.tool_call_id
                 && existing.tool_name == incoming.tool_name
                 && (existing.timestamp == incoming.timestamp
@@ -353,8 +356,12 @@ fn find_matching_message_index(thread: &AgentThread, needle: &AgentMessage) -> O
 }
 
 fn realign_short_reload_window(existing: &AgentThread, incoming: &mut AgentThread) {
+    let tail_window_start_missing = incoming.loaded_message_start == 0
+        && incoming.loaded_message_end > incoming.messages.len()
+        && incoming.total_message_count >= incoming.loaded_message_end;
     if incoming.messages.is_empty()
-        || incoming.total_message_count >= existing.total_message_count
+        || (!tail_window_start_missing
+            && incoming.total_message_count >= existing.total_message_count)
         || incoming.loaded_message_start != 0
         || incoming
             .messages
@@ -498,6 +505,26 @@ fn collapse_adjacent_optimistic_user_tail(thread: &mut AgentThread) {
     thread.total_message_count = thread.total_message_count.saturating_sub(1);
     thread.loaded_message_end = thread.loaded_message_end.saturating_sub(1);
     normalize_thread_window(thread);
+}
+
+fn reasoning_duplicates_existing_assistant_tail(thread: &AgentThread, reasoning: &str) -> bool {
+    let reasoning = reasoning.trim();
+    if reasoning.is_empty() {
+        return false;
+    }
+
+    thread
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role == MessageRole::Assistant)
+        .is_some_and(|message| {
+            message.content.trim() == reasoning
+                || message
+                    .reasoning
+                    .as_deref()
+                    .is_some_and(|existing| existing.trim() == reasoning)
+        })
 }
 
 fn is_thread_handoff_system_message(message: &AgentMessage) -> bool {
@@ -757,6 +784,7 @@ impl ChatState {
         self.append_thread_history(from_thread_id);
         self.active_thread_id = Some(to_thread_id.to_string());
         self.new_thread_pending = false;
+        self.bump_render_revision();
         true
     }
 
@@ -765,6 +793,7 @@ impl ChatState {
             if self.thread_exists(&next_thread_id) {
                 self.active_thread_id = Some(next_thread_id.clone());
                 self.new_thread_pending = false;
+                self.bump_render_revision();
                 return Some(next_thread_id);
             }
         }
@@ -1125,19 +1154,19 @@ impl ChatState {
     }
 
     pub fn render_cache_epoch(&self, current_tick: u64) -> u64 {
-        if self.copied_message_feedback.is_some() {
-            return current_tick;
-        }
-
+        let mut epoch = if self.copied_message_feedback.is_some() {
+            1_u64 << 63
+        } else {
+            0
+        };
         if self
             .retry_status()
             .is_some_and(|status| status.phase == RetryPhase::Waiting)
         {
             let ticks_per_second = (1_000 / crate::app::TUI_TICK_RATE_MS).max(1);
-            return current_tick / ticks_per_second;
+            epoch |= current_tick / ticks_per_second;
         }
-
-        0
+        epoch
     }
 
     pub fn has_running_tool_calls(&self) -> bool {
@@ -1389,7 +1418,18 @@ impl ChatState {
                     }
                 }
 
-                if !content.is_empty() || !final_reasoning.is_empty() {
+                let duplicate_reasoning_tail = content.is_empty()
+                    && !final_reasoning.is_empty()
+                    && self
+                        .threads
+                        .iter()
+                        .find(|t| t.id == thread_id)
+                        .is_some_and(|thread| {
+                            reasoning_duplicates_existing_assistant_tail(thread, &final_reasoning)
+                        });
+
+                if (!content.is_empty() || !final_reasoning.is_empty()) && !duplicate_reasoning_tail
+                {
                     let msg = AgentMessage {
                         role: MessageRole::Assistant,
                         content,
@@ -1409,6 +1449,11 @@ impl ChatState {
 
                     if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
                         append_message_to_thread(thread, msg, self.history_page_size);
+                        thread.total_input_tokens += input_tokens;
+                        thread.total_output_tokens += output_tokens;
+                    }
+                } else if duplicate_reasoning_tail {
+                    if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
                         thread.total_input_tokens += input_tokens;
                         thread.total_output_tokens += output_tokens;
                     }
@@ -1469,6 +1514,39 @@ impl ChatState {
                             .iter()
                             .find(|thread| thread.id == incoming.id)
                         {
+                            if incoming.agent_name.is_none() {
+                                incoming.agent_name = existing.agent_name.clone();
+                            }
+                            if incoming.profile_provider.is_none() {
+                                incoming.profile_provider = existing.profile_provider.clone();
+                            }
+                            if incoming.profile_model.is_none() {
+                                incoming.profile_model = existing.profile_model.clone();
+                            }
+                            if incoming.profile_reasoning_effort.is_none() {
+                                incoming.profile_reasoning_effort =
+                                    existing.profile_reasoning_effort.clone();
+                            }
+                            if incoming.profile_context_window_tokens.is_none() {
+                                incoming.profile_context_window_tokens =
+                                    existing.profile_context_window_tokens;
+                            }
+                            if incoming.runtime_provider.is_none() {
+                                incoming.runtime_provider = existing.runtime_provider.clone();
+                            }
+                            if incoming.runtime_model.is_none() {
+                                incoming.runtime_model = existing.runtime_model.clone();
+                            }
+                            if incoming.runtime_reasoning_effort.is_none() {
+                                incoming.runtime_reasoning_effort =
+                                    existing.runtime_reasoning_effort.clone();
+                            }
+                            if incoming.total_input_tokens == 0 {
+                                incoming.total_input_tokens = existing.total_input_tokens;
+                            }
+                            if incoming.total_output_tokens == 0 {
+                                incoming.total_output_tokens = existing.total_output_tokens;
+                            }
                             if incoming.messages.is_empty() {
                                 incoming.messages = existing.messages.clone();
                                 incoming.total_message_count = existing.total_message_count;
@@ -1674,12 +1752,25 @@ impl ChatState {
 
             ChatAction::ThreadCreated { thread_id, title } => {
                 self.pinned_message_top = None;
-                self.clear_thread_history_stack();
-                // Transfer messages from any local pending thread to the real thread
-                let local_messages = self
-                    .active_thread()
-                    .map(|t| t.messages.clone())
-                    .unwrap_or_default();
+                let previous_active_thread_id = self.active_thread_id.clone();
+                let replacing_local_thread = previous_active_thread_id
+                    .as_deref()
+                    .is_some_and(|active_id| active_id.starts_with("local-"));
+                let should_select_created_thread = previous_active_thread_id.is_none()
+                    || self.new_thread_pending
+                    || replacing_local_thread
+                    || previous_active_thread_id.as_deref() == Some(thread_id.as_str());
+                if should_select_created_thread {
+                    self.clear_thread_history_stack();
+                }
+                // Transfer messages only from a local pending placeholder to the real thread.
+                let local_messages = if replacing_local_thread {
+                    self.active_thread()
+                        .map(|t| t.messages.clone())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
 
                 // Remove local thread if it exists (it was a placeholder)
                 if let Some(active_id) = &self.active_thread_id {
@@ -1700,12 +1791,13 @@ impl ChatState {
                             existing.messages.insert(0, msg.clone());
                         }
                     }
-                    existing.total_message_count = existing.messages.len();
-                    existing.loaded_message_start = 0;
-                    existing.loaded_message_end = existing.messages.len();
-                    existing.history_window_expanded = false;
-                    existing.older_page_request_cooldown_until_tick = None;
-                    existing.collapse_deadline_tick = None;
+                    if !local_messages.is_empty() {
+                        existing.total_message_count =
+                            existing.total_message_count.max(existing.messages.len());
+                        existing.loaded_message_end = existing
+                            .loaded_message_end
+                            .max(existing.loaded_message_start + existing.messages.len());
+                    }
                     if thread_id == "concierge" {
                         existing.agent_name = Some(AGENT_NAME_RAROG.to_string());
                     }
@@ -1730,9 +1822,13 @@ impl ChatState {
                     self.threads.push(thread);
                 }
                 self.move_thread_to_front(&thread_id);
-                self.active_thread_id = Some(thread_id);
-                self.new_thread_pending = false;
-                self.clear_thread_history_stack();
+                if should_select_created_thread {
+                    self.active_thread_id = Some(thread_id);
+                    self.new_thread_pending = false;
+                    self.clear_thread_history_stack();
+                } else {
+                    self.active_thread_id = previous_active_thread_id;
+                }
             }
 
             ChatAction::ThreadDeleted { thread_id } => {

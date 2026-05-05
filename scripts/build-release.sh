@@ -335,7 +335,11 @@ else
     case "$OS" in
         Linux*)
             find "$PROJECT_ROOT/frontend/release" -maxdepth 1 -type f \( -name "zorai*" -o -name "zorai*" \) -delete 2>/dev/null || true
-            npx electron-builder --linux AppImage deb || warn_msg "Electron Linux build failed (non-fatal)"
+            ELECTRON_ARGS=(--linux AppImage deb)
+            if [[ "$TARGET" == "aarch64-unknown-linux-gnu" ]]; then
+                ELECTRON_ARGS+=(--arm64)
+            fi
+            npx electron-builder "${ELECTRON_ARGS[@]}" || warn_msg "Electron Linux build failed (non-fatal)"
             ;;
         Darwin*)
             find "$PROJECT_ROOT/frontend/release" -maxdepth 1 -type f \( -name "zorai*" -o -name "zorai*" \) -delete 2>/dev/null || true
@@ -354,6 +358,51 @@ else
             cp "$f" "$OUT_DIR/"
             ok_msg "Electron: $(basename "$f")"
         done
+
+        case "$OS" in
+            Linux*)
+                linux_appimage="$(find "$RELEASE_DIR" -maxdepth 1 -type f -name "zorai*.AppImage" -print -quit)"
+                if [[ -n "$linux_appimage" ]]; then
+                    cp "$linux_appimage" "$OUT_DIR/zorai-desktop"
+                    chmod 755 "$OUT_DIR/zorai-desktop"
+                    ok_msg "Electron launcher: zorai-desktop"
+                fi
+                ;;
+            Darwin*)
+                mac_app="$RELEASE_DIR/mac/zorai.app"
+                if [[ -d "$mac_app" ]]; then
+                    rm -rf "$OUT_DIR/zorai-desktop.app"
+                    cp -R "$mac_app" "$OUT_DIR/zorai-desktop.app"
+                    cat > "$OUT_DIR/zorai-desktop" <<'SH'
+#!/bin/sh
+set -eu
+dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+app="$dir/zorai-desktop.app"
+zip="$dir/zorai-desktop.app.zip"
+if [ ! -x "$app/Contents/MacOS/zorai" ]; then
+  rm -rf "$app"
+  if command -v ditto >/dev/null 2>&1; then
+    ditto -x -k "$zip" "$dir"
+  else
+    unzip -q "$zip" -d "$dir"
+  fi
+fi
+exec "$app/Contents/MacOS/zorai" "$@"
+SH
+                    chmod 755 "$OUT_DIR/zorai-desktop"
+                    (cd "$OUT_DIR" && ditto -c -k --sequesterRsrc --keepParent zorai-desktop.app zorai-desktop.app.zip)
+                    rm -rf "$OUT_DIR/zorai-desktop.app"
+                    ok_msg "Electron launcher: zorai-desktop + zorai-desktop.app.zip"
+                fi
+                ;;
+            *)
+                portable="$RELEASE_DIR/zorai-portable.exe"
+                if [[ -f "$portable" ]]; then
+                    cp "$portable" "$OUT_DIR/zorai-desktop.exe"
+                    ok_msg "Electron launcher: zorai-desktop.exe"
+                fi
+                ;;
+        esac
     fi
 fi
 
@@ -384,6 +433,14 @@ if [[ ${#bundle_artifacts[@]} -gt 0 ]]; then
             ;;
     esac
     artifact_arch_name="$ARCH"
+    case "$TARGET" in
+        x86_64-unknown-linux-gnu|x86_64-apple-darwin)
+            artifact_arch_name="x86_64"
+            ;;
+        aarch64-unknown-linux-gnu|aarch64-apple-darwin)
+            artifact_arch_name="aarch64"
+            ;;
+    esac
     if [[ "$artifact_os_name" == "windows" ]]; then
         case "$artifact_arch_name" in
             x86_64) artifact_arch_name="x64" ;;

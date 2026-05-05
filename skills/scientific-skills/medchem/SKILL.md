@@ -2,6 +2,7 @@
 name: medchem
 description: Medicinal chemistry filters. Apply drug-likeness rules (Lipinski, Veber), PAINS filters, structural alerts, complexity metrics, for compound prioritization and library filtering.
 license: Apache-2.0 license
+tags: [scientific-skills, medchem, cheminformatics]
 metadata:
     skill-author: K-Dense Inc.
 ---

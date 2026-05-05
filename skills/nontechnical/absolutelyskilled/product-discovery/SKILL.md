@@ -7,8 +7,8 @@ description: >
   discovery, JTBD, jobs-to-be-done, opportunity solution trees, assumption
   mapping, experiment design, prototype testing, and any task requiring
   product discovery methodology.
+tags: [product-discovery, jtbd, opportunity-trees, assumptions, validation, testing, experimental-design, experimentation]
 category: product
-tags: [product-discovery, jtbd, opportunity-trees, assumptions, validation]
 recommended_skills: [ux-research, product-strategy, customer-research, user-stories]
 platforms:
   - claude-code

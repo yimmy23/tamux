@@ -1,6 +1,7 @@
 ---
 name: inbox-calendar-triage
 description: Canonical inbox and calendar triage pack for agenda prep, urgent unread mail, follow-ups, and draft-only response suggestions.
+tags: [inbox, calendar, email, gmail, meeting prep, follow-up]
 keywords:
   - inbox
   - calendar

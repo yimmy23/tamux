@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDatabaseRowUpdates, getLastDatabasePageOffset, getNextDatabaseSort, normalizeDatabasePageSize, sortDatabaseRowsForDisplay } from "./databaseModel";
+import { applyDatabaseSelectionDraftValue, buildDatabaseRowUpdates, getDatabaseSelectedDraftKeys, getLastDatabasePageOffset, getNextDatabaseSort, normalizeDatabasePageSize, sortDatabaseRowsForDisplay } from "./databaseModel";
 import type { DatabaseTablePage } from "./databaseTypes";
 
 const page: DatabaseTablePage = {
@@ -92,5 +92,61 @@ describe("databaseModel", () => {
       12,
     ]);
     expect(sortDatabaseRowsForDisplay(page, null)).toBe(page.rows);
+  });
+
+  it("collects editable draft keys inside a rectangular database cell selection", () => {
+    const keys = getDatabaseSelectedDraftKeys(page, page.rows, page.columns, {
+      anchor: { rowIndex: 0, columnIndex: 1 },
+      focus: { rowIndex: 1, columnIndex: 2 },
+    });
+
+    expect(keys).toEqual([
+      "1:role",
+      "1:token_count",
+      "2:role",
+      "2:token_count",
+    ]);
+  });
+
+  it("applies a typed value to every editable cell in the database selection", () => {
+    const drafts = applyDatabaseSelectionDraftValue(
+      page,
+      page.rows,
+      page.columns,
+      {
+        anchor: { rowIndex: 0, columnIndex: 1 },
+        focus: { rowIndex: 1, columnIndex: 2 },
+      },
+      { "1:role": "operator" },
+      "bulk",
+    );
+
+    expect(drafts).toEqual({
+      "1:role": "bulk",
+      "1:token_count": "bulk",
+      "2:role": "bulk",
+      "2:token_count": "bulk",
+    });
+  });
+
+  it("clears every editable cell in the database selection", () => {
+    const drafts = applyDatabaseSelectionDraftValue(
+      page,
+      page.rows,
+      page.columns,
+      {
+        anchor: { rowIndex: 0, columnIndex: 1 },
+        focus: { rowIndex: 1, columnIndex: 2 },
+      },
+      {},
+      "",
+    );
+
+    expect(drafts).toEqual({
+      "1:role": "",
+      "1:token_count": "",
+      "2:role": "",
+      "2:token_count": "",
+    });
   });
 });

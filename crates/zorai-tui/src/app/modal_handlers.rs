@@ -1459,6 +1459,70 @@ impl TuiModel {
             }
         }
 
+        if kind == modal::ModalKind::OperatorProfileOnboarding {
+            self.sync_operator_profile_onboarding_item_count();
+
+            match code {
+                KeyCode::Esc => {
+                    let _ = self.defer_operator_profile_question();
+                    self.close_operator_profile_onboarding_modal();
+                }
+                KeyCode::Char('y') | KeyCode::Char('Y')
+                    if self.is_current_operator_profile_bool_question() =>
+                {
+                    let _ = self.execute_operator_profile_onboarding_target(
+                        widgets::operator_profile_onboarding::OperatorProfileOnboardingHitTarget::BoolChoice(true),
+                    );
+                }
+                KeyCode::Char('n') | KeyCode::Char('N')
+                    if self.is_current_operator_profile_bool_question() =>
+                {
+                    let _ = self.execute_operator_profile_onboarding_target(
+                        widgets::operator_profile_onboarding::OperatorProfileOnboardingHitTarget::BoolChoice(false),
+                    );
+                }
+                KeyCode::Char('s') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    let _ = self.skip_operator_profile_question();
+                }
+                KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    let _ = self.defer_operator_profile_question();
+                }
+                KeyCode::Char('r') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.retry_operator_profile_request();
+                    self.status_line = "Retrying operator profile operation…".to_string();
+                    self.show_input_notice(
+                        "Retrying operator profile operation…",
+                        InputNoticeKind::Success,
+                        40,
+                        true,
+                    );
+                }
+                KeyCode::Backspace if !self.is_current_operator_profile_bool_question() => {
+                    self.input.reduce(input::InputAction::Backspace);
+                }
+                KeyCode::Char(c)
+                    if !self.is_current_operator_profile_bool_question()
+                        && !modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+                {
+                    self.input.reduce(input::InputAction::InsertChar(c));
+                }
+                _ => {}
+            }
+            if !matches!(
+                code,
+                KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::Left
+                    | KeyCode::Right
+                    | KeyCode::Tab
+                    | KeyCode::BackTab
+                    | KeyCode::Enter
+                    | KeyCode::Char(' ')
+            ) {
+                return false;
+            }
+        }
+
         let is_searchable = matches!(
             kind,
             modal::ModalKind::CommandPalette
@@ -1575,8 +1639,32 @@ impl TuiModel {
                     self.status_line = "Refreshing thread and goal lists".to_string();
                 }
             }
-            KeyCode::Down if kind == modal::ModalKind::CommandPalette => self.modal_navigate(1),
-            KeyCode::Up if kind == modal::ModalKind::CommandPalette => self.modal_navigate(-1),
+            KeyCode::Down
+                if matches!(
+                    kind,
+                    modal::ModalKind::CommandPalette | modal::ModalKind::OperatorProfileOnboarding
+                ) =>
+            {
+                self.modal_navigate(1)
+            }
+            KeyCode::Up
+                if matches!(
+                    kind,
+                    modal::ModalKind::CommandPalette | modal::ModalKind::OperatorProfileOnboarding
+                ) =>
+            {
+                self.modal_navigate(-1)
+            }
+            KeyCode::Right | KeyCode::Tab
+                if kind == modal::ModalKind::OperatorProfileOnboarding =>
+            {
+                self.modal_navigate(1)
+            }
+            KeyCode::Left | KeyCode::BackTab
+                if kind == modal::ModalKind::OperatorProfileOnboarding =>
+            {
+                self.modal_navigate(-1)
+            }
             KeyCode::Down => self.modal.reduce(modal::ModalAction::Navigate(1)),
             KeyCode::Up => self.modal.reduce(modal::ModalAction::Navigate(-1)),
             KeyCode::Enter => {

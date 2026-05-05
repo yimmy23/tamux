@@ -242,6 +242,16 @@ function registerDbIpcHandlers(ipcMain, runtime) {
             return { updatedRows: 0, error: error?.message || String(error) };
         }
     });
+    ipcMain.handle('db-execute-database-sql', async (_event, sql) => {
+        try {
+            return await sendDbQuery({
+                type: 'execute-database-sql',
+                sql: typeof sql === 'string' ? sql : '',
+            }, 'database-sql-result', 30000);
+        } catch (error) {
+            return { error: error?.message || String(error) };
+        }
+    });
     ipcMain.handle('db-queue-semantic-backfill', async (_event, limit = null) => {
         try {
             return await sendDbQuery({

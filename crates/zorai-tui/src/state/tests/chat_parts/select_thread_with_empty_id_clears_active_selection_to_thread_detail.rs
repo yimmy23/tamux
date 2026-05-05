@@ -250,6 +250,63 @@ fn turn_done_uses_final_reasoning_when_no_reasoning_delta_was_streamed() {
 }
 
 #[test]
+fn turn_done_does_not_append_reasoning_only_duplicate_of_flushed_content() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::Delta {
+        thread_id: "t1".into(),
+        content: "Perfect. That confirms it is truly online now.".into(),
+    });
+    state.reduce(ChatAction::ToolCall {
+        thread_id: "t1".into(),
+        call_id: "call-1".into(),
+        name: "bash_command".into(),
+        args: "{}".into(),
+        weles_review: None,
+    });
+    state.reduce(ChatAction::ToolResult {
+        thread_id: "t1".into(),
+        call_id: "call-1".into(),
+        name: "bash_command".into(),
+        content: "done".into(),
+        is_error: false,
+        weles_review: None,
+    });
+
+    state.reduce(ChatAction::TurnDone {
+        thread_id: "t1".into(),
+        input_tokens: 100,
+        output_tokens: 50,
+        cost: None,
+        provider: None,
+        model: None,
+        tps: None,
+        generation_ms: None,
+        reasoning: Some("Perfect. That confirms it is truly online now.".into()),
+        provider_final_result_json: Some("result_json".to_string()),
+    });
+
+    let thread = state.active_thread().unwrap();
+    let duplicate_count = thread
+        .messages
+        .iter()
+        .filter(|message| {
+            message.role == MessageRole::Assistant
+                && (message.content == "Perfect. That confirms it is truly online now."
+                    || message.reasoning.as_deref()
+                        == Some("Perfect. That confirms it is truly online now."))
+        })
+        .count();
+    assert_eq!(
+        duplicate_count, 1,
+        "final reasoning identical to already flushed assistant content should not create a second visible block"
+    );
+}
+
+#[test]
 fn new_thread_clears_active() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadCreated {
@@ -452,4 +509,3 @@ fn thread_detail_keeps_local_messages_with_actions() {
     assert_eq!(thread.messages.len(), 1);
     assert_eq!(thread.messages[0].actions.len(), 1);
 }
-

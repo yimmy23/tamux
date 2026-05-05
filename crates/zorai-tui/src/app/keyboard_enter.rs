@@ -350,7 +350,7 @@ impl TuiModel {
                     .and_then(|thread| thread.messages.get(sel))
                     .map(|msg| {
                         (msg.role == chat::MessageRole::Assistant && msg.reasoning.is_some())
-                            || widgets::message::is_meta_cognition_message(msg)
+                            || widgets::message::is_collapsible_system_notice_message(msg)
                     })
                     .unwrap_or(false);
                 if has_reasoning {
@@ -361,6 +361,14 @@ impl TuiModel {
         }
         if self.focus == FocusArea::Sidebar {
             self.handle_sidebar_enter();
+            return false;
+        }
+        if self.should_show_operator_profile_onboarding()
+            && self.is_current_operator_profile_bool_question()
+            && !modifiers
+                .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT | KeyModifiers::CONTROL)
+        {
+            let _ = self.submit_operator_profile_answer();
             return false;
         }
         if self.focus != FocusArea::Input {

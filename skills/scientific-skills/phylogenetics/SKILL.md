@@ -2,6 +2,7 @@
 name: phylogenetics
 description: Build and analyze phylogenetic trees using MAFFT (multiple alignment), IQ-TREE 2 (maximum likelihood), and FastTree (fast NJ/ML). Visualize with ETE3 or FigTree. For evolutionary analysis, microbial genomics, viral phylodynamics, protein family analysis, and molecular clock studies.
 license: Unknown
+tags: [scientific-skills, phylogenetics, cheminformatics, machine-learning, bioinformatics]
 metadata:
     skill-author: Kuan-lin Huang
 ---

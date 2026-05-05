@@ -8,8 +8,8 @@ description: >
   Covers the full production pipeline from ideation to publish - scriptwriting
   frameworks, editing pacing, thumbnail best practices, metadata optimization, and
   audience retention techniques.
+tags: [video-production, youtube, scriptwriting, seo, thumbnails, editing, strategy, performance, writing, workflow, experimental-design, sales, marketing]
 category: marketing
-tags: [video-production, youtube, scriptwriting, seo, thumbnails, editing]
 recommended_skills: [presentation-design, social-media-strategy, copywriting, content-marketing]
 platforms:
   - claude-code

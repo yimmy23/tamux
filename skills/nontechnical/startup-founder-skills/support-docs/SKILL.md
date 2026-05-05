@@ -3,6 +3,8 @@ name: support-docs
 description: When the user needs to create help center articles, FAQs, troubleshooting guides, API documentation, or getting-started guides for customers.
 related: [process-docs, onboarding-flow]
 reads: [startup-context]
+
+tags: [nontechnical, startup-founder-skills, support-docs, api, documentation]
 ---
 
 # Support Documentation

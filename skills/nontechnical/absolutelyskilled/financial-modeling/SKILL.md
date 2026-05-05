@@ -6,8 +6,8 @@ description: >
   scenario analyses, or cap tables. Triggers on DCF, LBO, revenue forecasting,
   scenario analysis, cap tables, financial projections, valuation, unit economics,
   and any task requiring financial model design or analysis.
+tags: [financial-modeling, dcf, valuation, forecasting, cap-table, analysis, experimental-design, sales, finance, simulation]
 category: operations
-tags: [financial-modeling, dcf, valuation, forecasting, cap-table, analysis]
 recommended_skills: [budgeting-planning, financial-reporting, startup-fundraising, spreadsheet-modeling]
 platforms:
   - claude-code

@@ -299,6 +299,30 @@ fn operator_profile_question_event_shows_onboarding_notice() {
 }
 
 #[test]
+fn operator_profile_boolean_question_defaults_to_yes_without_filling_input() {
+    let mut model = make_model();
+    model.handle_client_event(ClientEvent::OperatorProfileSessionStarted {
+        session_id: "sess-1".to_string(),
+        kind: "first_run_onboarding".to_string(),
+    });
+    model.handle_client_event(ClientEvent::OperatorProfileQuestion {
+        session_id: "sess-1".to_string(),
+        question_id: "enabled".to_string(),
+        field_key: "enabled".to_string(),
+        prompt: "Enable operator modeling overall?".to_string(),
+        input_kind: "boolean".to_string(),
+        optional: false,
+    });
+
+    assert_eq!(model.input.buffer(), "");
+    assert_eq!(model.operator_profile.bool_answer, Some(true));
+    assert_eq!(
+        model.current_operator_profile_select_options(),
+        Some(&["yes", "no"][..])
+    );
+}
+
+#[test]
 fn operator_profile_progress_requests_next_question() {
     let (_event_tx, event_rx) = std::sync::mpsc::channel();
     let (daemon_tx, mut daemon_rx) = unbounded_channel();
@@ -461,4 +485,3 @@ fn approval_required_in_background_thread_shows_notice_without_modal() {
         .0
         .contains("Ctrl+A"));
 }
-

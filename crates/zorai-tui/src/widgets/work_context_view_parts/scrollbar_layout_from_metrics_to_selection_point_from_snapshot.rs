@@ -1,7 +1,6 @@
 use selection::{display_slice, highlight_line_range, line_display_width, line_plain_text};
 
 const SCROLLBAR_WIDTH: u16 = 1;
-const WORK_CONTEXT_IMAGE_HEADER_LINES: u16 = 6;
 const TERMINAL_IMAGE_HEADER_LINES: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +27,106 @@ struct SelectionSnapshot {
     all_lines: Vec<RenderedWorkLine>,
     scroll: usize,
     area: Rect,
+    header_area: Option<Rect>,
+    body_area: Option<Rect>,
+    header_len: usize,
+}
+
+struct StickyFilesSnapshot {
+    header_lines: Vec<RenderedWorkLine>,
+    body_lines: Vec<RenderedWorkLine>,
+    scroll: usize,
+    header_area: Rect,
+    body_area: Rect,
+    layout: Option<WorkContextScrollbarLayout>,
+    max_scroll: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WorkContextThemeKey {
+    fg_dim: Style,
+    fg_active: Style,
+    accent_primary: Style,
+    accent_secondary: Style,
+    accent_success: Style,
+    accent_danger: Style,
+}
+
+impl From<&ThemeTokens> for WorkContextThemeKey {
+    fn from(theme: &ThemeTokens) -> Self {
+        Self {
+            fg_dim: theme.fg_dim,
+            fg_active: theme.fg_active,
+            accent_primary: theme.accent_primary,
+            accent_secondary: theme.accent_secondary,
+            accent_success: theme.accent_success,
+            accent_danger: theme.accent_danger,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileBodyCacheKey {
+    area: Rect,
+    path: String,
+    repo_root: Option<String>,
+    task_state_id: usize,
+    preview_revision: u64,
+    image_preview_revision: u64,
+    terminal_image: bool,
+    theme: WorkContextThemeKey,
+}
+
+#[derive(Clone)]
+struct CachedFileBodyLines {
+    key: FileBodyCacheKey,
+    lines: Vec<RenderedWorkLine>,
+}
+
+#[derive(Default)]
+struct WorkContextRenderCache {
+    file_body_lines: Vec<CachedFileBodyLines>,
+}
+
+const WORK_CONTEXT_CACHE_CAPACITY: usize = 16;
+
+fn global_work_context_cache() -> &'static std::sync::Mutex<WorkContextRenderCache> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<WorkContextRenderCache>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(WorkContextRenderCache::default()))
+}
+
+fn lock_work_context_cache() -> std::sync::MutexGuard<'static, WorkContextRenderCache> {
+    global_work_context_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+static FILE_BODY_LINES_CALL_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+static FILE_BODY_LINES_TRACKED_PATH: std::sync::OnceLock<std::sync::Mutex<Option<String>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn tracked_file_body_lines_path_for_tests() -> &'static std::sync::Mutex<Option<String>> {
+    FILE_BODY_LINES_TRACKED_PATH.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+#[cfg(test)]
+fn reset_file_body_lines_call_count_for_tests(path: &str) {
+    FILE_BODY_LINES_CALL_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+    *tracked_file_body_lines_path_for_tests()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(path.to_string());
+    lock_work_context_cache().file_body_lines.clear();
+}
+
+#[cfg(test)]
+fn file_body_lines_call_count_for_tests() -> usize {
+    FILE_BODY_LINES_CALL_COUNT.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 fn scrollbar_layout_from_metrics(
@@ -124,6 +223,262 @@ fn push_preview_content(
     }
 }
 
+fn file_header_lines(entry: &crate::state::task::WorkContextEntry, theme: &ThemeTokens) -> Vec<RenderedWorkLine> {
+    let mut lines = Vec::new();
+    section(&mut lines, "File", theme);
+    lines.push(Line::from(vec![
+        Span::styled("[x]", theme.accent_danger),
+        Span::raw(" "),
+        Span::styled("Close preview", theme.fg_dim),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("Path: ", theme.fg_dim),
+        Span::styled(entry.path.clone(), theme.fg_active),
+    ]));
+    let kind = match entry.kind {
+        Some(WorkContextEntryKind::RepoChange) => "repo change",
+        Some(WorkContextEntryKind::Artifact) => "artifact",
+        Some(WorkContextEntryKind::GeneratedSkill) => "generated skill",
+        None => "file",
+    };
+    lines.push(Line::from(vec![
+        Span::styled("Type: ", theme.fg_dim),
+        Span::styled(kind, theme.fg_active),
+    ]));
+    if let Some(change_kind) = &entry.change_kind {
+        lines.push(Line::from(vec![
+            Span::styled("Change: ", theme.fg_dim),
+            Span::styled(change_kind.clone(), theme.fg_active),
+        ]));
+    }
+    if let Some(previous_path) = &entry.previous_path {
+        lines.push(Line::from(vec![
+            Span::styled("From: ", theme.fg_dim),
+            Span::styled(previous_path.clone(), theme.fg_active),
+        ]));
+    }
+    section(&mut lines, "Preview", theme);
+
+    lines
+        .into_iter()
+        .enumerate()
+        .map(|(index, line)| RenderedWorkLine {
+            line,
+            close_preview: index == 1,
+        })
+        .collect()
+}
+
+fn file_body_cache_key(
+    area: Rect,
+    tasks: &TaskState,
+    entry: &crate::state::task::WorkContextEntry,
+    active_tab: SidebarTab,
+    theme: &ThemeTokens,
+    scroll: usize,
+) -> FileBodyCacheKey {
+    let terminal_image =
+        uses_terminal_graphics(&entry.path, entry.repo_root.as_deref(), active_tab, scroll);
+    let image_preview_revision = if terminal_image {
+        0
+    } else {
+        image_preview::resolve_local_image_path(&entry.path)
+            .as_deref()
+            .filter(|path| image_preview::is_previewable_image_path(path))
+            .map(|_| image_preview::preview_cache_revision())
+            .unwrap_or(0)
+    };
+
+    FileBodyCacheKey {
+        area,
+        path: entry.path.clone(),
+        repo_root: entry.repo_root.clone(),
+        task_state_id: tasks as *const TaskState as usize,
+        preview_revision: tasks.preview_revision(),
+        image_preview_revision,
+        terminal_image,
+        theme: WorkContextThemeKey::from(theme),
+    }
+}
+
+fn file_body_lines(
+    area: Rect,
+    tasks: &TaskState,
+    entry: &crate::state::task::WorkContextEntry,
+    active_tab: SidebarTab,
+    theme: &ThemeTokens,
+    scroll: usize,
+) -> Vec<RenderedWorkLine> {
+    let key = file_body_cache_key(area, tasks, entry, active_tab, theme, scroll);
+    {
+        let cache = lock_work_context_cache();
+        if let Some(cached) = cache
+            .file_body_lines
+            .iter()
+            .find(|cached| cached.key == key)
+            .cloned()
+        {
+            return cached.lines;
+        }
+    }
+
+    let lines = build_file_body_lines(area, tasks, entry, active_tab, theme, scroll);
+    let mut cache = lock_work_context_cache();
+    if let Some(cached) = cache
+        .file_body_lines
+        .iter()
+        .find(|cached| cached.key == key)
+        .cloned()
+    {
+        return cached.lines;
+    }
+    cache.file_body_lines.push(CachedFileBodyLines {
+        key,
+        lines: lines.clone(),
+    });
+    if cache.file_body_lines.len() > WORK_CONTEXT_CACHE_CAPACITY {
+        cache.file_body_lines.remove(0);
+    }
+    lines
+}
+
+fn build_file_body_lines(
+    area: Rect,
+    tasks: &TaskState,
+    entry: &crate::state::task::WorkContextEntry,
+    active_tab: SidebarTab,
+    theme: &ThemeTokens,
+    scroll: usize,
+) -> Vec<RenderedWorkLine> {
+    #[cfg(test)]
+    {
+        let should_count = tracked_file_body_lines_path_for_tests()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .as_deref()
+            == Some(entry.path.as_str());
+        if should_count {
+            FILE_BODY_LINES_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    let width = area.width as usize;
+    let mut lines = Vec::new();
+    let image_preview_height = area.height.max(1) as usize;
+    let use_terminal_image =
+        uses_terminal_graphics(&entry.path, entry.repo_root.as_deref(), active_tab, scroll);
+
+    if let Some(repo_root) = entry.repo_root.as_deref() {
+        if let Some(diff) = tasks.diff_for_path(repo_root, &entry.path) {
+            if diff.trim().is_empty() {
+                push_wrapped(
+                    &mut lines,
+                    "No diff preview available for this file.",
+                    theme.fg_dim,
+                    width,
+                    0,
+                );
+            } else {
+                lines.extend(render_unified_diff(diff, theme, width));
+            }
+        } else {
+            push_wrapped(&mut lines, "Loading diff...", theme.fg_dim, width, 0);
+        }
+    } else if let Some(preview) = tasks.preview_for_path(&entry.path) {
+        if preview.is_text {
+            push_preview_content(&mut lines, &entry.path, &preview.content, width, theme);
+        } else if use_terminal_image {
+            push_terminal_graphics_placeholder(&mut lines, image_preview_height, theme);
+        } else if image_preview::is_previewable_image_path(&entry.path) {
+            lines.extend(image_preview::render_image_preview_lines(
+                &entry.path,
+                width,
+                14,
+                theme,
+            ));
+        } else {
+            push_wrapped(
+                &mut lines,
+                "Binary file preview is not available.",
+                theme.fg_dim,
+                width,
+                0,
+            );
+        }
+    } else if image_preview::is_previewable_image_path(&entry.path) {
+        if use_terminal_image {
+            push_terminal_graphics_placeholder(&mut lines, image_preview_height, theme);
+        } else {
+            lines.extend(image_preview::render_image_preview_lines(
+                &entry.path,
+                width,
+                14,
+                theme,
+            ));
+        }
+    } else {
+        push_wrapped(&mut lines, "Loading preview...", theme.fg_dim, width, 0);
+    }
+
+    lines
+        .into_iter()
+        .map(|line| RenderedWorkLine {
+            line,
+            close_preview: false,
+        })
+        .collect()
+}
+
+fn sticky_files_snapshot(
+    area: Rect,
+    tasks: &TaskState,
+    thread_id: Option<&str>,
+    selected_index: usize,
+    theme: &ThemeTokens,
+    scroll: usize,
+) -> Option<StickyFilesSnapshot> {
+    let thread_id = thread_id?;
+    let context = tasks.work_context_for_thread(thread_id)?;
+    let entry = context.entries.get(selected_index)?;
+    let header_lines = file_header_lines(entry, theme);
+    let header_height = (header_lines.len() as u16).min(area.height);
+    let header_area = Rect::new(area.x, area.y, area.width, header_height);
+    let body_track_area = Rect::new(
+        area.x,
+        area.y.saturating_add(header_height),
+        area.width,
+        area.height.saturating_sub(header_height),
+    );
+    let body_lines = file_body_lines(body_track_area, tasks, entry, SidebarTab::Files, theme, scroll);
+    let first_layout = scrollbar_layout_from_metrics(body_track_area, body_lines.len(), scroll);
+    let mut body_area = first_layout
+        .map(|layout| layout.content)
+        .unwrap_or(body_track_area);
+    let body_lines = if body_area.width != body_track_area.width {
+        file_body_lines(body_area, tasks, entry, SidebarTab::Files, theme, scroll)
+    } else {
+        body_lines
+    };
+    let layout = scrollbar_layout_from_metrics(body_track_area, body_lines.len(), scroll);
+    if let Some(layout) = layout {
+        body_area = layout.content;
+    }
+    let resolved_scroll = layout
+        .map(|layout| layout.scroll)
+        .unwrap_or_else(|| scroll.min(body_lines.len().saturating_sub(body_area.height as usize)));
+    let max_scroll = body_lines.len().saturating_sub(body_area.height as usize);
+
+    Some(StickyFilesSnapshot {
+        header_lines,
+        body_lines,
+        scroll: resolved_scroll,
+        header_area,
+        body_area,
+        layout,
+        max_scroll,
+    })
+}
+
 fn uses_terminal_graphics(
     entry_path: &str,
     repo_root: Option<&str>,
@@ -171,6 +526,16 @@ fn build_lines(
 
     match active_tab {
         SidebarTab::Files => {
+            if let Some(snapshot) =
+                sticky_files_snapshot(area, tasks, thread_id, selected_index, theme, scroll)
+            {
+                return snapshot
+                    .header_lines
+                    .into_iter()
+                    .chain(snapshot.body_lines)
+                    .collect();
+            }
+
             section(&mut lines, "Files", theme);
             let Some(thread_id) = thread_id else {
                 push_wrapped(&mut lines, "No thread selected.", theme.fg_dim, width, 0);
@@ -435,6 +800,24 @@ fn selection_snapshot(
     theme: &ThemeTokens,
     scroll: usize,
 ) -> Option<SelectionSnapshot> {
+    if active_tab == SidebarTab::Files {
+        let snapshot = sticky_files_snapshot(area, tasks, thread_id, selected_index, theme, scroll)?;
+        let header_len = snapshot.header_lines.len();
+        let all_lines = snapshot
+            .header_lines
+            .into_iter()
+            .chain(snapshot.body_lines)
+            .collect();
+        return Some(SelectionSnapshot {
+            all_lines,
+            scroll: snapshot.scroll,
+            area,
+            header_area: Some(snapshot.header_area),
+            body_area: Some(snapshot.body_area),
+            header_len,
+        });
+    }
+
     let layout = scrollbar_layout(
         area,
         tasks,
@@ -462,6 +845,9 @@ fn selection_snapshot(
         all_lines,
         scroll: resolved_scroll,
         area: content,
+        header_area: None,
+        body_area: None,
+        header_len: 0,
     })
 }
 
@@ -469,6 +855,57 @@ fn selection_point_from_snapshot(
     snapshot: &SelectionSnapshot,
     mouse: Position,
 ) -> Option<SelectionPoint> {
+    if let (Some(header_area), Some(body_area)) = (snapshot.header_area, snapshot.body_area) {
+        if header_area.contains(mouse) {
+            let clamped_x = mouse.x.clamp(
+                header_area.x,
+                header_area
+                    .x
+                    .saturating_add(header_area.width)
+                    .saturating_sub(1),
+            );
+            let row = mouse
+                .y
+                .saturating_sub(header_area.y)
+                .min(header_area.height.saturating_sub(1)) as usize;
+            let col = clamped_x.saturating_sub(header_area.x) as usize;
+            let width = line_display_width(&snapshot.all_lines.get(row)?.line);
+            return Some(SelectionPoint {
+                row,
+                col: col.min(width),
+            });
+        }
+
+        if !body_area.contains(mouse) || body_area.width == 0 || body_area.height == 0 {
+            return None;
+        }
+        let clamped_x = mouse.x.clamp(
+            body_area.x,
+            body_area
+                .x
+                .saturating_add(body_area.width)
+                .saturating_sub(1),
+        );
+        let clamped_y = mouse.y.clamp(
+            body_area.y,
+            body_area
+                .y
+                .saturating_add(body_area.height)
+                .saturating_sub(1),
+        );
+        let row = snapshot
+            .header_len
+            .saturating_add(snapshot.scroll)
+            .saturating_add(clamped_y.saturating_sub(body_area.y) as usize)
+            .min(snapshot.all_lines.len().saturating_sub(1));
+        let col = clamped_x.saturating_sub(body_area.x) as usize;
+        let width = line_display_width(&snapshot.all_lines.get(row)?.line);
+        return Some(SelectionPoint {
+            row,
+            col: col.min(width),
+        });
+    }
+
     let area = snapshot.area;
     let clamped_x = mouse
         .x
@@ -487,4 +924,3 @@ fn selection_point_from_snapshot(
         col: col.min(width),
     })
 }
-
