@@ -1,10 +1,21 @@
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use zorai_protocol::{
-    ClientMessage, DaemonMessage, SemanticDocumentIndexSyncResultPublic, SessionId,
-    SkillDiscoveryResultPublic,
+    ClientMessage, DaemonMessage, SemanticDocumentIndexSyncResultPublic,
+    SemanticIndexRepairResultPublic, SessionId, SkillDiscoveryResultPublic,
 };
 
 use super::connection::{roundtrip, roundtrip_async_until, roundtrip_until};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SemanticIndexStatus {
+    pub queued_jobs: u64,
+    pub pending_for_model: u64,
+    pub completed_for_model: u64,
+    pub queued_deletions: u64,
+    pub failed_jobs: u64,
+    pub failed_deletions: u64,
+}
 
 pub async fn send_skill_list(
     status: Option<String>,
@@ -81,6 +92,40 @@ pub async fn send_semantic_document_sync() -> Result<SemanticDocumentIndexSyncRe
     match roundtrip(ClientMessage::AgentSemanticDocumentSync).await? {
         DaemonMessage::SemanticDocumentSyncResult { result_json } => {
             serde_json::from_str(&result_json).context("invalid semantic sync payload from daemon")
+        }
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_semantic_index_status(
+    embedding_model: &str,
+    dimensions: u32,
+) -> Result<SemanticIndexStatus> {
+    match roundtrip(ClientMessage::GetSemanticIndexStatus {
+        embedding_model: embedding_model.to_string(),
+        dimensions,
+    })
+    .await?
+    {
+        DaemonMessage::SemanticIndexStatus { status_json } => serde_json::from_str(&status_json)
+            .context("invalid semantic status payload from daemon"),
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
+}
+
+pub async fn send_semantic_index_repair(
+    confirmed: bool,
+) -> Result<SemanticIndexRepairResultPublic> {
+    match roundtrip(ClientMessage::AgentRepairSemanticIndex { confirmed }).await? {
+        DaemonMessage::SemanticIndexRepairResult { result_json } => {
+            serde_json::from_str(&result_json)
+                .context("invalid semantic repair payload from daemon")
         }
         DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
             anyhow::bail!("daemon error: {message}")

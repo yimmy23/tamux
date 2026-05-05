@@ -9,6 +9,10 @@ use crate::agent::metacognitive::introspector::{
 use crate::agent::now_millis;
 use crate::agent::types::{AgentMessage, AgentMessageKind, MessageRole, ToolCall};
 
+const META_COGNITIVE_INTERVENTION_PREFIX: &str = "Meta-cognitive intervention:";
+const META_COGNITIVE_REPEAT_PREFIX: &str = "Repeated count:";
+const META_COGNITIVE_RECENT_SCAN_LIMIT: usize = 16;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum InterventionAction {
     Allow,
@@ -76,6 +80,30 @@ impl AgentEngine {
         {
             let mut threads = self.threads.write().await;
             if let Some(thread) = threads.get_mut(thread_id) {
+                if let Some(new_signature) = metacognitive_message_signature(content) {
+                    if let Some(existing_message) = thread
+                        .messages
+                        .iter_mut()
+                        .rev()
+                        .take(META_COGNITIVE_RECENT_SCAN_LIMIT)
+                        .find(|message| {
+                            message.role == MessageRole::System
+                                && metacognitive_message_signature(&message.content).as_ref()
+                                    == Some(&new_signature)
+                        })
+                    {
+                        existing_message.content = compact_repeated_metacognitive_message(
+                            &existing_message.content,
+                            content,
+                            &new_signature,
+                        );
+                        existing_message.timestamp = now;
+                        thread.updated_at = now;
+                        drop(threads);
+                        self.persist_thread_by_id(thread_id).await;
+                        return;
+                    }
+                }
                 thread.messages.push(AgentMessage {
                     id: generate_message_id(),
                     role: MessageRole::System,
@@ -213,6 +241,95 @@ impl AgentEngine {
             );
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MetacognitiveMessageSignature {
+    intervention_kind: String,
+    planned_tool: String,
+    arguments_hash: String,
+}
+
+fn metacognitive_message_signature(content: &str) -> Option<MetacognitiveMessageSignature> {
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with(META_COGNITIVE_INTERVENTION_PREFIX) {
+        return None;
+    }
+    let mut lines = trimmed.lines();
+    let header = lines.next()?.trim();
+    let intervention_kind = header
+        .strip_prefix(META_COGNITIVE_INTERVENTION_PREFIX)?
+        .trim()
+        .to_string();
+    let planned_tool = trimmed
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Planned tool:"))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    let arguments = trimmed
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Arguments:"))
+        .map(str::trim)
+        .unwrap_or("");
+    let arguments_hash = arguments
+        .strip_prefix("<same signature omitted; hash=")
+        .and_then(|value| value.strip_suffix('>'))
+        .map(str::to_string)
+        .unwrap_or_else(|| stable_short_hash(arguments));
+    Some(MetacognitiveMessageSignature {
+        intervention_kind,
+        planned_tool,
+        arguments_hash,
+    })
+}
+
+fn stable_short_hash(value: &str) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+fn metacognitive_repeat_count(content: &str) -> u32 {
+    content
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(META_COGNITIVE_REPEAT_PREFIX))
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .unwrap_or(1)
+}
+
+fn compact_repeated_metacognitive_message(
+    existing_content: &str,
+    latest_content: &str,
+    signature: &MetacognitiveMessageSignature,
+) -> String {
+    let repeat_count = metacognitive_repeat_count(existing_content).saturating_add(1);
+    let warnings = latest_content
+        .split_once("Detected risks:")
+        .map(|(_, tail)| {
+            tail.lines()
+                .take_while(|line| {
+                    let trimmed = line.trim_start();
+                    trimmed.starts_with('-') || trimmed.is_empty()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string()
+        })
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "- repeated intervention".to_string());
+    format!(
+        "{prefix} {kind}\nPlanned tool: {tool}\nArguments: <same signature omitted; hash={hash}>\n{repeat_prefix} {repeat_count}\nDetected risks:\n{warnings}\nRepeated meta-cognitive interventions for this same tool call are compacted here instead of appended as separate system messages.",
+        prefix = META_COGNITIVE_INTERVENTION_PREFIX,
+        kind = signature.intervention_kind,
+        tool = signature.planned_tool,
+        hash = signature.arguments_hash,
+        repeat_prefix = META_COGNITIVE_REPEAT_PREFIX,
+    )
 }
 
 fn render_warning(signal: &BiasSignal) -> String {

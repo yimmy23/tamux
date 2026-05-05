@@ -549,6 +549,21 @@ pub(crate) enum SemanticRerankKind {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum SemanticAction {
+    /// Show semantic embedding queue and index status.
+    Status {
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Repair a corrupted local semantic vector index and requeue rebuild work.
+    RepairIndex {
+        /// Confirm destructive repair of the local LanceDB vector index.
+        #[arg(long)]
+        yes: bool,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
     /// Run the semantic skill/guideline discovery index sync job now.
     Sync {
         /// Emit raw JSON instead of human-readable output.
@@ -947,6 +962,33 @@ mod tests {
             Some(Commands::Semantic {
                 action: SemanticAction::Sync { json },
             }) => assert!(json),
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn semantic_status_subcommand_parses_json_flag() {
+        let cli = Cli::try_parse_from(["zorai", "semantic", "status", "--json"])
+            .expect("semantic status subcommand should parse");
+        match cli.command {
+            Some(Commands::Semantic {
+                action: SemanticAction::Status { json },
+            }) => assert!(json),
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn semantic_repair_index_subcommand_parses_confirmation_and_json() {
+        let cli = Cli::try_parse_from(["zorai", "semantic", "repair-index", "--yes", "--json"])
+            .expect("semantic repair-index subcommand should parse");
+        match cli.command {
+            Some(Commands::Semantic {
+                action: SemanticAction::RepairIndex { yes, json },
+            }) => {
+                assert!(yes);
+                assert!(json);
+            }
             other => panic!("parsed unexpected command: {other:?}"),
         }
     }

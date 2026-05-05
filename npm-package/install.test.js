@@ -331,6 +331,39 @@ test("extractBundledGuidelines copies missing defaults without overwriting user 
   );
 });
 
+test("installMacosDesktopApp expands bundled app zip during npm install", function () {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zorai-macos-app-"));
+  const appZip = path.join(root, "zorai-desktop.app.zip");
+  fs.writeFileSync(appZip, "zip payload\n");
+  const calls = [];
+
+  install.installMacosDesktopApp("darwin", root, {
+    spawnSync: function (command, args) {
+      calls.push([command, args]);
+      const appBinary = path.join(root, "zorai-desktop.app", "Contents", "MacOS", "zorai");
+      fs.mkdirSync(path.dirname(appBinary), { recursive: true });
+      fs.writeFileSync(appBinary, "desktop binary\n");
+      return { status: 0 };
+    },
+  });
+
+  assert.deepEqual(calls, [["ditto", ["-x", "-k", appZip, root]]]);
+});
+
+test("installMacosDesktopApp skips non-macOS installs", function () {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "zorai-nonmac-app-"));
+  let called = false;
+
+  install.installMacosDesktopApp("linux", root, {
+    spawnSync: function () {
+      called = true;
+      return { status: 0 };
+    },
+  });
+
+  assert.equal(called, false);
+});
+
 test("global npm install stops processes before replacing binaries and restarts daemon after success", async function () {
   const events = [];
 

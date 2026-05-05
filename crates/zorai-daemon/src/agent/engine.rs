@@ -116,6 +116,7 @@ pub struct AgentEngine {
     pub(super) thread_message_hydration_pending: RwLock<HashSet<String>>,
     pub(super) thread_message_hydration_lock: Mutex<()>,
     pub(super) semantic_document_index_sync_lock: Mutex<()>,
+    pub(super) semantic_vector_index_lock: Mutex<()>,
     #[cfg(test)]
     pub(super) thread_message_hydration_test_delay: Mutex<Option<Duration>>,
     pub thread_handoff_states: RwLock<HashMap<String, ThreadHandoffState>>,
@@ -360,6 +361,7 @@ impl AgentEngine {
             thread_message_hydration_pending: RwLock::new(HashSet::new()),
             thread_message_hydration_lock: Mutex::new(()),
             semantic_document_index_sync_lock: Mutex::new(()),
+            semantic_vector_index_lock: Mutex::new(()),
             #[cfg(test)]
             thread_message_hydration_test_delay: Mutex::new(None),
             thread_handoff_states: RwLock::new(HashMap::new()),

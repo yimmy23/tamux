@@ -1,11 +1,47 @@
-use anyhow::Result;
-use zorai_protocol::{SemanticDocumentIndexSyncResultPublic, SkillDiscoveryResultPublic};
+use anyhow::{bail, Result};
+use zorai_protocol::{
+    SemanticDocumentIndexSyncResultPublic, SemanticIndexRepairResultPublic,
+    SkillDiscoveryResultPublic,
+};
 
 use crate::cli::{SemanticAction, SemanticRerankKind};
 use crate::client;
 
 pub(crate) async fn run(action: SemanticAction) -> Result<()> {
     match action {
+        SemanticAction::Status { json } => {
+            let config = client::send_config_get().await?;
+            let status_config = semantic_status_config(&config);
+            let status = client::send_semantic_index_status(
+                &status_config.embedding_model,
+                status_config.dimensions,
+            )
+            .await?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "embedding_enabled": status_config.embedding_enabled,
+                        "embedding_model": status_config.embedding_model,
+                        "dimensions": status_config.dimensions,
+                        "index": status,
+                    }))?
+                );
+            } else {
+                println!("{}", render_semantic_status(&status_config, &status));
+            }
+        }
+        SemanticAction::RepairIndex { yes, json } => {
+            if !yes {
+                bail!("semantic index repair requires --yes because it moves the local vector index and queues a rebuild");
+            }
+            let result = client::send_semantic_index_repair(true).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            } else {
+                println!("{}", render_semantic_repair(&result));
+            }
+        }
         SemanticAction::Sync { json } => {
             let result = client::send_semantic_document_sync().await?;
             if json {
@@ -37,6 +73,85 @@ pub(crate) async fn run(action: SemanticAction) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn render_semantic_repair(result: &SemanticIndexRepairResultPublic) -> String {
+    let mut lines = vec![
+        "Semantic index repair completed.".to_string(),
+        format!("Removed vector index: {}", result.removed_vector_index),
+        format!("Cleared completions: {}", result.cleared_completions),
+        format!("Cleared deletions: {}", result.cleared_deletions),
+        format!("Reset failed jobs: {}", result.reset_failed_jobs),
+    ];
+    if let Some(path) = result.backup_path.as_deref() {
+        lines.push(format!("Backup: {path}"));
+    }
+    lines.push("Run `zorai semantic status` to watch the rebuild queue drain.".to_string());
+    lines.join("\n")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SemanticStatusConfig {
+    embedding_enabled: bool,
+    embedding_model: String,
+    dimensions: u32,
+}
+
+fn semantic_status_config(config: &serde_json::Value) -> SemanticStatusConfig {
+    let embedding = config
+        .get("semantic")
+        .and_then(|semantic| semantic.get("embedding"));
+    SemanticStatusConfig {
+        embedding_enabled: embedding
+            .and_then(|value| value.get("enabled"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+        embedding_model: embedding
+            .and_then(|value| value.get("model"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+        dimensions: embedding
+            .and_then(|value| value.get("dimensions"))
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(0),
+    }
+}
+
+fn render_semantic_status(
+    config: &SemanticStatusConfig,
+    status: &client::SemanticIndexStatus,
+) -> String {
+    let mut lines = vec![
+        "Semantic index status".to_string(),
+        format!(
+            "Embedding: {}",
+            if config.embedding_enabled {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        ),
+        format!(
+            "Model: {} ({} dimensions)",
+            display_or_none(&config.embedding_model),
+            config.dimensions
+        ),
+        format!("Queued jobs: {}", status.queued_jobs),
+        format!("Pending for model: {}", status.pending_for_model),
+        format!("Completed for model: {}", status.completed_for_model),
+        format!("Queued deletions: {}", status.queued_deletions),
+        format!("Failed jobs: {}", status.failed_jobs),
+        format!("Failed deletions: {}", status.failed_deletions),
+    ];
+
+    if !config.embedding_enabled || config.embedding_model.is_empty() {
+        lines.push("Document sync can discover files, but embeddings will not be processed until semantic embeddings are enabled with a model.".to_string());
+    }
+
+    lines.join("\n")
 }
 
 fn render_semantic_sync(result: &SemanticDocumentIndexSyncResultPublic) -> String {

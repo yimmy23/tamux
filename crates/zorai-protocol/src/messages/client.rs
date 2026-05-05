@@ -243,4 +243,5 @@ pub enum ClientMessage {
     GetSemanticIndexStatus { embedding_model: String, dimensions: u32 },
     AgentSetTargetAgentReasoningEffort { target_agent_id: String, reasoning_effort: String },
     AgentSemanticDocumentSync,
+    AgentRepairSemanticIndex { confirmed: bool },
 }

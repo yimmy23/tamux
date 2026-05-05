@@ -12,14 +12,26 @@ For providers, configuration, shortcuts, release packaging, plugin installation,
 
 ## Quick Install
 
-Use the shell installer when you want the native CLI binaries without npm:
+Use the native installer when you want the full platform bundle without npm.
+
+Linux/macOS:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.sh | sh
 zorai --help
 ```
 
-The installer downloads the same GitHub release bundles used by the npm package and installs them into `~/.local/bin` by default. Set `ZORAI_VERSION` to pin a specific release or `ZORAI_INSTALL_DIR` to change the install location.
+Windows PowerShell, run as Administrator:
+
+```powershell
+irm https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.ps1 | iex
+zorai --help
+zorai gui
+```
+
+The installer downloads the same GitHub release bundles used by the npm package and installs them into `~/.local/bin` on Linux/macOS or `C:\Program Files\zorai` on Windows by default. Set `ZORAI_VERSION` to pin a specific release or `ZORAI_INSTALL_DIR` to change the install location.
+
+Every quick-install and npm install uses the full platform bundle. Windows x64 and Windows ARM64 download architecture-matched bundles that include `zorai.exe`, `zoi.exe`, daemon/TUI/MCP/gateway binaries, and `zorai-desktop.exe`, so `zorai gui` works after install.
 
 Later, `zorai upgrade` will upgrade from the same source that installed the current binary: npm-backed installs use npm, and direct-binary installs reuse the direct installer for the active install directory.
 

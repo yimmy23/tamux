@@ -13,6 +13,7 @@ if matches!(
         ClientMessage::EscalationCancel{ .. } |
         ClientMessage::SkillList{ .. } |
         ClientMessage::AgentSemanticDocumentSync |
+        ClientMessage::AgentRepairSemanticIndex{ .. } |
         ClientMessage::SkillDiscover{ .. } |
         ClientMessage::GuidelineDiscover{ .. }
     ) {
@@ -685,6 +686,36 @@ if matches!(
                                     message: format!(
                                         "semantic document sync failed: {error}"
                                     ),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentRepairSemanticIndex { confirmed } => {
+                    match agent.repair_semantic_index_public(confirmed).await {
+                        Ok(result) => match serde_json::to_string(&result) {
+                            Ok(result_json) => {
+                                framed
+                                    .send(DaemonMessage::SemanticIndexRepairResult {
+                                        result_json,
+                                    })
+                                    .await?;
+                            }
+                            Err(error) => {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: format!(
+                                            "semantic index repair serialization failed: {error}"
+                                        ),
+                                    })
+                                    .await?;
+                            }
+                        },
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!("semantic index repair failed: {error}"),
                                 })
                                 .await?;
                         }

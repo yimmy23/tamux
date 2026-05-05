@@ -33,12 +33,22 @@ Before you jump into installation and setup, read the operational guidance in [`
 
 ### Quick Install
 
+Linux/macOS:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.sh | sh
 zorai --help
 ```
 
-The quick installer downloads the same native release bundle family that the npm package uses, installs the binaries into `~/.local/bin` by default, and works without Node.js or npm.
+Windows PowerShell, run as Administrator:
+
+```powershell
+irm https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.ps1 | iex
+zorai --help
+zorai gui
+```
+
+The quick installer downloads the same native release bundle family that the npm package uses, installs the binaries into `~/.local/bin` on Linux/macOS or `C:\Program Files\zorai` on Windows by default, and works without Node.js or npm. Windows x64 and Windows ARM64 use architecture-matched bundles, and every bundle includes the full app surface: CLI, daemon, TUI, MCP/gateway binaries, and the desktop GUI launcher (`zorai-desktop.exe` on Windows).
 
 After a quick-install or direct-binary install, `zorai upgrade` reuses the direct installer path for the current install directory. If you installed through npm, `zorai upgrade` continues to use npm.
 
@@ -64,6 +74,8 @@ zorai --help
 If the bin directory is already on `PATH`, opening a new shell is still useful because `zsh` and `bash` can cache command lookups.
 
 When zorai is installed through npm, `zorai upgrade` upgrades through npm as well.
+
+The npm package also installs the full platform bundle on every supported platform. On Windows, `npm install -g zor-ai` installs `zorai-desktop.exe` alongside the CLI binaries so `zorai gui` works after install.
 
 ### From sources
 

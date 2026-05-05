@@ -53,6 +53,8 @@ test("shell installer provisions bundled skills into canonical zorai root", func
   assert.match(script, /if \[ -e "\$target_path" \]; then/);
   assert.match(script, /install_cli_alias\(\)/);
   assert.match(script, /ln -sf "zorai" "\$alias_path"/);
+  assert.match(script, /install_macos_desktop_app\(\)/);
+  assert.match(script, /ditto -x -k "\$app_zip" "\$INSTALL_DIR"/);
 });
 
 test("computeSha256Hex returns stable hex digests without shelling out", function () {

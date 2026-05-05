@@ -28,10 +28,17 @@
         <div class="card-grid two-up">
           <article class="card">
             <h3>Quick install</h3>
-            <p>Native binaries without npm.</p>
-            <pre><code>curl -fsSL https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.sh | sh
+            <p>Full platform bundle without npm.</p>
+            <pre><code># Linux/macOS
+curl -fsSL https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.sh | sh
 zorai --help
-zoi --help</code></pre>
+zoi --help
+
+# Windows PowerShell, run as Administrator
+irm https://raw.githubusercontent.com/mkurman/zorai/main/scripts/install.ps1 | iex
+zorai --help
+zorai gui</code></pre>
+            <p>Windows x64 and Windows ARM64 install architecture-matched bundles with <code>zorai.exe</code>, <code>zoi.exe</code>, daemon/TUI/MCP/gateway binaries, and <code>zorai-desktop.exe</code>.</p>
           </article>
           <article class="card">
             <h3>NPM install</h3>
@@ -39,6 +46,7 @@ zoi --help</code></pre>
             <pre><code>npm install -g zor-ai
 zorai --help
 zoi --help</code></pre>
+            <p>The npm package installs the same full platform bundle, including the desktop GUI launcher, so <code>zorai gui</code> works after install.</p>
           </article>
           <article class="card">
             <h3>Pre-built artifacts</h3>
@@ -53,7 +61,10 @@ curl -fsSLO https://github.com/mkurman/zorai/releases/latest/download/zorai-darw
 curl -fsSLO https://github.com/mkurman/zorai/releases/latest/download/zorai-darwin-arm64.zip
 
 # Windows
-curl -fsSLO https://github.com/mkurman/zorai/releases/latest/download/zorai-windows-x64.zip</code></pre>
+curl -fsSLO https://github.com/mkurman/zorai/releases/latest/download/zorai-windows-x64.zip
+
+# Windows ARM64
+curl -fsSLO https://github.com/mkurman/zorai/releases/latest/download/zorai-windows-arm64.zip</code></pre>
           </article>
           <article class="card">
             <h3>Source install</h3>

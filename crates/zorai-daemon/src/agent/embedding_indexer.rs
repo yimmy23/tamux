@@ -350,6 +350,33 @@ impl AgentEngine {
         Ok(summary.into_public(embedding_model, dimensions))
     }
 
+    pub(crate) async fn repair_semantic_index_public(
+        &self,
+        confirmed: bool,
+    ) -> Result<zorai_protocol::SemanticIndexRepairResultPublic> {
+        if !confirmed {
+            anyhow::bail!("semantic index repair requires explicit confirmation");
+        }
+        let _guard = self.semantic_vector_index_lock.lock().await;
+
+        #[cfg(feature = "lancedb-vector")]
+        let backup_path = {
+            let index = crate::history::vector_index::VectorIndex::open(self.history.data_root());
+            index.repair_corrupted_index_dir()?
+        };
+        #[cfg(not(feature = "lancedb-vector"))]
+        let backup_path: Option<std::path::PathBuf> = None;
+
+        let reset = self.history.reset_semantic_vector_index_state().await?;
+        Ok(zorai_protocol::SemanticIndexRepairResultPublic {
+            removed_vector_index: backup_path.is_some(),
+            backup_path: backup_path.map(|path| path.display().to_string()),
+            cleared_completions: reset.cleared_completions,
+            cleared_deletions: reset.cleared_deletions,
+            reset_failed_jobs: reset.reset_failed_jobs,
+        })
+    }
+
     pub(crate) async fn run_embedding_index_loop(
         self: Arc<Self>,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
@@ -449,6 +476,7 @@ impl AgentEngine {
             return Ok(HashMap::new());
         };
 
+        let _guard = self.semantic_vector_index_lock.lock().await;
         let index = crate::history::vector_index::VectorIndex::open(self.history.data_root());
         let hits = index
             .search(crate::history::vector_index::VectorSearchRequest {
@@ -500,6 +528,7 @@ impl AgentEngine {
         let Some(query_embedding) = query_embeddings.into_iter().next() else {
             return Ok(("No query embedding returned.".to_string(), Vec::new()));
         };
+        let _guard = self.semantic_vector_index_lock.lock().await;
         let index = crate::history::vector_index::VectorIndex::open(self.history.data_root());
         let vector_hits = index
             .search(crate::history::vector_index::VectorSearchRequest {
@@ -533,6 +562,7 @@ impl AgentEngine {
 
     #[cfg(feature = "lancedb-vector")]
     async fn process_embedding_deletions_once(&self) -> Result<usize> {
+        let _guard = self.semantic_vector_index_lock.lock().await;
         let deletions = self
             .history
             .claim_embedding_deletions(MAX_EMBEDDING_DELETIONS_PER_TICK)
@@ -586,6 +616,7 @@ impl AgentEngine {
 
     #[cfg(feature = "lancedb-vector")]
     async fn process_embedding_queue_once_inner(&self, config: AgentConfig) -> Result<usize> {
+        let _guard = self.semantic_vector_index_lock.lock().await;
         let embedding_model = resolved_embedding_model(&config);
         if embedding_model.is_empty() {
             return Ok(0);

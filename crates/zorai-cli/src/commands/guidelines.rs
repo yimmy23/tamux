@@ -481,11 +481,11 @@ mod tests {
         let documents = vec![
             RemoteGuidelineDocument {
                 relative_path: "coding-task.md".to_string(),
-                content: "# Upstream Coding\n".to_string(),
+                content: b"# Upstream Coding\n".to_vec(),
             },
             RemoteGuidelineDocument {
                 relative_path: "research/research-task.md".to_string(),
-                content: "# Upstream Research\n".to_string(),
+                content: b"# Upstream Research\n".to_vec(),
             },
         ];
 
@@ -513,7 +513,7 @@ mod tests {
 
         let documents = vec![RemoteGuidelineDocument {
             relative_path: "coding-task.md".to_string(),
-            content: "# Upstream Coding\n".to_string(),
+            content: b"# Upstream Coding\n".to_vec(),
         }];
 
         let summary = sync_guideline_documents(&root, &documents, true).expect("sync guidelines");

@@ -254,6 +254,33 @@ install_assets() {
   fi
 }
 
+install_macos_desktop_app() {
+  if [ "${platform:-}" != "darwin" ]; then
+    return
+  fi
+
+  app_zip="$INSTALL_DIR/zorai-desktop.app.zip"
+  app_dir="$INSTALL_DIR/zorai-desktop.app"
+  if [ ! -f "$app_zip" ]; then
+    die "Installed macOS desktop app archive is missing: ${app_zip}"
+  fi
+
+  rm -rf "$app_dir"
+  if command -v ditto >/dev/null 2>&1; then
+    ditto -x -k "$app_zip" "$INSTALL_DIR"
+  elif command -v unzip >/dev/null 2>&1; then
+    unzip -oq "$app_zip" -d "$INSTALL_DIR"
+  else
+    die "Need ditto or unzip to install ${app_zip}"
+  fi
+
+  if [ ! -x "$app_dir/Contents/MacOS/zorai" ]; then
+    die "Installed macOS desktop app is missing executable: ${app_dir}/Contents/MacOS/zorai"
+  fi
+
+  echo "Installed macOS desktop app -> ${app_dir}"
+}
+
 install_cli_alias() {
   alias_path="${INSTALL_DIR}/zoi"
   rm -f "$alias_path"
@@ -399,6 +426,7 @@ extract_archive
 echo "Verifying extracted binaries..."
 install_binaries "$verify_extracted_binaries"
 install_assets "$verify_extracted_binaries"
+install_macos_desktop_app
 install_cli_alias
 install_skills
 install_guidelines

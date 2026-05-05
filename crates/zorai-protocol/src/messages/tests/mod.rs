@@ -1847,6 +1847,42 @@ fn semantic_document_sync_round_trip() {
 }
 
 #[test]
+fn semantic_index_repair_round_trip() {
+    let msg = ClientMessage::AgentRepairSemanticIndex { confirmed: true };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        ClientMessage::AgentRepairSemanticIndex { confirmed } => assert!(confirmed),
+        other => panic!("unexpected variant: {:?}", other),
+    }
+
+    let payload = SemanticIndexRepairResultPublic {
+        backup_path: Some("/tmp/lancedb.backup".to_string()),
+        removed_vector_index: true,
+        cleared_completions: 12,
+        cleared_deletions: 3,
+        reset_failed_jobs: 2,
+    };
+    let msg = DaemonMessage::SemanticIndexRepairResult {
+        result_json: serde_json::to_string(&payload).unwrap(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::SemanticIndexRepairResult { result_json } => {
+            let result: SemanticIndexRepairResultPublic =
+                serde_json::from_str(&result_json).unwrap();
+            assert_eq!(result.backup_path.as_deref(), Some("/tmp/lancedb.backup"));
+            assert!(result.removed_vector_index);
+            assert_eq!(result.cleared_completions, 12);
+            assert_eq!(result.cleared_deletions, 3);
+            assert_eq!(result.reset_failed_jobs, 2);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn skill_discover_result_round_trip() {
     let payload = sample_skill_discovery_result();
     let msg = DaemonMessage::SkillDiscoverResult {

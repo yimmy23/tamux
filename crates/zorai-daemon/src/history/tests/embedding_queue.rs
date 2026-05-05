@@ -130,7 +130,7 @@ async fn adding_large_message_splits_embedding_jobs_into_bounded_chunks() -> Res
     assert!(jobs.len() > 1);
     assert_eq!(jobs[0].chunk_id, "0");
     assert_eq!(jobs[1].chunk_id, "1");
-    assert!(jobs.iter().all(|job| job.body.chars().count() <= 20_000));
+    assert!(jobs.iter().all(|job| job.body.chars().count() <= 6_000));
     assert!(jobs.iter().all(|job| job.source_id == "msg-large"));
     Ok(())
 }
@@ -198,7 +198,7 @@ async fn claiming_legacy_large_embedding_job_splits_it_before_claiming() -> Resu
         .claim_embedding_jobs("text-embedding-3-small", 1536, 10)
         .await?;
     assert!(jobs.len() > 1);
-    assert!(jobs.iter().all(|job| job.body.chars().count() <= 20_000));
+    assert!(jobs.iter().all(|job| job.body.chars().count() <= 6_000));
     assert!(jobs.iter().all(|job| job.source_id == "legacy-large"));
     assert!(jobs.iter().all(|job| job.attempts == 0));
     Ok(())
@@ -395,5 +395,70 @@ async fn semantic_index_status_counts_pending_for_selected_model() -> Result<()>
         .await?;
     assert_eq!(completed.pending_for_model, 0);
     assert_eq!(completed.completed_for_model, 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn repairing_semantic_index_state_requeues_completed_and_failed_jobs() -> Result<()> {
+    let (store, _root) = make_test_store().await?;
+    store.create_thread(&sample_thread()).await?;
+    store
+        .add_message(&sample_message(
+            "msg-repair-completed",
+            "repair this vector",
+        ))
+        .await?;
+    store
+        .add_message(&sample_message("msg-repair-delete", "repair this deletion"))
+        .await?;
+
+    let jobs = store
+        .claim_embedding_jobs("text-embedding-3-small", 1536, 10)
+        .await?;
+    assert_eq!(jobs.len(), 2);
+    for job in &jobs {
+        store
+            .complete_embedding_job(job, "text-embedding-3-small", 1536)
+            .await?;
+    }
+    let completed_job = jobs
+        .iter()
+        .find(|job| job.source_id == "msg-repair-completed")
+        .expect("completed job should exist");
+    store
+        .fail_embedding_job(completed_job, "stale failure")
+        .await?;
+
+    let deleted = store
+        .delete_messages("thread-1", &["msg-repair-delete"])
+        .await?;
+    assert_eq!(deleted, 1);
+    let deletions = store.claim_embedding_deletions(10).await?;
+    assert_eq!(deletions.len(), 1);
+    store
+        .fail_embedding_deletion(&deletions[0], "stale deletion failure")
+        .await?;
+
+    let before = store
+        .semantic_index_status("text-embedding-3-small", 1536)
+        .await?;
+    assert_eq!(before.completed_for_model, 1);
+    assert_eq!(before.failed_jobs, 1);
+    assert_eq!(before.queued_deletions, 1);
+    assert_eq!(before.failed_deletions, 1);
+
+    let reset = store.reset_semantic_vector_index_state().await?;
+    assert_eq!(reset.cleared_completions, 1);
+    assert_eq!(reset.cleared_deletions, 1);
+    assert_eq!(reset.reset_failed_jobs, 1);
+
+    let after = store
+        .semantic_index_status("text-embedding-3-small", 1536)
+        .await?;
+    assert_eq!(after.completed_for_model, 0);
+    assert_eq!(after.pending_for_model, 1);
+    assert_eq!(after.failed_jobs, 0);
+    assert_eq!(after.queued_deletions, 0);
+    assert_eq!(after.failed_deletions, 0);
     Ok(())
 }

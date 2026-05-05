@@ -183,7 +183,9 @@ fn bash_command_should_force_background(args: &serde_json::Value) -> bool {
         return false;
     }
 
-    !bash_command_can_wait_for_completion(args)
+    args.get("command")
+        .and_then(|value| value.as_str())
+        .is_none_or(shell_command_should_start_in_background)
 }
 
 fn bash_command_args_with_wait_false(args: &serde_json::Value) -> serde_json::Value {
@@ -235,16 +237,83 @@ fn command_is_known_quick_shell_command(command: &str) -> bool {
         .all(shell_command_segment_is_known_quick)
 }
 
-fn shell_command_segment_is_known_quick(segment: &str) -> bool {
-    let first = segment
+fn shell_command_should_start_in_background(command: &str) -> bool {
+    let trimmed = command.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    if trimmed.contains('\n') || trimmed.contains('|') || trimmed.contains('`') || trimmed.contains("$(") {
+        return true;
+    }
+
+    trimmed
+        .split(';')
+        .flat_map(|part| part.split("&&"))
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .any(shell_command_segment_should_start_in_background)
+}
+
+fn shell_command_segment_should_start_in_background(segment: &str) -> bool {
+    let first = first_shell_command_word(segment);
+    match first.as_str() {
+        "sleep" | "watch" | "yes" => true,
+        "tail" => shell_words(segment)
+            .iter()
+            .skip(1)
+            .any(|arg| arg == "-f" || arg == "--follow" || arg.starts_with("--follow=")),
+        "bash" | "sh" | "zsh" | "fish" | "python" | "python3" | "node" | "ruby" | "perl" => {
+            !shell_words(segment)
+                .iter()
+                .skip(1)
+                .any(|arg| matches!(arg.as_str(), "--version" | "-V" | "-v" | "--help" | "-h"))
+        }
+        "npm" | "pnpm" | "yarn" => shell_words(segment)
+            .iter()
+            .skip(1)
+            .any(|arg| {
+                matches!(
+                    arg.as_str(),
+                    "run" | "dev" | "start" | "test" | "build" | "install" | "ci" | "watch"
+                )
+            }),
+        "cargo" => shell_words(segment).iter().skip(1).any(|arg| {
+            matches!(
+                arg.as_str(),
+                "build" | "check" | "clippy" | "doc" | "run" | "test" | "watch"
+            )
+        }),
+        "make" | "cmake" | "ninja" | "pytest" | "docker" | "docker-compose" => true,
+        _ => false,
+    }
+}
+
+fn shell_words(segment: &str) -> Vec<String> {
+    segment
         .split_whitespace()
-        .next()
+        .map(|word| {
+            word.trim_matches(|ch: char| ch == '(' || ch == ')' || ch == '"' || ch == '\'')
+                .to_string()
+        })
+        .filter(|word| !word.is_empty())
+        .collect()
+}
+
+fn first_shell_command_word(segment: &str) -> String {
+    shell_words(segment)
+        .first()
+        .map(|word| {
+            word.rsplit('/')
+                .next()
+                .unwrap_or_default()
+                .to_ascii_lowercase()
+        })
         .unwrap_or_default()
-        .trim_matches(|ch: char| ch == '(' || ch == ')' || ch == '"' || ch == '\'')
-        .rsplit('/')
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
+}
+
+fn shell_command_segment_is_known_quick(segment: &str) -> bool {
+    let first = first_shell_command_word(segment);
 
     matches!(
         first.as_str(),
@@ -272,6 +341,18 @@ fn shell_command_segment_is_known_quick(segment: &str) -> bool {
             | "type"
             | "realpath"
             | "readlink"
+            | "ps"
+            | "pgrep"
+            | "kill"
+            | "pkill"
+            | "jobs"
+            | "lsof"
+            | "df"
+            | "free"
+            | "env"
+            | "printenv"
+            | "uptime"
+            | "hostname"
     )
 }
 

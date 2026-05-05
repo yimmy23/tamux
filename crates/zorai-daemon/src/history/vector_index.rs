@@ -193,6 +193,40 @@ impl VectorIndex {
         Ok(())
     }
 
+    pub(crate) fn repair_corrupted_index_dir(&self) -> Result<Option<PathBuf>> {
+        if !self.dir.exists() {
+            return Ok(None);
+        }
+        let parent = self
+            .dir
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("LanceDB vector index path has no parent"))?;
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to ensure LanceDB vector index parent {}",
+                parent.display()
+            )
+        })?;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let mut backup = parent.join(format!("lancedb.repair-backup-{now_ms}"));
+        let mut suffix = 1usize;
+        while backup.exists() {
+            backup = parent.join(format!("lancedb.repair-backup-{now_ms}-{suffix}"));
+            suffix += 1;
+        }
+        std::fs::rename(&self.dir, &backup).with_context(|| {
+            format!(
+                "failed to move corrupted LanceDB vector index {} to {}",
+                self.dir.display(),
+                backup.display()
+            )
+        })?;
+        Ok(Some(backup))
+    }
+
     pub(crate) async fn search(
         &self,
         request: VectorSearchRequest,

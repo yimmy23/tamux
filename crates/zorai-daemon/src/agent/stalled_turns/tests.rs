@@ -6,8 +6,8 @@ use crate::agent::types::{
     MessageRole, TaskPriority, TaskStatus, ToolCall, ToolFunction,
 };
 use crate::agent::{
-    CONCIERGE_AGENT_ID, CONCIERGE_AGENT_NAME, MAIN_AGENT_ID, MAIN_AGENT_NAME, StreamProgressKind,
-    ThreadHandoffState, ThreadResponderFrame, WELES_AGENT_ID,
+    StreamProgressKind, ThreadHandoffState, ThreadResponderFrame, CONCIERGE_AGENT_ID,
+    CONCIERGE_AGENT_NAME, MAIN_AGENT_ID, MAIN_AGENT_NAME, WELES_AGENT_ID,
 };
 use crate::session_manager::SessionManager;
 use std::sync::Arc;

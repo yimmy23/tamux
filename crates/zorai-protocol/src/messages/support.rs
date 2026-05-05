@@ -215,6 +215,16 @@ pub struct SemanticDocumentIndexSyncResultPublic {
     pub guidelines: SemanticDocumentSyncSummaryPublic,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SemanticIndexRepairResultPublic {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup_path: Option<String>,
+    pub removed_vector_index: bool,
+    pub cleared_completions: u64,
+    pub cleared_deletions: u64,
+    pub reset_failed_jobs: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolDescriptorPublic {
     pub name: String,

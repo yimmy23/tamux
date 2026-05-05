@@ -517,6 +517,18 @@ fn bash_command_waits_only_for_known_quick_commands() {
     assert!(bash_command_can_wait_for_completion(
         &serde_json::json!({ "command": "printf ready" })
     ));
+    assert!(bash_command_can_wait_for_completion(
+        &serde_json::json!({ "command": "ps aux" })
+    ));
+    assert!(bash_command_can_wait_for_completion(
+        &serde_json::json!({ "command": "pgrep -f zorai-daemon" })
+    ));
+    assert!(bash_command_can_wait_for_completion(
+        &serde_json::json!({ "command": "kill -TERM 12345" })
+    ));
+    assert!(bash_command_can_wait_for_completion(
+        &serde_json::json!({ "command": "pkill -f stale-zorai-worker" })
+    ));
     assert!(!bash_command_can_wait_for_completion(
         &serde_json::json!({ "command": "bash /tmp/update.sh" })
     ));
@@ -527,4 +539,20 @@ fn bash_command_waits_only_for_known_quick_commands() {
         "command": "pwd",
         "wait_for_completion": false
     })));
+}
+
+#[test]
+fn bash_command_does_not_force_background_for_quick_process_commands() {
+    for command in [
+        "ps",
+        "ps aux",
+        "pgrep -f zorai-daemon",
+        "kill -TERM 12345",
+        "pkill -f stale-zorai-worker",
+    ] {
+        assert!(
+            !bash_command_should_force_background(&serde_json::json!({ "command": command })),
+            "{command} should be eligible to return inline"
+        );
+    }
 }

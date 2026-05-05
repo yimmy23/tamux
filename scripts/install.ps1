@@ -152,6 +152,23 @@ function Get-ChecksumMap {
     return $checksums
 }
 
+function Test-FileChecksum {
+    param(
+        [string]$Path,
+        [string]$ExpectedHash,
+        [string]$Label
+    )
+
+    if (-not (Test-Path $Path)) {
+        throw "Checksum target is missing: $Path"
+    }
+
+    $actualHash = (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLower()
+    if ($actualHash -ne $ExpectedHash.ToLower()) {
+        throw "SHA256 checksum mismatch for $Label"
+    }
+}
+
 function Verify-ExtractedBinary {
     param(
         [string]$BinaryName,
@@ -168,10 +185,7 @@ function Verify-ExtractedBinary {
         throw "Checksum not found for $BinaryName in $script:ChecksumName"
     }
 
-    $actualHash = (Get-FileHash -Path $binaryPath -Algorithm SHA256).Hash.ToLower()
-    if ($actualHash -ne $expectedHash) {
-        throw "SHA256 checksum mismatch for $BinaryName"
-    }
+    Test-FileChecksum -Path $binaryPath -ExpectedHash $expectedHash -Label $BinaryName
 }
 
 function Download-AndVerify {
@@ -193,13 +207,23 @@ function Download-AndVerify {
     Invoke-WebRequest -Uri $script:ArchiveUrl -Headers $RequestHeaders `
         -OutFile $script:ArchivePath -ErrorAction Stop
 
+    $script:Checksums = Get-ChecksumMap -Path $script:ChecksumPath
+    $script:VerifyExtractedBinaries = $true
+    $archiveHash = $script:Checksums[$script:ArchiveName]
+    if ($archiveHash) {
+        Write-Host "Verifying archive checksum..."
+        Test-FileChecksum -Path $script:ArchivePath -ExpectedHash $archiveHash -Label $script:ArchiveName
+        $script:VerifyExtractedBinaries = $false
+    }
+
     Write-Host "Extracting binaries, skills, and guidelines..."
     Expand-Archive -Path $script:ArchivePath -DestinationPath $script:ExtractDir -Force
 
-    Write-Host "Verifying extracted binaries..."
-    $script:Checksums = Get-ChecksumMap -Path $script:ChecksumPath
-    foreach ($bin in $Binaries) {
-        Verify-ExtractedBinary -BinaryName $bin -Checksums $script:Checksums
+    if ($script:VerifyExtractedBinaries) {
+        Write-Host "Verifying extracted binaries..."
+        foreach ($bin in $Binaries) {
+            Verify-ExtractedBinary -BinaryName $bin -Checksums $script:Checksums
+        }
     }
 }
 

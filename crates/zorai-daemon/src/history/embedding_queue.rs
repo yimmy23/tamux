@@ -1,7 +1,7 @@
 use super::*;
 
 const CLAIM_STALE_AFTER_SECS: i64 = 300;
-const EMBEDDING_JOB_CHUNK_MAX_CHARS: usize = 20_000;
+const EMBEDDING_JOB_CHUNK_MAX_CHARS: usize = 6_000;
 
 #[derive(Debug, Clone)]
 pub(crate) struct EmbeddingJobInput {
@@ -51,6 +51,13 @@ pub struct SemanticIndexStatus {
     pub queued_deletions: u64,
     pub failed_jobs: u64,
     pub failed_deletions: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SemanticIndexRepairStateReset {
+    pub cleared_completions: u64,
+    pub cleared_deletions: u64,
+    pub reset_failed_jobs: u64,
 }
 
 fn content_hash(body: &str) -> String {
@@ -721,6 +728,45 @@ impl HistoryStore {
                 Ok(SemanticBackfillResult {
                     messages_queued,
                     tasks_queued,
+                })
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn reset_semantic_vector_index_state(
+        &self,
+    ) -> Result<SemanticIndexRepairStateReset> {
+        self.conn
+            .call(move |conn| {
+                let transaction = conn.transaction()?;
+                let cleared_completions = count_i64(
+                    &transaction,
+                    "SELECT COUNT(*) FROM embedding_job_completions",
+                    [],
+                )?;
+                let cleared_deletions =
+                    count_i64(&transaction, "SELECT COUNT(*) FROM embedding_deletions", [])?;
+                let reset_failed_jobs = count_i64(
+                    &transaction,
+                    "SELECT COUNT(*) FROM embedding_jobs WHERE last_error IS NOT NULL",
+                    [],
+                )?;
+
+                transaction.execute("DELETE FROM embedding_job_completions", [])?;
+                transaction.execute("DELETE FROM embedding_deletions", [])?;
+                transaction.execute(
+                    "UPDATE embedding_jobs
+                     SET claimed_at = NULL, last_error = NULL
+                     WHERE claimed_at IS NOT NULL OR last_error IS NOT NULL",
+                    [],
+                )?;
+                transaction.commit()?;
+
+                Ok(SemanticIndexRepairStateReset {
+                    cleared_completions,
+                    cleared_deletions,
+                    reset_failed_jobs,
                 })
             })
             .await

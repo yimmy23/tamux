@@ -13,3 +13,7 @@ pub mod types;
 #[cfg(test)]
 #[path = "tests/persistence.rs"]
 mod persistence_tests;
+
+#[cfg(test)]
+#[path = "tests/pattern_regulator.rs"]
+mod pattern_regulator_tests;

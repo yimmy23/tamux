@@ -535,6 +535,39 @@ function extractBundledGuidelines(archiveData, releaseInfo, guidelinesDir) {
   extractBundledTree(archiveData, releaseInfo.guidelinesArchiveRoot, guidelinesDir, true);
 }
 
+function installMacosDesktopApp(platform, binDir, deps) {
+  if (platform !== "darwin") {
+    return;
+  }
+
+  var helpers = deps || {};
+  var spawnSync = helpers.spawnSync || childProcess.spawnSync;
+  var appZip = path.join(binDir, "zorai-desktop.app.zip");
+  var appDir = path.join(binDir, "zorai-desktop.app");
+  if (!fs.existsSync(appZip)) {
+    throw new Error("Installed macOS desktop app archive is missing: " + appZip);
+  }
+
+  fs.rmSync(appDir, { recursive: true, force: true });
+  var result = spawnSync("ditto", ["-x", "-k", appZip, binDir], {
+    stdio: "inherit",
+  });
+  if (!result || result.error || result.status !== 0) {
+    result = spawnSync("unzip", ["-oq", appZip, "-d", binDir], {
+      stdio: "inherit",
+    });
+  }
+
+  if (!result || result.error || result.status !== 0) {
+    throw new Error("Failed to extract macOS desktop app archive: " + appZip);
+  }
+
+  var appBinary = path.join(appDir, "Contents", "MacOS", "zorai");
+  if (!fs.existsSync(appBinary)) {
+    throw new Error("Installed macOS desktop app is missing executable: " + appBinary);
+  }
+}
+
 async function verifyExtractedBinaries(checksumsData, releaseInfo) {
   var requiredFiles = releaseInfo.requiredBinaries.concat(releaseInfo.requiredAssets || []);
   for (var i = 0; i < requiredFiles.length; i++) {
@@ -567,6 +600,16 @@ function cleanupExtractedBinaries(releaseInfo) {
   for (var i = 0; i < requiredFiles.length; i++) {
     try {
       fs.unlinkSync(path.join(BIN_DIR, requiredFiles[i]));
+    } catch (_e) {
+      /* ignore cleanup errors */
+    }
+  }
+  if ((releaseInfo.requiredAssets || []).includes("zorai-desktop.app.zip")) {
+    try {
+      fs.rmSync(path.join(BIN_DIR, "zorai-desktop.app"), {
+        recursive: true,
+        force: true,
+      });
     } catch (_e) {
       /* ignore cleanup errors */
     }
@@ -642,6 +685,7 @@ async function main() {
         console.log("zorai: extracting binaries, skills, and guidelines...");
         extractRequiredBinaries(archiveData, releaseInfo);
         extractRequiredAssets(archiveData, releaseInfo);
+        installMacosDesktopApp(os.platform(), BIN_DIR);
         extractBundledSkills(archiveData, releaseInfo, runtimeSkillsDir);
         extractBundledGuidelines(archiveData, releaseInfo, runtimeGuidelinesDir);
         console.log(
@@ -691,6 +735,7 @@ module.exports.getRuntimeZoraiRoot = getRuntimeZoraiRoot;
 module.exports.ensureCustomAuthTemplate = ensureCustomAuthTemplate;
 module.exports.extractBundledGuidelines = extractBundledGuidelines;
 module.exports.getLegacyTamuxRoot = getLegacyTamuxRoot;
+module.exports.installMacosDesktopApp = installMacosDesktopApp;
 module.exports.migrateLegacyTamuxRoot = migrateLegacyTamuxRoot;
 module.exports.isManagedProcessRunning = isManagedProcessRunning;
 module.exports.maybeRefreshDaemonAfterInstall = maybeRefreshDaemonAfterInstall;

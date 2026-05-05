@@ -183,4 +183,5 @@ pub enum DaemonMessage {
     SemanticBackfillQueued { result_json: String },
     SemanticIndexStatus { status_json: String },
     SemanticDocumentSyncResult { result_json: String },
+    SemanticIndexRepairResult { result_json: String },
 }

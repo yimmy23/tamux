@@ -36,6 +36,18 @@ test("powershell installer provisions bundled skills into canonical zorai root",
   assert.match(script, /Copy-Item -Path \(Join-Path \$InstallDir "zorai\.exe"\) -Destination \(Join-Path \$InstallDir "zoi\.exe"\) -Force/);
 });
 
+test("powershell installer accepts archive-only checksum manifests", function () {
+  const scriptPath = path.join(__dirname, "..", "scripts", "install.ps1");
+  const script = fs.readFileSync(scriptPath, "utf8");
+
+  assert.match(script, /function Test-FileChecksum/);
+  assert.match(script, /\$archiveHash = \$script:Checksums\[\$script:ArchiveName\]/);
+  assert.match(script, /if \(\$archiveHash\) \{/);
+  assert.match(script, /Test-FileChecksum -Path \$script:ArchivePath -ExpectedHash \$archiveHash -Label \$script:ArchiveName/);
+  assert.match(script, /\$script:VerifyExtractedBinaries = \$false/);
+  assert.match(script, /if \(\$script:VerifyExtractedBinaries\) \{/);
+});
+
 test("powershell installer migrates legacy tamux runtime roots before provisioning data", function () {
   const scriptPath = path.join(__dirname, "..", "scripts", "install.ps1");
   const script = fs.readFileSync(scriptPath, "utf8");

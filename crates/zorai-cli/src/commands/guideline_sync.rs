@@ -10,7 +10,7 @@ const GITHUB_RAW_MAIN_URL: &str = "https://raw.githubusercontent.com/mkurman/zor
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RemoteGuidelineDocument {
     pub(super) relative_path: String,
-    pub(super) content: String,
+    pub(super) content: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,7 +64,7 @@ pub(super) async fn fetch_remote_guideline_documents() -> Result<Vec<RemoteGuide
         .filter(|item| item.kind == "blob")
         .filter_map(|item| {
             let relative = item.path.strip_prefix("guidelines/")?;
-            if !relative.to_ascii_lowercase().ends_with(".md") {
+            if relative.trim().is_empty() {
                 return None;
             }
             let relative_path = relative.to_string();
@@ -84,9 +84,10 @@ pub(super) async fn fetch_remote_guideline_documents() -> Result<Vec<RemoteGuide
             .with_context(|| format!("failed to download guideline {repo_path}"))?
             .error_for_status()
             .with_context(|| format!("guideline download returned an error status: {repo_path}"))?
-            .text()
+            .bytes()
             .await
-            .with_context(|| format!("failed to read guideline response: {repo_path}"))?;
+            .with_context(|| format!("failed to read guideline response: {repo_path}"))?
+            .to_vec();
         documents.push(RemoteGuidelineDocument {
             relative_path,
             content,
@@ -94,7 +95,7 @@ pub(super) async fn fetch_remote_guideline_documents() -> Result<Vec<RemoteGuide
     }
 
     if documents.is_empty() {
-        anyhow::bail!("no markdown guidelines were found in the zorai repository");
+        anyhow::bail!("no guideline files were found in the zorai repository");
     }
     Ok(documents)
 }
@@ -150,10 +151,6 @@ fn validate_remote_guideline_path(value: &str) -> Result<PathBuf> {
     if trimmed.contains('\\') {
         anyhow::bail!("remote guideline path must use forward slashes: {trimmed}");
     }
-    if !trimmed.to_ascii_lowercase().ends_with(".md") {
-        anyhow::bail!("remote guideline path must be a markdown .md file: {trimmed}");
-    }
-
     let path = Path::new(trimmed);
     if path.is_absolute() {
         anyhow::bail!("remote guideline path must be relative: {trimmed}");
@@ -190,12 +187,29 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir");
         let documents = vec![RemoteGuidelineDocument {
             relative_path: "../outside.md".to_string(),
-            content: "# Outside\n".to_string(),
+            content: b"# Outside\n".to_vec(),
         }];
 
         let error = sync_guideline_documents(temp.path(), &documents, true)
             .expect_err("path traversal should be rejected");
 
         assert!(error.to_string().contains("must not escape"));
+    }
+
+    #[test]
+    fn sync_guidelines_accepts_support_files_under_guidelines_root() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let documents = vec![RemoteGuidelineDocument {
+            relative_path: "references/schema.json".to_string(),
+            content: b"{\"type\":\"object\"}\n".to_vec(),
+        }];
+
+        let summary = sync_guideline_documents(temp.path(), &documents, false).expect("sync");
+
+        assert_eq!(summary.installed, 1);
+        assert_eq!(
+            std::fs::read_to_string(temp.path().join("references/schema.json")).expect("read"),
+            "{\"type\":\"object\"}\n"
+        );
     }
 }
