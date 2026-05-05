@@ -174,6 +174,22 @@ impl AgentEngine {
         thread_id: &str,
         continuation: DeferredVisibleThreadContinuation,
     ) -> Result<()> {
+        if continuation.internal_delegate_sender.is_none()
+            && continuation.internal_delegate_message.is_none()
+            && !continuation.force_compaction
+            && self
+                .deferred_visible_thread_continuation_obsoleted(thread_id, &continuation)
+                .await
+        {
+            tracing::info!(
+                thread_id = %thread_id,
+                agent_id = %continuation.agent_id,
+                queued_at_ms = continuation.queued_at_ms,
+                "skipping stale deferred visible-thread continuation"
+            );
+            return Ok(());
+        }
+
         if let (Some(sender), Some(message)) = (
             continuation.internal_delegate_sender.as_deref(),
             continuation.internal_delegate_message.as_deref(),
@@ -197,6 +213,37 @@ impl AgentEngine {
         ))
         .await?;
         Ok(())
+    }
+
+    async fn deferred_visible_thread_continuation_obsoleted(
+        &self,
+        thread_id: &str,
+        continuation: &DeferredVisibleThreadContinuation,
+    ) -> bool {
+        if continuation.queued_at_ms == 0 {
+            return false;
+        }
+        let target_agent_id = canonical_agent_id(&continuation.agent_id);
+        let threads = self.threads.read().await;
+        let Some(thread) = threads.get(thread_id) else {
+            return false;
+        };
+        let saw_tool_progress_after_queue = thread.messages.iter().any(|message| {
+            message.role == MessageRole::Tool
+                && message.timestamp >= continuation.queued_at_ms
+                && !message.content.trim().is_empty()
+        });
+        saw_tool_progress_after_queue
+            && thread.messages.iter().any(|message| {
+                message.role == MessageRole::Assistant
+                    && message.timestamp >= continuation.queued_at_ms
+                    && !message.content.trim().is_empty()
+                    && message
+                        .author_agent_id
+                        .as_deref()
+                        .map(|agent_id| canonical_agent_id(agent_id) == target_agent_id)
+                        .unwrap_or(true)
+            })
     }
 
     async fn clear_thread_participant_suggestions_for_agent(
@@ -451,7 +498,13 @@ impl AgentEngine {
         }
         let mut queued = self.deferred_visible_thread_continuations.lock().await;
         let entry = queued.entry(thread_id.to_string()).or_default();
-        if entry.iter().any(|queued| queued == &continuation) {
+        if continuation.queued_at_ms == 0 {
+            continuation.queued_at_ms = now_millis();
+        }
+        if entry
+            .iter()
+            .any(|queued| queued.same_request_as(&continuation))
+        {
             tracing::info!(
                 thread_id = %thread_id,
                 agent_id = %continuation.agent_id,
@@ -1214,6 +1267,7 @@ impl AgentEngine {
                 preferred_session_hint: None,
                 llm_user_content: continuation_prompt,
                 force_compaction: false,
+                queued_at_ms: 0,
                 rerun_participant_observers_after_turn: false,
                 internal_delegate_sender: None,
                 internal_delegate_message: None,

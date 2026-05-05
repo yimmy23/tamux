@@ -3,24 +3,27 @@ name: hypothesis-experiment-design-task
 description: Use for forming testable scientific hypotheses, experiment design, mechanisms, predictions, controls, or research ideation.
 recommended_skills:
   - hypothesis-generation
-  - scientific-brainstorming
   - scientific-critical-thinking
-  - statistical-analysis
+recommended_guidelines:
+  - evidence-quality-task
+  - scientific-data-analysis-task
+  - growth-experiment-task
 ---
 
-# Hypothesis And Experiment Design Task Guideline
+## Overview
 
-Hypothesis work should turn observations into testable predictions and discriminating experiments.
+Well-designed experiments produce trustworthy conclusions.
 
 ## Workflow
 
-1. Identify observations, prior knowledge, target mechanism, constraints, and what decision the experiment should support.
-2. Use `hypothesis-generation` when observations or data need testable hypotheses, mechanisms, and predictions.
-3. Use `scientific-brainstorming` for early-stage ideation, interdisciplinary connections, or research gap exploration.
-4. Define controls, variables, measurement plan, sample size logic, expected results, and alternative explanations.
-5. Use `scientific-critical-thinking` to identify confounders, failure modes, and bias before running the experiment.
-6. Specify what outcomes would support, refute, or fail to distinguish hypotheses.
+1. Formulate a falsifiable hypothesis before designing the experiment.
+2. Identify independent and dependent variables.
+3. Control for confounding variables.
+4. Determine sample size needed for statistical power.
+5. Pre-register the experimental design and analysis plan.
+6. Use randomization and blinding where appropriate.
+7. Document what would constitute a meaningful result and a null result.
 
 ## Quality Gate
 
-Do not call a hypothesis testable unless it includes measurable predictions and a plausible falsifying result.
+An experimental design is complete when the hypothesis is testable, variables are defined, and the analysis plan is pre-registered.

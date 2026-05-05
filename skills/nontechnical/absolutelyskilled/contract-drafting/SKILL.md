@@ -18,40 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Contract Drafting
-
-> **Disclaimer: This skill provides general guidance on commercial contract structure
-> and drafting best practices. It is NOT legal advice. Always have qualified legal
-> counsel review contracts before signing or sending them to counterparties.**
-
-Commercial contracts are the binding agreements that govern business relationships.
-Good contracts prevent disputes by making expectations, obligations, and risk allocation
-explicit. This skill covers the structure, key clauses, and drafting process for the
-most common commercial agreements - NDAs, MSAs, SaaS subscriptions, licensing agreements,
-and data processing addendums - and the process of reviewing and redlining contracts
-received from counterparties.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to draft a Non-Disclosure Agreement (NDA) or Confidentiality Agreement
-- Wants to create a Master Services Agreement (MSA) or Statement of Work (SOW)
-- Is drafting SaaS subscription terms or an End User License Agreement (EULA)
-- Needs to review, annotate, or redline a contract received from another party
-- Is creating a software or content licensing agreement
-- Needs a Data Processing Agreement (DPA) for GDPR or other privacy compliance
-- Wants to understand a specific contract clause or term
-- Is managing contract renewals, amendments, or terminations
-
-Do NOT trigger this skill for:
-- Tax, employment law, or regulatory compliance advice - those require specialist counsel
-- Litigation strategy or dispute resolution proceedings in progress
-
----
-
 ## Key principles
 
 1. **Clarity over legalese** - Plain language reduces disputes. Every obligation,

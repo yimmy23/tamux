@@ -20,37 +20,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Agile & Scrum
-
-Agile is an iterative approach to project delivery that focuses on delivering small,
-incremental pieces of value through short cycles called sprints. Scrum is the most
-widely adopted Agile framework, structured around defined roles (Product Owner, Scrum
-Master, Developers), events (Sprint Planning, Daily Standup, Sprint Review,
-Retrospective), and artifacts (Product Backlog, Sprint Backlog, Increment). This skill
-covers practical application of Scrum ceremonies, estimation techniques, velocity
-tracking, Kanban flow management, and continuous improvement practices.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to plan a sprint or organize a sprint planning session
-- Wants to run or improve retrospectives
-- Asks about velocity tracking, burndown charts, or sprint metrics
-- Needs to estimate stories using story points, T-shirt sizing, or planning poker
-- Wants to set up or optimize a Kanban board
-- Asks about backlog grooming or refinement practices
-- Needs templates for user stories, acceptance criteria, or definition of done
-- Wants to improve team agile processes or adopt Scrum
-
-Do NOT trigger this skill for:
-- General project management unrelated to Agile (waterfall, PRINCE2, etc.)
-- Software architecture or technical design decisions (use engineering skills instead)
-
----
-
 ## Key principles
 
 1. **Deliver working increments** - Every sprint must produce a potentially shippable

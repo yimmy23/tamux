@@ -4,26 +4,7 @@ description: "Create professional infographics using Nano Banana Pro AI with sma
 allowed-tools: Read Write Edit Bash
 
 tags: [scientific-skills, infographics, search]
----
-
-# Infographics
-
-## Overview
-
-Infographics are visual representations of information, data, or knowledge designed to present complex content quickly and clearly. **This skill uses Nano Banana Pro AI for infographic generation with Gemini 3 Pro quality review and Perplexity Sonar for research.**
-
-**How it works:**
-- (Optional) **Research phase**: Gather accurate facts and statistics using Perplexity Sonar
-- Describe your infographic in natural language
-- Nano Banana Pro generates publication-quality infographics automatically
-- **Gemini 3 Pro reviews quality** against document-type thresholds
-- **Smart iteration**: Only regenerates if quality is below threshold
-- Professional-ready output in minutes
-- No design skills required
-
-**Quality Thresholds by Document Type:**
-| Document Type | Threshold | Description |
-|---------------|-----------|-------------|
+------------|-----------|-------------|
 | marketing | 8.5/10 | Marketing materials - must be compelling |
 | report | 8.0/10 | Business reports - professional quality |
 | presentation | 7.5/10 | Slides, talks - clear and engaging |

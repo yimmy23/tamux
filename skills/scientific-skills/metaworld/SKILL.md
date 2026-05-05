@@ -5,54 +5,7 @@ license: MIT license
 tags: [robotic-manipulation, multi-task-rl, meta-rl, continuous-control, metaworld]
 metadata:
     skill-author: K-Dense Inc.
----
-
-# Meta-World
-
-## Overview
-
-Meta-World is a standardized benchmark for robotic manipulation in continuous-control reinforcement learning. It provides 50 task environments plus curated multi-task and meta-learning suites designed to test task generalization, few-shot adaptation, and policy transfer. Use this skill when benchmarking RL agents on robotic tasks such as reaching, pushing, pulling, door opening, and other manipulation behaviors.
-
-## When to Use This Skill
-
-This skill should be used when:
-- Benchmarking RL algorithms on robotic manipulation tasks
-- Training a single policy across many tasks (multi-task RL)
-- Testing few-shot adaptation or transfer (meta-RL)
-- Comparing synchronous vs asynchronous vectorized RL benchmarks
-- Building custom subsets of robotic tasks for targeted evaluation
-- Measuring generalization across task families and goal variations
-
-## Core Capabilities
-
-### 1. Installation
-
-```bash
-pip install metaworld
-```
-
-### 2. Basic Gymnasium API
-
-```python
-import gymnasium as gym
-import metaworld
-
-env = gym.make("Meta-World/MT1", env_name="reach-v3")
-obs, info = env.reset(seed=42)
-
-for _ in range(500):
-    action = env.action_space.sample()
-    obs, reward, terminated, truncated, info = env.step(action)
-    if terminated or truncated:
-        obs, info = env.reset()
-
-env.close()
-```
-
-### 3. Benchmark Families
-
-| Benchmark | Purpose | Size |
-|-----------|---------|------|
+--------|---------|------|
 | `MT1` | Multi-task learning on one selected task family | 1 task |
 | `MT10` | Multi-task learning across 10 manipulation tasks | 10 tasks |
 | `MT50` | Broad multi-task benchmark | 50 tasks |

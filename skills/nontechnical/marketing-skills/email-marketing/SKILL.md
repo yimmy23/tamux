@@ -4,27 +4,7 @@ description: When the user wants to plan email marketing, EDM, newsletter strate
 tags: [nontechnical, marketing-skills, email-marketing, workflow, strategy, writing, marketing]
 metadata:
   version: 1.0.1
----
-
-# Channels: Email Marketing
-
-Guides email marketing strategy for AI/SaaS products. Email ROI ~$36 per dollar spent; open/click rates typically higher than social. Covers EDM vs Newsletter, five content types, deliverability (SPF/DKIM/DMARC), and SEO synergy via article delivery.
-
-**When invoking**: On **first use**, if helpful, open with 1-2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Initial Assessment
-
-**Check for project context first:** If `.claude/project-context.md` or `.cursor/project-context.md` exists, read it for audience and content strategy. See **content-marketing** for content types and formats across channels.
-
-Identify:
-1. **Goal**: Retention, conversion, brand reach, or SEO synergy
-2. **Content mix**: Onboarding, campaign, announcement, features, newsletter
-3. **List size**: Bulk sender rules (5,000+/day) require Gmail/Yahoo compliance
-
-## EDM vs Newsletter
-
-| Type | Purpose | Use |
-|------|---------|-----|
+---|---------|-----|
 | **EDM** | Direct marketing; conversion-focused | Promotions, campaigns, announcements; bulk sends |
 | **Newsletter** | Ongoing value; relationship | Industry insights, curated articles; regular cadence |
 

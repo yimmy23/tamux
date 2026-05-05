@@ -5,63 +5,7 @@ related: [competitive-analysis, user-research-synthesis, feedback-synthesis, col
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, review-mining]
----
-
-# Review Mining
-
-## When to Use
-- Founder wants to understand real user pain points for a market or competitor product
-- Founder wants voice-of-customer language to use in copy, emails, or pitch decks
-- Founder wants to validate a product idea by finding recurring complaints
-- Founder wants to identify gaps competitors aren't solving
-- Founder wants to build a feature comparison based on what users actually care about
-
-## Context Required
-- Competitor names or product category to research
-- Review platforms to mine (Trustpilot, G2, Capterra, Product Hunt, App Store, Play Store, Reddit)
-- What the founder is trying to learn (pain points, switching triggers, feature gaps, use cases)
-- The founder's own product positioning (to identify opportunities)
-
-## Workflow
-
-1. **Define research scope** — identify 3-5 competitors or products to analyze and which platforms have the most relevant reviews for the category (B2B → G2/Capterra, B2C → Trustpilot/App Store, developer tools → Reddit/HN).
-2. **Collect reviews** — gather 1-3 star reviews (pain points) and 4-5 star reviews (what users love and would miss). Focus on reviews from the last 12 months for relevance. Aim for 50-100 reviews per competitor.
-3. **Extract pain point themes** — categorize complaints into recurring themes. For each theme, capture:
-   - The pain point in the user's own words (verbatim quotes)
-   - Frequency (how many reviews mention it)
-   - Severity (annoyance vs. deal-breaker vs. switching trigger)
-   - Which competitor(s) it applies to
-4. **Extract switching triggers** — find reviews where users explicitly say why they left or are considering leaving. These are gold for positioning and outreach.
-5. **Extract "jobs to be done"** — from positive reviews, identify what users are actually hiring the product to do (often different from what the product markets itself as).
-6. **Map to opportunities** — cross-reference pain points against your product's capabilities. Identify where you solve problems competitors don't.
-7. **Generate artifacts** — produce the pain point report, voice-of-customer swipe file, and positioning recommendations.
-
-## Output Format
-
-```markdown
-## Review Mining Report: [Category/Competitors]
-
-### Research Scope
-- Competitors analyzed: [list]
-- Platforms: [list]
-- Reviews analyzed: [count]
-- Date range: [range]
-
-### Top Pain Points (ranked by frequency x severity)
-
-#### 1. [Pain Point Theme] — mentioned in [X]% of negative reviews
-- **Severity:** [Annoyance / Frustration / Deal-breaker / Switching trigger]
-- **Competitors affected:** [list]
-- **User quotes:**
-  - "[verbatim quote]" — [platform], [star rating]
-  - "[verbatim quote]" — [platform], [star rating]
-- **Your opportunity:** [how your product addresses or could address this]
-
-#### 2. [Pain Point Theme] ...
-
-### Switching Triggers
-| Trigger | Frequency | From → To | Quote |
-|---------|-----------|-----------|-------|
+------|-----------|-----------|-------|
 | ... | ... | ... | ... |
 
 ### Voice of Customer Swipe File

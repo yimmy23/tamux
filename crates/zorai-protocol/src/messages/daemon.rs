@@ -182,4 +182,5 @@ pub enum DaemonMessage {
     DatabaseSqlResult { result_json: String },
     SemanticBackfillQueued { result_json: String },
     SemanticIndexStatus { status_json: String },
+    SemanticDocumentSyncResult { result_json: String },
 }

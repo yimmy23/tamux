@@ -4,40 +4,7 @@ description: Semantic code analysis via LSP. Navigate code (definitions, referen
 license: LICENSE
 
 tags: [lsp-code-analysis, search, citation-management]
----
-
-# LSP Code Analysis
-
-## IMPORTANT: PREREQUISITE
-
-To use this skill, you **MUST** follow these steps:
-
-1.  **Check for updates**: Run the [update script](scripts/update.sh) to ensure you are using the latest version of the tool.
-2.  **Verify project support**: Run `lsp server start <project_path>` to start the LSP server and confirm the project is supported.
-
-**IF YOU DO NOT PERFORM THESE STEPS, YOU ARE NOT ALLOWED TO USE THIS SKILL.**
-
-## Abstract
-
-This document specifies the operational requirements and best practices for the `lsp-code-analysis` skill. It provides a semantic interface to codebase navigation, analysis and refactoring via the Language Server Protocol (LSP).
-
-## Overview
-
-You are provided with `lsp` CLI tool for semantic code navigation and analysis. It SHOULD be preferred over `read` or `grep` for most code understanding tasks.
-
-Usages:
-
-- **Semantic navigation**: Jump to definitions, find references, locate implementations - understands code structure, not just text patterns.
-- **Language-aware**: Distinguishes between variables, functions, classes, types - eliminates false positives from text search.
-- **Cross-file intelligence**: Trace dependencies, refactor safely across entire codebase - knows what imports what.
-- **Type-aware**: Get precise type information, signatures, documentation - without reading implementation code.
-
-### Tool Selection
-
-**Guideline**: You SHOULD prioritize LSP commands for code navigation and analysis. Agents MAY use `read` or `grep` ONLY when semantic analysis is not applicable (e.g., searching for comments or literal strings).
-
-| Task                | Traditional Tool | Recommended LSP Command                         |
-| ------------------- | ---------------- | ----------------------------------------------- |
+---------------- | ---------------- | ----------------------------------------------- |
 | **Find Definition** | `grep`, `read`   | [`definition`](#definition-navigate-to-source)  |
 | **Find Usages**     | `grep -r`        | [`reference`](#reference-find-all-usages)       |
 | **Understand File** | `read`           | [`outline`](#outline-file-structure)            |

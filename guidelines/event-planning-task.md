@@ -1,29 +1,26 @@
 ---
 name: event-planning-task
-description: Use for workshops, conferences, webinars, meetings, launches, community events, or run-of-show planning.
+description: Guideline for event planning task tasks.
 recommended_skills:
-  - event-hosting
-  - presentation-design
-  - email-marketing
-  - email-sequence
-  - linkedin-posts
-  - social-content
-  - community-discovery
+recommended_guidelines:
+  - project-management-task
+  - scheduling-reminder-task
 ---
 
-# Event Planning Task Guideline
 
-Events need clear outcomes, logistics, and contingency plans.
+## Overview
+
+Event planning requires parallel workstreams, clear communication, and contingency planning.
 
 ## Workflow
 
-1. Identify purpose, audience, date, timezone, format, budget, location, and success criteria.
-2. Build a timeline with dependencies, owners, deadlines, and approvals.
-3. Use `event-hosting` for run-of-show and promotion, then plan agenda, speakers, materials, registration, communications, and accessibility.
-4. Include contingency plans for technical, venue, speaker, attendance, and timing issues.
-5. Prepare day-of runbook and post-event follow-up.
-6. Track decisions separately from open questions.
+1. Define the event purpose, audience, and expected outcomes first.
+2. Identify the critical path: venue, date, speakers, materials.
+3. Create a timeline with milestones and owner assignments.
+4. Communicate logistics to participants well in advance.
+5. Prepare contingency plans for key dependencies.
+6. Collect feedback post-event and document lessons.
 
 ## Quality Gate
 
-Do not produce an event plan without owners, dates, and a day-of execution path.
+An event is ready when logistics are confirmed and participants have all necessary information in advance.

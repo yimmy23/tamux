@@ -4,31 +4,7 @@ description: When the user wants to create, optimize, or audit campaign landing 
 tags: [nontechnical, marketing-skills, landing-page-generator, performance, compliance]
 metadata:
   version: 1.4.1
----
-
-# Pages: Landing Page
-
-Guides campaign landing page structure, conversion flow, and optimization. **Primary use**: **Paid ads (PPC/SEM)** — landing pages are typically built to receive paid traffic; ad-to-page alignment is critical for conversion. See **paid-ads-strategy** for when to use paid ads and ad-to-page alignment principles. Also applies to affiliate signup, product launch, lead capture, webinar registration, and other single-goal conversion pages. **Scale**: When building many landing pages (city-specific, product-specific, integration-specific), use **programmatic-seo** (template + data) and **template-page-generator** for template design. Differs from homepage (multi-purpose) and product pages (catalog).
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Paid Ads: LP Requirements
-
-When LP receives paid traffic: ad promise on page immediately; mobile-first (CTA above fold, fast load); minimal form (fewer fields); trust above fold. See **paid-ads-strategy** for full ad-to-page alignment and Quality Score.
-
-## Initial Assessment
-
-**Check for project context first:** If `.claude/project-context.md` or `.cursor/project-context.md` exists, read it for product, audience, and value proposition.
-
-Identify:
-1. **Page goal**: Signup, purchase, lead capture, webinar, download
-2. **Traffic source**: Paid ads, email, affiliate, organic
-3. **Audience**: Cold vs warm; segment if known
-
-## Landing Page Structure (5-Step Flow)
-
-| Step | Purpose | Elements |
-|------|---------|----------|
+---|---------|----------|
 | **1. Stop the scroll** | Capture attention in ~2.6 seconds | Headline, subheadline, hero image or video |
 | **2. Earn trust** | Social proof before the ask | Logos, testimonials, ratings, customer count |
 | **3. Explain value** | Benefits, features, use cases | Clear copy; who it's for, what it does |

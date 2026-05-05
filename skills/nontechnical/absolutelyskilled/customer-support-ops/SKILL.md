@@ -18,37 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Customer Support Operations
-
-Customer support operations covers the full support lifecycle - from triage and
-routing through SLA tracking, escalation, and resolution - plus the operational
-layer of macros, queue management, VIP handling, and on-call rotations. This skill
-provides actionable frameworks for each layer: priority matrices, SLA structures
-by tier and priority, macro libraries, escalation paths, and queue optimization.
-Built for support leaders moving from reactive firefighting to a measurable,
-repeatable support machine.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to design or improve a ticket triage system or priority matrix
-- Wants to define or audit SLAs by customer tier or ticket priority
-- Is building or standardizing a macro and response template library
-- Needs to design or document escalation workflows and trigger conditions
-- Wants to optimize queue management or reduce queue aging
-- Is setting up VIP or enterprise support lanes
-- Needs to design a support on-call or follow-the-sun rotation
-- Is measuring or improving first response time or resolution time
-
-Do NOT trigger this skill for:
-- Production incident management or war room coordination (use incident-management skill)
-- Writing individual customer replies without a process context (use a writing assistant skill)
-
----
-
 ## Key principles
 
 1. **First response time is king** - The metric customers feel most is how quickly

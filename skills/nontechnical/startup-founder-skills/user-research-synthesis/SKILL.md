@@ -5,43 +5,7 @@ related: [prd-writing, competitive-analysis]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, user-research-synthesis]
----
-
-# User Research Synthesis
-
-## When to Use
-Activate when a founder or PM provides raw qualitative research data and needs it synthesized into structured insights. This includes customer interview transcripts, survey open-ended responses, support ticket logs, NPS verbatims, sales call notes, app store reviews, or community forum posts. Trigger phrases include "summarize these interviews," "what are customers telling us," "synthesize this feedback," or "help me analyze these customer conversations."
-
-## Context Required
-- **From startup-context:** product stage, current customer segments, known hypotheses being tested, existing personas (if any).
-- **From the user:** the raw data sources (transcripts, notes, recordings), research questions being investigated, participant background information, any specific hypotheses to validate or invalidate.
-
-## Workflow
-1. **Read the complete transcript** -- Before summarizing, read the entire transcript or data source end-to-end. Do not begin summarizing until you have processed all material. This prevents recency bias and ensures nothing is missed.
-2. **Capture metadata** -- Record interview date, participants, participant background, and context for the conversation.
-3. **Identify current solutions** -- Document what solutions the participant currently uses and their satisfaction level with each. This reveals the competitive landscape from the user's perspective.
-4. **Extract problems and pain points** -- Catalog every problem mentioned, using the participant's own language. Separate symptoms from root causes.
-5. **Apply Jobs to Be Done framing** -- For each major finding, frame it as a JTBD: "When [situation], I want to [motivation], so I can [expected outcome]." This shifts focus from features to outcomes.
-6. **Flag unexpected discoveries** -- Note any surprising insights, contradictions, or findings that challenge existing assumptions. These often hold the most strategic value.
-7. **Define follow-up actions** -- List specific next steps with ownership: who should do what based on these findings.
-8. **Assess confidence levels** -- Rate each insight as high/medium/low confidence based on data volume and consistency across sources.
-
-## Output Format
-
-### Interview Summary (per transcript)
-For each individual transcript or data source:
-- **Metadata:** Date, participant name/role, participant background
-- **Current solutions:** What they use today and satisfaction level
-- **What they like:** Positive signals about current product or workflow
-- **Problems identified:** Pain points in their own words, with direct quotes
-- **Key discoveries:** Unexpected findings or insights that challenge assumptions
-- **Follow-up actions:** Specific next steps with suggested ownership
-
-### Cross-Interview Synthesis (when multiple sources provided)
-
-#### Jobs to Be Done Map
-| Job Statement | Frequency | Segments | Confidence |
-|---|---|---|---|
+---|---|---|
 | When [situation], I want to [motivation], so I can [outcome] | X of N sources | Segment names | High/Med/Low |
 
 #### Actionable Insights

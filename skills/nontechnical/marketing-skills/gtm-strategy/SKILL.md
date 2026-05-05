@@ -4,18 +4,7 @@ description: When the user wants to plan go-to-market strategy, GTM framework, o
 tags: [nontechnical, marketing-skills, gtm-strategy, strategy, sales, marketing]
 metadata:
   version: 1.1.1
----
-
-# Strategies: Go-to-Market
-
-Guides go-to-market (GTM) strategy—the blueprint for launching or repositioning a product that aligns product, marketing, sales, and customer success around reaching and winning target customers. Organizations with documented GTM see ~10% higher success rates and 3× revenue growth; ~72% of B2B miss GTM targets in year 1, often due to execution gaps. Use this skill when planning GTM for product launch, new market entry, repositioning, or feature launch.
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## GTM Scenarios
-
-| Scenario | Scope | Use |
-|----------|-------|-----|
+-------|-------|-----|
 | **Product launch** | New product to market | Full GTM; see **product-launch** for launch execution |
 | **New market entry** | New geography or segment | Full GTM; different buying behaviors, competitors, regulations |
 | **Repositioning** | Shift who you serve, what you solve | Messaging, ICP, channel alignment; not just rebrand |

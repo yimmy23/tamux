@@ -61,6 +61,7 @@ pub(super) struct SkillCandidateInput {
 pub(super) struct CandidateScore {
     pub recommendation: SkillRecommendation,
     pub graph_score: f64,
+    pub semantic_score: f64,
 }
 
 #[derive(Debug, Clone, Copy, Default)]

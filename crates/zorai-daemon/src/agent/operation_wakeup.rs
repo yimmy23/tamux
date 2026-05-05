@@ -387,6 +387,7 @@ impl AgentEngine {
                 task_id,
                 preferred_session_hint: None,
                 llm_user_content: prior_user_message,
+                queued_at_ms: 0,
                 force_compaction: false,
                 rerun_participant_observers_after_turn: true,
                 internal_delegate_sender: None,
@@ -1237,6 +1238,7 @@ mod tests {
                         task_id: None,
                         preferred_session_hint: None,
                         llm_user_content: format!("background continuation {index}"),
+                        queued_at_ms: 0,
                         force_compaction: false,
                         rerun_participant_observers_after_turn: true,
                         internal_delegate_sender: None,
@@ -1294,6 +1296,7 @@ mod tests {
             task_id: None,
             preferred_session_hint: None,
             llm_user_content: "continue after background completion".to_string(),
+            queued_at_ms: 0,
             force_compaction: false,
             rerun_participant_observers_after_turn: true,
             internal_delegate_sender: None,
@@ -1314,6 +1317,133 @@ mod tests {
                 .len(),
             1,
             "identical deferred continuations should collapse to one queued turn"
+        );
+    }
+
+    #[tokio::test]
+    async fn resumed_turn_supersedes_stale_same_prompt_continuation() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind stale continuation test server");
+        let addr = listener.local_addr().expect("stale continuation addr");
+        let request_counter = Arc::new(AtomicUsize::new(0));
+
+        tokio::spawn({
+            let request_counter = request_counter.clone();
+            async move {
+                loop {
+                    let Ok((mut socket, _)) = listener.accept().await else {
+                        break;
+                    };
+                    let request_counter = request_counter.clone();
+                    tokio::spawn(async move {
+                        let _body = read_http_request_body(&mut socket)
+                            .await
+                            .expect("read stale continuation request");
+                        let request_index = request_counter.fetch_add(1, Ordering::SeqCst);
+                        let response_body = format!(
+                            "data: {{\"choices\":[{{\"delta\":{{\"content\":\"fresh eval summary {}\"}}}}]}}\n\n\
+                             data: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}],\"usage\":{{\"prompt_tokens\":7,\"completion_tokens\":3}}}}\n\n\
+                             data: [DONE]\n\n",
+                            request_index
+                        );
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: close\r\n\r\n{}",
+                            response_body
+                        );
+                        socket
+                            .write_all(response.as_bytes())
+                            .await
+                            .expect("write stale continuation response");
+                    });
+                }
+            }
+        });
+
+        let mut config = AgentConfig::default();
+        config.provider = PROVIDER_ID_OPENAI.to_string();
+        config.base_url = format!("http://{addr}/v1");
+        config.model = "gpt-5.4-mini".to_string();
+        config.api_key = "test-key".to_string();
+        config.auth_source = AuthSource::ApiKey;
+        config.api_transport = ApiTransport::ChatCompletions;
+        config.auto_retry = false;
+        config.max_retries = 0;
+        config.max_tool_loops = 1;
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let thread_id = "thread-stale-same-prompt-continuation";
+        let user_prompt = "training is finished, evaluate babe";
+        let now = now_millis();
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                AgentThread {
+                    id: thread_id.to_string(),
+                    agent_name: None,
+                    title: "Stale same-prompt continuation".to_string(),
+                    messages: vec![AgentMessage::user(user_prompt, now)],
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    created_at: now,
+                    updated_at: now,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                },
+            );
+        }
+
+        engine
+            .enqueue_visible_thread_continuation(
+                thread_id,
+                DeferredVisibleThreadContinuation {
+                    agent_id: MAIN_AGENT_ID.to_string(),
+                    task_id: None,
+                    preferred_session_hint: None,
+                    llm_user_content: user_prompt.to_string(),
+                    queued_at_ms: 0,
+                    force_compaction: false,
+                    rerun_participant_observers_after_turn: true,
+                    internal_delegate_sender: None,
+                    internal_delegate_message: None,
+                },
+            )
+            .await;
+
+        {
+            let mut threads = engine.threads.write().await;
+            let thread = threads
+                .get_mut(thread_id)
+                .expect("thread should exist for stale continuation test");
+            let mut tool_message = AgentMessage::user(
+                "Updated todo list with 4 item(s).",
+                now_millis().saturating_add(1),
+            );
+            tool_message.role = MessageRole::Tool;
+            thread.messages.push(tool_message);
+        }
+
+        engine
+            .resend_existing_user_message(thread_id, user_prompt)
+            .await
+            .expect("resumed turn should succeed");
+
+        assert_eq!(
+            request_counter.load(Ordering::SeqCst),
+            1,
+            "completed resumed turn should supersede a queued same-prompt continuation instead of producing a duplicate assistant row"
+        );
+        assert!(
+            engine
+                .deferred_visible_thread_continuations_for(thread_id)
+                .await
+                .is_empty()
         );
     }
 

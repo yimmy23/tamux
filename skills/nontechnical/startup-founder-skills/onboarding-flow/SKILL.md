@@ -5,73 +5,7 @@ related: [support-docs, email-marketing, churn-analysis]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, onboarding-flow, experimental-design, compliance]
----
-
-# Onboarding Flow
-
-## When to Use
-Activate when a founder or product lead needs to design onboarding for new users, improve activation rates, reduce time-to-value, fix drop-off after signup, redesign a guided setup experience, or re-engage users who stalled during onboarding. This includes prompts like "design our onboarding flow," "users are dropping off after signup," "build an activation checklist," "our time-to-value is too long," "how do we get users to their aha moment faster," or "first sessions are not sticking."
-
-Do NOT use for employee onboarding, service process design, or when the product lacks a stable value proposition. This skill is for in-product user activation only.
-
-## Context Required
-- **From startup-context:** product type (B2B/B2C/PLG), target user persona, current activation rate, defined "aha moment," product complexity level, existing onboarding steps, and current tools (email platform, analytics, in-app messaging).
-- **From the user:** where users currently drop off, the key action that correlates with retention (the activation event), number of steps currently required to reach value, any qualitative feedback from churned users about the setup experience, and what "healthy" first-session behavior looks like.
-
-## Workflow
-1. **Intake and goal-framing** — Read startup-context if available. Establish the activation goal, current baseline metrics, and what success looks like. If the user does not know their activation event, help them hypothesize based on product type (see benchmarks below).
-2. **Map the current journey** — Document every step from signup to activation event, including screens, emails, wait states, and decision points. Identify friction points, unnecessary steps, and moments of confusion.
-3. **Identify friction and drop-off** — Pinpoint where users abandon the flow. Categorize blockers: too many steps, unclear value, technical obstacles, cognitive overload, or missing guidance.
-4. **Define behavioral activation moments** — Identify the specific user actions that predict long-term retention. These become the milestones the onboarding flow drives toward.
-5. **Design the first experience** — Apply the progressive onboarding framework to restructure the journey. Focus on the "first 30 seconds" experience and minimize steps before first value. Defer non-essential setup.
-6. **Build the milestone-based onboarding plan** — Create a "first mile" plan with clear milestones from signup through habit formation, with coordinated in-app and email touchpoints.
-7. **Establish measurement and experiments** — Set up tracking for each step in the funnel. Build an experiment backlog prioritized by impact, confidence, and effort. Design A/B tests for the highest-leverage changes.
-
-## Output Format
-A comprehensive Onboarding & Activation Pack including:
-1. **Activation spec** — Defined activation event with behavioral criteria and baseline metrics
-2. **First 30 seconds design** — The immediate post-signup experience optimized for first value
-3. **First mile milestone plan** — Stage-by-stage plan from signup through habit formation
-4. **Funnel map** — Every step with expected conversion rates
-5. **In-app UX specifications** — Checklists, tooltips, empty states, progress indicators
-6. **Email sequence copy** — Welcome through re-engagement with timing and triggers
-7. **Experiment backlog** — Prioritized list of onboarding experiments (impact/confidence/effort)
-8. **Measurement framework** — Leading indicators, tracking plan, and success criteria
-9. **Risk documentation** — Open questions, assumptions, and next-step recommendations
-
-### Onboarding Funnel Template
-```
-Stage 1: Signup -> Profile Setup            (Target: 90%+)
-Stage 2: Profile Setup -> First Key Action  (Target: 60-70%)
-Stage 3: First Key Action -> Aha Moment     (Target: 50-60%)
-Stage 4: Aha Moment -> Habit Formation      (Target: 30-40%)
-```
-
-## Frameworks & Best Practices
-
-### The Progressive Onboarding Framework
-Structure onboarding in three layers that unlock sequentially:
-
-1. **Layer 1: Immediate Value (Minutes 0-5)**
-   - Get the user to one small win before asking for anything.
-   - Pre-fill data where possible (import, templates, sample data).
-   - Use empty states as onboarding — every blank screen should guide the next action.
-   - Ask only for information required to deliver that first win. Defer everything else.
-
-2. **Layer 2: Core Setup (Day 1-3)**
-   - Introduce a checklist with 3-5 items (never more than 7). Show progress visually.
-   - Each checklist item should unlock a visible capability ("Complete this to enable X").
-   - Use contextual tooltips triggered by user behavior, not a grand tour on first login.
-   - Send a Day 1 email reinforcing the first win and previewing the next step.
-
-3. **Layer 3: Expansion (Week 1-2)**
-   - Prompt team invites after the individual user has experienced value (not before).
-   - Introduce advanced features through progressive disclosure, not feature dumps.
-   - Trigger expansion prompts based on usage patterns, not arbitrary timelines.
-
-### Activation Event Benchmarks by Product Type
-| Product Type | Common Activation Event | Target Time-to-Value |
-|-------------|------------------------|---------------------|
+----------|------------------------|---------------------|
 | B2B SaaS (simple) | Complete first core workflow | < 10 minutes |
 | B2B SaaS (complex) | Import data + run first report | < 24 hours |
 | PLG / Self-serve | Invite first team member + collaborate | < 48 hours |

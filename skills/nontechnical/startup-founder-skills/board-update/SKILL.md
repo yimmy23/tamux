@@ -5,36 +5,7 @@ related: [process-docs, pitch-deck]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, board-update, presentation]
----
-
-# Board Update
-
-## When to Use
-
-Activate when a founder needs to draft an investor update email, prepare a board meeting deck, or write a quarterly business review. This includes prompts like "write my monthly investor update," "prepare for our board meeting," "draft a quarterly recap," or "how do I communicate bad news to the board." Also activate for fundraising decks where market and vision framing is needed.
-
-## Context Required
-
-- **From startup-context:** company stage, fundraising history, board composition, key metrics (MRR, burn, runway, headcount), current strategic priorities, and previous update cadence.
-- **From the user:** reporting period, key wins and losses, metric changes, specific topics requiring board input or approval, any sensitive issues to address, and whether this is an email update or a slide deck.
-
-## Workflow
-
-1. **Determine format and cadence** — Monthly email update (standard for seed/Series A, under 800 words), quarterly board deck (Series A onward, 20-30 slides, sent as pre-read 48 hours ahead), monthly condensed deck (8-12 slides), or ad-hoc update (one page, one topic, sent immediately for material events). Default to monthly email for early-stage.
-2. **Collect the 11 sections** — Walk through each section of the framework below. Each section has a designated C-suite owner. For each, apply the "Headline - Data - Narrative - Ask/Next" structure.
-3. **Lead with the headline** — Write a 1-3 sentence executive summary that captures the single most important takeaway. Boards see 10+ decks per quarter. Surface key messages by slide three. Some investors read only the summary.
-4. **Apply the bad-news protocol** — If any section contains negative developments, use the transparent delivery framework. Never bury bad news. Boards find out eventually. Finding out late makes it worse.
-5. **Add specific asks** — Every update ends with concrete, actionable requests. Name the person if possible. Investors who cannot help you cannot add value.
-6. **Format for scanability** — Investors spend 3-5 minutes on updates. Bold key numbers, use tables for metrics, keep paragraphs to 2-3 sentences. Cap metrics dashboards at 6-8 KPIs with targets and status.
-
-## Output Format
-
-For email updates, output as markdown ready to paste into email. For board decks, output as structured markdown with one H3 per slide.
-
-### The 11-Section Framework
-
-| # | Section | Owner | What to Include |
-|---|---------|-------|-----------------|
+---------|-------|-----------------|
 | 1 | **Executive Summary** | CEO | Three sentences: current state, major event, next direction |
 | 2 | **Key Metrics Dashboard** | COO | 6-8 KPIs in table format with targets and status indicators |
 | 3 | **Financial Update** | CFO | P&L summary, cash runway, burn multiple trends, plan variances |

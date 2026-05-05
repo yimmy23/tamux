@@ -4,7 +4,7 @@ use crate::agent::skill_recommendation::types::{
 };
 use crate::agent::types::SkillRecommendationConfig;
 use crate::history::SkillVariantRecord;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 const MAX_USE_SCORE: f64 = 8.0;
 const RECENCY_DAY_SECS: u64 = 86_400;
@@ -37,6 +37,26 @@ pub(super) fn rank_skill_candidates(
     limit: usize,
     cfg: &SkillRecommendationConfig,
 ) -> SkillDiscoveryResult {
+    rank_skill_candidates_with_semantic_scores(
+        candidates,
+        query,
+        workspace_tags,
+        graph_signals,
+        &HashMap::new(),
+        limit,
+        cfg,
+    )
+}
+
+pub(super) fn rank_skill_candidates_with_semantic_scores(
+    candidates: Vec<SkillCandidateInput>,
+    query: &str,
+    workspace_tags: &[String],
+    graph_signals: &HashMap<String, GraphSkillSignal>,
+    semantic_scores: &HashMap<String, f64>,
+    limit: usize,
+    cfg: &SkillRecommendationConfig,
+) -> SkillDiscoveryResult {
     if !cfg.enabled || limit == 0 {
         return SkillDiscoveryResult::default();
     }
@@ -49,7 +69,14 @@ pub(super) fn rank_skill_candidates(
     let mut ranked = candidates
         .into_iter()
         .map(|candidate| {
-            score_candidate(candidate, &query_tokens, workspace_tags, graph_signals, cfg)
+            score_candidate(
+                candidate,
+                &query_tokens,
+                workspace_tags,
+                graph_signals,
+                semantic_scores,
+                cfg,
+            )
         })
         .collect::<Vec<_>>();
 
@@ -99,6 +126,12 @@ fn compare_candidates(left: &CandidateScore, right: &CandidateScore) -> std::cmp
         })
         .then_with(|| {
             right
+                .semantic_score
+                .partial_cmp(&left.semantic_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| {
+            right
                 .recommendation
                 .record
                 .success_count
@@ -123,7 +156,8 @@ fn score_candidate(
     candidate: SkillCandidateInput,
     query_tokens: &BTreeSet<String>,
     workspace_tags: &[String],
-    graph_signals: &std::collections::HashMap<String, GraphSkillSignal>,
+    graph_signals: &HashMap<String, GraphSkillSignal>,
+    semantic_scores: &HashMap<String, f64>,
     cfg: &SkillRecommendationConfig,
 ) -> CandidateScore {
     let search_tokens = tokenize(&candidate.metadata.search_text);
@@ -171,6 +205,11 @@ fn score_candidate(
         .copied()
         .unwrap_or_default();
     let graph_score = graph_signal.score.clamp(0.0, 10.0) / 10.0;
+    let semantic_score = semantic_scores
+        .get(&candidate.record.relative_path)
+        .copied()
+        .unwrap_or_default()
+        .clamp(0.0, 1.0);
     let novelty_score = if graph_signal.distance > 1 {
         (f64::from(graph_signal.distance.saturating_sub(1)) / 4.0).clamp(0.0, 1.0)
     } else {
@@ -181,6 +220,7 @@ fn score_candidate(
         + (history_score * 0.20)
         + (recency_score * 0.06)
         + (graph_score * 0.04)
+        + (semantic_score * 0.75)
         + (novelty_score * cfg.novelty_distance_weight)
         + lifecycle_bonus
         + process_bonus
@@ -191,6 +231,7 @@ fn score_candidate(
         matched_terms.len(),
         matched_workspace_tags.len(),
         graph_score,
+        semantic_score,
         cfg,
     );
 
@@ -204,6 +245,7 @@ fn score_candidate(
                 workspace_overlap,
                 graph_score,
                 graph_signal.distance,
+                semantic_score,
             ),
             score: score.clamp(0.0, 1.0),
             excerpt: candidate.excerpt,
@@ -211,6 +253,7 @@ fn score_candidate(
             record: candidate.record,
         },
         graph_score,
+        semantic_score,
     }
 }
 
@@ -219,12 +262,15 @@ fn apply_partial_evidence_floor(
     matched_term_count: usize,
     matched_workspace_tag_count: usize,
     graph_score: f64,
+    semantic_score: f64,
     cfg: &SkillRecommendationConfig,
 ) -> f64 {
     let has_clear_partial_text_match = matched_term_count >= MIN_PARTIAL_EVIDENCE_TERMS;
     let has_contextual_match = matched_term_count > 0 && matched_workspace_tag_count > 0;
     let has_graph_match = graph_score > 0.0;
-    if has_clear_partial_text_match || has_contextual_match || has_graph_match {
+    let has_semantic_match = semantic_score >= 0.50;
+    if has_clear_partial_text_match || has_contextual_match || has_graph_match || has_semantic_match
+    {
         score.max(cfg.weak_match_threshold)
     } else {
         score
@@ -306,8 +352,15 @@ fn build_reason(
     workspace_overlap: f64,
     graph_score: f64,
     novelty_distance: u8,
+    semantic_score: f64,
 ) -> String {
     let mut reasons = Vec::new();
+    if semantic_score > 0.0 {
+        reasons.push(format!(
+            "semantic vector match {:.0}%",
+            semantic_score * 100.0
+        ));
+    }
     if !matched_terms.is_empty() {
         reasons.push(format!(
             "matched request terms {}",

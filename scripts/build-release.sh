@@ -369,8 +369,8 @@ else
                 fi
                 ;;
             Darwin*)
-                mac_app="$RELEASE_DIR/mac/zorai.app"
-                if [[ -d "$mac_app" ]]; then
+                mac_app="$(find "$RELEASE_DIR" -maxdepth 2 -type d -name "zorai.app" -print -quit)"
+                if [[ -n "$mac_app" ]]; then
                     rm -rf "$OUT_DIR/zorai-desktop.app"
                     cp -R "$mac_app" "$OUT_DIR/zorai-desktop.app"
                     cat > "$OUT_DIR/zorai-desktop" <<'SH'
@@ -393,6 +393,8 @@ SH
                     (cd "$OUT_DIR" && ditto -c -k --sequesterRsrc --keepParent zorai-desktop.app zorai-desktop.app.zip)
                     rm -rf "$OUT_DIR/zorai-desktop.app"
                     ok_msg "Electron launcher: zorai-desktop + zorai-desktop.app.zip"
+                else
+                    warn_msg "Electron macOS app bundle was not produced under $RELEASE_DIR"
                 fi
                 ;;
             *)

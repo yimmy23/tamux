@@ -2,22 +2,25 @@
 name: content-transformation-task
 description: Use for rewriting, summarizing, translating, extracting, formatting, or restructuring provided content.
 recommended_skills:
-  - writing-plans
+recommended_guidelines:
+  - data-analysis-task
+  - automation-scripting-task
 ---
 
-# Content Transformation Task Guideline
+## Overview
 
-Transformations should preserve meaning and respect source limits.
+Content transformation must preserve data integrity.
 
 ## Workflow
 
-1. Identify the requested transformation and target audience or format.
-2. Preserve names, numbers, constraints, and important qualifiers.
-3. Do not invent missing details.
-4. For summaries, lead with the main point and keep supporting detail proportional.
-5. For rewrites, preserve intended tone unless the user asks to change it.
-6. For copyrighted or supplied source material, avoid excessive verbatim copying unless allowed.
+1. Understand the source schema and the target schema.
+2. Map all fields explicitly, not by position.
+3. Test the transformation on a small sample first.
+4. Validate output: check row counts, field types, nulls, and edge cases.
+5. Handle encoding and special characters explicitly.
+6. Log skipped or failed records during transformation.
+7. Verify a representative sample of the output against the source.
 
 ## Quality Gate
 
-Do not make transformed content sound more certain, complete, or sourced than the original.
+Do not declare a transformation complete without verifying at least 5% of output records or running automated validation.

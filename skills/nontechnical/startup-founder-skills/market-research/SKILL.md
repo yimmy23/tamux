@@ -5,35 +5,7 @@ related: [competitive-analysis, prd-writing]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, market-research]
----
-
-# Market Research
-
-## When to Use
-Activate when a founder needs to size a market opportunity using TAM/SAM/SOM, validate market assumptions for a pitch deck, understand growth trends, evaluate market entry, or prepare for investor conversations about addressable market. Trigger phrases include "how big is our market," "TAM/SAM/SOM," "market size," "market opportunity," "is this market big enough," "market trends," "help me with the market slide," or "validate our market assumptions."
-
-## Context Required
-- **From startup-context:** product description, target customer segments, pricing model, geographic scope, business model.
-- **From the user:** the market or segment to analyze, known data points (industry reports, customer counts, pricing benchmarks), geographic and industry constraints, whether this is for internal decision-making or external presentation (investor deck), and any specific hypotheses about market dynamics.
-
-## Workflow
-1. **Define market boundaries** -- Specify the problem space, customer segments, geography, and constraints. "Project management tools" is a different market than "team collaboration software." Precision determines whether the analysis is useful.
-2. **Top-down estimation** -- Start from total industry size using industry reports, public company revenues, and government statistics. Narrow to the relevant segment by applying filters for geography, customer type, and product category.
-3. **Bottom-up estimation** -- Build independently from unit economics: (number of potential customers) x (price per customer) x (purchase frequency). Cross-validate against the top-down estimate.
-4. **Scope the SAM** -- Identify which portion of TAM is realistically serviceable given current product capabilities, pricing, distribution channels, and geographic reach.
-5. **Estimate the SOM** -- Project achievable market share in 1-3 years based on competitive position, go-to-market capacity, and current traction.
-6. **Project growth** -- Forecast how TAM, SAM, and SOM evolve over 2-3 years. Identify key growth drivers, technology shifts, regulatory changes, and demographic trends.
-7. **Map assumptions** -- Surface every critical assumption underlying each estimate. Rate confidence levels and identify how to validate the most uncertain assumptions.
-
-## Output Format
-
-### Market Definition
-One paragraph defining the problem space, customer need, geographic and segment boundaries, and key scoping decisions.
-
-### TAM / SAM / SOM
-
-| Metric | Current Estimate | 2-3 Year Projection | Method | Confidence |
-|---|---|---|---|---|
+---|---|---|---|
 | **TAM** | $X | $Y | Top-down + Bottom-up | High/Med/Low |
 | **SAM** | $X | $Y | Filtered from TAM | High/Med/Low |
 | **SOM** | $X | $Y | Penetration model | High/Med/Low |

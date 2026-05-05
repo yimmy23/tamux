@@ -5,55 +5,7 @@ related: [support-docs, board-update]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, process-docs, documentation]
----
-
-# Process Documentation
-
-## When to Use
-Activate when a founder or operator needs to document an internal process so it can be executed consistently by anyone on the team. This includes prompts like "write an SOP for X," "create a runbook for incident response," "document our onboarding playbook," "how do we standardize this process," or any request to turn tribal knowledge into a repeatable procedure.
-
-## Context Required
-- **From startup-context:** company stage, team size, current tools and systems, organizational structure, compliance requirements.
-- **From the user:** the process to document, who owns and executes it, current pain points or failure modes, frequency of execution, tools involved, and whether this replaces an existing (undocumented) process or is net-new.
-
-## Workflow
-1. **Identify document type** — Determine whether this is an operational SOP (routine procedure), an incident runbook (reactive response), or an onboarding playbook (sequential learning path). Each uses a different template.
-2. **Map the process end-to-end** — Walk through every step from trigger event to completion. Identify inputs, outputs, decision points, handoffs, and escalation paths.
-3. **Define ownership and RACI** — Assign a single owner (Responsible), identify who Approves, who is Consulted, and who is Informed for each major step.
-4. **Draft the document** — Write using the appropriate template below. Use imperative voice ("Open the dashboard," not "The dashboard should be opened").
-5. **Add decision trees** — For any step with conditional logic, create explicit if/then branches. Never leave ambiguity at a fork.
-6. **Include failure modes** — Document what to do when each step fails. A process doc without error handling is incomplete.
-7. **Set review cadence** — Specify when this document should be reviewed and by whom (e.g., quarterly by the process owner).
-
-## Output Format
-A structured markdown document following one of the three templates below. Every process doc includes a metadata header, and the body is written so that someone with no prior context can execute the process end-to-end.
-
-### Template 1: Operational SOP
-```
-# [Process Name] — Standard Operating Procedure
-**Owner:** [Name / Role]
-**Last Updated:** [Date]
-**Review Cadence:** [Quarterly / Monthly]
-**Version:** [1.0]
-
-## Purpose
-Why this process exists and what business outcome it supports.
-
-## Scope
-What this SOP covers and explicitly does not cover.
-
-## Prerequisites
-Tools, access, permissions, or context needed before starting.
-
-## Procedure
-1. Step with specific action
-   - Sub-step with detail
-   - **Decision point:** If [condition], go to Step X. Otherwise continue.
-2. Next step...
-
-## Escalation Path
-| Condition | Escalate To | SLA |
-|-----------|------------|-----|
+--------|------------|-----|
 | [Trigger] | [Person/Role] | [Timeframe] |
 
 ## Success Criteria

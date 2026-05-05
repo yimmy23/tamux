@@ -4,28 +4,7 @@ description: When the user wants to plan, design, or optimize pricing strategy a
 tags: [nontechnical, marketing-skills, pricing-strategy, experimental-design, strategy]
 metadata:
   version: 1.0.1
----
-
-# Strategies: Pricing
-
-Guides pricing strategy and structure for SaaS, tools, and products. Covers pricing models, tier design, anchoring, and when to apply discounts. For pricing **page** content and layout, see **pricing-page-generator**. For **discount** and promotional pricing, see **discount-marketing-strategy**.
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Initial Assessment
-
-**Check for project context first:** If `.claude/project-context.md` or `.cursor/project-context.md` exists, read it for product, value proposition, and competitors.
-
-Identify:
-1. **Product type**: SaaS, tool, e-commerce
-2. **Value metric**: What drives value (seats, usage, features)
-3. **Market**: Competitor pricing; willingness to pay
-4. **Goals**: Revenue, adoption, retention
-
-## Pricing Models
-
-| Model | Use |
-|-------|-----|
+----|-----|
 | **Subscription** | Recurring; monthly/annual; most SaaS |
 | **Freemium** | Free tier + paid; adoption then conversion |
 | **Usage-based** | Pay per use; API, credits |

@@ -19,37 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Product Analytics
-
-Product analytics is the discipline of measuring how users interact with a product,
-understanding which behaviors drive value, and making decisions grounded in data rather
-than intuition. The goal is not to collect every number possible but to instrument the
-right behaviors, define metrics that map to business outcomes, and maintain the rigor
-to act on findings correctly.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to define or audit a metrics framework for a product
-- Wants to build or analyze a conversion funnel
-- Asks about cohort analysis, retention curves, or churn investigation
-- Needs to measure feature adoption after a launch
-- Wants to design an event taxonomy or instrumentation plan
-- Is analyzing A/B test results or interpreting statistical significance
-- Asks about north star metrics, input metrics, or AARRR framework
-- Needs to build a product dashboard or choose which metrics to show by audience
-
-Do NOT trigger this skill for:
-- Pure data engineering tasks such as pipeline architecture or warehouse schema design
-  (those are infrastructure concerns, not product analytics methodology)
-- Business intelligence reporting where the goal is financial or operational reporting,
-  not product behavior analysis
-
----
-
 ## Key principles
 
 1. **Instrument before you need data** - Tracking is a prerequisite, not an afterthought.

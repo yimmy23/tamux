@@ -7,16 +7,18 @@ recommended_skills:
   - verification-before-completion
 recommended_guidelines:
   - general-programming
+  - coding-task
+  - ci-failure-task
 ---
 
-# Testing Task Guideline
+## Overview
 
-Tests should cover meaningful risk, not just increase count.
+Tests should cover meaningful risk, not just increase count. This ensures tests protect against real regressions.
 
 ## Workflow
 
 1. Identify the behavior, contract, or failure mode being tested.
-2. Cover the likely spectrum: happy path, boundary, invalid input, ordering, state, persistence, and regression cases.
+2. Cover happy path, boundary, invalid input, ordering, state, persistence, and regression cases.
 3. Prefer deterministic tests with clear failure messages.
 4. Keep fixtures small but representative.
 5. Run focused tests first, then broader suites when blast radius warrants.
@@ -24,4 +26,4 @@ Tests should cover meaningful risk, not just increase count.
 
 ## Quality Gate
 
-Do not accept a single narrow happy-path test as proof for a broad behavior change.
+Do not accept a single narrow happy-path test as sufficient proof for a broad behavior change.

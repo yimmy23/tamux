@@ -2,30 +2,26 @@
 name: growth-experiment-task
 description: Use for A/B tests, CRO experiments, growth loops, referral programs, lead magnets, signup optimization, or funnel experiments.
 recommended_skills:
-  - ab-test-setup
-  - analytics-tracking
-  - page-cro
-  - signup-flow-cro
-  - form-cro
-  - onboarding-cro
-  - referral-program
-  - lead-magnets
-  - free-tool-strategy
+  - hypothesis-generation
+recommended_guidelines:
+  - analytics-measurement-task
+  - hypothesis-experiment-design-task
 ---
 
-# Growth Experiment Task Guideline
+## Overview
 
-Growth experiments should test a clear hypothesis without corrupting measurement.
+Growth experiments require a hypothesis, measurable metrics, and statistical rigor.
 
 ## Workflow
 
-1. Identify the funnel stage, target audience, baseline metric, and business goal.
-2. State the hypothesis before proposing variants.
-3. Use `analytics-tracking` to define the event, primary metric, guardrails, and attribution.
-4. Use `ab-test-setup` for test design, sample-size thinking, and experiment validity.
-5. Use CRO skills for the surface being changed: page, signup flow, form, onboarding, referral, lead magnet, or free tool.
-6. Document result interpretation, decision rule, and follow-up experiment.
+1. Formulate a clear hypothesis: if X changes, then Y will change by Z.
+2. Define the primary metric and minimum detectable effect.
+3. Determine sample size needed for statistical significance.
+4. Run the experiment with proper randomization and control.
+5. Collect data without peeking at results prematurely.
+6. Analyze results with appropriate statistical tests.
+7. Document the decision: implement, iterate, or discard based on evidence.
 
 ## Quality Gate
 
-Do not call a variant better without a predefined metric, enough data, and guardrail checks.
+An experiment is complete when it has sufficient power, a clear result, and documented interpretation.

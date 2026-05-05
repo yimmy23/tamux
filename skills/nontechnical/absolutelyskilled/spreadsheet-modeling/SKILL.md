@@ -22,37 +22,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Spreadsheet Modeling
-
-Spreadsheet modeling is the discipline of building structured, auditable, and
-maintainable workbooks in Microsoft Excel or Google Sheets. A well-built model
-separates inputs from calculations from outputs, uses named ranges for clarity,
-and avoids hardcoded values buried in formulas. This skill equips an agent to
-write advanced formulas, design pivot tables and dashboards, author VBA macros
-and Apps Script automations, and architect workbooks that scale from quick
-analyses to enterprise financial models.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs help writing or debugging a spreadsheet formula (XLOOKUP, INDEX-MATCH, SUMIFS, array formulas, etc.)
-- Wants to build or modify a pivot table or pivot chart
-- Asks to create a dashboard with charts, KPIs, or conditional formatting
-- Needs a VBA macro or Google Apps Script to automate a spreadsheet task
-- Wants to build a financial model, forecast, or what-if scenario analysis
-- Asks about data validation rules, drop-downs, or input constraints
-- Needs to clean, transform, or restructure data within a spreadsheet
-- Wants to optimize a slow workbook or audit an existing model for errors
-
-Do NOT trigger this skill for:
-- Database queries or SQL - use a database skill instead
-- Python/R data analysis (pandas, NumPy) - use a data-engineering skill instead
-
----
-
 ## Key principles
 
 1. **Separate inputs, calculations, and outputs** - Every model should have a

@@ -2,29 +2,25 @@
 name: video-audio-production-task
 description: Use for video scripts, storyboards, shot lists, podcasts, voiceover, audio edits, or production plans.
 recommended_skills:
-  - video-scriptwriting
-  - video-audio-design
-  - video-production
-  - video-analyzer
-  - visual-content
-  - copywriting
-  - product-launch
-  - gpt-image-1-5
+recommended_guidelines:
+  - media-generation-task
+  - creative-brief-task
 ---
 
-# Video And Audio Production Task Guideline
+## Overview
 
-Production work should align story, format, and practical constraints.
+Video and audio production requires planning before recording for efficient post-production.
 
 ## Workflow
 
-1. Identify format, audience, duration, platform, tone, and deliverables.
-2. Define the core message or story beat before scripting.
-3. Use `video-scriptwriting` for scripts, `video-audio-design` for sound/voice constraints, `video-production` for execution planning, and `video-analyzer` for review.
-4. Include shot, voiceover, music, caption, and accessibility needs.
-5. Keep production constraints visible: locations, talent, equipment, rights, and timeline.
-6. Provide a review checklist for pacing, clarity, sound, visuals, and platform fit.
+1. Define the content, format, target platform, and audience before recording.
+2. Script or outline the content — improve reduces editing time.
+3. Check recording quality: audio levels, lighting, framing, background noise.
+4. Record in segments for easier editing.
+5. Edit for pacing: cut dead air, tighten transitions, maintain momentum.
+6. Add captions or transcripts for accessibility.
+7. Export in the correct format and resolution for the target platform.
 
 ## Quality Gate
 
-Do not write production assets without knowing platform, duration, and audience.
+A production is ready when the content is clear, the audio is clean, and the output meets platform specifications.

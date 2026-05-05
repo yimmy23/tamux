@@ -188,7 +188,7 @@ fn select_claimable_embedding_jobs(
     rows.collect::<std::result::Result<Vec<_>, _>>()
 }
 
-fn enqueue_embedding_job_on_connection(
+pub(super) fn enqueue_embedding_job_on_connection(
     connection: &Connection,
     job: &EmbeddingJobInput,
     now: i64,

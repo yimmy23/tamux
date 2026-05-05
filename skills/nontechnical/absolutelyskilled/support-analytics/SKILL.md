@@ -18,36 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Support Analytics
-
-Support analytics turns raw ticket data into operational intelligence. The goal
-is not to generate reports - it is to change behavior. Whether measuring how
-satisfied customers are after an interaction, how quickly issues are resolved,
-or how often customers find answers without contacting support, every metric
-should connect to a decision. This skill covers the full analytics lifecycle:
-what to measure, how to measure it, and how to act on what you find.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to set up or improve a CSAT or NPS measurement program
-- Needs to track, report on, or reduce resolution time or first-contact resolution
-- Asks about deflection rate or self-service effectiveness
-- Wants to analyze support ticket trends, topic clusters, or volume forecasting
-- Needs to build a support dashboard for an executive, team lead, or agent
-- Is creating a support metrics framework or KPI hierarchy
-- Asks about survey design, response rate improvement, or score interpretation
-- Needs to segment support data by channel, tier, topic, or agent
-
-Do NOT trigger this skill for:
-- Product analytics or funnel metrics (use analytics-engineering instead)
-- Infrastructure monitoring, SLOs, or error rate tracking (use backend-engineering instead)
-
----
-
 ## Key principles
 
 1. **Measure what matters, not what's easy** - Ticket volume is easy to count but

@@ -18,41 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Growth Hacking
-
-Growth hacking is a discipline that combines product, data, and marketing to find
-the most efficient levers for sustainable user and revenue growth. Unlike traditional
-marketing, it is rooted in rapid experimentation, quantitative measurement, and
-closed-loop feedback between product behavior and acquisition channels.
-
-The best growth practitioners treat retention as the foundation, activation as the
-multiplier, and virality as the compounding force. Hacks without retention are
-just churn machines. This skill gives an agent the frameworks, vocabulary, and
-tactical playbooks to design experiments, build growth systems, and reason about
-compounding growth.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to design or audit a growth loop or viral loop
-- Needs to build or improve a referral program
-- Asks about optimizing an activation funnel or improving time-to-value
-- Wants to reduce churn or improve retention using cohort analysis
-- Asks about AARRR metrics, pirate metrics, or north star metric selection
-- Needs to run growth experiments and prioritize them (ICE, PIE scoring)
-- Is implementing product-led growth (PLG) or a freemium model
-- Wants to find the "aha moment" and engineer onboarding toward it
-
-Do NOT trigger this skill for:
-- Pure paid advertising campaign execution (creative, ad spend optimization) -
-  use a performance marketing skill instead
-- Brand strategy and positioning work disconnected from product or funnel metrics
-
----
-
 ## Key principles
 
 1. **Measure everything** - Every growth decision must be anchored to data. Define

@@ -2,31 +2,26 @@
 name: market-research-task
 description: Use for market sizing, competitor analysis, customer segments, trends, pricing research, or category mapping.
 recommended_skills:
-  - market-research
-  - market-research-reports
-  - competitive-analysis
-  - competitor-profiling
-  - competitor-research
-  - customer-research
-  - product-discovery
-  - keyword-research
-  - review-mining
-  - tavily
+recommended_guidelines:
+  - customer-research-task
+  - business-strategy-task
+  - analytics-measurement-task
 ---
 
-# Market Research Task Guideline
+## Overview
 
-Market research should make sources, scope, and uncertainty visible.
+Market research provides evidence for strategic decisions.
 
 ## Workflow
 
-1. Define market category, geography, audience, time period, and intended decision.
-2. Use `market-research` for TAM/SAM/SOM, `competitive-analysis` for startup positioning, `competitor-research` for SEO/content competitors, and `review-mining` for customer-language evidence.
-3. Compare source dates and avoid mixing stale and current numbers without labeling them.
-4. Separate market facts from interpretation and strategic implications.
-5. Note missing data, proxy assumptions, and confidence level.
-6. Summarize findings as decision-ready insights, not a source dump.
+1. Define the market to analyze: scope, geography, timeframe.
+2. Use authoritative data sources: industry reports, government data, financial filings.
+3. Estimate market size: TAM, SAM, SOM with documented methodology.
+4. Segment the market by meaningful criteria.
+5. Analyze competitors: positioning, strengths, weaknesses, market share.
+6. Identify trends and their potential impact.
+7. Synthesize findings into actionable recommendations.
 
 ## Quality Gate
 
-Do not cite market size, pricing, or competitor claims from memory when they may have changed.
+Market research is complete when market size is estimated with documented methodology and competitive landscape is mapped.

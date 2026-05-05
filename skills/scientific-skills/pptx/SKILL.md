@@ -4,14 +4,7 @@ description: "Use this skill any time a .pptx file is involved in any way — as
 license: Proprietary. LICENSE.txt has complete terms
 
 tags: [scientific-skills, pptx, writing, presentation, citation-management]
----
-
-# PPTX Skill
-
-## Quick Reference
-
-| Task | Guide |
-|------|-------|
+---|-------|
 | Read/analyze content | `python -m markitdown presentation.pptx` |
 | Edit or create from template | Read [editing.md](editing.md) |
 | Create from scratch | Read [pptxgenjs.md](pptxgenjs.md) |

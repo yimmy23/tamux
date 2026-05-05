@@ -2,27 +2,28 @@
 name: refactoring-task
 description: Use when reorganizing code without intentionally changing behavior.
 recommended_skills:
-  - component-refactoring
   - test-driven-development
-  - verification-before-completion
+  - systematic-debugging
 recommended_guidelines:
   - general-programming
+  - coding-task
+  - testing-task
 ---
 
-# Refactoring Task Guideline
+## Overview
 
-Refactoring should preserve behavior while making the next change easier.
+Refactoring changes internal structure while preserving external behavior. Tests are essential.
 
 ## Workflow
 
-1. Identify the behavior that must remain unchanged.
-2. Apply `general-programming` for SOLID checks, file boundaries, and dependency direction.
-3. Run or add characterization tests before moving logic when risk is meaningful.
-4. Keep the refactor scoped to the stated goal and nearby enabling cleanup.
-5. Move code in small steps with verification between risky boundaries.
-6. Preserve public contracts unless the user explicitly requested a contract change.
-7. Avoid mixing refactoring with feature work unless the refactor is necessary to implement the feature safely.
+1. Ensure comprehensive test coverage of the area being refactored before starting.
+2. Identify the specific improvement: readability, performance, maintainability, or architecture.
+3. Make one logical change at a time — do not combine refactoring with feature work.
+4. Run tests after each change to confirm behavior is preserved.
+5. Keep refactoring commits separate from other changes in version control.
+6. If refactoring reveals missing tests, add them before proceeding.
+7. After refactoring, verify the system still works end-to-end.
 
 ## Quality Gate
 
-Do not call a refactor behavior-preserving unless relevant tests or manual checks support that claim.
+Refactoring is complete when behavior is unchanged and tests pass. If you changed behavior, that's not refactoring — it's a feature.

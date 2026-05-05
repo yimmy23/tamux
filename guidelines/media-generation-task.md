@@ -1,25 +1,27 @@
 ---
 name: media-generation-task
-description: Use for image generation, screenshots, visual assets, diagrams, mockups, or media editing.
+description: Use when creating images, audio, video, or other media content for any purpose.
 recommended_skills:
-  - gpt-image-1-5
-  - screenshot
-  - playwright
+  - generate-image
+recommended_guidelines:
+  - creative-brief-task
+  - video-audio-production-task
 ---
 
-# Media Generation Task Guideline
 
-Media work should match the user's intended use, not just produce something plausible.
+## Overview
+
+Media generation requires clear specifications about purpose, format, and creative direction.
 
 ## Workflow
 
-1. Identify output type, dimensions, style, audience, format, and usage rights expectations.
-2. Use existing assets when the user wants consistency with a product or repo.
-3. For generated images, specify subject, composition, lighting, background, and constraints.
-4. For screenshots, capture the requested app, window, or viewport precisely.
-5. Verify generated or captured assets exist and are usable.
-6. Report file paths and any limitations.
+1. Define output format, dimensions, resolution, and technical constraints.
+2. Specify creative direction: style, mood, palette, references.
+3. Use `generate-image` for AI image generation when appropriate.
+4. Iterate on drafts rather than aiming for perfection in one attempt.
+5. Review for technical quality before creative evaluation.
+6. Export in correct format for the target use case.
 
 ## Quality Gate
 
-Do not substitute decorative visuals when the user needs inspectable product, UI, or factual visual content.
+Output is ready when it meets technical specs and the creative brief.

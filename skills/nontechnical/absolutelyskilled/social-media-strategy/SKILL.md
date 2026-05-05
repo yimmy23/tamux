@@ -19,37 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Social Media Strategy
-
-Social media strategy is the discipline of planning, creating, distributing, and
-measuring content across platforms to build an audience, grow a brand, and drive
-measurable outcomes. The core insight is that every platform has its own culture,
-algorithm, and audience behavior - a strategy that treats them identically will
-fail all of them. Effective social media work combines platform-native content
-craft with data-driven iteration and genuine community engagement.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Asks to build or audit a social media strategy for a brand or personal account
-- Needs to create a content calendar or posting schedule
-- Wants platform-specific post copy (LinkedIn, X, Instagram, TikTok, etc.)
-- Asks how to grow organic reach or followers without paid ads
-- Wants to increase engagement (comments, shares, saves, click-throughs)
-- Needs to analyze social media metrics and draw conclusions
-- Asks how to build or manage an online community
-- Needs to handle a PR crisis or negative viral moment on social
-
-Do NOT trigger this skill for:
-- Paid advertising campaign setup (Facebook Ads, TikTok Ads) - that is performance
-  marketing, not organic social strategy
-- Technical platform integrations or API work (scheduling tool APIs, webhook setup)
-
----
-
 ## Key principles
 
 1. **Platform-native content** - Every platform has a distinct format, tone, and

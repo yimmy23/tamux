@@ -7,7 +7,7 @@ use crate::agent::types::SkillRecommendationConfig;
 use crate::history::{derive_skill_metadata, HistoryStore, SkillVariantRecord};
 use anyhow::{Context, Result};
 use base64::Engine;
-use ranking::rank_skill_candidates;
+use ranking::{rank_skill_candidates, rank_skill_candidates_with_semantic_scores};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use types::{GraphSkillSignal, SkillCandidateInput};
@@ -56,6 +56,42 @@ pub(crate) async fn discover_local_skills(
     ))
 }
 
+pub(crate) async fn discover_local_skills_with_semantic_scores(
+    history: &HistoryStore,
+    skills_root: &Path,
+    query: &str,
+    workspace_tags: &[String],
+    limit: usize,
+    cfg: &SkillRecommendationConfig,
+    semantic_scores: &HashMap<String, f64>,
+) -> Result<SkillDiscoveryResult> {
+    let records = history.list_skill_variants(None, 512).await?;
+    let candidates = if records.is_empty() {
+        schedule_background_skill_catalog_sync(history.clone(), skills_root.to_path_buf());
+        collect_filesystem_skill_candidates(skills_root)?
+    } else {
+        let candidates = collect_registered_skill_candidates(skills_root, records)?;
+        if candidates.is_empty() {
+            schedule_background_skill_catalog_sync(history.clone(), skills_root.to_path_buf());
+            collect_filesystem_skill_candidates(skills_root)?
+        } else {
+            candidates
+        }
+    };
+
+    let graph_signals = load_graph_backed_skill_signals(history, query).await?;
+
+    Ok(rank_skill_candidates_with_semantic_scores(
+        candidates,
+        query,
+        workspace_tags,
+        &graph_signals,
+        semantic_scores,
+        limit,
+        cfg,
+    ))
+}
+
 pub(crate) async fn discover_local_guidelines(
     _history: &HistoryStore,
     guidelines_root: &Path,
@@ -76,6 +112,29 @@ pub(crate) async fn discover_local_guidelines(
         cfg,
     );
     Ok(result)
+}
+
+pub(crate) async fn discover_local_guidelines_with_semantic_scores(
+    _history: &HistoryStore,
+    guidelines_root: &Path,
+    query: &str,
+    workspace_tags: &[String],
+    limit: usize,
+    cfg: &SkillRecommendationConfig,
+    semantic_scores: &HashMap<String, f64>,
+) -> Result<SkillDiscoveryResult> {
+    let candidates = collect_filesystem_guideline_candidates(guidelines_root)?;
+    let graph_signals = HashMap::new();
+
+    Ok(rank_skill_candidates_with_semantic_scores(
+        candidates,
+        query,
+        workspace_tags,
+        &graph_signals,
+        semantic_scores,
+        limit,
+        cfg,
+    ))
 }
 
 const MAX_GRAPH_SIGNAL_HOPS: u8 = 2;

@@ -385,10 +385,25 @@ pub struct DeferredVisibleThreadContinuation {
     pub task_id: Option<String>,
     pub preferred_session_hint: Option<String>,
     pub llm_user_content: String,
+    pub queued_at_ms: u64,
     pub force_compaction: bool,
     pub rerun_participant_observers_after_turn: bool,
     pub internal_delegate_sender: Option<String>,
     pub internal_delegate_message: Option<String>,
+}
+
+impl DeferredVisibleThreadContinuation {
+    pub(crate) fn same_request_as(&self, other: &Self) -> bool {
+        self.agent_id == other.agent_id
+            && self.task_id == other.task_id
+            && self.preferred_session_hint == other.preferred_session_hint
+            && self.llm_user_content == other.llm_user_content
+            && self.force_compaction == other.force_compaction
+            && self.rerun_participant_observers_after_turn
+                == other.rerun_participant_observers_after_turn
+            && self.internal_delegate_sender == other.internal_delegate_sender
+            && self.internal_delegate_message == other.internal_delegate_message
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -2,30 +2,26 @@
 name: social-media-task
 description: Use for social posts, content calendars, platform-specific copy, hooks, captions, and engagement plans.
 recommended_skills:
-  - social-media-strategy
-  - social-content
-  - linkedin-posts
-  - twitter-x-posts
-  - reddit-posts
-  - ad-creative
-  - visual-content
-  - copywriting
-  - gpt-image-1-5
+recommended_guidelines:
+  - marketing-campaign-task
+  - brand-strategy-task
+  - communication-writing-task
 ---
 
-# Social Media Task Guideline
+## Overview
 
-Social content should fit the platform and the audience's attention context.
+Social media content should be platform-appropriate, audience-specific, and aligned with brand voice.
 
 ## Workflow
 
-1. Identify platform, audience, objective, brand voice, and content format.
-2. Choose the hook, value, proof, and call to action before drafting.
-3. Use `social-media-strategy` or `social-content` for cross-platform planning, and platform-specific skills such as `linkedin-posts`, `twitter-x-posts`, and `reddit-posts` for final adaptation.
-4. Consider visual, caption, hashtag, timing, and reply strategy together.
-5. Avoid engagement bait, misleading claims, or tone that conflicts with the brand.
-6. Provide variants when testing hooks or audiences matters.
+1. Define the goal: awareness, engagement, conversion, or community building.
+2. Adapt content to platform format, audience expectations, and algorithm preferences.
+3. Write copy that is concise and platform-appropriate.
+4. Include visual content when possible — it outperforms text-only posts.
+5. Use relevant hashtags and keywords for discoverability.
+6. Schedule posts for optimal engagement times.
+7. Monitor engagement and respond to comments and questions.
 
 ## Quality Gate
 
-Do not create social copy without knowing the platform and the action the post should drive.
+Social content is ready when it is platform-optimized, brand-aligned, and scheduled appropriately.

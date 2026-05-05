@@ -242,4 +242,5 @@ pub enum ClientMessage {
     QueueSemanticBackfill { #[serde(default)] limit: Option<usize> },
     GetSemanticIndexStatus { embedding_model: String, dimensions: u32 },
     AgentSetTargetAgentReasoningEffort { target_agent_id: String, reasoning_effort: String },
+    AgentSemanticDocumentSync,
 }

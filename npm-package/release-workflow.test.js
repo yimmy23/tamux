@@ -32,5 +32,7 @@ test("GitHub release workflow bundles guidelines in every native zip", function 
   assert.match(workflow, /SHA256SUMS-windows-arm64\.txt/);
   assert.match(workflow, /cp -R guidelines dist-release\/macos\//);
   assert.match(workflow, /zorai-desktop\.app\.zip/);
+  assert.match(workflow, /find frontend\/release -maxdepth 2 -type d -name "zorai\.app"/);
+  assert.doesNotMatch(workflow, /cp -R frontend\/release\/mac\/zorai\.app/);
   assert.match(workflow, /zip -r "\$ZIP" zorai-daemon zorai zoi zorai-tui zorai-mcp zorai-gateway zorai-desktop zorai-desktop\.app\.zip skills guidelines/);
 });

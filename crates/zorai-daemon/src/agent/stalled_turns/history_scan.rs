@@ -416,6 +416,14 @@ fn latest_thread_activity_at(thread: &AgentThread) -> u64 {
         .max(thread.updated_at)
 }
 
+fn latest_thread_message_at(thread: &AgentThread) -> u64 {
+    thread
+        .messages
+        .last()
+        .map(|message| message.timestamp)
+        .unwrap_or(thread.updated_at)
+}
+
 fn latest_stream_activity_at(thread: &AgentThread, stream: &StreamCancellationEntry) -> u64 {
     latest_thread_activity_at(thread).max(stream.last_progress_at)
 }
@@ -464,7 +472,7 @@ fn build_task_detection_snapshot(
     persisted_metrics: Option<&SubagentMetrics>,
 ) -> DetectionSnapshot {
     let live_stats = subagent_runtime.get(&task.id);
-    let fallback_last_progress_at = latest_thread_activity_at(thread);
+    let fallback_last_progress_at = latest_thread_message_at(thread);
     let total_tool_calls = live_stats
         .map(|stats| stats.tool_calls_total)
         .or_else(|| {
@@ -501,7 +509,10 @@ fn build_task_detection_snapshot(
         entity_id: task.id.clone(),
         entity_type: "task".to_string(),
         last_progress_at: if let Some(stats) = live_stats {
-            stats.last_progress_at.map(|timestamp| timestamp / 1000)
+            stats
+                .last_progress_at
+                .or(Some(fallback_last_progress_at))
+                .map(|timestamp| timestamp / 1000)
         } else {
             persisted_metrics
                 .and_then(|metrics| metrics.last_progress_at.map(|ts| ts / 1000))

@@ -21,37 +21,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Video Production
-
-Video production for YouTube and online platforms is a multi-stage craft spanning
-ideation, scriptwriting, filming, editing, thumbnail design, and SEO optimization.
-The difference between a video that gets 100 views and one that gets 100,000 is
-rarely production quality alone - it is the combination of a compelling hook, tight
-script structure, strategic editing pacing, a click-worthy thumbnail, and metadata
-that the algorithm can surface. This skill gives an agent the knowledge to assist
-across the entire production pipeline.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to write or outline a YouTube video script
-- Needs help structuring a video for maximum audience retention
-- Asks about video editing workflow, pacing, or transitions
-- Wants to design or critique a thumbnail concept
-- Needs YouTube SEO help (titles, descriptions, tags, chapters)
-- Asks about content strategy, upload scheduling, or niche selection
-- Wants to improve click-through rate (CTR) or average view duration (AVD)
-- Needs to repurpose long-form video into shorts or clips
-
-Do NOT trigger this skill for:
-- Live streaming setup or OBS/streaming software configuration
-- Video hosting infrastructure, CDN architecture, or transcoding pipelines
-
----
-
 ## Key principles
 
 1. **Hook in the first 5 seconds** - The opening determines whether someone watches

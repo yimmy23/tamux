@@ -3,39 +3,7 @@ name: create-gsd-extension
 description: Create, debug, and iterate on GSD extensions (TypeScript modules that add tools, commands, event hooks, custom UI, and providers to GSD). Use when asked to build an extension, add a tool the LLM can call, register a slash command, hook into GSD events, create custom TUI components, or modify GSD behavior. Triggers on "create extension", "build extension", "add a tool", "register command", "hook into gsd", "custom tool", "gsd plugin", "gsd extension".
 
 tags: [gsd-2, skills, create-gsd-extension, debugging, typescript, llm]
----
-
-<essential_principles>
-
-**Extensions are TypeScript modules** that hook into GSD's runtime (built on pi). They export a default function receiving `ExtensionAPI` and use it to subscribe to events, register tools/commands/shortcuts, and interact with the session.
-
-**GSD extension paths (community/user-installed extensions):**
-- Global: `~/.pi/agent/extensions/*.ts` or `~/.pi/agent/extensions/*/index.ts`
-- Project-local: `.gsd/extensions/*.ts` or `.gsd/extensions/*/index.ts`
-
-Note: `~/.gsd/agent/extensions/` is reserved for bundled extensions synced from the gsd-pi package. Community extensions placed there are silently ignored by the loader.
-
-**The three primitives:**
-1. **Events** — Listen and react (`pi.on("event", handler)`). Can block tool calls, modify messages, inject context.
-2. **Tools** — Give the LLM new abilities (`pi.registerTool()`). LLM calls them autonomously.
-3. **Commands** — Give users slash commands (`pi.registerCommand()`). Users type `/mycommand`.
-
-**Non-negotiable rules:**
-- Use `StringEnum` from `@mariozechner/pi-ai` for string enum params (NOT `Type.Union`/`Type.Literal` — breaks Google's API)
-- Truncate tool output to 50KB / 2000 lines max (use `truncateHead`/`truncateTail` from `@mariozechner/pi-coding-agent`)
-- Store stateful tool state in `details` for branching support
-- Check `signal?.aborted` in long-running tool executions
-- Use `pi.exec()` not `child_process` for shell commands
-- Check `ctx.hasUI` before dialog methods (non-interactive modes exist)
-- Session control methods (`waitForIdle`, `newSession`, `fork`, `navigateTree`, `reload`) are ONLY available in command handlers — they deadlock in event handlers
-- Lines from `render()` must not exceed `width` — use `truncateToWidth()`
-- Use theme from callback params, never import directly
-- Strip leading `@` from path params in custom tools (some models add it)
-
-**Available imports:**
-
-| Package | Purpose |
-|---------|---------|
+------|---------|
 | `@mariozechner/pi-coding-agent` | `ExtensionAPI`, `ExtensionContext`, `Theme`, event types, tool utilities, `DynamicBorder`, `BorderedLoader`, `CustomEditor`, `highlightCode` |
 | `@sinclair/typebox` | `Type.Object`, `Type.String`, `Type.Number`, `Type.Optional`, `Type.Boolean`, `Type.Array` |
 | `@mariozechner/pi-ai` | `StringEnum` (required for string enums), `Type` re-export |

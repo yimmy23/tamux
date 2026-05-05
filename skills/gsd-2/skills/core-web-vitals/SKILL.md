@@ -6,16 +6,7 @@ tags: [gsd-2, skills, core-web-vitals, performance, search]
 metadata:
   author: web-quality-skills
   version: "1.0"
----
-
-# Core Web Vitals optimization
-
-Targeted optimization for the three Core Web Vitals metrics that affect Google Search ranking and user experience.
-
-## The three metrics
-
-| Metric | Measures | Good | Needs work | Poor |
-|--------|----------|------|------------|------|
+-----|----------|------|------------|------|
 | **LCP** | Loading | ≤ 2.5s | 2.5s – 4s | > 4s |
 | **INP** | Interactivity | ≤ 200ms | 200ms – 500ms | > 500ms |
 | **CLS** | Visual Stability | ≤ 0.1 | 0.1 – 0.25 | > 0.25 |

@@ -5,41 +5,7 @@ license: CC-BY-4.0
 tags: [scientific-skills, depmap, cheminformatics, security]
 metadata:
     skill-author: Kuan-lin Huang
----
-
-# DepMap — Cancer Dependency Map
-
-## Overview
-
-The Cancer Dependency Map (DepMap) project, run by the Broad Institute, systematically characterizes genetic dependencies across hundreds of cancer cell lines using genome-wide CRISPR knockout screens (DepMap CRISPR), RNA interference (RNAi), and compound sensitivity assays (PRISM). DepMap data is essential for:
-- Identifying which genes are essential for specific cancer types
-- Finding cancer-selective dependencies (therapeutic targets)
-- Validating oncology drug targets
-- Discovering synthetic lethal interactions
-
-**Key resources:**
-- DepMap Portal: https://depmap.org/portal/
-- DepMap data downloads: https://depmap.org/portal/download/all/
-- Python package: `depmap` (or access via API/downloads)
-- API: https://depmap.org/portal/api/
-
-## When to Use This Skill
-
-Use DepMap when:
-
-- **Target validation**: Is a gene essential for survival in cancer cell lines with a specific mutation (e.g., KRAS-mutant)?
-- **Biomarker discovery**: What genomic features predict sensitivity to knockout of a gene?
-- **Synthetic lethality**: Find genes that are selectively essential when another gene is mutated/deleted
-- **Drug sensitivity**: What cell line features predict response to a compound?
-- **Pan-cancer essentiality**: Is a gene broadly essential across all cancer types (bad target) or selectively essential?
-- **Correlation analysis**: Which pairs of genes have correlated dependency profiles (co-essentiality)?
-
-## Core Concepts
-
-### Dependency Scores
-
-| Score | Range | Meaning |
-|-------|-------|---------|
+----|-------|---------|
 | **Chronos** (CRISPR) | ~ -3 to 0+ | More negative = more essential. Common essential threshold: −1. Pan-essential genes ~−1 to −2 |
 | **RNAi DEMETER2** | ~ -3 to 0+ | Similar scale to Chronos |
 | **Gene Effect** | normalized | Normalized Chronos; −1 = median effect of common essential genes |

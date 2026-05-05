@@ -21,37 +21,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# SaaS Metrics
-
-SaaS metrics are the quantitative language of subscription businesses. They
-answer three fundamental questions: how fast is the business growing (MRR, ARR,
-net new MRR), how sticky are customers (churn, retention, NRR), and how
-efficient is growth (CAC, LTV, LTV:CAC, payback period). This skill equips an
-agent to define metrics precisely, calculate them from raw data, build cohort
-analyses, and produce board-ready reporting decks that investors and operators
-actually trust.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Asks how to calculate MRR, ARR, churn, LTV, CAC, or payback period
-- Needs to build a cohort retention table from subscription data
-- Wants to prepare a board deck or investor update with SaaS metrics
-- Asks about net revenue retention (NRR) or gross revenue retention (GRR)
-- Needs to break down MRR movements (new, expansion, contraction, churned)
-- Wants to model LTV:CAC ratio or unit economics for a pricing change
-- Needs to compute quick ratio or growth efficiency metrics
-- Asks about SaaS benchmarks or how their metrics compare to industry standards
-
-Do NOT trigger this skill for:
-- General accounting or GAAP revenue recognition - use a finance/accounting skill
-- Product analytics (funnels, activation, feature usage) - use a product-analytics skill
-
----
-
 ## Key principles
 
 1. **MRR is the atomic unit** - Every SaaS metric derives from Monthly Recurring

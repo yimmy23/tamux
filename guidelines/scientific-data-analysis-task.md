@@ -4,25 +4,26 @@ description: Use for exploratory scientific data analysis, statistical testing, 
 recommended_skills:
   - exploratory-data-analysis
   - statistical-analysis
-  - scientific-visualization
-  - infographics
-  - get-available-resources
-  - verification-before-completion
+recommended_guidelines:
+  - evidence-quality-task
+  - data-analysis-task
+  - hypothesis-experiment-design-task
 ---
 
-# Scientific Data Analysis Task Guideline
+## Overview
 
-Scientific analysis should be reproducible, resource-aware, and honest about uncertainty.
+Scientific data analysis requires reproducibility, statistical rigor, and honest reporting.
 
 ## Workflow
 
-1. Identify the research question, data files, measurement units, sample structure, groups, and expected outputs.
-2. Use `get-available-resources` before computationally intensive work.
-3. Use `exploratory-data-analysis` to inspect file format, schema, missingness, quality, and downstream options.
-4. Use `statistical-analysis` for test selection, assumption checks, power considerations, and results reporting.
-5. Use `scientific-visualization` or `infographics` when figures must communicate results clearly.
-6. Record transformations, filters, exclusions, random seeds, versions, and validation checks.
+1. Document the analysis plan before running code.
+2. Use `exploratory-data-analysis` for initial data inspection and quality checks.
+3. Apply `statistical-analysis` for hypothesis testing and statistical modeling.
+4. Pre-register analysis decisions when possible to avoid p-hacking.
+5. Use version-controlled scripts, not manual spreadsheet operations.
+6. Document data transformations and exclusion criteria.
+7. Report effect sizes and confidence intervals, not just p-values.
 
 ## Quality Gate
 
-Do not report statistical results without checking assumptions, sample definitions, and data quality issues.
+Scientific analysis is complete when results are reproducible, assumptions are validated, and limitations are documented.

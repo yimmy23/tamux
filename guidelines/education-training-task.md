@@ -2,27 +2,24 @@
 name: education-training-task
 description: Use for lesson plans, training materials, workshops, curricula, quizzes, or learning paths.
 recommended_skills:
-  - support-docs
-  - knowledge-base
-  - internal-docs
-  - presentation-design
-  - onboarding-flow
-  - process-docs
+recommended_guidelines:
+  - learning-explanation-task
+  - documentation-task
 ---
 
-# Education And Training Task Guideline
+## Overview
 
-Training should be built around learner outcomes and practice.
+Effective education builds from foundational to advanced concepts with practice opportunities.
 
 ## Workflow
 
-1. Identify learner profile, prior knowledge, objective, time limit, and delivery format.
-2. Define measurable learning outcomes.
-3. Use `support-docs` for learner-facing articles, `onboarding-flow` for product activation education, and `process-docs` for internal training playbooks.
-4. Include checks for understanding and feedback opportunities.
-5. Adapt language, pace, and examples to the audience.
-6. Provide instructor notes, materials, and follow-up practice when useful.
+1. Define the learning objectives: what the learner should be able to do after.
+2. Structure content from simple to complex, building on each concept.
+3. Include practical exercises that map to learning objectives.
+4. Provide feedback mechanisms: quizzes, reviews, or self-checks.
+5. Include examples that demonstrate both correct and incorrect approaches.
+6. Ensure materials are self-contained or clearly reference prerequisites.
 
 ## Quality Gate
 
-Do not create training that only explains; include practice or assessment tied to the learning objective.
+Training material is ready when a learner can achieve the learning objectives independently.

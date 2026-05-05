@@ -8,21 +8,26 @@ recommended_skills:
   - pixel-art-sprites
   - game-design-patterns
   - gpt-image-1-5
+recommended_guidelines:
+  - creative-brief-task
+  - media-generation-task
+  - presentation-deck-task
 ---
 
-# Visual Art Task Guideline
+## Overview
 
-Visual art work should clarify intent before generating or editing assets.
+Visual art creation requires understanding the medium, purpose, and constraints before execution.
 
 ## Workflow
 
-1. Identify subject, purpose, audience, style, medium, dimensions, and output format.
-2. Ask whether the user wants exploration, a finished asset, critique, or prompt engineering.
-3. Use `visual-content` for channel specs and repurposing; define composition, color, lighting, mood, references, and constraints before image generation.
-4. Use generated images when bitmap output is appropriate; use code/vector only when that better fits the deliverable.
-5. Preserve any supplied brand or character consistency requirements.
-6. Verify the output matches the requested use case.
+1. Define the purpose, audience, and format before creating.
+2. Gather references and inspiration relevant to the style and tone.
+3. Sketch or concept multiple approaches before committing to one.
+4. Build with a clear hierarchy: composition, focal point, balance.
+5. Use consistent color palette and typography aligned with the brief.
+6. Review at multiple zoom levels and distances.
+7. Export in the appropriate format and resolution.
 
 ## Quality Gate
 
-Do not generate a generic attractive image when the user needs a specific composition, asset, or art direction.
+Visual art is ready when it meets the creative brief and is technically sound for its intended use.

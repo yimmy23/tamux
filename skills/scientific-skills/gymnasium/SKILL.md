@@ -5,53 +5,7 @@ license: MIT license
 tags: [single-agent-rl, rl-environments, control-benchmarks, environment-wrappers, gymnasium]
 metadata:
     skill-author: K-Dense Inc.
----
-
-# Gymnasium
-
-## Overview
-
-Gymnasium is the standard API for single-agent reinforcement learning environments. A maintained fork of OpenAI Gym by the Farama Foundation, it provides a consistent interface (`step`, `reset`, `render`) across dozens of environments and is the foundation for almost all modern RL libraries. Use this skill when designing, wrapping, or interacting with RL environments.
-
-## When to Use This Skill
-
-This skill should be used when:
-- Setting up RL training environments (Classic Control, MuJoCo, Atari, Box2D)
-- Creating custom Gymnasium-compatible environments
-- Wrapping existing simulators in the Gymnasium API
-- Applying environment wrappers (normalization, frame stacking, resizing)
-- Debugging environment dynamics or verifying the observation/action spaces
-- Understanding the `terminated` vs `truncated` distinction (Gymnasium v0.26+)
-
-## Core Capabilities
-
-### 1. Basic Environment Interaction
-
-```python
-import gymnasium as gym
-
-env = gym.make("CartPole-v1", render_mode="human")
-observation, info = env.reset(seed=42)
-
-for step in range(1000):
-    action = env.action_space.sample()  # Random agent
-    observation, reward, terminated, truncated, info = env.step(action)
-
-    terminated or truncated:
-        observation, info = env.reset()
-
-env.close()
-```
-
-### 2. The Step Return (5-Tuple)
-
-Gymnasium v0.26+ returns 5 values from `step()`:
-```python
-observation, reward, terminated, truncated, info = env.step(action)
-```
-
-| Return | Type | Meaning |
-|--------|------|---------|
+-----|------|---------|
 | `observation` | ndarray / dict | Current state observation |
 | `reward` | float | Immediate reward |
 | `terminated` | bool | Terminal state reached (success/failure) |

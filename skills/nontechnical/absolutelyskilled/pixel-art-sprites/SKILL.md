@@ -19,39 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Pixel Art Sprites
-
-A practical guide to creating pixel art sprites, animating them for games, building
-reusable tilesets, and managing constrained color palettes. This is not general
-digital art advice - it focuses on the specific technical and aesthetic constraints
-of low-resolution raster art where every pixel is a deliberate design decision.
-
-Pixel art looks simple but punishes sloppiness. A single misplaced pixel breaks
-a silhouette, a wrong hue muddies readability at 1x scale, and an animation with
-inconsistent volume destroys the illusion of life. This skill covers the rules
-that prevent those failures.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to create a pixel art character sprite or object
-- Needs to build a sprite sheet with animation frames
-- Asks about walk cycles, attack animations, or idle animations in pixel art
-- Wants to design a tileset for a 2D tile-based game
-- Needs help choosing or constraining a pixel art color palette
-- Asks about dithering techniques or anti-aliasing in pixel art
-- Wants to export sprites for a game engine (Unity, Godot, Phaser)
-- Asks about sub-pixel animation or pixel-perfect rendering
-
-Do NOT trigger this skill for:
-- High-resolution digital painting, vector illustration, or 3D modeling
-- General game design questions not related to sprite art (use system-design or gamedev skills)
-
----
-
 ## Key principles
 
 1. **Every pixel is intentional** - At 16x16 or 32x32 resolution, there is no room for ambiguity. Each pixel must serve the silhouette, shading, or detail. If removing a pixel does not hurt readability, it should not be there. Start with the silhouette (solid fill), then add internal detail only where it improves recognition at 1x zoom.

@@ -767,6 +767,16 @@
             .find(|tool| tool.function.name == "get_operation_status")
             .expect("get_operation_status tool should be available");
 
+        let description = status_tool.function.description.as_str();
+        assert!(
+            description.contains("auto-notify"),
+            "get_operation_status should mention automatic background completion notifications: {description}"
+        );
+        assert!(
+            description.contains("need more details"),
+            "get_operation_status should guide agents to use it for additional details after notification: {description}"
+        );
+
         let properties = status_tool
             .function
             .parameters

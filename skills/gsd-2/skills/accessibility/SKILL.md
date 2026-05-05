@@ -6,16 +6,7 @@ tags: [gsd-2, skills, accessibility, compliance]
 metadata:
   author: web-quality-skills
   version: "1.0"
----
-
-# Accessibility (a11y)
-
-Comprehensive accessibility guidelines based on WCAG 2.1 and Lighthouse accessibility audits. Goal: make content usable by everyone, including people with disabilities.
-
-## WCAG Principles: POUR
-
-| Principle | Description |
-|-----------|-------------|
+--------|-------------|
 | **P**erceivable | Content can be perceived through different senses |
 | **O**perable | Interface can be operated by all users |
 | **U**nderstandable | Content and interface are understandable |

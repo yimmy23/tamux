@@ -5,57 +5,7 @@ related: [sales-script, cold-outreach]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, proposal-generation, sales, grants]
----
-
-# Proposal Generation
-
-## When to Use
-- Starting a new client engagement and need a contract or proposal fast
-- Client asks for a proposal with pricing and timeline
-- Partnership or vendor relationship requiring an MSA
-- Protecting IP or confidential information with an NDA
-- Need a Statement of Work with a deliverables matrix
-- EU/DACH project requiring GDPR-compliant data clauses
-
-## Context Required
-From `startup-context` or the user:
-- **Document type** — Contract, proposal, SOW, NDA (mutual/one-way), or MSA
-- **Jurisdiction** — US (Delaware), EU (GDPR), UK (post-Brexit), or DACH (German law)
-- **Engagement type** — Fixed-price, hourly, or retainer
-- **Parties** — Names, roles, business addresses
-- **Scope summary** — 1-3 sentences describing the engagement
-- **Financial terms** — Total value, hourly rate, or retainer amount
-- **Timeline** — Start date, end date or duration, milestone dates
-- **Special requirements** — IP assignment, white-label, subcontractors, exclusivity
-
-## Workflow
-1. **Gather requirements** — Read startup-context if available. Collect all eight inputs listed above. Flag any missing item as REQUIRED.
-2. **Select document type** — Match the engagement to the right format: fixed-price contract, consulting retainer, SaaS partnership, NDA, SOW, or full proposal.
-3. **Apply jurisdiction rules** — Select clause variants based on governing law. US uses work-for-hire doctrine; EU requires explicit IP assignment deeds; DACH requires transfer of Nutzungsrechte since authors retain moral rights under BGB.
-4. **Draft the document** — Fill all sections using structured Markdown with bracketed placeholders for client-specific data. Include the key clauses table below.
-5. **Add GDPR addendum if needed** — For EU/DACH engagements handling personal data, attach a Data Processing Addendum per Art. 28 GDPR covering data categories, sub-processors, and cross-border transfer mechanisms.
-6. **Review for common pitfalls** — Check for missing IP assignment language, vague acceptance criteria, no change order process, jurisdiction mismatches, and missing liability caps.
-7. **Provide conversion instructions** — Include Pandoc commands for DOCX output with legal-style numbered sections.
-
-## Output Format
-Deliver a complete document in structured Markdown containing:
-1. **Header block** — Effective date, party names, addresses
-2. **Services / scope** — Detailed deliverables with acceptance criteria and dates
-3. **Payment terms** — Milestone-based, net-30, or retainer schedule with late payment interest
-4. **Intellectual property** — Ownership assignment, pre-existing IP licenses, portfolio rights
-5. **Confidentiality** — Duration (2-5 years standard, perpetual for trade secrets)
-6. **Warranties** — As-is disclaimer or limited fix warranty (30/90-day)
-7. **Liability cap** — 1x contract value standard, 3x for high-risk engagements
-8. **Termination** — For cause (14-day cure) and for convenience (30/60/90-day notice)
-9. **Dispute resolution** — Jurisdiction-appropriate arbitration (AAA/ICC/LCIA/DIS)
-10. **Signature block** — Both parties with date lines
-
-## Frameworks & Best Practices
-
-### Key Clauses Reference
-
-| Clause | Options |
-|--------|---------|
+-----|---------|
 | Payment terms | Net-30, milestone-based, monthly retainer |
 | IP ownership | Work-for-hire (US), assignment (EU/UK), Nutzungsrechte transfer (DACH) |
 | Liability cap | 1x contract value (standard), 3x (high-risk) |

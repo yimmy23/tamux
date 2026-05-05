@@ -85,6 +85,23 @@ pub(super) fn extended_schema_sql() -> &'static str {
             CREATE INDEX IF NOT EXISTS idx_skill_variants_name ON skill_variants(skill_name, status, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_skill_variants_path ON skill_variants(relative_path);
 
+            CREATE TABLE IF NOT EXISTS semantic_documents (
+                source_kind       TEXT NOT NULL,
+                root_path         TEXT NOT NULL,
+                relative_path     TEXT NOT NULL,
+                source_id         TEXT NOT NULL,
+                title             TEXT NOT NULL,
+                content_hash      TEXT NOT NULL,
+                body              TEXT NOT NULL,
+                discovered_at     INTEGER NOT NULL,
+                updated_at        INTEGER NOT NULL,
+                last_seen_at      INTEGER NOT NULL,
+                deleted_at        INTEGER,
+                PRIMARY KEY (source_kind, root_path, relative_path)
+            );
+            CREATE INDEX IF NOT EXISTS idx_semantic_documents_source ON semantic_documents(source_kind, source_id);
+            CREATE INDEX IF NOT EXISTS idx_semantic_documents_seen ON semantic_documents(source_kind, root_path, last_seen_at);
+
             CREATE TABLE IF NOT EXISTS skill_variant_usage (
                 usage_id           TEXT PRIMARY KEY,
                 variant_id         TEXT NOT NULL,

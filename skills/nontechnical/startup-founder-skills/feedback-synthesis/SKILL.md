@@ -5,42 +5,7 @@ related: [user-research-synthesis, churn-analysis, prd-writing]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, feedback-synthesis]
----
-
-# Feedback Synthesis
-
-## When to Use
-Activate when a founder or product lead needs to make sense of customer feedback from multiple sources -- support tickets, NPS surveys, user interviews, app store reviews, social media, sales call notes, feature request logs, spreadsheets, or CSVs. This includes prompts like "analyze our customer feedback," "what are users asking for most," "prioritize feature requests," "triage this backlog," or "what themes are showing up in our support tickets."
-
-## Context Required
-- **From startup-context:** product type, customer segments, current product roadmap priorities, company stage, strategic goals, and product objectives.
-- **From the user:** the raw feedback data (or access to it), the sources being analyzed, the time period, the product goal or desired outcomes guiding prioritization, and the decision this analysis will inform.
-
-## Workflow
-1. **Understand the goal** -- Confirm the product objective and desired outcomes that will guide prioritization. Feedback analysis without a strategic lens produces noise, not signal.
-2. **Collect and normalize** -- Gather feedback from all sources. If data is in structured formats (CSV, spreadsheet), create summary tables. Each piece of feedback becomes a row with source, date, customer segment, verbatim quote, and sentiment.
-3. **Categorize into themes** -- Group related requests and feedback together. Name each theme. Focus on identifying the underlying opportunity (problem) rather than the surface-level feature request.
-4. **Assess strategic alignment** -- For each theme, evaluate how well it aligns with the stated product goals and company strategy.
-5. **Score with Opportunity Score** -- Use the Opportunity Score framework (Dan Olsen): Opportunity Score = Importance x (1 - Satisfaction), normalized to 0-1. This prioritizes problems that matter most and are least well-served today.
-6. **Prioritize top opportunities** -- Select the top 3 themes based on impact (customer value and breadth of users affected), effort (development and design resources required), risk (technical and market uncertainty), and strategic alignment (fit with product vision).
-7. **Deep-dive top items** -- For each top opportunity, document: rationale, alternative solutions worth considering, high-risk assumptions, and how to test those assumptions with minimal effort.
-8. **Present findings** -- Deliver a structured synthesis with executive summary first, supporting data second, and recommended actions third.
-
-## Output Format
-
-### Synthesis Report Template
-```
-# Customer Feedback Synthesis -- [Period]
-
-## Executive Summary
-3-5 key findings. Lead with the most surprising or actionable insight.
-
-## Product Goal Alignment
-The stated product objective and how feedback themes map to it.
-
-## Theme Map
-| Theme | Frequency | Segments Affected | Opportunity Score | Strategic Alignment | Priority |
-|-------|-----------|-------------------|-------------------|---------------------|----------|
+----|-----------|-------------------|-------------------|---------------------|----------|
 | [Theme] | [Count] | [Segments] | [Score] | [High/Med/Low] | [H/M/L] |
 
 ## Top 3 Opportunities (Deep Dives)

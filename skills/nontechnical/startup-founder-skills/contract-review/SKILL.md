@@ -5,38 +5,7 @@ related: [terms-of-service, privacy-policy]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, contract-review]
----
-
-# Contract Review
-
-## When to Use
-Activate when a founder has received a contract to sign and wants to understand the risks before proceeding. This includes vendor agreements, customer enterprise agreements, partnership deals, investment documents, employment agreements, NDAs, IP assignment agreements, and any other binding legal document. Also activate when the user says things like "review this contract," "is this agreement fair," "what should I push back on," or "flag anything concerning."
-
-## Context Required
-- **From startup-context:** company stage, team size, business model, fundraising status, current revenue, and any existing legal counsel.
-- **From the user:** the contract text (or key sections), who the counterparty is, the business relationship context (are they a customer, vendor, investor, partner), the user's negotiating leverage, and any specific concerns they have. Also helpful: whether this is a template/standard agreement or has been negotiated.
-
-## Workflow
-1. **Contract intake** — Receive the contract text. Identify the contract type, parties, effective date, and term. Create a one-paragraph summary of what the contract does.
-2. **Section-by-section analysis** — Walk through each major section, summarizing what it means in plain language and flagging anything noteworthy.
-3. **Risk flagging** — Apply the red/yellow/green flagging system (see below) to each clause. Assign a severity and explain why.
-4. **Missing protections** — Identify standard protections that are absent from the contract but should be present given the contract type and relationship.
-5. **Negotiation recommendations** — For each red and yellow flag, suggest specific alternative language or a negotiation strategy.
-6. **Summary report** — Produce a structured risk assessment with prioritized action items.
-
-## Output Format
-
-### Contract Summary (top of report)
-- **Contract type:** (e.g., SaaS vendor agreement, MSA, NDA)
-- **Parties:** Company name vs. counterparty name
-- **Term:** Duration, renewal mechanism
-- **Total value:** Financial commitment if applicable
-- **Overall risk level:** Red / Yellow / Green with one-sentence rationale
-
-### Clause-by-Clause Analysis Table
-
-| Section | Summary | Flag | Risk | Recommended Action |
-|---|---|---|---|---|
+---|---|---|---|
 | Liability Cap | Capped at fees paid in prior 6 months | Yellow | Low cap for potential damages | Negotiate to 12-month cap |
 | IP Assignment | Broad assignment of all work product | Red | Could capture pre-existing IP | Add carve-out for pre-existing IP |
 

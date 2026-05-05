@@ -2,22 +2,23 @@
 name: communication-writing-task
 description: Use for emails, summaries, status updates, announcements, proposals, and user-facing text.
 recommended_skills:
-  - writing-plans
+  - writing
+  - scientific-writing
+recommended_guidelines:
 ---
+## Overview
 
-# Communication Writing Task Guideline
-
-Writing should fit the audience, decision, and channel.
+Clear communication depends on purpose, audience, and medium. This guideline helps structure writing work before invoking detailed writing skills.
 
 ## Workflow
 
-1. Identify audience, purpose, tone, constraints, and required action.
-2. Lead with the main point or requested decision.
-3. Separate facts, interpretation, asks, and next steps.
-4. Keep claims accurate and avoid overstating certainty.
-5. Match length to the channel.
-6. Preserve the user's voice when rewriting existing text.
+1. Identify the communication type: announcement, proposal, instruction, documentation, or feedback.
+2. Define the audience: executive, technical, customer, or general public — this determines tone, depth, and vocabulary.
+3. State the core message in one sentence. Everything else supports that message.
+4. Structure: opening context, main message, supporting detail, call to action or next steps.
+5. Draft without editing. Then revise for clarity, conciseness, and correctness.
+6. Read the draft aloud to catch awkward phrasing and flow issues.
 
 ## Quality Gate
 
-Do not produce polished prose that hides unresolved facts or missing decisions.
+Before sending or publishing, verify: is the purpose clear in the first paragraph? Is the audience-appropriate? Are action items explicit and unambiguous?

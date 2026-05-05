@@ -5,61 +5,7 @@ related: [privacy-policy, security-review]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, soc2-prep, security, strategy, compliance]
----
-
-# SOC 2 Prep
-
-## When to Use
-
-Activate when a founder is preparing for SOC 2 certification, has been asked by a customer or prospect for a SOC 2 report, needs to quantify security risk for board or budget discussions, wants to build a compliance roadmap sequenced for business value, or needs to assess overall security posture. Also activate when the user mentions "SOC 2," "compliance audit," "trust service criteria," "security budget," "we need SOC 2 to close this deal," or "CISO."
-
-## Context Required
-
-- **From startup-context:** product type, tech stack, cloud infrastructure provider, team size, current security practices, business model, customer segments (enterprise customers often require SOC 2).
-- **From the user:** which Trust Service Criteria are in scope, current state of documentation and policies, existing security tooling (SSO, MDM, monitoring), whether targeting Type I or Type II, desired timeline, budget constraints, whether an auditor is selected, and top 3 prospects' compliance requirements.
-
-## Workflow
-
-1. **Quantify the business case** — Frame security investment in dollars using ALE (Annual Loss Expectancy = Single Loss Expectancy x Annual Rate of Occurrence). Translate to board language: "This risk has $X expected annual loss. Mitigation costs $Y." Security is a sales enabler, not a checkbox.
-2. **Scope definition** — Determine which Trust Service Criteria are in scope. Security (Common Criteria) is always required. Availability, Processing Integrity, Confidentiality, and Privacy are optional. Scope based on customer requirements and product type.
-3. **Current state assessment** — Inventory existing policies, controls, and tooling. Identify what exists, what partially exists, and what is completely absent. Check the red flags list below.
-4. **Gap analysis** — Map current state against each applicable TSC criterion. Produce a gap matrix showing compliant, partially compliant, and non-compliant areas.
-5. **Compliance roadmap** — Sequence for business value: SOC 2 Type I (3-6 months) then SOC 2 Type II (12 months from start) then ISO 27001 or HIPAA based on customer demand. Do not pursue certifications before basic hygiene is in place.
-6. **Policy generation** — Draft required policies tailored to the company's size. Early-stage startups need practical 2-5 page policies, not 50-page enterprise documents.
-7. **Control implementation plan** — For each gap, define the control, the owner, the tooling, and the timeline.
-8. **Evidence collection guidance** — Define what the auditor will request for each control and how to collect it systematically.
-9. **Readiness review** — Perform a mock assessment before engaging the auditor.
-
-## Output Format
-
-```markdown
-# Security & Compliance Assessment: [Company Name]
-
-## Risk Quantification — top risks with ALE, mitigation cost, expected value
-## Gap Analysis Matrix — TSC criterion, requirement, current state, gap, priority, remediation
-## Compliance Roadmap — sequenced timeline: SOC 2 Type I > Type II > ISO 27001/HIPAA
-## Policy Documents — generated as needed, each with purpose/scope/roles/statements/procedures
-## Implementation Timeline — phased checklist with milestones
-## Evidence Collection Checklist — per-control artifacts, storage location, refresh cadence
-## Security Metrics Dashboard — table of key metrics with current values and targets
-```
-
-## Frameworks & Best Practices
-
-### Risk Quantification (CISO Approach)
-
-Translate technical risks into business impact: revenue loss, regulatory fines, reputational damage. Use ALE to prioritize.
-
-**Formula:** `ALE = SLE x ARO` (Single Loss Expectancy x Annual Rate of Occurrence)
-
-**Board language:** "A $200K security program preventing a $2M breach at 40% annual probability has $800K expected value. The program pays for itself 4x over."
-
-Frame security spend as risk transfer cost, not overhead.
-
-### Security Metrics
-
-| Category | Metric | Target |
-|----------|--------|--------|
+-------|--------|--------|
 | Risk | ALE coverage (mitigated / total) | > 80% |
 | Detection | Mean Time to Detect (MTTD) | < 24 hours |
 | Response | Mean Time to Respond (MTTR) | < 4 hours |

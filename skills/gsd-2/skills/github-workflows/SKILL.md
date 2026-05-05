@@ -5,18 +5,6 @@ description: Work with GitHub Actions CI/CD workflows - read live syntax, monito
 tags: [gsd-2, skills, github-workflows, github, writing, debugging, ci-cd, git]
 ---
 
-# GitHub Workflows
-
-**Mission:** Work with GitHub Actions without using stale training data. All syntax, versions, and parameters come from live sources.
-
----
-
-## Structural Principle
-
-**All CI operations go through ci_monitor.cjs.** Never reach for `gh` CLI directly — the script wraps it with observable output.
-
----
-
 ## Primary Tool: ci_monitor.cjs
 
 **Path:** `scripts/ci_monitor.cjs`

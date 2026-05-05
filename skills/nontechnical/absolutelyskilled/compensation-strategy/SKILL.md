@@ -19,36 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Compensation Strategy
-
-A structured framework for designing, benchmarking, and communicating
-compensation programs. This skill covers the full total rewards stack - from
-salary bands and equity grants to leveling frameworks and pay equity audits -
-with an emphasis on *when* to use each approach and *how* to justify decisions
-to candidates, employees, and leadership.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Benchmarks a role against market data (Levels.fyi, Radford, Mercer, Carta)
-- Designs or revises pay bands for a level or job family
-- Structures an equity grant (ISOs, NSOs, RSUs) or refresh program
-- Builds or updates a leveling framework (IC and/or management tracks)
-- Creates a total rewards package (salary + equity + benefits + perks)
-- Conducts or responds to a pay equity audit
-- Writes or revises a compensation philosophy document
-- Explains compensation structure to a candidate or employee
-
-Do NOT trigger this skill for:
-- Recruiting sourcing tactics or interview process design (use a hiring skill)
-- Payroll processing, tax withholding, or benefits administration (use an HR
-  operations skill)
-
----
-
 ## Key principles
 
 1. **Pay transparency builds trust** - Employees who understand how pay is

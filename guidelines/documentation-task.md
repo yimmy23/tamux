@@ -2,25 +2,25 @@
 name: documentation-task
 description: Use when writing or updating docs, READMEs, specs, guides, or release notes.
 recommended_skills:
-  - internal-docs
-  - knowledge-base
-  - support-docs
-  - writing-plans
+  - writing
+recommended_guidelines:
+  - communication-writing-task
 ---
 
-# Documentation Task Guideline
+## Overview
 
-Documentation should help a real reader act correctly.
+Good documentation is accurate, findable, and maintainable.
 
 ## Workflow
 
-1. Identify the reader and the action they need to complete.
-2. Verify technical claims against code, commands, configuration, or authoritative docs.
-3. Prefer concise structure: purpose, prerequisites, steps, expected result, troubleshooting.
-4. Keep examples executable or clearly marked as illustrative.
-5. Avoid documenting future work as if it already exists.
-6. Update related references when a path, command, or behavior changes.
+1. Identify the audience and the question the documentation answers.
+2. Structure with the most important information first.
+3. Use examples liberally — they clarify faster than explanations.
+4. Keep code examples tested and runnable.
+5. Document the why, not just the what and how.
+6. Include a changelog or date of last review.
+7. Review documentation by running through the instructions yourself.
 
 ## Quality Gate
 
-Do not add aspirational docs that imply functionality is implemented when it is not.
+Documentation is complete when a new reader can accomplish the documented task without asking questions.

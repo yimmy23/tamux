@@ -22,37 +22,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Presentation Design
-
-Presentation design is the discipline of structuring information into visual slide
-sequences that inform, persuade, or inspire an audience. It sits at the intersection
-of storytelling, information design, and visual communication. This skill equips an
-agent to architect complete decks - from choosing the right narrative framework and
-slide structure, to selecting appropriate chart types for data, to applying visual
-hierarchy principles that keep audiences engaged. It applies to pitch decks, keynotes,
-internal strategy reviews, training materials, and any context where slides are the medium.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to create, structure, or outline a presentation or slide deck
-- Needs a storytelling framework for a talk (Pyramid Principle, Hero's Journey, etc.)
-- Asks how to visualize data in slides (chart selection, data-ink ratio, labeling)
-- Wants to build a pitch deck for investors, customers, or internal stakeholders
-- Needs help with slide layout, visual hierarchy, or information density
-- Asks about speaker notes, delivery pacing, or slide-to-talk ratio
-- Wants to restructure or improve an existing presentation
-- Needs a presentation template or outline for a specific context
-
-Do NOT trigger this skill for:
-- General graphic design work unrelated to slides (logos, branding, illustrations)
-- Data analysis or dashboard design (use data/analytics skills instead)
-
----
-
 ## Key principles
 
 1. **One idea per slide** - Each slide communicates exactly one point. If you need

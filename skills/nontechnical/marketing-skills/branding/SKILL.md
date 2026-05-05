@@ -5,36 +5,7 @@ license: MIT
 tags: [nontechnical, marketing-skills, branding, experimental-design, strategy, presentation, compliance]
 metadata:
   version: 1.2.0
----
-
-# Strategies: Branding
-
-Guides brand strategy: purpose, values, positioning, storytelling, voice, and visual identity. Companies with consistent branding see 23–33% revenue lift; people remember stories ~22× more than facts alone. Use this skill when defining a new brand, auditing consistency, or aligning messaging across touchpoints.
-
-**Keywords**: brand strategy, brand guidelines, visual identity, storytelling, brand voice, design tokens, slide deck, corporate identity, style guide, positioning
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Scope
-
-- **Brand strategy**: Purpose, values, positioning, differentiation, target audience
-- **Brand storytelling**: Origin story, hero's journey, narrative arc, brand archetypes
-- **Brand voice & tone**: Voice, tone, avoid terms, preferred wording
-- **Brand visual identity**: Colors, typography, logo rules—strategy layer; implementation in **brand-visual-generator**, **logo-generator**
-
-## Initial Assessment
-
-**Check for project context first:** If `.claude/project-context.md` or `.cursor/project-context.md` exists, read Sections 2 (Positioning), 3 (Value Proposition), 8 (Brand & Voice), 12 (Visual Identity).
-
-Identify:
-1. **Scope**: New brand, audit, or alignment
-2. **Touchpoints**: Website, social, product UI, directories, content
-3. **Existing assets**: Brand guide, logo, style guide
-
-## Brand Strategy Pillars
-
-| Pillar | Purpose |
-|--------|---------|
+-----|---------|
 | **Brand purpose** | Why the brand exists beyond profit; one sentence |
 | **Brand values** | 4–5 core values; what you stand for; differentiators |
 | **Target audience** | Who you serve; ICP; jobs to be done |

@@ -18,36 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Budgeting & Planning
-
-Financial Planning & Analysis (FP&A) is the discipline of translating business
-strategy into numbers, tracking execution against those numbers, and using the
-gap between plan and actuals to drive better decisions. The goal is not to
-produce a perfect budget - it is to create a shared financial language that
-aligns teams, surfaces trade-offs early, and enables rapid course correction.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to build an annual operating budget or multi-year plan
-- Wants to run variance analysis against a budget or forecast
-- Is implementing or improving a rolling forecast process
-- Needs to allocate shared costs across departments or cost centers
-- Is planning headcount - new hires, backfill, contractors, timing
-- Wants to build or improve a department-level budget
-- Needs to present a budget or financial plan to leadership
-
-Do NOT trigger this skill for:
-- Real-time financial reporting or accounting close processes (use an accounting
-  or ERP workflow instead - budgeting is forward-looking, not record-keeping)
-- Investment analysis or capital allocation for M&A (use a corporate finance or
-  DCF skill - those require a different valuation framework)
-
----
-
 ## Key principles
 
 1. **Budget is a plan, not a constraint** - A budget is a hypothesis about the

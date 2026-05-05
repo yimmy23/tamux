@@ -4,30 +4,7 @@ description: When the user wants to research keywords, find target keywords, or 
 tags: [nontechnical, marketing-skills, keyword-research, strategy, writing, search]
 metadata:
   version: 1.3.1
----
-
-# SEO Content: Keyword Research
-
-Guides keyword research for SEO: finding target keywords, assessing difficulty, understanding search intent, and building topical maps. ~95% of keywords get fewer than 10 searches/month; low-volume, high-intent terms often yield faster rankings and conversion.
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Initial Assessment
-
-**Check for project context first:** If `.claude/project-context.md` or `.cursor/project-context.md` exists, read it for product, audience, and positioning.
-
-Identify:
-1. **Product/service**: What you offer
-2. **Audience**: Who searches for it
-3. **Goals**: Traffic, conversions, brand
-4. **Tool access**: Google Keyword Planner, Google Trends, or SEO tools
-
-## Discovery Methods
-
-### Base Discovery
-
-| Method | Purpose |
-|--------|---------|
+-----|---------|
 | **User perspective** | What pain points? What would they search? Customer language from product context |
 | **Tool expansion** | Related keywords, questions, suggestions; Google autocomplete, PAA, Related Searches |
 | **Competitor reverse** | Analyze competitor titles, H1, URL; identify topics they rank for; find gaps (#4–10 = opportunity) — see **competitor-research** |

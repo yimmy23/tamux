@@ -1,5 +1,8 @@
 use anyhow::{Context, Result};
-use zorai_protocol::{ClientMessage, DaemonMessage, SessionId, SkillDiscoveryResultPublic};
+use zorai_protocol::{
+    ClientMessage, DaemonMessage, SemanticDocumentIndexSyncResultPublic, SessionId,
+    SkillDiscoveryResultPublic,
+};
 
 use super::connection::{roundtrip, roundtrip_async_until, roundtrip_until};
 
@@ -72,6 +75,18 @@ pub async fn send_guideline_discover(
         parse_guideline_discover_terminal_response,
     )
     .await
+}
+
+pub async fn send_semantic_document_sync() -> Result<SemanticDocumentIndexSyncResultPublic> {
+    match roundtrip(ClientMessage::AgentSemanticDocumentSync).await? {
+        DaemonMessage::SemanticDocumentSyncResult { result_json } => {
+            serde_json::from_str(&result_json).context("invalid semantic sync payload from daemon")
+        }
+        DaemonMessage::AgentError { message } | DaemonMessage::Error { message } => {
+            anyhow::bail!("daemon error: {message}")
+        }
+        other => anyhow::bail!("unexpected response: {other:?}"),
+    }
 }
 
 pub(super) fn parse_skill_discover_terminal_response(

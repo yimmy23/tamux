@@ -19,41 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-When this skill is activated, always start your first response with the :speaker: emoji.
-
-# Video Audio Design
-
-Video audio design is the practice of layering narration, sound effects, and
-background music into programmatic video compositions. Great audio transforms
-a slide-deck video into a polished production - narration guides the viewer,
-music sets the emotional tone, and SFX punctuate key moments. This skill covers
-generating speech with ElevenLabs and alternative TTS providers, creating
-synthetic sound effects with FFmpeg, sourcing royalty-free background music,
-implementing audio ducking so speech stays intelligible, and mixing all layers
-together in Remotion compositions with frame-accurate timing.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to add narration or voiceover to a programmatic video
-- Needs to generate speech with ElevenLabs, OpenAI TTS, or Edge TTS
-- Asks about voice selection, voice settings, or voice cloning
-- Wants to add background music or needs royalty-free music sources
-- Asks about creating sound effects programmatically
-- Wants to implement audio ducking (lowering music during speech)
-- Needs to mix multiple audio layers in Remotion
-- Asks about audio timing, volume levels, or frame-based audio sync
-
-Do NOT trigger this skill for:
-- Video scripting or storyboarding - use the video-scriptwriting skill
-- Remotion component architecture or rendering - use the remotion-video skill
-- Professional audio production in a DAW (Ableton, Logic, Pro Tools)
-- Music composition or MIDI programming
-
----
-
 ## Key principles
 
 1. **Layered audio architecture** - Every video has three audio layers:

@@ -19,39 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Recruiting Operations
-
-Recruiting operations is the structured practice of attracting, evaluating, and hiring
-the right people efficiently and fairly. It spans the full talent acquisition lifecycle -
-from defining the role through sourcing, screening, interviewing, and extending an offer.
-This skill provides actionable frameworks for each phase: writing inclusive job
-descriptions, building multi-channel sourcing strategies, designing structured screening
-criteria, running calibrated interview loops, managing the offer process, tracking
-pipeline metrics, and building employer brand. Built for hiring managers and recruiters
-who want to move from ad-hoc hiring to a repeatable, data-informed, candidate-respecting
-process.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to write or improve a job description for any role
-- Wants to build or audit a sourcing strategy for a hard-to-fill position
-- Is designing screening criteria, take-home exercises, or phone screen scripts
-- Needs to structure an interview loop with defined stages and interviewer roles
-- Is managing an offer, negotiating compensation, or closing a reluctant candidate
-- Wants to measure recruiting funnel health with metrics like time-to-hire or offer acceptance rate
-- Is building or improving employer brand, careers pages, or recruiting content
-- Needs a scorecard, rubric, or calibration process for consistent candidate evaluation
-
-Do NOT trigger this skill for:
-- Performance management, PIPs, or managing underperforming employees (use people-ops or HR skill)
-- Compensation benchmarking as a standalone exercise without a hiring context (use total-rewards skill)
-
----
-
 ## Key principles
 
 1. **Structured process reduces bias** - Unstructured interviews measure confidence and

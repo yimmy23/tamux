@@ -5,35 +5,7 @@ related: [market-research, prd-writing]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, competitive-analysis]
----
-
-# Competitive Analysis
-
-## When to Use
-Activate when a founder needs to analyze the competitive landscape, evaluate specific competitors, find differentiation opportunities, or prepare a competitive brief. Trigger phrases include "who are our competitors," "analyze this competitor," "competitive landscape," "how do we compare to X," "feature comparison," "what's our moat," or "differentiation opportunities." Also activate before fundraising (investors will ask) or when entering a new market segment.
-
-## Context Required
-- **From startup-context:** product description, target market, current positioning, key differentiators, pricing model, geographic scope.
-- **From the user:** specific competitors to analyze (or request to identify them), market/industry segment to scope, the strategic question driving the analysis (positioning, pricing, feature gaps, market entry).
-
-## Workflow
-1. **Scope the market** -- Define the market boundaries, industry segment, and customer type. Precision here determines whether the competitive set is meaningful.
-2. **Identify 5 primary competitors** -- Find direct competitors (same problem, same customer), adjacent competitors (different approach to same problem), and emerging entrants. Distinguish between direct competitors and alternatives (including "do nothing" or manual workarounds).
-3. **Gather competitive intelligence** -- Research each competitor across: product capabilities, pricing/business model, positioning and messaging, distribution channels, team/funding, and traction signals. Use competitor websites, pricing pages, customer reviews (G2, Capterra), job postings, and product trials as primary sources.
-4. **Assess strengths and weaknesses** -- For each competitor, identify core product strengths, product gaps, business model advantages, and competitive threats. Validate insights across multiple sources.
-5. **Map differentiation opportunities** -- Identify unmet customer pain points no competitor addresses well, underserved segments, and areas where you can credibly win. Focus on where the market is heading, not just where it is.
-6. **Synthesize strategic positioning** -- Formulate a competitive positioning recommendation with suggested positioning, key differentiators, target segments to prioritize, competitors to monitor, and 12-18 month competitive risks.
-
-## Output Format
-
-### Market Overview
-One paragraph defining the market structure: how many players, how fragmented, major categories of solutions, and overall market dynamics.
-
-### Competitor Profiles (x5)
-For each competitor:
-
-| Dimension | Details |
-|---|---|
+---|
 | **Company Profile** | Background, founding, funding, team size, headquarters |
 | **Core Product Strengths** | Key capabilities, UX quality, integrations, technical advantages |
 | **Product Gaps** | Missing features, weak areas, customer complaints |

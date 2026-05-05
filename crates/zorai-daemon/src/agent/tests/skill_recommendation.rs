@@ -1,6 +1,8 @@
 use super::{
-    discover_community_skills, discover_local_guidelines, discover_local_skills,
-    extract_skill_metadata, page_public_discovery_result_with_action, SkillRecommendationAction,
+    discover_community_skills, discover_local_guidelines,
+    discover_local_guidelines_with_semantic_scores, discover_local_skills,
+    discover_local_skills_with_semantic_scores, extract_skill_metadata,
+    page_public_discovery_result_with_action, SkillRecommendationAction,
     SkillRecommendationConfidence,
 };
 use crate::agent::types::SkillRecommendationConfig;
@@ -305,6 +307,118 @@ keywords: [research, citations]
         "read_guideline coding-task"
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_local_skills_can_promote_semantic_vector_matches() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let skills_root = root.path().join("skills");
+    let lexical = write_skill(
+        &skills_root,
+        "cargo-build",
+        r#"---
+name: cargo-build
+description: Build Rust crates with cargo.
+keywords: [cargo, build]
+---
+
+# Cargo Build
+"#,
+    )?;
+    let semantic = write_skill(
+        &skills_root,
+        "panic-diagnostics",
+        r#"---
+name: panic-diagnostics
+description: Investigate runtime panics from stack traces.
+keywords: [panic, stacktrace]
+---
+
+# Panic Diagnostics
+"#,
+    )?;
+    store.register_skill_document(&lexical).await?;
+    store.register_skill_document(&semantic).await?;
+    let semantic_scores =
+        std::collections::HashMap::from([("panic-diagnostics/SKILL.md".to_string(), 0.98)]);
+
+    let result = discover_local_skills_with_semantic_scores(
+        &store,
+        &skills_root,
+        "cargo build failure",
+        &[],
+        2,
+        &SkillRecommendationConfig::default(),
+        &semantic_scores,
+    )
+    .await?;
+
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("panic-diagnostics")
+    );
+    assert!(result
+        .recommendations
+        .first()
+        .is_some_and(|item| item.reason.contains("semantic vector match")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_local_guidelines_can_promote_semantic_vector_matches() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let guidelines_root = root.path().join("guidelines");
+    write_markdown(
+        &guidelines_root,
+        "cargo.md",
+        r#"---
+name: cargo
+description: Cargo command guidelines.
+keywords: [cargo, build]
+---
+
+# Cargo
+"#,
+    )?;
+    write_markdown(
+        &guidelines_root,
+        "panic-response.md",
+        r#"---
+name: panic-response
+description: Respond to runtime incidents and stack traces.
+keywords: [panic, incident]
+---
+
+# Panic Response
+"#,
+    )?;
+    let semantic_scores =
+        std::collections::HashMap::from([("panic-response.md".to_string(), 0.96)]);
+
+    let result = discover_local_guidelines_with_semantic_scores(
+        &store,
+        &guidelines_root,
+        "cargo build",
+        &[],
+        2,
+        &SkillRecommendationConfig::default(),
+        &semantic_scores,
+    )
+    .await?;
+
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("panic-response")
+    );
     Ok(())
 }
 

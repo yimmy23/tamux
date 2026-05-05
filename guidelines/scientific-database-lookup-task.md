@@ -5,23 +5,25 @@ recommended_skills:
   - database-lookup
   - paper-lookup
   - research-lookup
-  - clinical-decision-support
-  - usfiscaldata
+recommended_guidelines:
+  - research-task
+  - academic-literature-review-task
 ---
 
-# Scientific Database Lookup Task Guideline
+## Overview
 
-Database lookup work should preserve identifiers, provenance, and query parameters.
+Scientific database search requires structured query design and systematic record-keeping.
 
 ## Workflow
 
-1. Identify the entity type, identifier system, target databases, required fields, and output schema.
-2. Use `database-lookup` for public scientific, biomedical, materials, regulatory, economic, and demographics databases.
-3. Use `paper-lookup` when database records must be linked to papers, DOIs, PubMed IDs, or citation graphs.
-4. Preserve raw identifiers and map synonyms only when the mapping source is explicit.
-5. Return source database, query terms, accession IDs, timestamps, and confidence or ambiguity notes.
-6. Avoid merging records from different databases unless the join key and assumptions are clear.
+1. Define the search question using PICO or a similar framework.
+2. Select appropriate databases for the domain.
+3. Design search terms with controlled vocabulary (MeSH, etc.) and free text.
+4. Apply filters: date range, article type, language, species, etc.
+5. Use `database-lookup`, `paper-lookup`, or `research-lookup` for specific databases.
+6. Save search strategies for reproducibility.
+7. Deduplicate results and document the screening process.
 
 ## Quality Gate
 
-Do not collapse similarly named genes, compounds, trials, companies, or datasets without verifying identifiers.
+A database search is complete when the strategy is documented and results are deduplicated and screened.

@@ -1,27 +1,27 @@
 ---
 name: project-management-task
-description: Use when organizing work across tasks, milestones, issues, priorities, or follow-ups.
+description: Use when planning, tracking, reporting on, or closing projects, milestones, or sprints.
 recommended_skills:
-  - project-execution
-  - agile-scrum
-  - remote-collaboration
-  - writing-plans
-  - finishing-a-development-branch
+recommended_guidelines:
+  - planning-task
+  - task-intake
+  - operations-process-task
 ---
 
-# Project Management Task Guideline
 
-Project management output should help someone decide what to do next.
+## Overview
+
+Project management keeps work organized, visible, and accountable.
 
 ## Workflow
 
-1. Identify the desired decision: prioritize, schedule, split, track, or report.
-2. Convert vague work into concrete deliverables with owners or responsible roles when known.
-3. Separate blockers, risks, active work, deferred work, and completed work.
-4. Prefer short status language: outcome, evidence, next action.
-5. Preserve dependencies and ordering instead of flattening everything into one list.
-6. Keep stale or speculative items visibly marked.
+1. Define scope, deliverables, timeline, and acceptance criteria.
+2. Break work into independent, estimatable tasks.
+3. Track progress visibly — update status regularly.
+4. Identify blockers early and escalate with proposed solutions.
+5. Communicate scope or timeline changes proactively.
+6. At completion, verify acceptance criteria and document lessons.
 
 ## Quality Gate
 
-Do not create a task list where every item looks equally urgent or equally ready.
+A project is complete when acceptance criteria are met and outcomes are documented.

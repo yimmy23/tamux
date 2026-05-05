@@ -2,23 +2,26 @@
 name: planning-task
 description: Use when creating implementation plans, migration plans, runbooks, roadmaps, or step-by-step execution plans.
 recommended_skills:
-  - writing-plans
-  - onecontext
+recommended_guidelines:
+  - project-management-task
+  - decision-analysis-task
+  - task-intake
 ---
 
-# Planning Task Guideline
+## Overview
 
-Plans should make execution safer and easier, not add ceremony.
+Planning aligns effort to goals and surfaces risks before they become problems.
 
 ## Workflow
 
-1. Identify the goal, constraints, dependencies, stakeholders, and definition of done.
-2. Inspect existing code, docs, history, or operational state before proposing steps.
-3. Split the plan into ordered phases with clear checkpoints.
-4. Call out risky steps, rollback points, verification commands, and required approvals.
-5. Keep tasks independently actionable; avoid vague entries like "fix issues".
-6. Include what should not be changed when scope boundaries matter.
+1. Define the goal first, then the tasks. Don't start with tasks.
+2. Break work into units that can be completed in a single session.
+3. Estimate with ranges, not single numbers — and document assumptions.
+4. Identify dependencies between tasks and external blockers.
+5. Add buffer for unknowns: testing, review, debugging.
+6. Define how each task will be verified done.
+7. Review the plan with stakeholders before executing.
 
 ## Quality Gate
 
-Do not present a plan that lacks verification, rollback thinking, or ownership of the next concrete step.
+A plan is ready when every task has a clear definition of done and dependencies are visible.

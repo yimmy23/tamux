@@ -2,23 +2,26 @@
 name: environment-setup-task
 description: Use for installing tools, configuring local development, onboarding, PATH issues, or machine-specific setup.
 recommended_skills:
-  - systematic-debugging
-  - verification-before-completion
+recommended_guidelines:
+  - general-programming
+  - configuration-task
+  - deployment-release-task
 ---
 
-# Environment Setup Task Guideline
+## Overview
 
-Setup work should leave the machine in a known, repeatable state.
+Environment setup must be reproducible — manual steps are a source of drift. This guideline ensures setups are scriptable and documented.
 
 ## Workflow
 
-1. Identify OS, shell, architecture, package manager, and existing versions.
-2. Prefer project-documented setup commands before inventing new ones.
-3. Avoid global changes when local or user-scoped configuration is enough.
-4. Verify PATH, environment variables, permissions, and service state.
-5. Run a small smoke test that proves the installed tool works.
-6. Document any manual step the user must perform outside the terminal.
+1. Check existing documentation and configuration before making changes.
+2. Use package managers, dotfile repos, or container definitions — never manual-only steps.
+3. Document every dependency with version constraints and installation source.
+4. Test the setup from scratch in a clean environment.
+5. If using secrets or credentials, document which environment variables need to be set without exposing the values.
+6. Keep environment-specific configuration separate from code.
+7. Add a validation script that verifies the environment is correctly configured.
 
 ## Quality Gate
 
-Do not claim setup is complete because installation succeeded; verify the workflow the user needs.
+An environment setup is complete when a new team member can reproduce it from documentation alone.

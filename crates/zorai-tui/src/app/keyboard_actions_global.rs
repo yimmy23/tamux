@@ -237,17 +237,25 @@ impl TuiModel {
             }
             KeyCode::Up if self.focus == FocusArea::Input => {
                 {
-                let wrap_w = self.input_wrap_width();
-                self.input
-                    .reduce(input::InputAction::MoveCursorUpVisual(wrap_w));
+                if self.input.can_browse_sent_history() {
+                    self.input.reduce(input::InputAction::HistoryPrevious);
+                } else {
+                    let wrap_w = self.input_wrap_width();
+                    self.input
+                        .reduce(input::InputAction::MoveCursorUpVisual(wrap_w));
+                }
             };
                 Some(false)
             }
             KeyCode::Down if self.focus == FocusArea::Input => {
                 {
-                let wrap_w = self.input_wrap_width();
-                self.input
-                    .reduce(input::InputAction::MoveCursorDownVisual(wrap_w));
+                if self.input.can_browse_sent_history() {
+                    self.input.reduce(input::InputAction::HistoryNext);
+                } else {
+                    let wrap_w = self.input_wrap_width();
+                    self.input
+                        .reduce(input::InputAction::MoveCursorDownVisual(wrap_w));
+                }
             };
                 Some(false)
             }

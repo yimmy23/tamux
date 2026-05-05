@@ -2,31 +2,26 @@
 name: customer-research-task
 description: Use for customer interviews, surveys, personas, jobs-to-be-done, feedback synthesis, or voice-of-customer work.
 recommended_skills:
-  - customer-research
-  - ux-research
-  - product-discovery
-  - user-research-synthesis
-  - feedback-synthesis
-  - review-mining
-  - product-analytics
-  - churn-prevention
-  - community-discovery
-  - onboarding-flow
+recommended_guidelines:
+  - market-research-task
+  - product-design-task
+  - customer-success-task
 ---
 
-# Customer Research Task Guideline
+## Overview
 
-Customer research should reduce uncertainty without leading the participant.
+Customer research should be designed to answer specific questions, not just collect data.
 
 ## Workflow
 
-1. Identify the research objective and decision it will inform.
-2. Define participant segment, recruiting criteria, and sample limitations.
-3. Use neutral questions that explore past behavior, current workflow, pain, and alternatives.
-4. Use `customer-research` or `ux-research` for research design, `user-research-synthesis` for interviews, `feedback-synthesis` for multi-source feedback, and `review-mining` for public review evidence.
-5. Synthesize themes with evidence and counterexamples.
-6. Translate findings into decisions, risks, and follow-up experiments.
+1. Define the research questions before choosing the method.
+2. Choose the right method: interviews for depth, surveys for breadth, usability tests for behavior.
+3. Recruit participants who represent the target audience.
+4. Design questions that avoid leading or biasing responses.
+5. Record and transcribe sessions for analysis.
+6. Analyze for patterns, not anecdotes.
+7. Translate findings into actionable recommendations.
 
 ## Quality Gate
 
-Do not treat a persona or survey result as fact without noting sample source and bias.
+Research is complete when it answers the research questions with actionable insights.

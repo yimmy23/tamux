@@ -4,35 +4,7 @@ description: Search 10 academic paper databases via their REST APIs to find rese
 tags: [scientific-skills, paper-lookup, api, database, search, academic-writing, citation-management]
 metadata:
   skill-author: K-Dense Inc.
----
-
-# Paper Lookup
-
-You have access to 10 academic paper databases through their REST APIs. Your job is to figure out which database(s) best serve the user's query, call them, and return the results.
-
-## Core Workflow
-
-1. **Understand the query** -- What is the user looking for? A specific paper by DOI? Papers on a topic? An author's publications? Open access PDFs? Full text? This determines which database(s) to hit.
-
-2. **Select database(s)** -- Use the database selection guide below. Many queries benefit from hitting multiple databases -- for example, searching PubMed for papers and then checking Unpaywall for open access copies.
-
-3. **Read the reference file** -- Each database has a reference file in `references/` with endpoint details, query formats, and example calls. Read the relevant file(s) before making API calls.
-
-4. **Make the API call(s)** -- See the **Making API Calls** section below for which HTTP fetch tool to use on your platform.
-
-5. **Return results** -- Always return:
-   - The **raw JSON** (or parsed XML for arXiv) response from each database
-   - A **list of databases queried** with the specific endpoints used
-   - If a query returned no results, say so explicitly rather than omitting it
-
-## Database Selection Guide
-
-Match the user's intent to the right database(s).
-
-### By Use Case
-
-| User is asking about... | Primary database(s) | Also consider |
-|---|---|---|
+---|---|
 | Papers on a biomedical topic | PubMed | Semantic Scholar, OpenAlex |
 | Full text of a biomedical article | PMC | CORE |
 | Biology preprints | bioRxiv | Semantic Scholar, OpenAlex |

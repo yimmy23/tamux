@@ -2,31 +2,25 @@
 name: legal-compliance-task
 description: Use for legal drafting support, policy interpretation, compliance checklists, contracts, or regulatory questions.
 recommended_skills:
-  - privacy-compliance
-  - regulatory-compliance
-  - employment-law
-  - contract-drafting
-  - contract-review
-  - privacy-policy
-  - terms-of-service
+recommended_guidelines:
+  - security-privacy-task
+  - finance-budget-task
   - soc2-prep
-  - tavily
-  - security-best-practices
 ---
 
-# Legal And Compliance Task Guideline
+## Overview
 
-Legal and compliance work must distinguish information from legal advice.
+Legal and compliance work requires precision, documentation, and awareness of regulatory context.
 
 ## Workflow
 
-1. Identify jurisdiction, document type, regulation, business context, and risk tolerance.
-2. Use current authoritative sources when law, policy, or regulation matters.
-3. Use legal/compliance skills only for drafting support, checklists, and issue spotting; separate legal facts, operational interpretation, and recommendations.
-4. Flag when a qualified lawyer or compliance owner is needed.
-5. Avoid creating false certainty from incomplete facts.
-6. Provide checklists, questions, and issue spotting rather than definitive legal conclusions.
+1. Identify the applicable regulations, laws, or policies before acting.
+2. Consult authoritative sources — never rely on summaries or interpretations.
+3. Document all decisions and the rationale behind them.
+4. When in doubt, flag for expert review rather than making assumptions.
+5. Keep records of compliance activities for audit purposes.
+6. Use approved templates and processes where they exist.
 
 ## Quality Gate
 
-Do not present legal conclusions as professional legal advice or rely on stale legal knowledge.
+Legal work is complete when the applicable regulations are identified and the response is documented and defensible.

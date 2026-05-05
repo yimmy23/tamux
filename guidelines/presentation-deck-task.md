@@ -2,27 +2,27 @@
 name: presentation-deck-task
 description: Use for slide decks, executive updates, investor decks, training decks, or presentation outlines.
 recommended_skills:
-  - presentation-design
-  - pitch-deck
-  - board-update
-  - proposal-writing
-  - visual-content
-  - gpt-image-1-5
+  - scientific-slides
+  - pptx
+recommended_guidelines:
+  - communication-writing-task
+  - visual-art-task
 ---
 
-# Presentation Deck Task Guideline
+## Overview
 
-A deck should support a spoken decision or story, not become a dense document.
+Effective presentations have a clear narrative, visual consistency, and respect the audience's time.
 
 ## Workflow
 
-1. Identify audience, meeting context, decision, time limit, and presenter.
-2. Use `presentation-design` for deck architecture, `pitch-deck` for investor/fundraising decks, and `board-update` for investor, board, or executive update decks.
-3. Put one main point on each slide.
-4. Use charts only when the comparison or trend is clear.
-5. Separate speaker notes from on-slide text.
-6. End with the requested decision, action, or discussion.
+1. Define the single message or ask. Every slide should support that message.
+2. Outline the narrative arc before creating slides.
+3. Use `scientific-slides` for slide design, `pptx` for PowerPoint generation.
+4. One idea per slide. No slide should require more than 30 seconds to understand.
+5. Use visuals (diagrams, charts, images) over text blocks.
+6. Include a summary or call to action on the closing slide.
+7. Rehearse the presentation and time yourself.
 
 ## Quality Gate
 
-Do not make slides that require reading paragraphs during the presentation.
+A presentation is ready when each slide has exactly one point and the narrative flows without gaps.

@@ -2,26 +2,29 @@
 name: research-task
 description: Use when answering questions that require current, external, niche, or source-attributed information.
 recommended_skills:
-  - research-lookup
   - paper-lookup
+  - research-lookup
   - database-lookup
-  - tavily
-  - onecontext
+recommended_guidelines:
+  - academic-literature-review-task
+  - scientific-database-lookup-task
+  - evidence-quality-task
 ---
 
-# Research Task Guideline
+## Overview
 
-Research should separate verified facts from inference.
+Research requires a clear question, systematic gathering, and honest synthesis.
 
 ## Workflow
 
-1. Decide whether the answer depends on current, external, high-stakes, or niche information.
-2. Prefer primary sources: official docs, source code, standards, papers, vendor pages, release notes, public databases, or authoritative records.
-3. Use project history search when the user asks about past context or decisions and OneContext is available.
-4. Compare source dates when recency matters.
-5. Summarize the answer in your own words and link sources when external browsing was used.
-6. Mark uncertainty clearly when sources are incomplete or indirect.
+1. Define the research question precisely before starting.
+2. Use `paper-lookup`, `research-lookup`, or `database-lookup` based on the domain.
+3. Gather from authoritative and diverse sources.
+4. Evaluate source quality: recency, bias, methodology, peer review.
+5. Synthesize findings by theme, not by source.
+6. Identify contradictions, gaps, and areas of consensus.
+7. Document search strategy and sources so the research can be reproduced.
 
 ## Quality Gate
 
-Do not present unstable facts as memory-only knowledge when they could have changed or require precise attribution.
+Research is complete when the question is answered, sources are documented, and limitations are acknowledged.

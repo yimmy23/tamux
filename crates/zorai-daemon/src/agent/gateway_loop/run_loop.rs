@@ -79,6 +79,11 @@ impl AgentEngine {
                 let rx = shutdown.clone();
                 async move { engine.run_embedding_index_loop(rx).await }
             }),
+            tokio::spawn({
+                let engine = self.clone();
+                let rx = shutdown.clone();
+                async move { engine.run_semantic_document_index_loop(rx).await }
+            }),
         ];
 
         let _ = shutdown.changed().await;

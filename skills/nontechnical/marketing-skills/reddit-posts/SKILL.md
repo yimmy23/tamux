@@ -4,22 +4,7 @@ description: When the user wants to create Reddit post copy, comments, or optimi
 tags: [nontechnical, marketing-skills, reddit-posts, writing, marketing]
 metadata:
   version: 1.0.1
----
-
-# Platforms: Reddit
-
-Guides Reddit post and comment creation. Use for generating publish-ready posts that follow subreddit norms. Suitable for copy agents. Design agents can use for image post context.
-
-**When invoking**: On **first use**, if helpful, open with 1-2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Output: Publish-Ready Copy
-
-This skill enables agents to generate Reddit post copy (title + body) that respects platform rules and community culture. Output is subreddit-aware and engagement-optimized.
-
-## Core Rules
-
-| Rule | Practice |
-|------|----------|
+---|----------|
 | **90/10 principle** | 90% value, 10% promotional |
 | **Self-promotion** | Max 1 in 6 posts promotional |
 | **Subreddit rules** | Always check sidebar before posting |

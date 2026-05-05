@@ -21,37 +21,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Project Execution
-
-Project execution is the discipline of turning a plan into delivered outcomes while
-navigating uncertainty, managing cross-team dependencies, and keeping stakeholders
-aligned. Most projects fail not from bad ideas but from poor execution - untracked
-risks that materialize, dependencies that slip silently, and stakeholders who learn
-about problems too late to help. This skill equips an agent to build risk registers,
-map dependency chains, write crisp status updates, and make sound escalation decisions
-throughout a project's lifecycle.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to create a project plan, timeline, or milestone breakdown
-- Wants to identify, assess, or mitigate project risks
-- Asks to map dependencies between teams, services, or deliverables
-- Needs to write a status update, executive summary, or steering committee report
-- Wants to build or maintain a RAID log (Risks, Assumptions, Issues, Dependencies)
-- Asks about critical path analysis or schedule compression
-- Needs to escalate a blocked or at-risk project
-- Wants to estimate timelines or evaluate schedule feasibility
-
-Do NOT trigger this skill for:
-- Pure technical architecture decisions (use system-design or clean-architecture instead)
-- Agile ceremony design or Scrum process questions (this skill is methodology-agnostic)
-
----
-
 ## Key principles
 
 1. **Risks are first-class artifacts** - Every project maintains a living risk register. A risk without an owner, a likelihood rating, and a mitigation plan is just a worry. Quantify risks on a 3x3 matrix (likelihood x impact) and review them weekly, not just at kickoff.

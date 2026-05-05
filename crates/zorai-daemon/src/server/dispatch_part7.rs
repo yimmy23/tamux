@@ -12,6 +12,7 @@ if matches!(
         ClientMessage::AuditDismiss{ .. } |
         ClientMessage::EscalationCancel{ .. } |
         ClientMessage::SkillList{ .. } |
+        ClientMessage::AgentSemanticDocumentSync |
         ClientMessage::SkillDiscover{ .. } |
         ClientMessage::GuidelineDiscover{ .. }
     ) {
@@ -652,6 +653,38 @@ if matches!(
                             framed
                                 .send(DaemonMessage::Error {
                                     message: format!("skill discovery failed: {error}"),
+                                })
+                                .await?;
+                        }
+                    }
+                }
+
+                ClientMessage::AgentSemanticDocumentSync => {
+                    match agent.sync_semantic_document_indexes_public().await {
+                        Ok(result) => match serde_json::to_string(&result) {
+                            Ok(result_json) => {
+                                framed
+                                    .send(DaemonMessage::SemanticDocumentSyncResult {
+                                        result_json,
+                                    })
+                                    .await?;
+                            }
+                            Err(error) => {
+                                framed
+                                    .send(DaemonMessage::Error {
+                                        message: format!(
+                                            "semantic document sync serialization failed: {error}"
+                                        ),
+                                    })
+                                    .await?;
+                            }
+                        },
+                        Err(error) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: format!(
+                                        "semantic document sync failed: {error}"
+                                    ),
                                 })
                                 .await?;
                         }

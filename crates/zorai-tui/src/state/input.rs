@@ -34,6 +34,8 @@ pub enum InputAction {
     MoveCursorHome,
     MoveCursorEnd,
     MoveCursorToPos(usize),
+    HistoryPrevious,
+    HistoryNext,
     Undo,
     Redo,
 }
@@ -54,9 +56,13 @@ pub struct InputState {
     submitted: Option<String>,
     paste_blocks: Vec<PasteBlock>,
     next_paste_id: usize,
+    sent_history: Vec<String>,
+    history_cursor: Option<usize>,
 }
 
+include!("input_parts/history.rs");
 include!("input_parts/new_to_reduce.rs");
+include!("input_parts/text.rs");
 
 #[cfg(test)]
 #[path = "tests/input.rs"]

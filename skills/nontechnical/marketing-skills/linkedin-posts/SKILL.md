@@ -4,22 +4,7 @@ description: When the user wants to create LinkedIn post copy or optimize for Li
 tags: [nontechnical, marketing-skills, linkedin-posts, writing, marketing]
 metadata:
   version: 1.2.0
----
-
-# Platforms: LinkedIn
-
-Guides LinkedIn post copy creation and optimization. Use for generating publish-ready professional content. Suitable for copy agents and design agents (image specs).
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Output: Publish-Ready Copy
-
-This skill enables agents to generate LinkedIn post copy optimized for engagement. Output includes character-counted text and structure for the "See more" threshold.
-
-## Post Types and Entry Points (organic)
-
-| Kind | What to know |
-|------|----------------|
+---|----------------|
 | **Start a post** | Short update; can include **link preview** if you paste a URL. Same feed format as other updates. |
 | **Photo** | Single or multiple images (carousel in feed). |
 | **Video** | Uploaded file (distinct from **LinkedIn Live**, which is live streaming and has separate gating). |

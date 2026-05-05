@@ -2,29 +2,26 @@
 name: creative-brief-task
 description: Use for briefs for design, video, photography, copy, campaigns, visual identity, or creative production.
 recommended_skills:
-  - visual-content
-  - branding
-  - brand-strategy
-  - copywriting
-  - ad-creative
-  - video-scriptwriting
-  - video-production
-  - gpt-image-1-5
+recommended_guidelines:
+  - brand-strategy-task
+  - product-marketing-task
+  - visual-art-task
 ---
 
-# Creative Brief Task Guideline
+## Overview
 
-A creative brief should give freedom inside useful constraints.
+A creative brief aligns stakeholders and creators on what needs to be produced, for whom, and why.
 
 ## Workflow
 
-1. Identify objective, audience, message, emotion, deliverables, channels, timeline, and approvals.
-2. State what must be communicated and what must be avoided.
-3. Include brand, tone, visual references, format, technical specs, and legal constraints; use `branding` and `visual-content` when the brief needs brand or asset direction.
-4. Define success criteria and review process.
-5. Separate mandatory requirements from creative inspiration.
-6. Call out unknowns that need stakeholder input.
+1. Define the project: what is being created, for what purpose, and for whom.
+2. Specify the desired outcome and how success will be measured.
+3. Include deadlines, budget constraints, and required deliverables.
+4. Provide reference materials: examples, competitors, style guides.
+5. Define the target audience: demographics, psychographics, pain points.
+6. Identify the tone, voice, and brand constraints.
+7. Review the brief with all stakeholders before work begins.
 
 ## Quality Gate
 
-Do not start creative execution from vague adjectives alone; anchor the work in audience, message, and deliverables.
+A brief is complete when any creator can produce work that meets stakeholder expectations without additional clarification.

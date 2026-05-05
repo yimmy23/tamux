@@ -5,48 +5,7 @@ related: [cold-outreach, sales-script]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, lead-scoring, workflow, database, experimental-design, sales]
----
-
-# Lead Scoring
-
-## When to Use
-Activate when a founder needs to evaluate inbound prospects against ICP criteria, build a systematic qualification workflow, score and route leads, establish MQL/SQL definitions, or design pipeline stages. Also use when the user says "which leads should I focus on," "how do I qualify inbound leads," "define my ICP," "set up lead scoring," or "how do I route leads to the right person."
-
-## Context Required
-From `startup-context` or the user:
-- **ICP definition** — Who is the ideal customer (company size, industry, stage, geography, use case)
-- **Lead sources** — Where inbound leads come from (website, events, content, referrals)
-- **CRM and tooling** — Current stack for managing leads and deals
-- **Current customers** — Who are the best existing customers and why
-- **Pipeline data** — Existing deals, active customers, prior contacts
-- **Sales capacity** — Who handles leads and what is their bandwidth
-
-Work with whatever the user provides. If they have a clear problem area, start there. Do not block on missing inputs.
-
-## Workflow
-1. **Load ICP and configuration** — Read startup-context if available. Establish the qualification criteria across company attributes, person attributes, and use case fit.
-2. **Parse the lead data** — Accept leads in any format (CSV, list, CRM export, single name). Identify data gaps and flag what needs enrichment.
-3. **Check pipeline overlap** — Before scoring, check for existing customers (route to upsell), active deals (flag for sales coordination), and prior contacts (note history). Pipeline overlaps are routing flags, not disqualifiers.
-4. **Score company fit** — Evaluate against company size, industry, stage, geography, and use case alignment. Weight each dimension based on what predicts closed-won deals.
-5. **Score person fit** — Evaluate title, seniority, department, and decision-making authority. A perfect company with the wrong contact still needs routing, not rejection.
-6. **Score use case alignment** — Connect the lead's inferred intent to specific product capabilities. Inbound signals (demo requests, pricing page visits) tip borderline cases toward qualification.
-7. **Generate composite score and verdict** — Produce a 0-100 composite score and assign a routing recommendation.
-8. **Export structured output** — Deliver results in a table or CSV with all qualification data, scores, and routing.
-
-## Output Format
-Deliver these documents:
-1. **Scored lead report** — Each lead with composite score (0-100), sub-scores by dimension, verdict category, and routing recommendation
-2. **ICP definition** — Firmographic and demographic criteria with priority tiers
-3. **Scoring model** — Complete point-value table for company, person, and use case dimensions with threshold definitions
-4. **Pipeline routing rules** — How each verdict category gets handled
-
-## Frameworks & Best Practices
-
-### Verdict Categories
-Assign every lead to one of these routing buckets based on composite score:
-
-| Verdict | Score | Action |
-|---------|-------|--------|
+------|-------|--------|
 | **Qualified — Hot** | 85-100 | Immediate sales outreach. High urgency, strong fit. |
 | **Qualified — Warm** | 75-84 | Active pursuit within 24 hours. Good fit, moderate urgency. |
 | **Borderline** | 50-74 | Requires human review. Qualified with caveats — flag specific concerns. |

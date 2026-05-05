@@ -3,26 +3,28 @@ name: research-grant-proposal-task
 description: Use for NSF, NIH, DOE, DARPA, NSTC, foundation, academic grant proposals, budgets, broader impacts, or review criteria.
 recommended_skills:
   - research-grants
-  - venue-templates
-  - scientific-writing
-  - literature-review
   - citation-management
-  - hypothesis-generation
+recommended_guidelines:
+  - research-task
+  - academic-literature-review-task
+  - citation-bibliography-task
+  - nonprofit-fundraising-task
 ---
 
-# Research Grant Proposal Task Guideline
+## Overview
 
-Grant proposals should align scientific value with funder review criteria.
+Grant proposals must clearly communicate the research question, methodology, and expected impact.
 
 ## Workflow
 
-1. Identify funder, program, deadline, eligibility, page limits, required sections, budget rules, and review rubric.
-2. Use `research-grants` for agency-specific proposal structure, significance, innovation, approach, broader impacts, and budget preparation.
-3. Use `venue-templates` for formatting and submission constraints.
-4. Use `literature-review` and `citation-management` to ground significance and gap claims.
-5. Use `hypothesis-generation` for aims, predictions, mechanisms, and experiments.
-6. Cross-check every section against the review criteria and required attachments.
+1. Read the grant guidelines and eligibility requirements carefully.
+2. Align the research question with the funder's priorities.
+3. Write a clear hypothesis and specific aims.
+4. Describe methodology with enough detail to establish credibility.
+5. Include preliminary data or proof of concept where available.
+6. Use `research-grants` for proposal templates and `citation-management` for references.
+7. Review the proposal against the scoring criteria before submission.
 
 ## Quality Gate
 
-Do not draft a proposal without the funder, program, deadline, eligibility constraints, and review criteria.
+A proposal is ready when it addresses all evaluation criteria and fits within the required format and page limits.

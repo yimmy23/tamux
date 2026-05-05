@@ -7,63 +7,7 @@ description: >
   covers authentication, all available endpoints, pagination, error handling, and best practices.
 
 tags: [productivity, agent-skills, notion-api, api, writing, notion]
----
-
-# Notion API Skill
-
-This skill enables interaction with Notion workspaces through the Notion REST API. Use `curl` and `jq` for direct REST calls, or write ad-hoc scripts as appropriate for the task.
-
-## Authentication
-
-### API Key Handling
-
-1. **Environment Variable**: Check if `NOTION_API_TOKEN` is available in the environment
-2. **User-Provided Key**: If the user provides an API key in context, use that instead
-3. **No Key Available**: If neither is available, use AskUserQuestion (or equivalent) to request the API key from the user
-
-**IMPORTANT**: Never display, log, or send `NOTION_API_TOKEN` anywhere except in the `Authorization` header. Confirm its existence, ask if missing, use it in requests—but never echo or expose it.
-
-### Request Headers
-
-All requests require these headers:
-
-```bash
--H "Authorization: Bearer $NOTION_API_TOKEN" \
--H "Notion-Version: 2025-09-03" \
--H "Content-Type: application/json"
-```
-
-### Verifying Authentication
-
-Test the API key by retrieving the bot user:
-
-```bash
-curl -s "https://api.notion.com/v1/users/me" \
-  -H "Authorization: Bearer $NOTION_API_TOKEN" \
-  -H "Notion-Version: 2025-09-03" | jq
-```
-
-## Base URL and Conventions
-
-- **Base URL**: `https://api.notion.com`
-- **API Version**: `2025-09-03` (required header)
-- **Data Format**: JSON for all request/response bodies
-- **IDs**: UUIDv4 format (dashes optional in requests)
-- **Timestamps**: ISO 8601 format (`2020-08-12T02:12:33.231Z`)
-- **Property Names**: `snake_case`
-- **Empty Values**: Use `null` instead of empty strings
-
-## Rate Limits
-
-- **Average**: 3 requests per second per integration
-- **Bursts**: Brief bursts above this limit are allowed
-- **Rate Limited Response**: HTTP 429 with `Retry-After` header
-- **Strategy**: Implement exponential backoff when receiving 429 responses
-
-## Request Size Limits
-
-| Type | Limit |
-|------|-------|
+---|-------|
 | Maximum block elements per payload | 1000 |
 | Maximum payload size | 500KB |
 | Rich text content | 2000 characters |

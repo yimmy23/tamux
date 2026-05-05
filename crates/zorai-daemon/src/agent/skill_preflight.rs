@@ -260,16 +260,47 @@ impl AgentEngine {
             self.plugin_manager.get().map(|manager| manager.as_ref()),
         )
         .await;
-        let cfg = self.config.read().await.skill_recommendation.clone();
-        let result = super::skill_recommendation::discover_local_guidelines(
-            &self.history,
-            &guidelines_root,
-            query,
-            &context_tags,
-            512,
-            &cfg,
-        )
-        .await?;
+        let agent_config = self.config.read().await.clone();
+        let cfg = agent_config.skill_recommendation.clone();
+        let result = if agent_config.semantic.embedding.enabled {
+            let _ = self.sync_semantic_document_indexes_once().await;
+            let semantic_scores = self
+                .semantic_document_scores(query, "guideline", 512, &agent_config)
+                .await
+                .unwrap_or_default();
+            if semantic_scores.is_empty() {
+                super::skill_recommendation::discover_local_guidelines(
+                    &self.history,
+                    &guidelines_root,
+                    query,
+                    &context_tags,
+                    512,
+                    &cfg,
+                )
+                .await?
+            } else {
+                super::skill_recommendation::discover_local_guidelines_with_semantic_scores(
+                    &self.history,
+                    &guidelines_root,
+                    query,
+                    &context_tags,
+                    512,
+                    &cfg,
+                    &semantic_scores,
+                )
+                .await?
+            }
+        } else {
+            super::skill_recommendation::discover_local_guidelines(
+                &self.history,
+                &guidelines_root,
+                query,
+                &context_tags,
+                512,
+                &cfg,
+            )
+            .await?
+        };
 
         super::skill_recommendation::page_public_discovery_result_with_action(
             query,
@@ -508,7 +539,8 @@ impl AgentEngine {
             self.plugin_manager.get().map(|manager| manager.as_ref()),
         )
         .await;
-        let cfg = self.config.read().await.skill_recommendation.clone();
+        let agent_config = self.config.read().await.clone();
+        let cfg = agent_config.skill_recommendation.clone();
         let (result, mut backend_used, mesh_degraded) = execute_skill_discovery_backend(
             #[cfg(test)]
             self.force_mesh_discovery_degraded_for_tests
@@ -524,6 +556,44 @@ impl AgentEngine {
         )
         .await?;
         let mut normalized_intent = query.trim().to_string();
+        let result = if agent_config.semantic.embedding.enabled {
+            let _ = self.sync_semantic_document_indexes_once().await;
+            match self
+                .semantic_document_scores(
+                    query,
+                    "skill",
+                    limit.saturating_mul(4).max(16),
+                    &agent_config,
+                )
+                .await
+            {
+                Ok(semantic_scores) if !semantic_scores.is_empty() => {
+                    let semantic_result =
+                        super::skill_recommendation::discover_local_skills_with_semantic_scores(
+                            &self.history,
+                            &skills_root,
+                            query,
+                            &context_tags,
+                            limit,
+                            &cfg,
+                            &semantic_scores,
+                        )
+                        .await?;
+                    if fallback_result_is_better(&result, &semantic_result) {
+                        semantic_result
+                    } else {
+                        result
+                    }
+                }
+                Ok(_) => result,
+                Err(error) => {
+                    tracing::warn!(%error, "semantic skill discovery vector search failed");
+                    result
+                }
+            }
+        } else {
+            result
+        };
         let mut result = if cfg.llm_normalize_on_no_match
             && should_attempt_query_normalization(query, &result)
         {

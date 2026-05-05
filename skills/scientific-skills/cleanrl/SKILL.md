@@ -5,60 +5,7 @@ license: MIT license
 tags: [ppo, dqn, sac, rl-reference-implementation, cleanrl]
 metadata:
     skill-author: K-Dense Inc.
----
-
-# CleanRL
-
-## Overview
-
-CleanRL provides production-quality single-file implementations of deep reinforcement learning algorithms. Unlike modular libraries, each algorithm is a standalone Python file containing the complete implementation — great for learning, prototyping, and understanding every detail. All implementations are benchmarked and include TensorBoard logging, seeding, video capture, and Weights & Biases integration. Use this skill for RL algorithm development, research prototyping, and as reference implementations.
-
-## When to Use This Skill
-
-This skill should be used when:
-- Learning how RL algorithms work — each file is self-contained
-- Prototyping new algorithmic ideas — minimal code to modify
-- Running RL benchmarks across Atari, MuJoCo, Procgen
-- Training multi-agent RL with PettingZoo (PPO)
-- Comparing algorithm performance on standard testbeds
-- Needing a production-grade single-file reference to port from
-- Training with JAX-accelerated RL variants
-
-## Core Capabilities
-
-### 1. Installation
-
-```bash
-git clone https://github.com/vwxyzjn/cleanrl.git && cd cleanrl
-pip install -e .
-
-# Atari support
-pip install -r requirements/requirements-atari.txt
-
-# MuJoCo support
-pip install -r requirements/requirements-mujoco.txt
-
-# PettingZoo multi-agent support
-pip install -r requirements/requirements-pettingzoo.txt
-
-# JAX variants
-pip install -r requirements/requirements-jax.txt
-
-# EnvPool for faster Atari (Linux only)
-pip install -r requirements/requirements-envpool.txt
-```
-
-Or with uv (recommended):
-```bash
-uv run python cleanrl/ppo.py --env-id CartPole-v1 --total-timesteps 50000
-```
-
-### 2. Algorithm Quick Reference
-
-Run any algorithm as a standalone script:
-
-| Algorithm | File | Typical Command |
-|-----------|------|----------------|
+--------|------|----------------|
 | **PPO** | `ppo.py` | `python cleanrl/ppo.py --env-id CartPole-v1` |
 | **PPO Atari** | `ppo_atari.py` | `python cleanrl/ppo_atari.py --env-id BreakoutNoFrameskip-v4` |
 | **PPO Continuous** | `ppo_continuous_action.py` | `python cleanrl/ppo_continuous_action.py --env-id HalfCheetah-v4` |

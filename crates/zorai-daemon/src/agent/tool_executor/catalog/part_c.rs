@@ -275,7 +275,7 @@ fn add_available_tools_part_c(
             "include_dom": { "type": "boolean", "description": "For browser panels: include page DOM text content. Ignored for terminal panes." }
         }
     })));
-    tools.push(tool_def(tool_names::RUN_TERMINAL_COMMAND, "Execute a shell command through a zorai-managed terminal session. This runs in the app's terminal context (not a daemon-native subprocess). For long-running work, prefer non-blocking execution and poll the returned `operation_id` with `get_operation_status`. Use this for shell-native networking such as `curl -I`, range requests, large or binary downloads, or streaming transfers; for browser-readable text pages, prefer `web_search` or `fetch_url`.", serde_json::json!({
+    tools.push(tool_def(tool_names::RUN_TERMINAL_COMMAND, "Execute a shell command through a zorai-managed terminal session. This runs in the app's terminal context (not a daemon-native subprocess). For long-running work, prefer non-blocking execution; background operations will auto-notify the thread when they complete, and `get_operation_status` is available when you need more details. Use this for shell-native networking such as `curl -I`, range requests, large or binary downloads, or streaming transfers; for browser-readable text pages, prefer `web_search` or `fetch_url`.", serde_json::json!({
         "type": "object",
         "properties": {
             "command": { "type": "string", "description": "Shell command to execute in a managed terminal session" },
@@ -287,11 +287,11 @@ fn add_available_tools_part_c(
             "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
             "language_hint": { "type": "string", "description": "Optional language hint for validation" },
             "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds and returns an `operation_id` for polling via `get_operation_status`." }
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds, returns an `operation_id`, and will auto-notify the thread on completion." }
         },
         "required": ["command"]
     })));
-    tools.push(tool_def(tool_names::EXECUTE_MANAGED_COMMAND, "Queue a command in a daemon-managed terminal lane. By default this tool waits for completion and returns final status/output tail. If session is omitted, uses the first active terminal session. For non-blocking execution, poll the returned `operation_id` with `get_operation_status`. Use this for shell-native networking such as `curl -I`, range requests, large or binary downloads, or streaming transfers; for browser-readable text pages, prefer `web_search` or `fetch_url`.", serde_json::json!({
+    tools.push(tool_def(tool_names::EXECUTE_MANAGED_COMMAND, "Queue a command in a daemon-managed terminal lane. By default this tool waits for completion and returns final status/output tail. If session is omitted, uses the first active terminal session. For non-blocking execution, background operations will auto-notify the thread when they complete, and `get_operation_status` is available when you need more details. Use this for shell-native networking such as `curl -I`, range requests, large or binary downloads, or streaming transfers; for browser-readable text pages, prefer `web_search` or `fetch_url`.", serde_json::json!({
         "type": "object",
         "properties": {
             "command": { "type": "string", "description": "Shell command to run in the managed terminal session" },
@@ -303,11 +303,11 @@ fn add_available_tools_part_c(
             "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
             "language_hint": { "type": "string", "description": "Optional language hint for validation" },
             "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds and returns an `operation_id` for polling via `get_operation_status`." }
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds, returns an `operation_id`, and will auto-notify the thread on completion." }
         },
         "required": ["command", "rationale"]
     })));
-    tools.push(tool_def(tool_names::GET_OPERATION_STATUS, "Look up the current lifecycle state of a previously accepted asynchronous operation by its operation_id. For background terminal commands, pass the returned operation_id here; `background_task_id` is the same value for compatibility. When a background headless shell command completes or fails, this response includes `terminal_result` with the captured payload and exit code.", serde_json::json!({
+    tools.push(tool_def(tool_names::GET_OPERATION_STATUS, "Look up the current lifecycle state of a previously accepted asynchronous operation by its operation_id. Background operations will auto-notify the thread with their completion status and result, so use this tool when you need more details or an explicit status check. For background terminal commands, pass the returned operation_id here; `background_task_id` is the same value for compatibility. When a background headless shell command completes or fails, this response includes `terminal_result` with the captured payload and exit code.", serde_json::json!({
         "type": "object",
         "properties": {
             "operation_id": { "type": "string", "description": "Asynchronous operation handle returned by a non-blocking tool or daemon operation" }

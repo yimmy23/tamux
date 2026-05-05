@@ -4,18 +4,7 @@ description: When the user wants to set up, optimize, or manage Google Ads campa
 tags: [nontechnical, marketing-skills, google-ads, strategy, performance, testing, search]
 metadata:
   version: 1.4.1
----
-
-# Paid Ads: Google Ads
-
-Guides Google Ads setup, campaign structure, keyword targeting, and optimization. Google Ads excels at high-intent search traffic; use when people actively search for your solution.
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Two Modes: PMF Testing vs Conversion-Driven
-
-| Mode | When | Budget | Landing page | Metrics |
-|------|------|--------|--------------|---------|
+---|------|--------|--------------|---------|
 | **PMF testing** | Pre-PMF; validate idea before building | $47–500; start small | Simple LP: headline, benefits, problem solved, CTA ("Join Waitlist," "Get Early Access") | CTR, sign-up rate, bounce rate; low CTR/high bounce = messaging/positioning issue |
 | **Conversion-driven** | PMF validated; commercialization | Scale; ROAS target | Full funnel; ad-to-page alignment | ROAS, CAC, conversion rate |
 

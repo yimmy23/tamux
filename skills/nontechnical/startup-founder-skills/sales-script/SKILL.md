@@ -5,58 +5,7 @@ related: [cold-outreach, proposal-generation]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, sales-script, strategy, sales]
----
-
-# Sales Script
-
-## When to Use
-- Preparing for a discovery call, product demo, or closing meeting
-- Responding to an RFP/RFI and need coverage gap analysis
-- Building a competitive feature comparison matrix against rivals
-- Planning or scoring a proof-of-concept (POC) engagement
-- Preparing a technical demo script with stakeholder-specific talking points
-- Handling objections or conducting win/loss analysis
-
-## Context Required
-From `startup-context` or the user:
-- **Product/service** — What you sell, who it is for, key capabilities
-- **Target persona** — Role, seniority, typical pain points
-- **Deal context** — Stage, deal size, stakeholders involved, known objections
-- **Competitive landscape** — Who else they are evaluating, your differentiators
-- **Proof points** — Metrics, case studies, customer quotes
-- **RFP/RFI details** — If responding to a formal request, the requirement categories and priorities
-
-## Workflow
-
-### Phase 1: Discovery & Research
-1. **Gather context** — Read startup-context. Identify the script type needed: discovery call, demo, RFP response, competitive analysis, or POC plan.
-2. **Map customer requirements** — Document the prospect's current architecture, pain points, integration requirements, security/compliance needs, and business drivers.
-3. **Assess competitive landscape** — Identify competitors in the deal. Map your product capabilities against theirs to find differentiators and vulnerabilities.
-4. **Score requirement coverage** — For RFP/RFI responses, categorize each requirement as Full (100%), Partial (50%), Planned (25%), or Gap (0%). Weight by priority: Must-Have 3x, Should-Have 2x, Nice-to-Have 1x.
-
-### Phase 2: Solution Design & Positioning
-5. **Map pain to value** — Connect each prospect pain point to a specific product capability with proof (metrics, case studies).
-6. **Build competitive differentiation** — Identify at least one strong differentiator per customer priority. If none exist, flag for product team escalation.
-7. **Design the talk track** — Structure the conversation or document around their priorities, not your feature list.
-
-### Phase 3: Script & Demo Preparation
-8. **Draft the script** — Write the full script with timing, talk tracks, questions, transition cues, and stakeholder-specific talking points.
-9. **Prepare objection handling** — Anticipate likely objections and write response frameworks using the LAER model.
-10. **Build demo environment** — Create a pre-demo checklist: environment tested, sample data loaded, backup environment prepared, customer-specific branding applied.
-
-### Phase 4: POC & Closing (if applicable)
-11. **Define POC scope** — Set success criteria, timeline (typically 5 weeks), phased testing plan. Evaluate across functionality, performance, integration, usability, support. Require >60% for a go recommendation.
-12. **Close the deal** — Package POC results, demo feedback, and competitive positioning. Apply closing techniques appropriate to the deal stage.
-
-## Output Format
-Deliver the format matching the request: **Discovery call script** (SPIN-phase questions, qualifying criteria, next-step framing), **Demo script** (scene-by-scene with timing, per-role talk tracks, pre-demo checklist, objection table), **RFP response analysis** (coverage score, gap count, bid/no-bid recommendation), **Competitive matrix** (feature comparison with weighted scores, differentiators, vulnerabilities), **POC plan** (phased timeline, success criteria, scorecard), **Objection handling doc** (table: objection, concern, response, proof, follow-up), or **Closing playbook** (decision criteria, techniques, timeline).
-
-## Frameworks & Best Practices
-
-### Discovery Call Framework (30 min)
-
-| Phase | Duration | What to Do |
-|-------|----------|------------|
+----|----------|------------|
 | Rapport & agenda | 3 min | Set the agenda, confirm time, build quick rapport |
 | Situation questions | 7 min | Understand their current state and workflow |
 | Problem questions | 8 min | Dig into pain points, frequency, and impact |

@@ -2,27 +2,26 @@
 name: analytics-measurement-task
 description: Use for tracking plans, metrics definitions, dashboards, attribution, product analytics, support analytics, SaaS metrics, or measurement audits.
 recommended_skills:
-  - analytics-tracking
-  - product-analytics
-  - support-analytics
-  - saas-metrics
-  - spreadsheet-modeling
-  - financial-reporting
+  - analytics-measurement-task
+recommended_guidelines:
+  - data-analysis-task
+  - marketing-campaign-task
 ---
 
-# Analytics And Measurement Task Guideline
+## Overview
 
-Analytics work should answer decisions, not create unused data.
+Analytics should answer specific questions, not just collect data.
 
 ## Workflow
 
-1. Identify the decision, audience, metric owner, time period, and action that will follow from the data.
-2. Define metric formulas, event names, properties, dimensions, exclusions, and source of truth.
-3. Separate acquisition, activation, retention, revenue, support, and financial metrics.
-4. Use `analytics-tracking` for event plans, `product-analytics` for product funnels, `support-analytics` for support operations, and `saas-metrics` for SaaS KPI definitions.
-5. Check data quality: missing events, duplicate events, timezone, identity stitching, sampling, and backfills.
-6. Present findings with definitions, caveats, and next instrumentation or analysis steps.
+1. Define the business question before choosing metrics.
+2. Choose leading indicators that predict business outcomes, not just vanity metrics.
+3. Define metrics precisely: formula, data source, time period, segmentation.
+4. Set up tracking with proper instrumentation before launching.
+5. Create dashboards that highlight actionable insights, not just data.
+6. Validate data quality: check for data gaps, outliers, and tracking errors.
+7. Review and refine metrics as the business evolves.
 
 ## Quality Gate
 
-Do not present a dashboard or metric without defining how it is calculated and what decision it supports.
+Analytics setup is complete when metrics are defined, tracking is validated, and dashboards answer the business questions.

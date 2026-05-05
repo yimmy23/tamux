@@ -4,27 +4,7 @@ description: When the user wants to write or optimize short-form marketing copy�
 tags: [nontechnical, marketing-skills, copywriting, writing, sales, marketing]
 metadata:
   version: 1.2.0
----
-
-# Content: Copywriting
-
-Guides **short-form marketing copy**—ads, landing pages, email, CTAs. Copywriting frameworks (PAS, AIDA, BAB) provide structure for conversion-focused copy. For **article body content** (blog posts, guides, long-form), see **article-content**.
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Initial Assessment
-
-**Check for project context first:** If `.claude/project-context.md` or `.cursor/project-context.md` exists, read Sections 2 (Positioning), 3 (Value Proposition), 8 (Brand & Voice).
-
-Identify:
-1. **Context**: Ad, landing page, email, CTA, or general
-2. **Goal**: Awareness, consideration, conversion, retention
-3. **Audience**: ICP, stage, pain points
-
-## Copywriting Frameworks
-
-| Framework | Structure | Best For |
-|-----------|-----------|----------|
+--------|-----------|----------|
 | **PAS** | Problem → Agitation → Solution | Direct-response; sales pages; landing pages |
 | **AIDA** | Attention → Interest → Desire → Action | Story-driven; ads; emails; editorials |
 | **BAB** | Before (problem) → After (outcome) → Bridge (how) | Transformation; testimonials; case studies |

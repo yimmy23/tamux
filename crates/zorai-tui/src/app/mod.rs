@@ -307,5 +307,6 @@ mod tests {
     include!("tests/drag_selection_copies_expected_text_after_autoscroll_to_status_modal.rs");
     include!("tests/goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows.rs");
     include!("tests/background_delta_isolated_to_origin_thread_until_switch_to_background.rs");
+    include!("tests/input_history_keyboard.rs");
     include!("tests/goal_composer_add_agent_hotkey_creates_another_role_assignment.rs");
 }

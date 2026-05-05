@@ -20,37 +20,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Remote Collaboration
-
-Remote collaboration is the practice of coordinating effectively across distributed
-teams without relying on real-time, co-located interaction as the default. This skill
-covers three interconnected disciplines: async-first workflows that reduce dependency
-on synchronous communication, documentation-driven processes that make decisions
-durable and discoverable, and meeting facilitation that ensures the meetings you do
-hold are high-signal and well-structured. The goal is to help teams move faster by
-writing more and meeting less - without losing alignment or team cohesion.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to design an async-first workflow for a team or project
-- Needs to write an RFC, decision document, or proposal for async review
-- Is preparing a meeting agenda, standup format, or retro structure
-- Asks how to reduce unnecessary meetings or meeting fatigue
-- Wants to improve handoffs between team members across time zones
-- Needs templates for status updates, weekly digests, or async standups
-- Is establishing communication norms or a team communication charter
-- Wants to facilitate a specific meeting type (kickoff, planning, 1:1, retro)
-
-Do NOT trigger this skill for:
-- Real-time pair programming workflows (that is synchronous by nature)
-- General project management methodology (Scrum, Kanban) without a remote focus
-
----
-
 ## Key principles
 
 1. **Async by default, sync by exception** - Every process should start as async.

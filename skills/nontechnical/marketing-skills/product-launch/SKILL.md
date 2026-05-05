@@ -4,37 +4,7 @@ description: When the user wants to plan a product launch, execute launch channe
 tags: [nontechnical, marketing-skills, product-launch, strategy]
 metadata:
   version: 1.2.0
----
-
-# Strategies: Product Launch
-
-Guides product launch execution—channels, timeline, checklist, and cross-functional coordination. Use this skill when planning the launch of a new product or major feature. For GTM strategy (PLG/SLG/MLG, 90-day framework, ICP, new market entry, repositioning), see **gtm-strategy**. For cold start (first users, no product yet), see **cold-start-strategy**.
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Initial Assessment
-
-**Check for project context first:** If `.claude/project-context.md` or `.cursor/project-context.md` exists, read full file.
-
-Identify:
-1. **Launch type**: New product, major feature, market expansion
-2. **GTM mode**: Sales-led, product-led, marketing-led, hybrid (from **gtm-strategy**)
-3. **Channels**: PR, paid, organic, email, events
-
-## Launch Checklist
-
-- [ ] GTM strategy defined (see **gtm-strategy**)
-- [ ] PMF validated (see **pmf-strategy**)
-- [ ] Target market and ICP clear
-- [ ] Messaging consistent across teams
-- [ ] Channel mix chosen (PR, paid, organic, email)
-- [ ] Timeline and milestones set
-- [ ] Cross-functional owners assigned (RACI)
-
-## Channel Mix
-
-| Channel | Use | Skills |
-|---------|-----|--------|
+------|-----|--------|
 | **PR** | Press release, media relations | public-relations |
 | **Paid ads** | Scale acquisition post-PMF | paid-ads-strategy |
 | **Organic** | SEO, content, community | seo-strategy, content-marketing |

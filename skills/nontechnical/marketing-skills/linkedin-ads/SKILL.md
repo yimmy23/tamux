@@ -4,29 +4,7 @@ description: When the user wants to set up, optimize, or manage LinkedIn Ads. Al
 tags: [nontechnical, marketing-skills, linkedin-ads, writing]
 metadata:
   version: 1.2.0
----
-
-# Paid Ads: LinkedIn Ads
-
-Guides LinkedIn Ads setup, targeting, and optimization. LinkedIn excels at B2B and professional targeting; use when job title/company targeting matters and ACV is higher.
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Account and product context
-
-- **Campaign Manager** is the main UI: [campaignmanager.linkedin.com](https://www.linkedin.com/campaignmanager) · [Get started (help)](https://www.linkedin.com/help/lms/answer/a9509136)
-- **Marketing Solutions** = ads for brands/leads; **Talent Solutions** = hiring products (separate when choosing objectives).
-- **Sponsored Content** in-feed and **Sponsored Messaging** generally require a free **[LinkedIn Page](https://business.linkedin.com/advertise/ads/best-practices/what-you-need-to-get-started)** (per official getting-started guidance—confirm in your account).
-- **Review**: build **at least ~1–2 days** before go-live; last-minute changes may miss launch. [Ad set best practices](https://www.linkedin.com/help/lms/answer/a422123)
-
-## Campaign structure (naming and hierarchy)
-
-**Naming (example)**: `LI_[Objective]_[Audience]_[Offer]_[Date]` (e.g. `LI_LeadGen_CMOs-SaaS_Whitepaper_Mar24`)
-
-**Hierarchy in Campaign Manager (names vary slightly over time):**
-
-| Level | Role |
-|-------|------|
+----|------|
 | **Campaign group** | Groups related programs; shared **status and budgets** (optional). |
 | **Campaign** | **Marketing objective**; budget/scheduling as configured. |
 | **Ad set** | **Accelerate** or **Classic**; **audience, placements, format, budget, schedule, bid**; conversion/URL params. [Compare types](https://www.linkedin.com/help/lms/answer/a1642380) |

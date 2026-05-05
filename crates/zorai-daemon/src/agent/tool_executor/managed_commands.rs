@@ -385,7 +385,7 @@ async fn execute_managed_command(
                     return Ok((
                         format!(
                             "{queued_summary}\nbackground_task_id: {execution_id}\noperation_id: {execution_id}\nCommand auto-backgrounded (requested timeout {}s > max 600s). \
-                             A background monitor will notify this thread when the command completes. Use get_operation_status with this operation_id for explicit polling. `get_background_task_status` remains available as a compatibility alias.",
+                             A background monitor will notify this thread when the command completes. Use get_operation_status with this operation_id if you need more details before then. `get_background_task_status` remains available as a compatibility alias.",
                             requested_timeout,
                         ),
                         None,
@@ -393,7 +393,7 @@ async fn execute_managed_command(
                 }
                 return Ok((
                     format!(
-                        "{queued_summary}\nbackground_task_id: {execution_id}\noperation_id: {execution_id}\nNot waiting for completion because wait_for_completion=false. Use get_operation_status with this operation_id for explicit polling. `get_background_task_status` remains available as a compatibility alias."
+                        "{queued_summary}\nbackground_task_id: {execution_id}\noperation_id: {execution_id}\nNot waiting for completion because wait_for_completion=false. A background monitor will notify this thread when the command completes. Use get_operation_status with this operation_id if you need more details before then. `get_background_task_status` remains available as a compatibility alias."
                     ),
                     None,
                 ));

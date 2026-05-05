@@ -18,37 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Proposal Writing
-
-Proposal writing is the discipline of persuading a decision-maker to choose you
-over every alternative - including doing nothing. The best proposals are not
-documents about you; they are documents about the buyer's problem, written to
-make the path from "we have a problem" to "they understand us and can solve it"
-as short as possible. This skill covers RFP responses, Statements of Work (SOWs),
-pricing strategy, win themes, and executive summaries - giving an agent the
-judgment to draft, review, and sharpen any business proposal.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Asks to write or improve a business proposal
-- Needs to respond to an RFP (Request for Proposal) or RFQ (Request for Quote)
-- Wants to draft or review a Statement of Work (SOW)
-- Is developing a pricing strategy or a pricing section for a proposal
-- Needs to identify or articulate win themes
-- Wants help writing or critiquing an executive summary
-- Asks how to structure a technical approach section
-- Needs to build a compliance matrix against RFP requirements
-
-Do NOT trigger this skill for:
-- Internal project planning documents (use project-management skills instead)
-- Academic grant proposals (different structure, evaluation criteria, and audience norms)
-
----
-
 ## Key principles
 
 1. **Lead with their problem, not your solution** - The first thing the evaluator

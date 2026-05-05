@@ -19,39 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Privacy Compliance
-
-> **Disclaimer:** This skill provides engineering and product implementation
-> guidance only. It is not legal advice. Consult qualified legal counsel for
-> compliance decisions specific to your organization, jurisdiction, and use case.
-
-A practical framework for engineers and product teams building privacy-compliant
-systems. Covers GDPR, CCPA, consent management, data subject rights, DPIAs, and
-cross-border transfer mechanisms - with emphasis on *what to build* and *how to
-structure it*, not just regulatory theory.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-
-1. Asks how to implement GDPR or CCPA compliance for a product
-2. Needs to design a cookie banner, consent manager, or preference center
-3. Wants to conduct or template a Data Protection Impact Assessment (DPIA)
-4. Needs to handle a Subject Access Request (SAR), deletion, or portability request
-5. Is writing or reviewing a privacy policy
-6. Needs to implement data retention or deletion schedules
-7. Is configuring cross-border data transfers (SCCs, adequacy decisions)
-
-Do NOT trigger this skill for:
-
-- General security hardening unrelated to personal data (use the backend-engineering skill)
-- IP law, contracts, or employment law - these require specialized legal counsel
-
----
-
 ## Key principles
 
 1. **Privacy by design** - Build privacy controls into the architecture from day

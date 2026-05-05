@@ -21,35 +21,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Game Design Patterns
-
-Game design patterns solve recurring problems in game development where standard
-enterprise patterns fall short. Games face unique constraints: real-time frame budgets
-(16ms at 60fps), thousands of dynamic entities, complex state transitions for AI and
-player characters, and the need for deterministic replay and undo. This skill covers
-four foundational patterns - state machines, object pooling, event systems, and the
-command pattern - that form the backbone of well-architected gameplay code.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to model character states, AI behavior, or game phases with a state machine
-- Wants to implement object pooling for bullets, particles, enemies, or other frequently spawned entities
-- Asks about event systems, message buses, or observer patterns in a game context
-- Needs the command pattern for input handling, undo/redo, or action replays
-- Is building a game loop and needs architectural guidance on entity management
-- Wants to decouple game systems (audio, UI, physics) from gameplay logic
-- Asks about managing game state transitions (menus, gameplay, pause, cutscenes)
-
-Do NOT trigger this skill for:
-- Rendering, shaders, or graphics programming (not a design pattern concern)
-- General software design patterns unrelated to games (use clean-architecture instead)
-
----
-
 ## Key principles
 
 1. **Frame budget is law** - Every pattern choice must respect the ~16ms frame budget.

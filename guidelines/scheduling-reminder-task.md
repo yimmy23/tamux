@@ -1,23 +1,27 @@
 ---
 name: scheduling-reminder-task
-description: Use for calendars, reminders, timed follow-ups, schedules, deadlines, or date-sensitive planning.
+description: Use when scheduling events, setting reminders, or coordinating time-sensitive activities.
 recommended_skills:
-  - tavily
+recommended_guidelines:
+  - task-intake
+  - event-planning-task
+  - project-management-task
 ---
 
-# Scheduling And Reminder Task Guideline
 
-Date-sensitive work must be explicit about time.
+## Overview
+
+Scheduling requires timezone awareness, availability coordination, and clear communication.
 
 ## Workflow
 
-1. Confirm current date, timezone, and any relative dates such as today or tomorrow.
-2. Convert relative dates to absolute dates when communicating back.
-3. Identify recurrence, deadline, duration, participants, and notification channel.
-4. Check calendars or external schedules when accuracy could have changed.
-5. Preserve timezone information in outputs and filenames.
-6. Summarize the final schedule in plain language.
+1. Confirm timezones for all participants — use UTC as reference.
+2. Check availability before proposing times.
+3. Include clear agenda, duration, and preparation materials.
+4. Set reminders with sufficient lead time.
+5. Send confirmations with all relevant details.
+6. Follow up with notes and action items post-event.
 
 ## Quality Gate
 
-Do not schedule or summarize time-sensitive work using ambiguous relative dates alone.
+An event is complete when all participants have time, agenda, and preparation materials.

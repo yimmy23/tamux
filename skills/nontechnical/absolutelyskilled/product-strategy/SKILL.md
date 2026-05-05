@@ -19,40 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Product Strategy
-
-A practical framework for defining product vision, building roadmaps, and making
-prioritization decisions that compound over time. Product strategy is the connective
-tissue between a company's business goals and the day-to-day work of a product team.
-Without it, teams ship features that users don't value, roadmaps become wish lists, and
-product-market fit erodes without anyone noticing. This skill covers the full strategy
-lifecycle: crafting a vision, building outcome-based roadmaps, scoring and sequencing
-work with prioritization frameworks, setting OKRs, and communicating direction to
-stakeholders. Agents can use this to draft strategy documents, evaluate feature trade-offs,
-run scoring sessions, and structure planning artifacts.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to write or refine a product vision or strategy document
-- Wants to build or restructure a product roadmap
-- Is deciding which features to build next or how to sequence work
-- Asks about RICE, ICE, MoSCoW, or Kano scoring
-- Needs to write product OKRs or connect features to business outcomes
-- Is preparing a roadmap presentation for stakeholders or executives
-- Wants to make a build vs. buy vs. partner decision
-- Is evaluating product-market fit signals or pivoting direction
-- Asks about north star metrics or success metrics for a product area
-
-Do NOT trigger this skill for:
-- Sprint planning mechanics or ticket estimation (use an agile-scrum skill)
-- Pricing model decisions (use a pricing-strategy skill)
-
----
-
 ## Key principles
 
 1. **Strategy is about saying no** - A roadmap that includes every request is not a

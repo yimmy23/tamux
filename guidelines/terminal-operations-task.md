@@ -1,24 +1,27 @@
 ---
 name: terminal-operations-task
-description: Use for shell commands, process inspection, local services, logs, scripts, or environment checks.
+description: Use when running terminal commands, managing shell sessions, or executing CLI operations on files or systems.
 recommended_skills:
-  - systematic-debugging
-  - verification-before-completion
+recommended_guidelines:
+  - automation-scripting-task
+  - file-management-task
+  - environment-setup-task
 ---
 
-# Terminal Operations Task Guideline
 
-Terminal work should be observable and reversible where possible.
+## Overview
+
+Terminal operations should be deliberate, traceable, and safe. This guideline prevents destructive accidents and ensures reproducibility.
 
 ## Workflow
 
-1. State what the command is meant to prove or change.
-2. Prefer read-only inspection before mutating the environment.
-3. Use focused commands and preserve important output for the user.
-4. Track long-running processes and stop or report them before finishing.
-5. Avoid command chains that hide which step failed.
-6. When changing local state, report the path, process, port, or config affected.
+1. Preview commands before making changes: use dry-run flags, --list before rm/cp/mv.
+2. Test loops and glob patterns on a sample before full execution.
+3. Redirect script output to files for later inspection.
+4. Use absolute paths or confirm cwd before destructive commands.
+5. Background long-running tasks with nohup or tmux.
+6. Log command history when investigating issues.
 
 ## Quality Gate
 
-Do not leave required sessions running silently or claim a command succeeded without checking its exit/result.
+Do not run destructive commands without previewing affected paths first.

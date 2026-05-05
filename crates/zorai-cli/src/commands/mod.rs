@@ -3,6 +3,7 @@ mod core;
 mod guideline_sync;
 mod guidelines;
 mod plugins;
+mod semantic;
 mod skill_sync;
 mod skills;
 mod tools;
@@ -12,8 +13,8 @@ mod workspace_filters;
 use anyhow::Result;
 
 use crate::cli::{
-    Commands, GuidelineAction, MigrateAction, PluginAction, SkillAction, ToolAction,
-    WorkspaceAction,
+    Commands, GuidelineAction, MigrateAction, PluginAction, SemanticAction, SkillAction,
+    ToolAction, WorkspaceAction,
 };
 use crate::update;
 
@@ -28,6 +29,7 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
         &command,
         Commands::Guideline { .. }
             | Commands::Skill { .. }
+            | Commands::Semantic { .. }
             | Commands::Plugin { .. }
             | Commands::Tool { .. }
             | Commands::Migrate { .. }
@@ -39,6 +41,7 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
     match command {
         Commands::Guideline { action } => run_guideline(action).await,
         Commands::Skill { action } => run_skill(action).await,
+        Commands::Semantic { action } => run_semantic(action).await,
         Commands::Plugin { action } => run_plugin(action).await,
         Commands::Tool { action } => run_tool(action).await,
         Commands::Migrate { action } => run_migrate(action).await,
@@ -53,6 +56,10 @@ async fn run_skill(action: SkillAction) -> Result<()> {
 
 async fn run_guideline(action: GuidelineAction) -> Result<()> {
     guidelines::run(action).await
+}
+
+async fn run_semantic(action: SemanticAction) -> Result<()> {
+    semantic::run(action).await
 }
 
 async fn run_plugin(action: PluginAction) -> Result<()> {

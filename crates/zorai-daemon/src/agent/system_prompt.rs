@@ -260,7 +260,7 @@ pub(super) fn build_system_prompt(
          - Before running actions that truly need an existing terminal, call `list_terminals` to discover current live session IDs and CWD.\n\
          - Do not force a `session` argument in normal TUI chat or goal-run turns just because a previous frontend session existed. Omit `session` unless you intentionally target a known live terminal or the operator explicitly asked you to reuse one.\n\
          - When you do target a live terminal, reuse that `session` value across related tool calls so all actions stay in one terminal context.\n\
-            - For long-running terminal work, prefer non-blocking execution: set `wait_for_completion=false` or use `timeout_seconds > 600`, capture the returned `operation_id`, and poll with `get_operation_status` instead of blocking the tool call.\n\
+            - For long-running terminal work, prefer non-blocking execution: set `wait_for_completion=false` or use `timeout_seconds > 600`, capture the returned `operation_id`, and rely on the background monitor; it will auto-notify this thread with completion status and result. Use `get_operation_status` when you need more details or an explicit status check.\n\
          - If a command is still running, timed out while still active, or is waiting for interactive completion, treat that terminal as occupied and switch to another terminal/session before continuing other work.\n\
          - If you need another terminal in the same agent workspace, call `allocate_terminal`, then continue with the returned session ID.\n\
          - If the operator asks to use another terminal, call `list_terminals` again and switch explicitly.\n",
@@ -680,6 +680,36 @@ mod tests {
         assert!(prompt.contains("does not switch the active responder"));
         assert!(prompt.contains("`handoff_thread_agent`"));
         assert!(prompt.contains("If the operator wants to talk directly to another agent"));
+    }
+
+    #[tokio::test]
+    async fn system_prompt_tells_agents_to_wait_for_background_operation_notifications() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let engine =
+            crate::agent::AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let prompt = build_system_prompt(
+            &AgentConfig::default(),
+            "Base prompt",
+            &crate::agent::types::AgentMemory::default(),
+            &crate::agent::task_prompt::memory_paths_for_scope(
+                root.path(),
+                crate::agent::agent_identity::MAIN_AGENT_ID,
+            ),
+            crate::agent::agent_identity::MAIN_AGENT_ID,
+            &engine.list_sub_agents().await,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert!(prompt.contains("will auto-notify this thread"));
+        assert!(prompt.contains("Use `get_operation_status` when you need more details"));
     }
 
     #[tokio::test]

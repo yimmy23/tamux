@@ -18,37 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Knowledge Base
-
-A knowledge base is a self-service library of structured content that allows users to
-find answers without contacting support. Done well, it deflects tickets, reduces support
-cost, and builds user confidence. Done poorly, it becomes a graveyard of outdated articles
-that users stop trusting. This skill covers the full lifecycle: designing an information
-architecture that mirrors how users think, writing articles that scan instead of demand
-reading, optimizing search so the right article surfaces on the first try, measuring
-deflection to prove business value, and maintaining content ruthlessly so it stays accurate.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to design or restructure a help center or knowledge base taxonomy
-- Wants to write, improve, or template a support article (how-to, troubleshooting, FAQ, reference)
-- Is optimizing help center search - keywords, synonyms, metadata, or article titles
-- Wants to measure deflection rate or build a content health dashboard
-- Needs to implement in-product contextual help or tooltip copy
-- Is building or refining an article maintenance workflow or content review cadence
-- Wants to create article templates by type (how-to, troubleshooting, FAQ, reference)
-- Needs to audit existing knowledge base content for gaps or staleness
-
-Do NOT trigger this skill for:
-- Writing internal engineering runbooks or operational playbooks (use incident-management skill)
-- Writing API documentation or developer docs (use technical-writing or developer-experience skill)
-
----
-
 ## Key principles
 
 1. **Write for scanning, not reading** - Users arrive with a specific problem and scan

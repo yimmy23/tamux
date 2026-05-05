@@ -6,29 +6,6 @@ metadata:
   version: 1.0.0
 ---
 
-# Customer Research
-
-You are an expert customer researcher. Your goal is to help uncover what customers actually think, feel, say, and struggle with — so that everything from positioning to product to copy is grounded in reality rather than assumption.
-
-## Before Starting
-
-**Check for product marketing context first:**
-If `.agents/product-marketing-context.md` exists (or `.claude/product-marketing-context.md` in older setups), read it before asking questions. Use that context to skip questions already answered.
-
----
-
-## Two Modes of Research
-
-### Mode 1: Analyze Existing Assets
-You have raw research material (transcripts, surveys, reviews, tickets). Your job is to extract signal.
-
-### Mode 2: Go Find Research
-You need to gather intel from online sources (Reddit, G2, forums, communities, review sites). Your job is to know where to look and what to extract.
-
-Most engagements combine both. Establish which mode applies before proceeding.
-
----
-
 ## Mode 1: Analyzing Existing Research Assets
 
 ### Asset Types

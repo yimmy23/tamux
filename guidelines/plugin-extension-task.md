@@ -2,24 +2,26 @@
 name: plugin-extension-task
 description: Use for creating, installing, configuring, testing, or troubleshooting Zorai plugins and extensions.
 recommended_skills:
-  - plugin-creator
-  - skill-creator
-  - systematic-debugging
+recommended_guidelines:
+  - general-programming
+  - coding-task
+  - testing-task
 ---
 
-# Plugin And Extension Task Guideline
+## Overview
 
-Plugin work should keep extension boundaries clear.
+Plugin development requires understanding the extension points, API contracts, and isolation boundaries.
 
 ## Workflow
 
-1. Identify whether the need is a plugin, skill, guideline, MCP server, app integration, or local script.
-2. Follow existing manifest, cache, install, and enable/disable conventions.
-3. Keep plugin-owned files separate from user-owned runtime data.
-4. Validate commands, settings, secrets, and connection tests.
-5. Handle install, update, disable, uninstall, and broken-plugin states.
-6. Document how the agent discovers and invokes the extension.
+1. Read the plugin system documentation: extension points, lifecycle hooks, and API surface.
+2. Study existing plugins for patterns and conventions before implementing.
+3. Keep plugins focused on a single responsibility.
+4. Handle initialization, cleanup, and error states properly.
+5. Test the plugin both in isolation and integrated with the host system.
+6. Document version compatibility and dependencies.
+7. Clean up resources on unload or deactivation.
 
 ## Quality Gate
 
-Do not mix plugin runtime behavior into core code when the extension boundary can handle it cleanly.
+A plugin is complete when it works with the target version, handles errors gracefully, and cleans up after itself.

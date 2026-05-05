@@ -5,42 +5,7 @@ related: [pitch-deck, fundraising-email]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, investor-research]
----
-
-# Investor Research
-
-## When to Use
-
-- The founder is preparing to fundraise and needs a target investor list.
-- The founder has a list of investors and wants to qualify or prioritize them.
-- The founder asks which VCs or angels are a good fit for their stage, sector, or geography.
-- The founder wants to understand a specific fund's thesis, portfolio, or decision-making process.
-
-## Context Required
-
-From `startup-context`: stage, sector/category, location, current round target (amount), business model, and any existing investor relationships or warm connections.
-
-From the user: geographic preferences (if any), whether they want VC-only, angel-only, or both, any investors already in conversation, and any firms they want to explicitly avoid (e.g., portfolio conflicts they know about).
-
-## Workflow
-
-1. **Read startup context** — Pull stage, sector, geography, round size, and existing investors from `.agents/startup-context.md`.
-2. **Define investor criteria** — Based on context, establish the filtering parameters: stage match, sector focus, typical check size range, geographic relevance, and portfolio conflict exclusions.
-3. **Build the raw list** — Research investors matching the criteria. For each investor, capture: firm name, partner name, fund stage focus, sector focus, typical check size, recent fund size/vintage, portfolio companies, geographic preference, and a source URL.
-4. **Check for conflicts** — Flag any firm that has a portfolio company directly competing with the founder's startup. These go on a "conflicts" list, not the target list.
-5. **Score and tier** — Assign each investor to Tier 1 (strong fit, prioritize), Tier 2 (good fit, pursue), or Tier 3 (acceptable fit, use as backfill) using the scoring framework below.
-6. **Identify warm paths** — For each Tier 1 investor, suggest how the founder might get a warm intro: mutual connections, portfolio founder intros, accelerator networks, or conference overlap.
-7. **Deliver the target list** — Output a structured, sortable list with tiers and recommended outreach order.
-
-## Output Format
-
-A markdown table with the following columns, grouped by tier:
-
-```
-## Tier 1 — High Priority
-
-| Firm | Partner | Stage Focus | Sector Fit | Check Size | Recent Fund | Conflict? | Warm Path | Notes |
-|------|---------|-------------|------------|------------|-------------|-----------|-----------|-------|
+---|---------|-------------|------------|------------|-------------|-----------|-----------|-------|
 ```
 
 Followed by a "Conflicts" section listing excluded firms and why.

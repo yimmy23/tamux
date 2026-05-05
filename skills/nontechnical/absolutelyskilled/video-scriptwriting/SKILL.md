@@ -19,40 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-When this skill is activated, always start your first response with the :pencil: emoji.
-
-# Video Scriptwriting
-
-Video scriptwriting for programmatic video is the practice of planning,
-structuring, and writing scripts that translate directly into code-driven
-video production. Unlike traditional screenwriting, programmatic video scripts
-are structured data - every scene has an explicit duration, frame count,
-animation description, and narration text that a rendering engine can consume.
-This skill covers interviewing stakeholders, generating structured YAML scripts,
-calculating pacing and frame counts, writing narration, and revising scripts.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to write a script for a programmatic or code-generated video
-- Needs to plan scene structure, timing, or transitions for a video
-- Asks about storyboard creation in a structured format (YAML, JSON)
-- Wants to calculate frame counts from duration and FPS
-- Needs help writing narration text for video scenes
-- Asks about video pacing for different content types (demo, explainer, social)
-- Wants to run an interview workflow to gather video requirements
-- Needs to revise or restructure an existing video script
-
-Do NOT trigger this skill for:
-- Live-action filmmaking or traditional screenwriting
-- Video editing software tutorials (Premiere, Final Cut, DaVinci Resolve)
-- Audio-only content like podcasts or music production
-- Still image design or static presentation slides
-
----
-
 ## Key principles
 
 1. **Interview-driven** - Run a structured interview (up to 30 questions across

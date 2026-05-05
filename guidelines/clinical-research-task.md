@@ -2,27 +2,29 @@
 name: clinical-research-task
 description: Use for clinical evidence synthesis, clinical decision support documents, case reports, trial reports, patient cohort analyses, or healthcare research outputs.
 recommended_skills:
+  - biostatistics
   - clinical-decision-support
   - clinical-reports
-  - treatment-plans
-  - literature-review
-  - statistical-analysis
-  - scientific-critical-thinking
+recommended_guidelines:
+  - academic-literature-review-task
+  - scientific-data-analysis-task
+  - evidence-quality-task
 ---
 
-# Clinical Research Task Guideline
+## Overview
 
-Clinical research work is high-stakes and must distinguish evidence support from medical advice.
+Clinical research requires rigorous methodology, regulatory compliance, and ethical oversight.
 
 ## Workflow
 
-1. Identify clinical context, population, intervention, comparator, outcomes, jurisdiction, intended reader, and whether PHI is involved.
-2. Use `clinical-decision-support` for evidence-based clinical research documents, cohort analyses, and treatment recommendation reports.
-3. Use `clinical-reports` for case reports, diagnostic reports, clinical trial reports, and patient documentation formats.
-4. Use `literature-review`, `statistical-analysis`, and `scientific-critical-thinking` to grade evidence quality and limitations.
-5. De-identify protected health information and flag when qualified clinical, regulatory, or legal review is required.
-6. State evidence level, uncertainty, contraindications, and scope boundaries clearly.
+1. Define the research question and choose the appropriate study design.
+2. Develop the study protocol with inclusion/exclusion criteria, endpoints, and statistical plan.
+3. Obtain ethics approval (IRB) before data collection.
+4. Use `biostatistics` for statistical analysis planning and power calculations.
+5. Use `clinical-decision-support` and `treatment-plans` for clinical context.
+6. Use `clinical-reports` for generating study reports and documentation.
+7. Report results according to relevant guidelines (CONSORT, STROBE, PRISMA).
 
 ## Quality Gate
 
-Do not provide patient-specific medical advice or clinical directives; provide research support, evidence summaries, and review prompts.
+Clinical research is complete when the protocol is approved, data is collected according to plan, and results are reported following guidelines.

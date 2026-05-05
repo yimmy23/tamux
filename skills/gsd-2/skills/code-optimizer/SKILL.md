@@ -14,51 +14,7 @@ description: >
   Also triggers on: "optimizar codigo", "encontrar cuellos de botella", "mejorar rendimiento".
 
 tags: [gsd-2, skills, code-optimizer, performance, devops, security, database, code-review, compliance]
----
-
-# Code Optimizer
-
-Parallel multi-agent code optimization audit. Spawn 13 specialist agents simultaneously, each
-hunting for a different class of performance problem using pattern-based detection.
-
-## Critical Principle: No Code Reading Before Analysis
-
-Agents MUST NOT read source files before searching for patterns. Reading the code first causes
-anchoring bias — the agent accepts the existing implementation as "reasonable" and misses
-better alternatives. Instead, each agent:
-
-1. Read its assigned reference file from `references/` to load detection patterns
-2. Use Grep/Glob to scan the codebase for anti-patterns
-3. For each finding, ONLY THEN read the surrounding context (5-10 lines) to confirm the issue
-4. Propose the optimal solution based on best practices, NOT based on the existing code
-
-## Workflow
-
-### Step 1: Detect Stack
-
-Use Glob to identify the project's tech stack:
-- `**/package.json` → Node.js/JS/TS (check for React, Next.js, Express, etc.)
-- `**/requirements.txt`, `**/pyproject.toml`, `**/setup.py` → Python
-- `**/go.mod` → Go
-- `**/Cargo.toml` → Rust
-- `**/pom.xml`, `**/build.gradle` → Java
-- `**/Gemfile` → Ruby
-- `**/Dockerfile` → Docker
-- `**/*.sql` → SQL
-- `**/webpack.config.*`, `**/vite.config.*`, `**/tsconfig.json` → Build tools
-
-### Step 2: Spawn 13 Parallel Agents
-
-Launch ALL agents simultaneously using the Agent tool. Each agent receives:
-- Its domain name and reference file path
-- The detected tech stack (so it can focus on relevant patterns)
-- The project root path
-- Instructions to NOT read code files, only Grep/Glob for patterns
-
-**Agent definitions** (spawn all 13 in a single message):
-
-| # | Agent Name | Reference File | Focus |
-|---|-----------|----------------|-------|
+-----------|----------------|-------|
 | 1 | Database & Queries | `references/database-queries.md` | N+1 queries, SELECT *, missing indexes, ORM misuse, connection pooling |
 | 2 | Memory & Resources | `references/memory-resources.md` | Memory leaks, unclosed resources, large allocations, string concat in loops |
 | 3 | Algorithmic Complexity | `references/algorithmic-complexity.md` | O(n^2) patterns, unnecessary iterations, wrong data structures for lookups |

@@ -18,45 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Tax Strategy
-
-A practical framework for corporate tax planning, compliance, and optimization.
-Tax is one of the largest and most controllable operating expenses for a growing
-company - yet most founders and operators treat it reactively, filing returns
-after the year closes and leaving significant credits and deductions unclaimed.
-This skill covers the full tax lifecycle: entity structuring, R&D credit
-identification, sales tax and VAT nexus management, transfer pricing for
-international operations, quarterly estimated tax management, and audit
-preparation.
-
-> **Disclaimer:** This skill provides general educational information about tax
-> concepts and common strategies. It is NOT legal or tax advice. Tax law is
-> jurisdiction-specific, changes frequently, and depends on facts unique to each
-> business. Always consult a qualified tax attorney or CPA before making tax
-> decisions. Nothing in this skill should be relied upon as legal, accounting, or
-> tax advice.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Asks about R&D tax credits, Section 41 credits, or qualifying R&D activities
-- Needs to determine sales tax or VAT nexus for a new state or country
-- Is structuring a subsidiary, IP holding entity, or international expansion
-- Asks about transfer pricing policies between related entities
-- Needs to prepare for a tax audit or respond to a tax authority inquiry
-- Wants to optimize quarterly estimated tax payments to avoid underpayment penalties
-- Asks about corporate income tax rates, deductions, or timing strategies
-- Is evaluating entity type (C-Corp, S-Corp, LLC, pass-through) for tax impact
-
-Do NOT trigger this skill for:
-- Personal income tax filing or individual tax returns - use a personal finance skill
-- GAAP revenue recognition or financial statement accounting - use an accounting skill
-
----
-
 ## Key principles
 
 1. **Plan proactively, not reactively** - Tax strategy executed before a

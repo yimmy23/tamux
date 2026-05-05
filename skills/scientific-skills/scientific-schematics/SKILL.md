@@ -6,25 +6,7 @@ license: MIT license
 tags: [scientific-skills, scientific-schematics, deep-learning, academic-writing]
 metadata:
     skill-author: K-Dense Inc.
----
-
-# Scientific Schematics and Diagrams
-
-## Overview
-
-Scientific schematics and diagrams transform complex concepts into clear visual representations for publication. **This skill uses Nano Banana 2 AI for diagram generation with Gemini 3.1 Pro Preview quality review.**
-
-**How it works:**
-- Describe your diagram in natural language
-- Nano Banana 2 generates publication-quality images automatically
-- **Gemini 3.1 Pro Preview reviews quality** against document-type thresholds
-- **Smart iteration**: Only regenerates if quality is below threshold
-- Publication-ready output in minutes
-- No coding, templates, or manual drawing required
-
-**Quality Thresholds by Document Type:**
-| Document Type | Threshold | Description |
-|---------------|-----------|-------------|
+------------|-----------|-------------|
 | journal | 8.5/10 | Nature, Science, peer-reviewed journals |
 | conference | 8.0/10 | Conference papers |
 | thesis | 8.0/10 | Dissertations, theses |

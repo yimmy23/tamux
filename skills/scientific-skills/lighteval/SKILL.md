@@ -1,93 +1,11 @@
 ---
 name: lighteval
-description: All-in-one LLM evaluation toolkit (HuggingFace LightEval). 1000+ tasks with multi-backend support: Accelerate, vLLM, SGLang, Nanotron, TGI, LiteLLM, inference providers, and custom models. Sample-by-sample result exploration, custom task/metric creation. Used by HuggingFace's Leaderboard and Evals team. For pure GPT-style model eval, also consider lm-evaluation-harness.
+description: "All-in-one LLM evaluation toolkit (HuggingFace LightEval). 1000+ tasks with multi-backend support: Accelerate, vLLM, SGLang, Nanotron, TGI, LiteLLM, inference providers, and custom models. Sample-by-sample result exploration, custom task/metric creation. Used by HuggingFace's Leaderboard and Evals team. For pure GPT-style model eval, also consider lm-evaluation-harness."
 license: MIT license
 tags: [multilingual-benchmarks, backend-flexible-eval, sample-level-analysis, custom-metrics, lighteval]
 metadata:
     skill-author: K-Dense Inc.
----
-
-# LightEval
-
-## Overview
-
-LightEval is HuggingFace's next-generation LLM evaluation toolkit supporting 1000+ tasks across 7+ backends. It provides flexible evaluation of models whether served remotely, loaded in memory, or accessed via API. Unlike lm-evaluation-harness, LightEval emphasizes multi-backend flexibility, sample-by-sample result exploration, and easy custom task/metric creation. Use this when you need broad backend support or want to create custom evaluation pipelines.
-
-## When to Use This Skill
-
-This skill should be used when:
-- Evaluating LLMs across multiple backends (HF, vLLM, SGLang, TGI, Nanotron, LiteLLM)
-- Running multilingual benchmarks (200+ languages, language-specific suites)
-- Debugging model performance with sample-level result analysis
-- Creating custom evaluation tasks and metrics
-- Running chat model evaluations (IFEval, MT-Bench, MUSR)
-- Pushing results to HuggingFace Hub for sharing/leaderboards
-- Evaluating using HuggingFace's Inference Providers or Endpoints
-
-## Core Capabilities
-
-### 1. Installation
-
-```bash
-pip install lighteval
-
-# Auth for pushing to HF Hub
-hf auth login
-```
-
-### 2. Quick Evaluation
-
-**CLI — remote inference provider:**
-```bash
-lighteval eval "hf-inference-providers/openai/gpt-oss-20b" gpqa:diamond
-```
-
-**CLI — vLLM backend:**
-```bash
-lighteval vllm "meta-llama/Meta-Llama-3-8B-Instruct" gsm8k
-```
-
-**CLI — HuggingFace Accelerate (local model):**
-```bash
-lighteval accelerate "meta-llama/Meta-Llama-3-8B-Instruct" mmlu
-```
-
-**Python API — in-memory model:**
-```python
-from transformers import AutoModelForCausalLM
-from lighteval.logging.evaluation_tracker import EvaluationTracker
-from lighteval.models.transformers.transformers_model import TransformersModel, TransformersModelConfig
-from lighteval.pipeline import ParallelismManager, Pipeline, PipelineParameters
-
-MODEL_NAME = "meta-llama/Meta-Llama-3-8B-Instruct"
-BENCHMARKS = "gsm8k"
-
-evaluation_tracker = EvaluationTracker(output_dir="./results")
-pipeline_params = PipelineParameters(
-    launcher_type=ParallelismManager.NONE,
-    max_samples=2
-)
-
-model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map="auto")
-config = TransformersModelConfig(model_name=MODEL_NAME, batch_size=1)
-model = TransformersModel.from_model(model, config)
-
-pipeline = Pipeline(
-    model=model,
-    pipeline_parameters=pipeline_params,
-    evaluation_tracker=evaluation_tracker,
-    tasks=BENCHMARKS,
-)
-
-results = pipeline.evaluate()
-pipeline.show_results()
-pipeline.save()  # Save detailed results
-```
-
-### 3. Available Backends
-
-| Backend | Command | Best For |
-|---------|---------|----------|
+------|---------|----------|
 | `inspect-ai` | `lighteval eval` | Preferred, modern backend |
 | Accelerate | `lighteval accelerate` | Single/multi-GPU local models |
 | vLLM | `lighteval vllm` | Fast batched inference |

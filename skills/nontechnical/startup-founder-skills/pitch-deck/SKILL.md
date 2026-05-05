@@ -5,46 +5,7 @@ related: [investor-research, data-room, fundraising-email]
 reads: [startup-context]
 
 tags: [nontechnical, startup-founder-skills, pitch-deck, presentation]
----
-
-# Pitch Deck
-
-## When to Use
-
-- The founder is preparing a pitch deck for a fundraising round (pre-seed through Series A).
-- The founder has an existing deck and wants structural or narrative feedback.
-- The founder asks what slides to include or how to tell their story to investors.
-
-## Context Required
-
-From `startup-context`: company one-liner, stage, product description, target customer, business model, traction metrics, team bios, fundraising history, and competitive landscape. If any of these are missing, prompt the founder before drafting slides.
-
-From the user: target round size, target investor type (VC vs. angel), whether this is for a live pitch (fewer words, more visuals) or a send-ahead deck (more self-explanatory text).
-
-## Workflow
-
-1. **Read startup context** — Pull from `.agents/startup-context.md` to populate slide content. Flag any gaps.
-2. **Determine deck type** — Ask if this is a live-pitch deck (visual-heavy, 30-40 words per slide max) or a send-ahead deck (can include more explanatory text, 60-80 words per slide).
-3. **Draft the narrative arc** — Before writing any slides, outline the story: what is the world like today (problem), what changes with your product (solution), why now, why this team, and what you need to get there.
-4. **Write slide-by-slide content** — Produce content for each of the 10-12 slides below. Each slide gets a title, key message, supporting points, and a suggested visual or data element.
-5. **Review for investor lens** — Check every slide against the question an investor would ask at that point. Flag weak spots.
-6. **Produce final output** — Deliver the deck outline as structured markdown. If the user wants a `.pptx`, chain to the Anthropic pptx skill after content is finalized.
-
-## Output Format
-
-Structured markdown with one H3 per slide. Each slide section contains:
-- **Title**: The slide headline (concise, assertion-style, e.g., "Healthcare billing wastes $200B annually")
-- **Key message**: The one thing the audience should remember from this slide
-- **Content**: Bullet points or narrative text
-- **Visual suggestion**: What chart, image, screenshot, or diagram belongs here
-- **Investor question this answers**: The implicit question in the VC's mind
-
-## Frameworks & Best Practices
-
-### The 10-12 Slide Framework
-
-| # | Slide | Purpose | Common Mistakes |
-|---|-------|---------|-----------------|
+-------|---------|-----------------|
 | 1 | **Title / Hook** | Company name, one-liner, and a memorable hook stat or image | Burying the one-liner; using a generic tagline |
 | 2 | **Problem** | Make the pain visceral and specific to your ICP | Being too abstract; citing a problem everyone already knows |
 | 3 | **Solution** | Show what you built and how it eliminates the pain | Feature-dumping; not connecting back to the problem |

@@ -2,23 +2,25 @@
 name: decision-analysis-task
 description: Use when comparing approaches, selecting tools, making tradeoffs, or recommending a path.
 recommended_skills:
-  - tavily
-  - writing-plans
+  - scientific-critical-thinking
+recommended_guidelines:
+  - evidence-quality-task
+  - planning-task
 ---
+## Overview
 
-# Decision Analysis Task Guideline
-
-Decision support should make tradeoffs explicit.
+Good decisions require clear criteria, honest comparison, and documented rationale.
 
 ## Workflow
 
-1. Identify decision criteria, constraints, must-haves, and nice-to-haves.
-2. Compare viable options against the same criteria.
-3. Surface costs, risks, reversibility, maintenance, and opportunity cost.
-4. Use current source-backed information when recommendations depend on products, prices, APIs, laws, or market state.
-5. Recommend one option when the evidence supports it.
-6. State what would change the recommendation.
+1. Define the decision context and constraints: what problem is being solved, who is affected, what are the non-negotiables.
+2. Identify at least three distinct options. Rarely is there only one viable path.
+3. Define evaluation criteria: performance, cost, maintainability, time to implement, risk, scalability, team familiarity.
+4. Score each option against the criteria. Be explicit about weighting.
+5. Identify the trade-offs: what does the chosen option sacrifice that alternatives offer.
+6. Make the recommendation with justification and a fallback plan.
+7. Document the decision and the reasoning for future reference.
 
 ## Quality Gate
 
-Do not present a preference as a recommendation without criteria and tradeoffs.
+Do not present a single option as the obvious choice without comparing alternatives and acknowledging trade-offs.

@@ -19,41 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# UX Research
-
-UX research is the systematic study of target users to inform product design and
-business decisions. It bridges the gap between assumptions and evidence - replacing
-"we think users want X" with "users told us X because of Y." This skill covers the
-full research lifecycle: scoping a study, selecting methods, recruiting participants,
-collecting data, synthesizing findings, and communicating insights that drive action.
-
-Good research is not about proving you are right. It is about reducing the cost of
-being wrong before you build. Five users in a moderated session will surface 80% of
-your usability problems for a fraction of what a failed launch costs.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to plan a user research study or define research questions
-- Wants to design or conduct user interviews or contextual inquiry
-- Needs to run or script a moderated usability test
-- Asks about creating user journey maps or experience maps
-- Wants to design an A/B test, including hypothesis and sample size
-- Needs to build a user survey or screener questionnaire
-- Asks about creating personas from research data
-- Wants to run card sorting or tree testing exercises
-- Needs to synthesize qualitative data using affinity mapping
-- Wants to write a research findings report or share-out
-
-Do NOT trigger this skill for:
-- Pure analytics or quantitative data analysis without a user behavior lens (use a data-analysis skill instead)
-- UI/visual design decisions that are not grounded in a research question (use absolute-ui instead)
-
----
-
 ## Key principles
 
 1. **Research questions before methods** - Define what decisions your research must

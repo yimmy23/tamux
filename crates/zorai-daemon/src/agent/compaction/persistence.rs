@@ -323,6 +323,7 @@ impl AgentEngine {
             task_id: None,
             preferred_session_hint: None,
             llm_user_content: latest_user_content,
+            queued_at_ms: 0,
             force_compaction: true,
             rerun_participant_observers_after_turn: true,
             internal_delegate_sender: None,

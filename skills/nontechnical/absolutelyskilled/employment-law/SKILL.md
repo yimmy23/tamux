@@ -19,42 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Employment Law
-
-> **Disclaimer:** This skill provides general educational guidance on employment law
-> concepts and common practices. It is NOT legal advice. Employment law is highly
-> jurisdiction-specific - federal, state/province, and local laws interact in complex
-> ways and change frequently. Always consult a licensed employment attorney before
-> making consequential decisions around terminations, classifications, or legally
-> binding agreements. What is lawful in one state may be unlawful in another.
-
-Employment law governs the relationship between employers, employees, and contractors.
-It spans the full employment lifecycle: recruiting and hiring, wage and hour compliance,
-workplace policies, leaves of absence, and separation. Getting it wrong creates
-significant legal and financial exposure. Getting it right builds a compliant, fair
-workplace that attracts and retains talent.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to draft or review an offer letter or employment agreement
-- Is preparing to terminate an employee and wants a proper process
-- Needs to determine whether a worker should be classified as an employee or contractor
-- Wants to create or update workplace policies (handbook, PTO, remote work, etc.)
-- Is drafting a non-compete, non-solicitation, or confidentiality agreement
-- Needs to handle a leave of absence request (FMLA, ADA, state leave laws)
-- Is conducting or documenting a workplace investigation
-- Wants to understand severance obligations and best practices
-
-Do NOT trigger this skill for:
-- Providing jurisdiction-specific legal opinions - always recommend consulting counsel
-- Tax advice on contractor payments or payroll - use a CPA or tax attorney
-
----
-
 ## Key principles
 
 1. **Document everything** - Employment decisions that lack documentation become

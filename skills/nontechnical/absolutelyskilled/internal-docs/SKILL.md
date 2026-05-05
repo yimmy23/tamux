@@ -20,36 +20,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Internal Docs
-
-Internal documentation is the connective tissue of engineering organizations. It
-captures decisions (RFCs, design docs), preserves operational knowledge (runbooks),
-extracts lessons from failure (post-mortems), and makes institutional knowledge
-discoverable (knowledge management). This skill gives an agent the ability to draft,
-review, and improve internal documents that are clear, actionable, and structured
-for their specific audience - from a 2-page RFC to a detailed incident post-mortem.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to write or draft an RFC or design document
-- Needs to create a post-mortem or incident review document
-- Asks to build an operational runbook or playbook
-- Wants to organize or structure a team knowledge base
-- Needs to review an existing internal doc for completeness or clarity
-- Asks about documentation templates, formats, or best practices
-- Wants to write an ADR (Architecture Decision Record)
-- Needs to create onboarding documentation or team guides
-
-Do NOT trigger this skill for:
-- Public-facing API documentation or developer docs (use api-design skill)
-- README files or open-source project documentation (use code-level docs conventions)
-
----
-
 ## Key principles
 
 1. **Write for the reader, not the writer** - Every document exists to transfer

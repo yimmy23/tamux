@@ -1,9 +1,12 @@
 use super::*;
+use std::collections::HashMap;
 use zorai_protocol::HistorySearchHit;
 
 const EMBEDDING_IDLE_SLEEP_SECS: u64 = 30;
 const EMBEDDING_DISABLED_SLEEP_SECS: u64 = 60;
 const EMBEDDING_ACTIVE_SLEEP_MILLIS: u64 = 1_500;
+const SEMANTIC_DOCUMENT_SCAN_SECS: u64 = 60;
+const SEMANTIC_DOCUMENT_DAILY_SCAN_SECS: u64 = 86_400;
 #[cfg(feature = "lancedb-vector")]
 const EMBEDDING_REQUEST_TIMEOUT_SECS: u64 = 90;
 const MAX_EMBEDDING_BATCH_SIZE: usize = 16;
@@ -15,6 +18,45 @@ const OPENROUTER_ATTRIBUTION_URL: &str = "https://zorai.app";
 const OPENROUTER_ATTRIBUTION_TITLE: &str = "Zorai";
 #[cfg(feature = "lancedb-vector")]
 const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent,personal-agent";
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SemanticDocumentIndexSyncSummary {
+    pub skills: crate::history::SemanticDocumentSyncSummary,
+    pub guidelines: crate::history::SemanticDocumentSyncSummary,
+}
+
+impl SemanticDocumentIndexSyncSummary {
+    fn changed_or_removed(&self) -> usize {
+        self.skills.changed
+            + self.skills.removed
+            + self.guidelines.changed
+            + self.guidelines.removed
+    }
+
+    fn into_public(
+        self,
+        embedding_model: String,
+        dimensions: u32,
+    ) -> zorai_protocol::SemanticDocumentIndexSyncResultPublic {
+        zorai_protocol::SemanticDocumentIndexSyncResultPublic {
+            embedding_model,
+            dimensions,
+            skills: semantic_document_summary_public(self.skills),
+            guidelines: semantic_document_summary_public(self.guidelines),
+        }
+    }
+}
+
+fn semantic_document_summary_public(
+    summary: crate::history::SemanticDocumentSyncSummary,
+) -> zorai_protocol::SemanticDocumentSyncSummaryPublic {
+    zorai_protocol::SemanticDocumentSyncSummaryPublic {
+        discovered: summary.discovered,
+        changed: summary.changed,
+        queued_embeddings: summary.queued_embeddings,
+        removed: summary.removed,
+    }
+}
 
 #[cfg(feature = "lancedb-vector")]
 #[derive(Debug, serde::Deserialize)]
@@ -221,6 +263,93 @@ async fn request_embeddings(
 }
 
 impl AgentEngine {
+    pub(crate) async fn run_semantic_document_index_loop(
+        self: Arc<Self>,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) {
+        let mut last_daily_scan = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(
+                SEMANTIC_DOCUMENT_DAILY_SCAN_SECS,
+            ))
+            .unwrap_or_else(std::time::Instant::now);
+        loop {
+            let config = self.get_config().await;
+            let should_scan = config.semantic.embedding.enabled
+                && !config.semantic.embedding.model.trim().is_empty();
+            if should_scan {
+                let force_daily = last_daily_scan.elapsed()
+                    >= std::time::Duration::from_secs(SEMANTIC_DOCUMENT_DAILY_SCAN_SECS);
+                match self.sync_semantic_document_indexes_once().await {
+                    Ok(summary) => {
+                        if force_daily || summary.changed_or_removed() > 0 {
+                            last_daily_scan = std::time::Instant::now();
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(error = %error, "semantic document index sync failed");
+                    }
+                }
+            }
+
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(SEMANTIC_DOCUMENT_SCAN_SECS)) => {}
+                _ = self.config_notify.notified() => {}
+                _ = shutdown.changed() => break,
+            }
+        }
+    }
+
+    pub(crate) async fn sync_semantic_document_indexes_once(
+        &self,
+    ) -> Result<SemanticDocumentIndexSyncSummary> {
+        let _guard = self.semantic_document_index_sync_lock.lock().await;
+        self.sync_semantic_document_indexes_once_inner().await
+    }
+
+    async fn sync_semantic_document_indexes_once_inner(
+        &self,
+    ) -> Result<SemanticDocumentIndexSyncSummary> {
+        let config = self.get_config().await;
+        let embedding_model = config.semantic.embedding.model.trim().to_string();
+        let dimensions = config.semantic.embedding.dimensions;
+        if !config.semantic.embedding.enabled || embedding_model.is_empty() {
+            return Ok(SemanticDocumentIndexSyncSummary::default());
+        }
+
+        let skills_root = self.history.data_dir().to_path_buf();
+        let guidelines_root = super::guidelines_dir(self.history.data_dir());
+        super::skill_recommendation::sync_skill_catalog(&self.history, &skills_root).await?;
+        let skills = self
+            .history
+            .sync_semantic_documents_from_dir("skill", &skills_root, &embedding_model, dimensions)
+            .await?;
+        let guidelines = self
+            .history
+            .sync_semantic_documents_from_dir(
+                "guideline",
+                &guidelines_root,
+                &embedding_model,
+                dimensions,
+            )
+            .await?;
+
+        Ok(SemanticDocumentIndexSyncSummary { skills, guidelines })
+    }
+
+    pub(crate) async fn sync_semantic_document_indexes_public(
+        &self,
+    ) -> Result<zorai_protocol::SemanticDocumentIndexSyncResultPublic> {
+        let config = self.get_config().await;
+        let embedding_model = if config.semantic.embedding.enabled {
+            config.semantic.embedding.model.trim().to_string()
+        } else {
+            String::new()
+        };
+        let dimensions = config.semantic.embedding.dimensions;
+        let summary = self.sync_semantic_document_indexes_once().await?;
+        Ok(summary.into_public(embedding_model, dimensions))
+    }
+
     pub(crate) async fn run_embedding_index_loop(
         self: Arc<Self>,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
@@ -281,6 +410,62 @@ impl AgentEngine {
                 self.history.search(query, limit).await
             }
         }
+    }
+
+    #[cfg(not(feature = "lancedb-vector"))]
+    pub(crate) async fn semantic_document_scores(
+        &self,
+        _query: &str,
+        _source_kind: &str,
+        _limit: usize,
+        _config: &AgentConfig,
+    ) -> Result<HashMap<String, f64>> {
+        Ok(HashMap::new())
+    }
+
+    #[cfg(feature = "lancedb-vector")]
+    pub(crate) async fn semantic_document_scores(
+        &self,
+        query: &str,
+        source_kind: &str,
+        limit: usize,
+        config: &AgentConfig,
+    ) -> Result<HashMap<String, f64>> {
+        if !config.semantic.embedding.enabled || query.trim().is_empty() || limit == 0 {
+            return Ok(HashMap::new());
+        }
+        let embedding_model = resolved_embedding_model(config);
+        if embedding_model.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let vector_source_kind = match source_kind {
+            "skill" => crate::history::vector_index::VectorSourceKind::Skill,
+            "guideline" => crate::history::vector_index::VectorSourceKind::Guideline,
+            other => anyhow::bail!("unsupported semantic document kind '{other}'"),
+        };
+        let query_embeddings =
+            request_embeddings(&self.http_client, config, &[query.trim().to_string()]).await?;
+        let Some(query_embedding) = query_embeddings.into_iter().next() else {
+            return Ok(HashMap::new());
+        };
+
+        let index = crate::history::vector_index::VectorIndex::open(self.history.data_root());
+        let hits = index
+            .search(crate::history::vector_index::VectorSearchRequest {
+                embedding: query_embedding,
+                embedding_model,
+                limit,
+                source_kinds: vec![vector_source_kind],
+                workspace_id: None,
+                thread_id: None,
+                agent_id: None,
+            })
+            .await?;
+
+        Ok(hits
+            .into_iter()
+            .map(|hit| (hit.source_id, semantic_score_from_distance(hit.score)))
+            .collect())
     }
 
     #[cfg(not(feature = "lancedb-vector"))]

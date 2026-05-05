@@ -4,34 +4,7 @@ description: Extract a DDD-style ubiquitous language glossary from the current c
 disable-model-invocation: true
 
 tags: [mattpocock, ubiquitous-language]
----
-
-# Ubiquitous Language
-
-Extract and formalize domain terminology from the current conversation into a consistent glossary, saved to a local file.
-
-## Process
-
-1. **Scan the conversation** for domain-relevant nouns, verbs, and concepts
-2. **Identify problems**:
-   - Same word used for different concepts (ambiguity)
-   - Different words used for the same concept (synonyms)
-   - Vague or overloaded terms
-3. **Propose a canonical glossary** with opinionated term choices
-4. **Write to `UBIQUITOUS_LANGUAGE.md`** in the working directory using the format below
-5. **Output a summary** inline in the conversation
-
-## Output Format
-
-Write a `UBIQUITOUS_LANGUAGE.md` file with this structure:
-
-```md
-# Ubiquitous Language
-
-## Order lifecycle
-
-| Term        | Definition                                              | Aliases to avoid      |
-| ----------- | ------------------------------------------------------- | --------------------- |
+-------- | ------------------------------------------------------- | --------------------- |
 | **Order**   | A customer's request to purchase one or more items      | Purchase, transaction |
 | **Invoice** | A request for payment sent to a customer after delivery | Bill, payment request |
 

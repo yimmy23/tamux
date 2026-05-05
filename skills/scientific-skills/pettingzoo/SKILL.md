@@ -5,76 +5,7 @@ license: MIT license
 tags: [multi-agent-rl, marl-environments, turn-based-games, parallel-envs, pettingzoo]
 metadata:
     skill-author: K-Dense Inc.
----
-
-# PettingZoo
-
-## Overview
-
-PettingZoo is a library of multi-agent reinforcement learning (MARL) environments with a standard API extending Gymnasium. It supports both the Agent Environment Cycle (AEC) API for sequential-turn games and a Parallel API for simultaneous-action environments. Use this skill for multi-agent RL experiments, cooperative/competitive agent training, and MARL algorithm development.
-
-## When to Use This Skill
-
-This skill should be used when:
-- Training multiple agents that interact (cooperative, competitive, or mixed)
-- Setting up MARL benchmarks (MPE, SISL, multi-agent Atari)
-- Implementing turn-based games (AEC API) like chess, poker
-- Implementing simultaneous-action environments (Parallel API) like multi-agent particle worlds
-- Wrapping custom multi-agent simulators in a standard API
-- Understanding the differences between AEC and Parallel MARL APIs
-
-## Core Capabilities
-
-### 1. Installation
-
-```bash
-pip install pettingzoo
-
-# Classic environments
-pip install "pettingzoo[classic]"
-
-# Atari (multi-agent Atari)
-pip install "pettingzoo[atari]"
-pip install "pettingzoo[all]"  # Everything
-```
-
-### 2. Two APIs: AEC vs Parallel
-
-**AEC API (Agent Environment Cycle):**
-Sequential turn-based games. One agent acts per step.
-```python
-from pettingzoo.classic import chess_v6
-
-env = chess_v6.env(render_mode="human")
-env.reset(seed=42)
-
-for agent in env.agent_iter():
-    observation, reward, termination, truncation, info = env.last()
-    if termination or truncation:
-        action = None
-    else:
-        action = env.action_space(agent).sample()  # Your policy here
-    env.step(action)
-env.close()
-```
-
-**Parallel API:**
-All agents act simultaneously each step.
-```python
-from pettingzoo.mpe import simple_spread_v3
-
-env = simple_spread_v3.parallel_env(render_mode="human")
-observations, infos = env.reset(seed=42)
-
-while env.agents:
-    actions = {agent: env.action_space(agent).sample() for agent in env.agents}
-    observations, rewards, terminations, truncations, infos = env.step(actions)
-env.close()
-```
-
-**How to choose:**
-| Criterion | AEC | Parallel |
-|-----------|-----|----------|
+--------|-----|----------|
 | Turn-based games (card, board games) | ✅ Best fit | ❌ Not appropriate |
 | Simultaneous action (robotics, MPE) | ⚠️ Works but awkward | ✅ Best fit |
 | Compatible with CleanRL | ✅ Via wrappers | ❌ Needs conversion |

@@ -5,71 +5,7 @@ license: MIT license
 tags: [text-games, self-play-rl, llm-benchmarking, strategic-reasoning, textarena]
 metadata:
     skill-author: K-Dense Inc.
----
-
-# TextArena
-
-## Overview
-
-TextArena is a suite of 100+ text-based games for benchmarking and training language models. It exposes an OpenAI Gym-style interface where agents receive text observations and emit text actions. Use this skill for strategic reasoning benchmarks, self-play RL, multi-turn agent interaction, and text-only environment design for LLMs.
-
-## When to Use This Skill
-
-This skill should be used when:
-- Training LLMs via self-play on text games
-- Evaluating strategic reasoning, planning, deception, negotiation, or theory-of-mind
-- Running agent-vs-agent tournaments across many text environments
-- Building RL environments where observations/actions are pure language
-- Benchmarking multi-turn decision-making rather than static QA
-- Prototyping text-first environments for reinforcement learning
-
-## Core Capabilities
-
-### 1. Installation
-
-```bash
-pip install textarena
-```
-
-### 2. Core Interface
-
-Agents only need a callable that maps string observation → string action.
-
-```python
-import textarena as ta
-
-agents = {
-    0: ta.agents.OpenRouterAgent(model_name="GPT-4o-mini"),
-    1: ta.agents.OpenRouterAgent(model_name="anthropic/claude-3.5-haiku"),
-}
-
-env = ta.make(env_id="TicTacToe-v0")
-env = ta.wrappers.SimpleRenderWrapper(env=env)
-env.reset(num_players=len(agents))
-
-done = False
-while not done:
-    player_id, observation = env.get_observation()
-    action = agents[player_id](observation)
-    done, step_info = env.step(action=action)
-
-rewards, game_info = env.close()
-```
-
-### 3. Environment Model
-
-TextArena environments generally expose:
-- `env.reset(num_players=...)`
-- `env.get_observation()` → `(player_id, observation_text)`
-- `env.step(action=...)` → `(done, step_info)`
-- `env.close()` → `(rewards, game_info)`
-
-This makes it simple to run human-readable games while keeping agent logic generic.
-
-### 4. Common Use Cases
-
-| Use Case | Why TextArena fits |
-|----------|--------------------|
+-------|--------------------|
 | Self-play RL for LLMs | Multi-turn competitive/cooperative games |
 | Strategic reasoning evaluation | Games require planning, bluffing, memory, adaptation |
 | Theory-of-mind research | Multi-agent hidden-state interactions |

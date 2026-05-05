@@ -18,36 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Account Management
-
-Account management is the discipline of growing and retaining revenue by treating
-customer relationships as long-term investments rather than transactional events.
-The best AMs are strategic advisors who help customers achieve outcomes - and in
-doing so, earn the right to expand. This skill equips an agent to build account
-plans, map stakeholders, run high-impact QBRs, identify expansion signals, manage
-renewals, and rescue at-risk accounts before they churn.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Asks how to build or structure an account plan
-- Needs to map stakeholders or understand org-chart dynamics
-- Wants to prepare, structure, or run a Quarterly Business Review (QBR)
-- Asks about upsell, cross-sell, or expansion strategies
-- Needs to manage an upcoming renewal or contract negotiation
-- Wants to build or interpret an account health score
-- Is dealing with an at-risk, unhappy, or churning customer
-- Asks about land-and-expand motions or enterprise growth plays
-
-Do NOT trigger this skill for:
-- Outbound prospecting or new-logo pipeline generation - use a sales-prospecting skill
-- Product roadmap decisions driven by customer feedback - use a product-management skill
-
----
-
 ## Key principles
 
 1. **Be a strategic advisor, not a vendor** - Customers don't renew vendors; they

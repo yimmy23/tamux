@@ -2,22 +2,24 @@
 name: file-management-task
 description: Use for creating, moving, renaming, cleaning, summarizing, or organizing local files and folders.
 recommended_skills:
-  - verification-before-completion
+recommended_guidelines:
+  - terminal-operations-task
+  - automation-scripting-task
 ---
+## Overview
 
-# File Management Task Guideline
-
-File work must protect existing user data.
+File management tasks are prone to irreversible mistakes. This guideline enforces safe workflows before any destructive or bulk operation.
 
 ## Workflow
 
-1. Identify source paths, destination paths, and whether overwrites are allowed.
-2. Inspect before moving, deleting, or rewriting anything.
-3. Preserve metadata and naming conventions when they matter.
-4. Use safe creation and copy patterns; avoid broad deletes.
-5. After changes, verify the resulting file tree or affected files.
-6. Report exactly what changed and where.
+1. Inspect the current layout and naming scheme before making changes.
+2. Plan the target layout explicitly — don't approximate.
+3. Test any pattern-based operation on a small sample first.
+4. Prefer `mv` over copy-then-delete for moves. Keep copies of originals until verified.
+5. For bulk operations, generate a preview or dry-run output before executing.
+6. Check disk space before large copies or downloads.
+7. After the operation, verify a representative sample of results.
 
 ## Quality Gate
 
-Do not delete, overwrite, or reorganize files based on a guess about user intent.
+Do not run destructive operations without listing the affected files first. Confirm the list matches expectations.

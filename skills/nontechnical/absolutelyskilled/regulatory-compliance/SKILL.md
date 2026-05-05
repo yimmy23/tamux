@@ -18,34 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Regulatory Compliance
-
-A practitioner's framework for achieving and maintaining regulatory compliance.
-This skill covers SOC 2, HIPAA, and PCI-DSS - the three frameworks most commonly
-demanded by enterprise customers - with an emphasis on how to build a sustainable
-compliance program, not just pass a one-time audit.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Prepares for a SOC 2 Type I or Type II audit
-- Implements HIPAA technical, administrative, or physical safeguards
-- Works toward PCI-DSS compliance for payment card environments
-- Conducts a risk assessment or gap analysis
-- Builds or updates a controls matrix
-- Automates evidence collection for ongoing compliance
-- Manages an active audit with an external auditor
-- Defines policies for data handling, access control, or incident response
-
-Do NOT trigger this skill for:
-- General security hardening not tied to a specific framework (use `backend-engineering` security references instead)
-- Legal or attorney-client questions - always refer to qualified legal counsel for jurisdiction-specific obligations
-
----
-
 ## Key principles
 
 1. **Compliance is continuous, not a project** - Passing an audit is a snapshot in

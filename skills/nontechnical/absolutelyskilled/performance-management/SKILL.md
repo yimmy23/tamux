@@ -19,38 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Performance Management
-
-Performance management is the system by which organizations set expectations,
-measure contribution, develop talent, and make compensation and promotion
-decisions fairly. It spans OKR goal-setting, continuous feedback cycles,
-semi-annual or annual review writing, calibration sessions that normalize ratings
-across teams, career ladders that clarify what "good" looks like at each level,
-and Performance Improvement Plans (PIPs) for employees who are significantly
-below expectations. Done well, it accelerates individual growth and organizational
-output. Done poorly, it becomes a compliance exercise that destroys morale.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to design or overhaul an OKR system for a team, department, or company
-- Is writing, reviewing, or giving structured performance feedback
-- Wants to run or prepare for a calibration session
-- Needs to build or refine a career ladder or leveling framework
-- Is designing or writing a Performance Improvement Plan
-- Wants to set up a continuous feedback or 1:1 culture
-- Is creating a promotion packet or evaluating someone for promotion
-- Needs to measure whether their performance management system is healthy
-
-Do NOT trigger this skill for:
-- Recruiting, hiring, or interview design (use technical-interviewing skill)
-- Compensation benchmarking or equity modeling without a performance context
-
----
-
 ## Key principles
 
 1. **Continuous feedback, not annual surprise** - Annual reviews should contain

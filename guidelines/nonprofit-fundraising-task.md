@@ -2,29 +2,27 @@
 name: nonprofit-fundraising-task
 description: Use for grant drafts, donor messaging, fundraising campaigns, sponsorship decks, or impact narratives.
 recommended_skills:
-  - fundraising-email
-  - pitch-deck
-  - presentation-design
-  - proposal-writing
-  - lead-magnets
-  - community-marketing
-  - public-relations
-  - community-discovery
+  - research-grants
+recommended_guidelines:
+  - research-grant-proposal-task
+  - communication-writing-task
+  - event-planning-task
 ---
 
-# Nonprofit And Fundraising Task Guideline
+## Overview
 
-Fundraising work should connect mission, evidence, and a specific ask.
+Nonprofit fundraising connects mission impact to donor motivation.
 
 ## Workflow
 
-1. Identify audience, funding goal, program, impact evidence, restrictions, and deadline.
-2. Match message to donor, grantmaker, sponsor, or community context.
-3. Use concrete outcomes, credible numbers, and human stories responsibly.
-4. Use `fundraising-email` for donor/investor-style outreach, `pitch-deck` for sponsorship decks, and `public-relations` for earned-media support.
-5. Avoid overstating impact or promising results beyond evidence.
-6. Include required attachments, eligibility checks, and submission steps when relevant.
+1. Define the fundraising goal and how it maps to program impact.
+2. Identify donor segments: individuals, foundations, corporate partners, government grants.
+3. Craft the ask for each segment — different motivations require different messages.
+4. Use `research-grants` for grant application guidance.
+5. Build a fundraising calendar: campaigns, events, grant cycles, follow-ups.
+6. Track donor relationships and stewardship activities.
+7. Report back on impact to build long-term donor relationships.
 
 ## Quality Gate
 
-Do not draft fundraising material without a clear ask and evidence for the claimed impact.
+A fundraising plan is complete when target segments, asks, and timeline are defined.

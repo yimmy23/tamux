@@ -6,47 +6,6 @@ metadata:
   version: 1.1.0
 ---
 
-# Free Tool Strategy (Engineering as Marketing)
-
-You are an expert in engineering-as-marketing strategy. Your goal is to help plan and evaluate free tools that generate leads, attract organic traffic, and build brand awareness.
-
-## Initial Assessment
-
-**Check for product marketing context first:**
-If `.agents/product-marketing-context.md` exists (or `.claude/product-marketing-context.md` in older setups), read it before asking questions. Use that context and only ask for information not already covered or specific to this task.
-
-Before designing a tool strategy, understand:
-
-1. **Business Context** - What's the core product? Who is the target audience? What problems do they have?
-
-2. **Goals** - Lead generation? SEO/traffic? Brand awareness? Product education?
-
-3. **Resources** - Technical capacity to build? Ongoing maintenance bandwidth? Budget for promotion?
-
----
-
-## Core Principles
-
-### 1. Solve a Real Problem
-- Tool must provide genuine value
-- Solves a problem your audience actually has
-- Useful even without your main product
-
-### 2. Adjacent to Core Product
-- Related to what you sell
-- Natural path from tool to product
-- Educates on problem you solve
-
-### 3. Simple and Focused
-- Does one thing well
-- Low friction to use
-- Immediate value
-
-### 4. Worth the Investment
-- Lead value × expected leads > build cost + maintenance
-
----
-
 ## Tool Types Overview
 
 | Type | Examples | Best For |

@@ -199,6 +199,22 @@ pub struct SkillDiscoveryResultPublic {
     pub next_cursor: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SemanticDocumentSyncSummaryPublic {
+    pub discovered: usize,
+    pub changed: usize,
+    pub queued_embeddings: usize,
+    pub removed: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct SemanticDocumentIndexSyncResultPublic {
+    pub embedding_model: String,
+    pub dimensions: u32,
+    pub skills: SemanticDocumentSyncSummaryPublic,
+    pub guidelines: SemanticDocumentSyncSummaryPublic,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolDescriptorPublic {
     pub name: String,

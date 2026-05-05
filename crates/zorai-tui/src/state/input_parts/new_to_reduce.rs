@@ -9,6 +9,8 @@ impl InputState {
             submitted: None,
             paste_blocks: Vec::new(),
             next_paste_id: 0,
+            sent_history: Vec::new(),
+            history_cursor: None,
         }
     }
 
@@ -347,42 +349,43 @@ impl InputState {
         self.sync_buffer_cache();
     }
 
-    /// Replace input buffer with the given text and place cursor at end.
-    pub fn set_text(&mut self, text: &str) {
-        self.clear_text();
-        // Insert char-by-char so the textarea cursor advances with each character.
-        // insert_str may not update the cursor position in all tui-textarea versions.
-        for ch in text.chars() {
-            self.textarea.insert_char(ch);
-        }
-        self.sync_buffer_cache();
-    }
-
     pub fn reduce(&mut self, action: InputAction) {
         match action {
+            InputAction::HistoryPrevious => {
+                self.browse_history_previous();
+            }
+            InputAction::HistoryNext => {
+                self.browse_history_next();
+            }
             InputAction::InsertChar(c) => {
+                self.commit_history_selection();
                 self.textarea.insert_char(c);
                 self.sync_buffer_cache();
             }
             InputAction::Backspace => {
+                self.commit_history_selection();
                 if !self.remove_paste_block_at_cursor() {
                     self.textarea.delete_char();
                     self.sync_buffer_cache();
                 }
             }
             InputAction::DeleteWord => {
+                self.commit_history_selection();
                 if !self.remove_paste_block_at_cursor() {
                     self.textarea.delete_word();
                     self.sync_buffer_cache();
                 }
             }
             InputAction::ClearLine => {
+                self.commit_history_selection();
                 self.clear_text();
                 self.paste_blocks.clear();
             }
             InputAction::Submit => {
+                self.commit_history_selection();
                 if !self.buffer_cache.trim().is_empty() {
                     let expanded = self.expand_paste_blocks(&self.buffer_cache);
+                    self.remember_submitted_prompt(&expanded);
                     self.submitted = Some(expanded);
                     self.textarea = TextArea::default();
                     self.sync_buffer_cache();
@@ -390,32 +393,39 @@ impl InputState {
                 }
             }
             InputAction::ToggleMode => {
+                self.commit_history_selection();
                 self.mode = match self.mode {
                     InputMode::Normal => InputMode::Insert,
                     InputMode::Insert => InputMode::Normal,
                 };
             }
             InputAction::Clear => {
+                self.commit_history_selection();
                 self.clear_text();
                 self.paste_blocks.clear();
             }
             InputAction::InsertNewline => {
+                self.commit_history_selection();
                 self.textarea.insert_newline();
                 self.sync_buffer_cache();
             }
             InputAction::MoveCursorLeft => {
+                self.commit_history_selection();
                 self.textarea.move_cursor(CursorMove::Back);
             }
             InputAction::MoveCursorRight => {
+                self.commit_history_selection();
                 self.textarea.move_cursor(CursorMove::Forward);
             }
             InputAction::MoveCursorUp => {
+                self.commit_history_selection();
                 let (line, col) = self.cursor_line_col();
                 if line > 0 {
                     self.jump_to_line_col(line - 1, col);
                 }
             }
             InputAction::MoveCursorDown => {
+                self.commit_history_selection();
                 let (line, col) = self.cursor_line_col();
                 let line_count = self.textarea.lines().len();
                 if line + 1 < line_count {
@@ -423,6 +433,7 @@ impl InputState {
                 }
             }
             InputAction::MoveCursorUpVisual(wrap_width) => {
+                self.commit_history_selection();
                 if wrap_width == 0 {
                     return;
                 }
@@ -434,6 +445,7 @@ impl InputState {
                 }
             }
             InputAction::MoveCursorDownVisual(wrap_width) => {
+                self.commit_history_selection();
                 if wrap_width == 0 {
                     return;
                 }
@@ -445,10 +457,12 @@ impl InputState {
                 }
             }
             InputAction::MoveCursorHome => {
+                self.commit_history_selection();
                 let (row, _) = self.cursor_line_col();
                 self.jump_to_line_col(row, 0);
             }
             InputAction::MoveCursorEnd => {
+                self.commit_history_selection();
                 let (row, _) = self.cursor_line_col();
                 let col = self
                     .textarea
@@ -459,13 +473,16 @@ impl InputState {
                 self.jump_to_line_col(row, col);
             }
             InputAction::MoveCursorToPos(pos) => {
+                self.commit_history_selection();
                 self.jump_to_offset(pos);
             }
             InputAction::Undo => {
+                self.commit_history_selection();
                 self.textarea.undo();
                 self.sync_buffer_cache();
             }
             InputAction::Redo => {
+                self.commit_history_selection();
                 self.textarea.redo();
                 self.sync_buffer_cache();
             }

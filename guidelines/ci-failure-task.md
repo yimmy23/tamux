@@ -2,24 +2,28 @@
 name: ci-failure-task
 description: Use when diagnosing or fixing failing CI, release, packaging, or automation checks.
 recommended_skills:
-  - github:gh-fix-ci
+  - testing
   - systematic-debugging
-  - verification-before-completion
+recommended_guidelines:
+  - testing-task
+  - debugging-task
+  - general-programming
 ---
 
-# CI Failure Task Guideline
+## Overview
 
-CI work should identify the failing check and reproduce the relevant part locally when practical.
+CI failures block the team. Fix them methodically, not by randomly rerunning.
 
 ## Workflow
 
-1. Locate the failing job, step, command, and error message.
-2. Distinguish infrastructure failure from code failure.
-3. Reproduce the smallest failing command locally when dependencies are available.
-4. Inspect recent changes to scripts, workflows, lockfiles, environment assumptions, and platform-specific paths.
-5. Fix the narrow cause and avoid weakening CI unless the check is demonstrably wrong.
-6. Run the closest local equivalent and explain any CI-only verification that remains.
+1. Read the full CI log before taking any action — the error is usually near the end.
+2. Distinguish between flaky tests, infrastructure failures, and real regressions.
+3. For build failures: check dependencies, environment, and configuration changes.
+4. For test failures: reproduce locally before attempting a fix.
+5. For infrastructure failures: restart the CI job after verifying the infrastructure.
+6. If a test is genuinely flaky, fix it or skip it — do not ignore it.
+7. After fixing, ensure the fix is in the branch, not just in the CI environment.
 
 ## Quality Gate
 
-Do not mark CI fixed from a code edit alone; provide the command or reasoning that exercises the failing path.
+A CI fix is complete when the pipeline passes and the root cause is documented.

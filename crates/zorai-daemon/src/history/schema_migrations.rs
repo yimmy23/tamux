@@ -297,6 +297,24 @@ pub(super) fn apply_schema_migrations(
         CREATE INDEX IF NOT EXISTS idx_embedding_deletions_claimed ON embedding_deletions(claimed_at, queued_at);",
     )?;
     connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS semantic_documents (
+            source_kind       TEXT NOT NULL,
+            root_path         TEXT NOT NULL,
+            relative_path     TEXT NOT NULL,
+            source_id         TEXT NOT NULL,
+            title             TEXT NOT NULL,
+            content_hash      TEXT NOT NULL,
+            body              TEXT NOT NULL,
+            discovered_at     INTEGER NOT NULL,
+            updated_at        INTEGER NOT NULL,
+            last_seen_at      INTEGER NOT NULL,
+            deleted_at        INTEGER,
+            PRIMARY KEY (source_kind, root_path, relative_path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_semantic_documents_source ON semantic_documents(source_kind, source_id);
+        CREATE INDEX IF NOT EXISTS idx_semantic_documents_seen ON semantic_documents(source_kind, root_path, last_seen_at);",
+    )?;
+    connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS thread_structural_memory (
             thread_id TEXT PRIMARY KEY,
             state_json TEXT NOT NULL,

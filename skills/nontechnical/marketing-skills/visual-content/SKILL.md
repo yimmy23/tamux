@@ -4,37 +4,7 @@ description: When the user wants to plan, create, or repurpose visual content (i
 tags: [nontechnical, marketing-skills, visual-content, computer-vision, writing]
 metadata:
   version: 1.0.1
----
-
-# Content: Visual Content
-
-Guides visual content planning and creation across website, social media, email, and other channels. Images are needed not just for websites—social posts, infographics, and repurposed content all require visuals. Visual-first planning in content calendars improves engagement; cross-channel consistency and repurposing maximize ROI.
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Scope
-
-- **When to use images**: By content type and format
-- **Specs by context**: Website vs social vs email
-- **Platform image specs**: X, LinkedIn, Pinterest, Instagram, Facebook, YouTube
-- **Repurposing**: One visual → multiple formats and channels
-- **Visual-first planning**: Content calendar with image planning
-
-## Initial Assessment
-
-**Check for project context first:** If `.claude/project-context.md` or `.cursor/project-context.md` exists, read Section 12 (Visual Identity) for brand consistency.
-
-Identify:
-1. **Context**: Article, social post, infographic, email, landing page
-2. **Channels**: Which platforms will use this visual
-3. **Repurposing**: Will this visual be adapted for other formats?
-
----
-
-## 1. When to Use Images
-
-| Content Type | Visual Need | Notes |
-|--------------|-------------|-------|
+--------------|-------------|-------|
 | **Article / Blog** | Hero image, in-article images, screenshots | See **image-optimization** for web (alt, WebP, LCP) |
 | **Social post** | Single image, carousel, or link preview | Platform-specific specs below |
 | **Infographic** | Primary format; data visualization | Repurpose to social (cropped), blog (full) |

@@ -1,29 +1,26 @@
 ---
 name: design-critique-task
-description: Use for critiquing visual design, layouts, branding, UX screens, artwork, or creative concepts.
+description: Use when reviewing designs, providing design feedback, or evaluating UX/UI decisions.
 recommended_skills:
-  - screenshot
-  - presentation-design
-  - visual-content
-  - branding
-  - brand-strategy
-  - gpt-image-1-5
-  - playwright
+recommended_guidelines:
+  - product-design-task
+  - frontend-ui-task
 ---
 
-# Design Critique Task Guideline
 
-Design critique should be specific, useful, and tied to goals.
+## Overview
+
+Design critique should be constructive, specific, and actionable — never vague or personal.
 
 ## Workflow
 
-1. Identify the design's purpose, audience, context, and constraints.
-2. Evaluate hierarchy, clarity, alignment, spacing, contrast, consistency, accessibility, brand fit, and emotional fit.
-3. Distinguish objective usability issues from subjective preference.
-4. Prioritize changes by user impact and effort.
-5. Provide concrete alternatives, not just criticism.
-6. When possible, inspect the actual image, page, or screenshot rather than guessing.
+1. Understand the design goals and constraints before critiquing.
+2. Start with what works before discussing improvements.
+3. Reference exact elements — not general feelings.
+4. Propose alternatives, not just problems.
+5. Distinguish subjective preference from objective usability issues.
+6. End with prioritized action items.
 
 ## Quality Gate
 
-Do not critique design solely by personal taste; tie feedback to user goals and design principles.
+A critique is complete when the designer has specific, actionable next steps.

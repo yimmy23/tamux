@@ -18,36 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Customer Success Playbook
-
-Customer Success (CS) is the discipline of ensuring customers achieve their
-desired outcomes using your product - making churn prevention a byproduct of
-genuine value delivery rather than a reactive damage-control function. This skill
-covers the full CS operating model: health scoring, onboarding design, churn
-prediction, expansion identification, QBR execution, segmentation, and team
-performance measurement.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Needs to build or improve a customer health scoring system
-- Wants to design or audit an onboarding playbook
-- Asks how to predict, detect, or prevent customer churn
-- Needs to identify expansion and upsell opportunities
-- Wants to run effective Quarterly Business Reviews (QBRs)
-- Asks how to segment customers by value or risk tier
-- Needs to define CS team KPIs or OKRs
-- Is working on NRR (Net Revenue Retention) or GRR (Gross Revenue Retention) improvement
-
-Do NOT trigger this skill for:
-- Product roadmap prioritization driven purely by engineering constraints (use product-strategy skills)
-- Sales prospecting, lead scoring, or new logo acquisition (pre-sale belongs to sales enablement)
-
----
-
 ## Key principles
 
 1. **Proactive, not reactive** - CS that only responds to support tickets is account

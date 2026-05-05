@@ -19,38 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Employee Engagement
-
-Employee engagement is the degree to which employees feel invested in, motivated by,
-and committed to their work and organization. High engagement correlates with lower
-voluntary attrition, higher productivity, better customer outcomes, and stronger
-innovation. This skill covers the full engagement lifecycle - from measurement through
-action planning - drawing on proven frameworks: Gallup Q12, eNPS, pulse cadence design,
-retention risk modeling, and culture diagnostics. Built for People teams, engineering
-managers, and HR leaders who want to move beyond annual survey theater to a continuous,
-action-oriented engagement practice.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to design, run, or improve an employee engagement or pulse survey
-- Needs to calculate, interpret, or improve eNPS scores
-- Is building an action plan from survey results
-- Wants to diagnose or reduce voluntary attrition
-- Is designing a retention program for at-risk employees
-- Needs to improve team health or culture - retrospectives, norms, psychological safety
-- Wants to measure culture using leading indicators
-- Is setting up a recurring engagement measurement cadence
-
-Do NOT trigger this skill for:
-- Compensation benchmarking or total rewards design (use compensation skill)
-- Performance management, PIPs, or termination processes (use performance-management skill)
-
----
-
 ## Key principles
 
 1. **Measure to improve, not to surveil** - Every survey must have a stated action

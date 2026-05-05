@@ -1806,6 +1806,47 @@ fn guideline_discover_round_trip() {
 }
 
 #[test]
+fn semantic_document_sync_round_trip() {
+    let msg = ClientMessage::AgentSemanticDocumentSync;
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: ClientMessage = bincode::deserialize(&bytes).unwrap();
+    assert!(matches!(decoded, ClientMessage::AgentSemanticDocumentSync));
+
+    let payload = SemanticDocumentIndexSyncResultPublic {
+        embedding_model: "text-embedding-3-small".to_string(),
+        dimensions: 1536,
+        skills: SemanticDocumentSyncSummaryPublic {
+            discovered: 3,
+            changed: 2,
+            queued_embeddings: 2,
+            removed: 0,
+        },
+        guidelines: SemanticDocumentSyncSummaryPublic {
+            discovered: 1,
+            changed: 1,
+            queued_embeddings: 1,
+            removed: 0,
+        },
+    };
+    let msg = DaemonMessage::SemanticDocumentSyncResult {
+        result_json: serde_json::to_string(&payload).unwrap(),
+    };
+    let bytes = bincode::serialize(&msg).unwrap();
+    let decoded: DaemonMessage = bincode::deserialize(&bytes).unwrap();
+    match decoded {
+        DaemonMessage::SemanticDocumentSyncResult { result_json } => {
+            let result: SemanticDocumentIndexSyncResultPublic =
+                serde_json::from_str(&result_json).unwrap();
+            assert_eq!(result.embedding_model, "text-embedding-3-small");
+            assert_eq!(result.dimensions, 1536);
+            assert_eq!(result.skills.discovered, 3);
+            assert_eq!(result.guidelines.queued_embeddings, 1);
+        }
+        other => panic!("unexpected variant: {:?}", other),
+    }
+}
+
+#[test]
 fn skill_discover_result_round_trip() {
     let payload = sample_skill_discovery_result();
     let msg = DaemonMessage::SkillDiscoverResult {

@@ -19,36 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Product Discovery
-
-Product discovery is the ongoing practice of learning what to build before - and
-while - building it. The goal is to reduce risk: shipping the wrong thing is far
-more expensive than the research that would have prevented it. This skill covers
-Jobs-to-be-Done (JTBD), opportunity solution trees, assumption mapping, experiment
-design, and prototype testing - giving an agent the judgment to run rigorous
-discovery the way a senior product manager or product trio would.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Asks how to apply Jobs-to-be-Done or conduct JTBD interviews
-- Wants to build or review an opportunity solution tree
-- Needs to map, categorize, or prioritize assumptions
-- Is designing an experiment, A/B test, or validation study
-- Wants to run or evaluate prototype tests (concept, usability, or value)
-- Asks how to synthesize qualitative or quantitative discovery data
-- Needs to establish a discovery cadence or dual-track workflow
-- Is deciding between multiple product bets or solution directions
-
-Do NOT trigger this skill for:
-- Pure delivery execution (sprint planning, story writing, velocity - use agile-scrum)
-- Growth hacking or marketing experimentation (use a growth or marketing skill)
-
----
-
 ## Key principles
 
 1. **Discover continuously, not in phases** - Discovery is not a gate before

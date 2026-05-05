@@ -1942,6 +1942,7 @@ pub(crate) async fn run(command: Commands) -> Result<()> {
         }
         Commands::Guideline { .. }
         | Commands::Skill { .. }
+        | Commands::Semantic { .. }
         | Commands::Plugin { .. }
         | Commands::Tool { .. } => {
             unreachable!()

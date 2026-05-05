@@ -18,39 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Financial Reporting
-
-Financial reporting is the structured communication of a company's financial
-performance and position to stakeholders - from the board of directors to
-external investors. Done well, it builds trust, enables better decisions, and
-surfaces problems early. Done poorly, it creates confusion, erodes credibility,
-and obscures the actual health of the business.
-
-This skill covers the three core financial statements, how to structure board
-and investor presentations, how to build KPI dashboards that match the audience,
-and how to write management commentary that tells the story behind the numbers.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Asks to prepare or review a P&L (income statement) for any period
-- Needs to build or explain a balance sheet
-- Wants to produce a cash flow statement (direct or indirect method)
-- Is building a board deck or board pack for a leadership meeting
-- Needs to create a KPI dashboard for executives, investors, or operators
-- Wants to write management commentary or MD&A (management discussion and analysis)
-- Is preparing an investor update, fundraising narrative, or LP report
-- Needs guidance on reporting cadence, materiality thresholds, or GAAP vs IFRS
-
-Do NOT trigger this skill for:
-- Tax preparation or tax strategy (different regulatory domain - involves tax law)
-- Audit procedures (auditor independence and audit standards are a separate discipline)
-
----
-
 ## Key principles
 
 1. **Accuracy over aesthetics** - A beautiful deck with wrong numbers destroys

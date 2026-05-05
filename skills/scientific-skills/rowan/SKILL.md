@@ -7,56 +7,7 @@ tags: [scientific-skills, rowan, api, cheminformatics, workflow, devops, python,
 metadata:
   skill-author: Rowan Science
   trigger-keywords: ["pKa prediction", "molecular docking", "conformer search", "chemistry workflow", "drug discovery", "SMILES", "protein structure", "batch molecular modeling", "cloud chemistry"]
----
-
-# Rowan: Cloud-Native Molecular-Modeling and Drug-Design Workflows
-
-## Overview
-
-Rowan is a cloud-native workflow platform for molecular simulation, medicinal chemistry, and structure-based design. Its Python API exposes a unified interface for small-molecule modeling, property prediction, docking, molecular dynamics, and AI structure workflows.
-
-Use Rowan when you want to run medicinal-chemistry or molecular-design workflows programmatically without maintaining local HPC infrastructure, GPU provisioning, or a collection of separate modeling tools. Rowan handles all infrastructure, result management, and computation scaling.
-
-## When to use Rowan
-
-**Rowan is a good fit for:**
-
-- Quantum chemistry, semiempirical methods, or neural network potentials
-- Batch property prediction (pKa, descriptors, permeability, solubility)
-- Conformer and tautomer ensemble generation
-- Docking workflows (single-ligand, analogue series, pose refinement)
-- Protein-ligand cofolding and MSA generation
-- Multi-step chemistry pipelines (e.g., tautomer search → docking → pose analysis)
-- Batch medicinal-chemistry campaigns where you need consistent, scalable infrastructure
-
-**Rowan is not the right fit for:**
-- Simple molecular I/O (use RDKit directly)
-- Post-HF *ab initio* quantum chemistry or relativistic calculations
-
-## Access and pricing model
-
-Rowan uses a credit-based usage model. All users, including free-tier users, can create API keys and use the Python API.
-
-### Free-tier access
-
-- Access to all Rowan core workflows
-- 20 credits per week
-- 500 signup credits
-
-### Pricing and credit consumption
-
-Credits are consumed according to compute type:
-
-- **CPU**: 1 credit per minute
-- **GPU**: 3 credits per minute
-- **H100/H200 GPU**: 7 credits per minute
-
-Purchased credits are priced per credit and remain valid for up to one year from purchase.
-
-### Typical cost estimates
-
-| Workflow | Typical Runtime | Estimated Credits | Notes |
-|----------|----------------|-------------------|-------|
+-------|----------------|-------------------|-------|
 | Descriptors | <1 min | 0.5–2 | Lightweight, good for triage |
 | pKa (single transition) | 2–5 min | 2–5 | Depends on molecule size |
 | MacropKa (pH 0–14) | 5–15 min | 5–15 | Broader sampling, higher cost |

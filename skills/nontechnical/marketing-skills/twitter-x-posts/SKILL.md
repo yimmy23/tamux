@@ -4,22 +4,7 @@ description: When the user wants to create X (Twitter) post copy, threads, or op
 tags: [nontechnical, marketing-skills, twitter-x-posts, writing, marketing]
 metadata:
   version: 1.1.1
----
-
-# Platforms: X (Twitter)
-
-Guides X post copy creation and optimization. Use for generating publish-ready posts, threads, and content that performs on X. Suitable for copy agents, design agents (image specs), and video agents (video post specs).
-
-**When invoking**: On **first use**, if helpful, open with 1-2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Output: Publish-Ready Copy
-
-This skill enables agents to generate X post copy that can be published directly. Output includes character-counted text, thread structure, and platform-compliant formatting.
-
-## Character Limits
-
-| Type | Limit | Notes |
-|------|-------|-------|
+---|-------|-------|
 | **Standard post** | 280 characters | Most users |
 | **Premium** | 25,000 characters | X Premium subscribers |
 | **URL** | Counts as 23 chars | t.co shortens all links |

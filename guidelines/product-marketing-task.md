@@ -2,33 +2,27 @@
 name: product-marketing-task
 description: Use for launch messaging, positioning, sales enablement, release narratives, and product-to-market translation.
 recommended_skills:
-  - product-strategy
-  - gtm-strategy
-  - product-launch
-  - launch-strategy
-  - content-marketing
-  - copywriting
-  - marketing-psychology
-  - landing-page-generator
-  - page-cro
-  - analytics-tracking
-  - pricing-strategy
-  - competitor-research
+recommended_guidelines:
+  - market-research-task
+  - brand-strategy-task
+  - marketing-campaign-task
+  - customer-research-task
 ---
 
-# Product Marketing Task Guideline
+## Overview
 
-Product marketing should translate features into customer-relevant value.
+Product marketing connects product capabilities to market needs through positioning and messaging.
 
 ## Workflow
 
-1. Identify buyer, user, problem, product capability, and competitive alternative.
-2. Use `product-strategy` and `gtm-strategy` for positioning and motion, `product-launch` or `launch-strategy` for launch execution, and `copywriting` for audience-specific assets.
-3. Map features to benefits, proof, objections, and use cases.
-4. Create messaging for each channel or audience instead of one universal paragraph.
-5. Prepare launch assets: announcement, FAQ, sales notes, demo story, and success metrics when needed.
-6. Validate claims against actual product behavior.
+1. Understand the product, market, competition, and target customer before messaging.
+2. Define positioning: target customer, market category, key benefit, differentiators.
+3. Develop messaging hierarchy: value proposition, supporting points, proof.
+4. Create launch plan: target segments, channels, timeline, success metrics.
+5. Prepare sales enablement materials.
+6. Plan launch activities across earned, owned, and paid channels.
+7. Measure launch results against goals.
 
 ## Quality Gate
 
-Do not turn a feature list into marketing copy without a clear audience and proof points.
+Product marketing is ready when positioning, messaging, and launch plan are aligned and documented.

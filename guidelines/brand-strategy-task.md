@@ -8,22 +8,25 @@ recommended_skills:
   - content-marketing
   - copywriting
   - visual-content
-  - gpt-image-1-5
+recommended_guidelines:
+  - marketing-campaign-task
+  - product-marketing-task
 ---
 
-# Brand Strategy Task Guideline
+## Overview
 
-Brand work should make a product or organization easier to recognize, trust, and choose.
+Brand strategy defines how an organization presents itself consistently across all touchpoints.
 
 ## Workflow
 
-1. Identify audience, category, competitors, brand promise, and desired perception.
-2. Use `branding` to define positioning, story, voice, and visual identity before execution.
-3. Establish voice principles with examples of what to say and what to avoid.
-4. Tie names, taglines, visuals, and messaging to strategic criteria.
-5. Check for obvious conflicts with existing brands, cultural meaning, or channel constraints.
-6. Provide usage examples across real contexts.
+1. Understand the market context and competitive landscape before defining positioning.
+2. Define the brand purpose, vision, values, and personality.
+3. Craft positioning: target audience, category, point of difference, reason to believe.
+4. Develop messaging hierarchy: core message, supporting messages, proof points.
+5. Create visual identity guidelines: logo, color, typography, imagery.
+6. Document voice and tone guidelines for communications.
+7. Test brand materials with the target audience.
 
 ## Quality Gate
 
-Do not evaluate brand ideas only by taste; compare them against positioning, audience, and differentiation.
+A brand strategy is complete when positioning, messaging, and visual guidelines are documented and aligned.

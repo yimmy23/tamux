@@ -2,29 +2,26 @@
 name: customer-success-task
 description: Use for customer success playbooks, account health, onboarding, QBRs, churn prevention, support handoffs, or expansion workflows.
 recommended_skills:
-  - customer-success-playbook
-  - customer-support-ops
-  - support-analytics
-  - churn-prevention
-  - onboarding-flow
-  - onboarding-cro
-  - account-management
-  - knowledge-base
+recommended_guidelines:
+  - customer-research-task
+  - analytics-measurement-task
+  - project-management-task
 ---
 
-# Customer Success Task Guideline
+## Overview
 
-Customer success work should improve customer outcomes and make risk visible early.
+Customer success ensures customers achieve their desired outcomes through the product.
 
 ## Workflow
 
-1. Identify customer segment, lifecycle stage, account owner, desired outcome, and renewal or expansion context.
-2. Define health signals: product usage, support history, stakeholder engagement, business outcome progress, and sentiment.
-3. Use `customer-success-playbook` for success motions, `customer-support-ops` for support handoffs, and `support-analytics` for operational metrics.
-4. Use onboarding skills for activation issues and `churn-prevention` when cancellation or retention risk is central.
-5. Create playbooks with triggers, owners, next actions, escalation paths, and customer-facing messaging.
-6. Include evidence, not just account-manager intuition.
+1. Understand the customer's goals and how they define success with the product.
+2. Define a structured onboarding process that guides to first value.
+3. Monitor customer health: usage, satisfaction, support tickets, NPS.
+4. Proactively reach out to at-risk customers before they churn.
+5. Identify expansion opportunities based on usage patterns and business needs.
+6. Build customer advocacy through case studies and referrals.
+7. Measure and report on customer outcomes to internal stakeholders.
 
 ## Quality Gate
 
-Do not label an account healthy or at risk without explicit signals and a follow-up action.
+Customer success is complete when the customer achieves their stated goals and renewal is likely.

@@ -18,35 +18,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Financial Modeling
-
-A practitioner's framework for building financial models that inform real decisions.
-This skill covers the mechanics of DCF valuation, revenue forecasting, unit economics,
-scenario analysis, and cap tables - with emphasis on *what drives* the numbers, not
-just how to calculate them. Designed for founders, operators, and analysts who need
-models that hold up to scrutiny.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Builds a revenue forecast or bottoms-up SaaS model
-- Performs a DCF valuation or wants to value a business
-- Models unit economics (LTV, CAC, payback period, contribution margin)
-- Creates scenario analysis (base, bull, bear cases)
-- Builds or updates a cap table (pre/post-money, option pool, dilution)
-- Models operating expenses by department or headcount plan
-- Runs sensitivity analysis or builds data tables
-- Prepares financial projections for a board, investor, or fundraise
-
-Do NOT trigger this skill for:
-- Accounting or tax compliance questions (use a CPA, not a model)
-- Real-time market data, stock screening, or trading strategies
-
----
-
 ## Key principles
 
 1. **Assumptions drive everything - make them explicit** - A model is only as good

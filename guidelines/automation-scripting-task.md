@@ -2,24 +2,26 @@
 name: automation-scripting-task
 description: Use when creating scripts, scheduled jobs, one-off automation, batch operations, or developer utilities.
 recommended_skills:
-  - test-driven-development
-  - systematic-debugging
-  - verification-before-completion
+recommended_guidelines:
+  - general-programming
+  - coding-task
+  - testing-task
 ---
 
-# Automation Scripting Task Guideline
+## Overview
 
-Automation should be safe to rerun and clear when it fails.
+Automation scripts should be reliable, reproducible, and resilient to failures.
 
 ## Workflow
 
-1. Define inputs, outputs, side effects, and idempotency requirements.
-2. Add dry-run or confirmation behavior for destructive or broad operations.
-3. Handle paths, spaces, missing tools, permissions, and partial failure.
-4. Use structured APIs or parsers when available.
-5. Test with small representative fixtures before running broadly.
-6. Print useful progress and final summaries without leaking secrets.
+1. Define the automation scope: what input, what output, what failure modes.
+2. Test the manual process first before writing automation.
+3. Write scripts with error handling and informative error messages.
+4. Scripts should be idempotent when possible.
+5. Log progress: which step, what's next, what went wrong.
+6. Handle edge cases: empty input, malformed data, network failures, permission issues.
+7. Test on a small sample before running on the full dataset.
 
 ## Quality Gate
 
-Do not automate a destructive action without a bounded target, verification, and recovery story.
+An automation script is ready when it handles expected inputs, error cases, and produces verified output.

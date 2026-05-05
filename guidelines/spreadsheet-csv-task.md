@@ -2,25 +2,25 @@
 name: spreadsheet-csv-task
 description: Use for CSV, spreadsheet-like tables, imports, exports, data cleanup, or report generation.
 recommended_skills:
-  - spreadsheet-modeling
-  - financial-modeling
-  - budgeting-planning
-  - verification-before-completion
+recommended_guidelines:
+  - data-analysis-task
+  - automation-scripting-task
 ---
 
-# Spreadsheet And CSV Task Guideline
+## Overview
 
-Spreadsheet work should preserve structure and avoid silent data corruption.
+Spreadsheet work requires data integrity checks and reproducible steps.
 
 ## Workflow
 
-1. Identify delimiter, encoding, headers, quoting, dates, numeric formats, and output format.
-2. Preserve row counts and key columns unless the user asks to filter.
-3. Validate parsing with sample rows and totals.
-4. Treat IDs, ZIP codes, phone numbers, and account numbers as text unless explicitly numeric.
-5. Document any normalization, deduplication, or dropped rows.
-6. Verify the produced file can be read back.
+1. Inspect the data: headers, row count, data types, null values before manipulating.
+2. Keep raw data separate from analysis — never modify the source file directly.
+3. Document all formulas, assumptions, and filters used.
+4. Validate key totals and cross-check against known values.
+5. For CSV transformations, prefer scripted processing over manual formula operations.
+6. Export with explicit encoding (UTF-8) and separator settings.
+7. Save incremental versions rather than overwriting.
 
 ## Quality Gate
 
-Do not alter tabular data without checking row counts and representative records before and after.
+Do not distribute a spreadsheet without validating totals, formulas, and expected row counts.

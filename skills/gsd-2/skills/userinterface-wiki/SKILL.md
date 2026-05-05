@@ -6,30 +6,7 @@ tags: [gsd-2, skills, userinterface-wiki]
 metadata:
   author: raphael-salaja
   version: "3.0.0"
----
-
-# User Interface Wiki
-
-Comprehensive UI/UX best practices guide for web interfaces. Contains 152 rules across 12 categories, prioritized by impact to guide automated code review and generation.
-
-## When to Apply
-
-Reference these guidelines when:
-- Implementing or reviewing animations (CSS transitions, Motion/Framer Motion)
-- Choosing between springs, easing curves, or no animation
-- Working with AnimatePresence and exit animations
-- Writing CSS with pseudo-elements or View Transitions API
-- Adding audio feedback or procedural sound to UI
-- Building morphing icon components
-- Animating container width/height with dynamic content
-- Designing UI that respects cognitive psychology (Fitts's, Hick's, Miller's laws)
-- Implementing predictive prefetching for perceived performance
-- Setting up typography, OpenType features, or numeric formatting
-
-## Rule Categories by Priority
-
-| Priority | Category | Impact | Prefixes |
-|----------|----------|--------|----------|
+-------|----------|--------|----------|
 | 1 | Animation Principles | CRITICAL | `timing-`, `physics-`, `staging-` |
 | 2 | Timing Functions | HIGH | `spring-`, `easing-`, `duration-`, `none-` |
 | 3 | Exit Animations | HIGH | `exit-`, `presence-`, `mode-`, `nested-` |

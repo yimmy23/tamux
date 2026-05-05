@@ -9,21 +9,26 @@ recommended_skills:
   - pricing-strategy
   - saas-metrics
   - board-update
+recommended_guidelines:
+  - finance-budget-task
+  - market-research-task
+  - planning-task
 ---
 
-# Business Strategy Task Guideline
+## Overview
 
-Business strategy work should connect choices to constraints, evidence, and execution.
+Business strategy defines long-term direction and resource allocation.
 
 ## Workflow
 
-1. Identify the business objective, time horizon, market, customer segment, and decision owner.
-2. Separate facts, assumptions, hypotheses, and opinions.
-3. Analyze options against revenue, cost, risk, differentiation, operational complexity, and reversibility.
-4. Use `market-research`, `competitive-analysis`, `gtm-strategy`, or `pricing-strategy` when the task needs a specific business strategy workflow.
-5. Recommend a path only after stating tradeoffs and what would invalidate the recommendation.
-6. Convert strategy into next steps, owners, metrics, and review points.
+1. Analyze the current state: market position, competitive landscape, internal capabilities.
+2. Define strategic objectives: what to achieve, by when, with what resources.
+3. Identify strategic options and evaluate trade-offs.
+4. Choose a path with clear rationale and risk assessment.
+5. Define KPIs and milestones to track progress.
+6. Communicate the strategy to stakeholders.
+7. Review and adjust strategy periodically based on results.
 
 ## Quality Gate
 
-Do not present a strategy as certain when it depends on untested assumptions or missing market evidence.
+A strategy is complete when objectives, chosen path, and KPIs are documented and communicated.

@@ -22,37 +22,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Email Deliverability
-
-The discipline of ensuring emails reach the recipient's inbox rather than the
-spam folder or void. Email deliverability sits at the intersection of DNS
-configuration, cryptographic authentication, sender behavior, and mailbox
-provider algorithms. This skill covers the full stack - from DNS records (SPF,
-DKIM, DMARC) through IP warm-up strategy, bounce management, and long-term
-reputation maintenance. Designed for engineers setting up email infrastructure
-and marketers diagnosing delivery problems.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Sets up SPF, DKIM, or DMARC records for a domain
-- Plans an IP warm-up schedule for a new sending IP or domain
-- Diagnoses why emails are landing in spam or being rejected
-- Implements bounce handling logic (hard bounces, soft bounces, complaints)
-- Monitors or improves sender reputation scores
-- Configures DNS TXT records for email authentication
-- Evaluates an ESP (Email Service Provider) or sending infrastructure
-- Troubleshoots email delivery failures, deferrals, or blocklisting
-
-Do NOT trigger this skill for:
-- Email content/copywriting or subject line optimization (use a marketing skill)
-- Building email templates with HTML/CSS (use a frontend skill)
-
----
-
 ## Key principles
 
 1. **Authenticate everything, no exceptions** - Every sending domain must have

@@ -3,22 +3,26 @@ name: configuration-task
 description: Use for settings, environment variables, config files, feature flags, secrets, or runtime defaults.
 recommended_skills:
   - security-best-practices
-  - verification-before-completion
+recommended_guidelines:
+  - general-programming
+  - environment-setup-task
+  - testing-task
 ---
 
-# Configuration Task Guideline
+## Overview
 
-Configuration changes should be explicit, reversible, and discoverable.
+Configuration changes are a common source of subtle bugs. This guideline ensures changes are intentional, tested, and reversible.
 
 ## Workflow
 
-1. Identify the config source, precedence order, defaults, and runtime reload behavior.
-2. Preserve user-owned config and avoid overwriting local customizations.
-3. Validate values and document accepted formats.
-4. Keep secrets out of examples, logs, and generated output.
-5. Update install, boot, and packaging paths when defaults change.
-6. Verify both default and customized configurations.
+1. Read the current configuration before changing it.
+2. Understand what each setting does — never copy-paste without comprehension.
+3. Make one change at a time and verify the effect.
+4. Document why a non-default value was chosen.
+5. Keep secrets out of configuration files — use environment variables or vaults.
+6. Validate configuration syntax before deployment.
+7. Have a rollback plan for configuration changes in production.
 
 ## Quality Gate
 
-Do not add a setting without defining its default, validation, and interaction with existing settings.
+Do not apply configuration changes in production without testing them in a matching environment first.

@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 fn parse_page(value: &str) -> Result<usize, String> {
     let page = value
@@ -136,6 +136,12 @@ pub(crate) enum Commands {
     Guideline {
         #[command(subcommand)]
         action: GuidelineAction,
+    },
+
+    /// Manage semantic skill and guideline indexing.
+    Semantic {
+        #[command(subcommand)]
+        action: SemanticAction,
     },
 
     /// Inspect the tools currently available to the daemon agent.
@@ -535,6 +541,35 @@ pub(crate) enum GuidelineAction {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum SemanticRerankKind {
+    Skill,
+    Guideline,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum SemanticAction {
+    /// Run the semantic skill/guideline discovery index sync job now.
+    Sync {
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Rerank installed skills or guidelines for a query using semantic vectors when available.
+    Rerank {
+        /// Which catalog to rerank.
+        kind: SemanticRerankKind,
+        /// Task or problem description to match against installed documents.
+        query: String,
+        /// Maximum number of ranked candidates to show.
+        #[arg(long, default_value = "3")]
+        limit: usize,
+        /// Emit raw JSON instead of human-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum ToolAction {
     /// List the tools currently available to the daemon agent.
@@ -877,8 +912,8 @@ pub(crate) enum WorkspaceAction {
 #[cfg(test)]
 mod tests {
     use super::{
-        Cli, Commands, GoalAction, GuidelineAction, MigrateAction, SkillAction, ThreadAction,
-        ToolAction, WorkspaceAction,
+        Cli, Commands, GoalAction, GuidelineAction, MigrateAction, SemanticAction,
+        SemanticRerankKind, SkillAction, ThreadAction, ToolAction, WorkspaceAction,
     };
     use clap::{CommandFactory, Parser};
 
@@ -899,6 +934,50 @@ mod tests {
                 assert_eq!(query, "debug panic");
                 assert_eq!(session, None);
                 assert_eq!(limit, 3);
+            }
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn semantic_sync_subcommand_parses_json_flag() {
+        let cli = Cli::try_parse_from(["zorai", "semantic", "sync", "--json"])
+            .expect("semantic sync subcommand should parse");
+        match cli.command {
+            Some(Commands::Semantic {
+                action: SemanticAction::Sync { json },
+            }) => assert!(json),
+            other => panic!("parsed unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn semantic_rerank_subcommand_parses_kind_query_and_limit() {
+        let cli = Cli::try_parse_from([
+            "zorai",
+            "semantic",
+            "rerank",
+            "guideline",
+            "coding workflow",
+            "--limit",
+            "7",
+            "--json",
+        ])
+        .expect("semantic rerank subcommand should parse");
+        match cli.command {
+            Some(Commands::Semantic {
+                action:
+                    SemanticAction::Rerank {
+                        kind,
+                        query,
+                        limit,
+                        json,
+                    },
+            }) => {
+                assert_eq!(kind, SemanticRerankKind::Guideline);
+                assert_eq!(query, "coding workflow");
+                assert_eq!(limit, 7);
+                assert!(json);
             }
             other => panic!("parsed unexpected command: {other:?}"),
         }

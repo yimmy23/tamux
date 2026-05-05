@@ -2,26 +2,23 @@
 name: database-task
 description: Use for schema changes, migrations, queries, persistence bugs, data repair, or database performance.
 recommended_skills:
-  - systematic-debugging
-  - test-driven-development
-  - security-best-practices
 recommended_guidelines:
   - general-programming
+  - coding-task
 ---
+## Overview
 
-# Database Task Guideline
-
-Database work must protect data integrity first.
+Database work requires understanding the schema, query patterns, and data volume before making changes.
 
 ## Workflow
 
-1. Identify tables, keys, constraints, ownership, and migration order.
-2. Inspect existing data shape and edge cases before changing schema or queries.
-3. Plan backward compatibility, rollback, and concurrent application versions where relevant.
-4. Use transactions for multi-step writes.
-5. Test empty, typical, duplicate, malformed, and large-data cases.
-6. Verify indexes, query plans, or performance when access patterns change.
+1. Understand the schema, relationships, and constraints before writing queries or migrations.
+2. For migrations: plan forward and rollback paths. Test on a copy before production.
+3. Write queries with explicit column lists instead of SELECT * — it's faster and more maintainable.
+4. Check query plans for performance — use EXPLAIN ANALYZE on any query touching significant data.
+5. Consider indexing: query WHERE clauses and JOIN conditions are the primary candidates.
+6. For bulk operations, batch in transactions of manageable size. Consider row locks.
 
 ## Quality Gate
 
-Do not modify persistent data or schema without a migration and validation path.
+Do not run destructive queries or migrations without a verified rollback plan.

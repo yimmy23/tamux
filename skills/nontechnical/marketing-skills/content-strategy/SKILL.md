@@ -4,46 +4,7 @@ description: When the user wants to plan content for SEO, create content calenda
 tags: [nontechnical, marketing-skills, content-strategy, strategy, writing, marketing]
 metadata:
   version: 1.1.1
----
-
-# SEO Content: Content Strategy
-
-Guides content strategy for SEO: topic clusters, pillar pages, cluster articles, and editorial planning. For content marketing across all channels (blog, email, social, video), see **content-marketing**. For translation workflow and multilingual content, see **translation**.
-
-**When invoking**: On **first use**, if helpful, open with 1-2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Initial Assessment
-
-**Check for project context first:** If `.claude/project-context.md` or `.cursor/project-context.md` exists, read it for product, audience, and proof points.
-
-Identify:
-1. **Keywords**: From keyword research — see **keyword-research** for discovery and clustering
-2. **Existing content**: What already exists
-3. **Resources**: Content capacity, tools
-4. **Goals**: Traffic, conversions, authority
-
-**Product-Led SEO**: Do SEO around product/users, not around industry/search engines. See **seo-strategy** for Product-Led SEO principle, products suited for SEO, and workflow order.
-
-## Topic Clusters
-
-Topic clusters organize content by **topic** rather than isolated keywords. A **pillar page** covers a broad core topic; **cluster articles** cover subtopics; all connect via internal links. This signals topical authority to search engines and AI systems.
-
-### Structure
-
-```
-Pillar page (broad topic, 2,000-5,000+ words)
-    <-> internal links
-Cluster 1 (subtopic, 800-2,500 words)
-Cluster 2 (subtopic)
-...
-Cluster 6-12 (subtopics)
-    <-> cluster to cluster links
-```
-
-### Pillar Page
-
-| Attribute | Guideline |
-|-----------|-----------|
+--------|-----------|
 | **Length** | 2,000-5,000+ words; comprehensive guide |
 | **Keyword** | Broad head term with search volume |
 | **Role** | Hub; links to all cluster articles; targets primary topic |

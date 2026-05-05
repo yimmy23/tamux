@@ -2,30 +2,25 @@
 name: sales-outreach-task
 description: Use for sales emails, prospecting sequences, call scripts, objection handling, or account messaging.
 recommended_skills:
-  - cold-outreach
-  - sales-script
-  - sales-enablement
-  - lead-scoring
-  - revops
-  - crm-management
-  - account-management
-  - proposal-generation
-  - proposal-writing
+recommended_guidelines:
+  - communication-writing-task
+  - marketing-campaign-task
 ---
 
-# Sales Outreach Task Guideline
+## Overview
 
-Sales outreach should be specific, relevant, and respectful of the buyer's context.
+Sales outreach should be personalized, value-driven, and respectful of the prospect's time.
 
 ## Workflow
 
-1. Identify buyer role, account context, likely pain, offer, and desired next action.
-2. Use `cold-outreach` for messages, `sales-script` for calls, `sales-enablement` for collateral, `revops` for handoffs, and proposal skills for deal documents.
-3. Lead with relevance and business value, not generic product claims.
-4. Keep messages concise and easy to reply to.
-5. Prepare objection handling around cost, timing, authority, risk, and current solution.
-6. Avoid deceptive urgency, false personalization, or unsupported claims.
+1. Research the prospect before contacting: role, company, recent news, pain points.
+2. Write a subject line that states the value, not the ask.
+3. Open with a personalized observation, not a generic greeting.
+4. State the value proposition clearly and concisely.
+5. Include a specific, low-friction call to action.
+6. Follow up systematically — most sales happen after multiple touches.
+7. Track outreach and responses to refine the approach.
 
 ## Quality Gate
 
-Do not write outreach that could be sent unchanged to any buyer in any industry.
+Outreach is ready when it is personalized, value-driven, and includes a clear next step.

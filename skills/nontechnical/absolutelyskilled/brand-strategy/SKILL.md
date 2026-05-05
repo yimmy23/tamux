@@ -19,38 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Brand Strategy
-
-Brand strategy is the long-term plan for developing a brand's identity, positioning,
-and perception in the market. It answers three fundamental questions: who we are,
-who we are for, and why we matter. A strong brand strategy gives every piece of
-communication - from a product UI to a tweet to a sales deck - a consistent,
-recognizable character. This skill covers the full brand strategy toolkit: positioning
-statements, brand voice and tone, messaging hierarchy, brand archetypes, brand
-storytelling, competitive mapping, and brand audits.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to write or rewrite a brand positioning statement
-- Needs to define or document brand voice and tone guidelines
-- Is building a messaging hierarchy or messaging framework
-- Wants to develop a brand story or origin narrative
-- Is mapping competitive positioning in a market
-- Needs to choose or define a brand archetype
-- Is creating or reviewing a brand guidelines document
-- Wants to audit brand consistency across channels
-
-Do NOT trigger this skill for:
-- Visual design decisions (logo, color palette, typography) - those are brand identity
-  execution, not strategy; use a design or UI skill
-- Content calendar planning or social media scheduling - use a content marketing skill
-
----
-
 ## Key principles
 
 1. **Positioning is a choice, not a description** - A positioning statement does not

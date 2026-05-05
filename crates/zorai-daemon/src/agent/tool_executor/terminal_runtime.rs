@@ -708,7 +708,7 @@ async fn execute_headless_shell_command(
                 .unwrap_or_default();
             return Ok((
                 format!(
-                    "Headless command detached{cwd_suffix} as background operation {operation_id} after {}s foreground grace.\nbackground_task_id: {operation_id}\noperation_id: {operation_id}\nwait_for_completion=true exceeded the TUI foreground grace window. Use get_operation_status with this operation_id for explicit polling.",
+                    "Headless command detached{cwd_suffix} as background operation {operation_id} after {}s foreground grace.\nbackground_task_id: {operation_id}\noperation_id: {operation_id}\nwait_for_completion=true exceeded the TUI foreground grace window. A background monitor will notify this thread when the command completes. Use get_operation_status with this operation_id if you need more details before then.",
                     foreground_wait.as_secs()
                 ),
                 None,
@@ -823,7 +823,7 @@ fn spawn_headless_shell_command_background(
     if auto_background {
         Ok((
             format!(
-                "{queued_summary}\nbackground_task_id: {operation_id}\noperation_id: {operation_id}\nCommand auto-backgrounded (requested timeout {}s > max 600s). Use get_operation_status with this operation_id for explicit polling.",
+                "{queued_summary}\nbackground_task_id: {operation_id}\noperation_id: {operation_id}\nCommand auto-backgrounded (requested timeout {}s > max 600s). A background monitor will notify this thread when the command completes. Use get_operation_status with this operation_id if you need more details before then.",
                 requested_timeout,
             ),
             None,
@@ -831,7 +831,7 @@ fn spawn_headless_shell_command_background(
     } else {
         Ok((
             format!(
-                "{queued_summary}\nbackground_task_id: {operation_id}\noperation_id: {operation_id}\nNot waiting for completion because wait_for_completion=false. Use get_operation_status with this operation_id for explicit polling."
+                "{queued_summary}\nbackground_task_id: {operation_id}\noperation_id: {operation_id}\nNot waiting for completion because wait_for_completion=false. A background monitor will notify this thread when the command completes. Use get_operation_status with this operation_id if you need more details before then."
             ),
             None,
         ))

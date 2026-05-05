@@ -1,4 +1,5 @@
 use super::*;
 
+mod input_history;
 mod insert_char_appends_to_buffer_to_undo_restores_previous_state;
 mod undo_on_empty_is_noop_to_wrapped_display_offset_maps_back_to_buffer;

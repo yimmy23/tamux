@@ -1,92 +1,77 @@
 ---
 name: openmed
-description: "Production-ready medical NLP toolkit (maziyarpanahi/openmed). Entity extraction, assertion detection, medical reasoning, de-identification, and structured insight generation from clinical text. Zero-shot disease/disorder coding, ICD-10-CM mapping."
-tags: [medical-nlp, clinical-text, entity-extraction, deidentification, icd10, healthcare, zorai]
+description: "Production-ready medical NLP toolkit (maziyarpanahi/openmed). Entity extraction, assertion detection, PII de-identification, batch processing, REST API, and multilingual support. Covers installation, all model families, configuration, and deployment."
+tags: [medical-nlp, clinical-text, entity-extraction, deidentification, pii, icd10, healthcare, zorai, openmed]
 ---
-## Overview
 
-OpenMed is a production-ready medical NLP toolkit focused on extracting structured clinical information from free text. It supports entity extraction, assertion handling, de-identification, and model-specific workflows through a simple Python API, batch processing, and a REST service.
+# OpenMed
 
-## Installation
+**OpenMed** transforms clinical text into structured insights. It bundles curated biomedical NER models, HIPAA-compliant de-identification, batch processing, a Dockerized REST API, and Apple Silicon acceleration — all behind a single `analyze_text()` call.
 
-From a local checkout of the repo:
+## When to Use
+
+| Scenario | Start with |
+|---|---|
+| Extract diseases, drugs, anatomy from clinical notes | `references/entity-extraction` |
+| Remove PHI/PII before sharing or storing data | `references/pii-deidentification` |
+| Run NER on hundreds of clinical documents | `references/batch-processing` |
+| Serve OpenMed behind a REST API | `references/rest-service` |
+| Set up on Apple Silicon, Docker, or Swift | `references/installation` |
+| Configure profiles, pick the right model | `references/configuration` |
+| PII in French, German, Spanish, Portuguese, etc. | `references/multilingual-pii` |
+| Privacy Filter (OpenAI / Nemotron) families | `references/privacy-filter` |
+
+## Quick Start
 
 ```bash
+git clone https://github.com/maziyarpanahi/openmed.git
+cd openmed
 uv pip install -e ".[hf]"
-# add service dependencies if needed
-uv pip install -e ".[hf,service]"
 ```
-
-Apple Silicon / MLX path:
-
-```bash
-uv pip install -e ".[mlx]"
-```
-
-## Single-text analysis
 
 ```python
 from openmed import analyze_text
 
 result = analyze_text(
-    "Patient started on imatinib for chronic myeloid leukemia.",
+    "Patient started imatinib for chronic myeloid leukemia.",
     model_name="disease_detection_superclinical",
 )
-
 for entity in result.entities:
-    print(entity.label, entity.text, round(entity.confidence, 3))
+    print(f"{entity.label:<12} {entity.text:<35} {entity.confidence:.2f}")
+# DISEASE      chronic myeloid leukemia          0.98
+# DRUG         imatinib                           0.95
 ```
 
-Expected use cases include:
-- disease / diagnosis extraction
-- drug extraction
-- anatomy / procedure extraction
-- assertion-aware clinical interpretation
+## Model Registry (12+ Models)
 
-## Batch processing
+| Model | Entity Types |
+|---|---|
+| `disease_detection_superclinical` | DISEASE, CONDITION, DIAGNOSIS |
+| `pharma_detection_superclinical` | DRUG, MEDICATION, TREATMENT |
+| `pii_detection_superclinical` | NAME, DATE, SSN, PHONE, EMAIL, ADDRESS |
+| `anatomy_detection_electramed` | ANATOMY, ORGAN, BODY_PART |
+| `gene_detection_genecorpus` | GENE, PROTEIN |
 
-```python
-from openmed import BatchProcessor
+Browse the full catalog: `openmed.life/docs/model-registry`
 
-processor = BatchProcessor(
-    model_name="disease_detection_superclinical",
-    confidence_threshold=0.55,
-    group_entities=True,
-)
+## Key Concepts
 
-result = processor.process_texts([
-    "Patient started metformin for type 2 diabetes.",
-    "Imatinib started for chronic myeloid leukemia.",
-])
+- **analyze_text()** — single-call inference with configurable model, aggregation, format, and confidence threshold
+- **BatchProcessor** — multi-text and multi-file workflows with progress tracking
+- **extract_pii()** / **deidentify()** — HIPAA-compliant PII detection and redaction
+- **Configuration Profiles** — `dev`, `prod`, `test`, `fast` presets via YAML or env vars
+- **REST API** — FastAPI endpoints: `/health`, `/analyze`, `/pii/extract`, `/pii/deidentify`
 
-for doc in result:
-    print(doc.entities)
-```
+## References
 
-## REST API service
-
-```bash
-uvicorn openmed.service.app:app --host 0.0.0.0 --port 8080
-```
-
-Then call it from your app backend instead of embedding model logic everywhere.
-
-## De-identification / privacy workflow
-
-OpenMed also exposes privacy-oriented workflows. Use those when clinical text may contain PHI/PII and you need redaction before storage, review, or downstream model calls.
-
-## Practical workflow
-
-1. Pick the right model family for the extraction task.
-2. Start with `analyze_text()` on a handful of examples.
-3. Inspect confidence and false positives before scaling.
-4. Switch to `BatchProcessor` for document sets.
-5. Use the REST service when integrating into larger systems.
-6. Add privacy filtering before persistence or external delivery.
-
-## Common failure modes
-
-- using the wrong `model_name` for the task
-- treating confidence as a calibrated probability without validation
-- skipping de-identification in clinical workflows
-- batch-processing without checking entity grouping/threshold behavior first
+- [OpenMed docs](https://openmed.life/docs/)
+- [OpenMed arXiv paper](https://arxiv.org/abs/2508.01630)
+- [OpenMed GitHub](https://github.com/maziyarpanahi/openmed)
+- `references/installation.md` — cross-platform install, Docker, Swift
+- `references/entity-extraction.md` — disease, drug, anatomy, gene models
+- `references/pii-deidentification.md` — HIPAA compliance, smart merging, anonymization
+- `references/batch-processing.md` — BatchProcessor API
+- `references/rest-service.md` — FastAPI endpoints, Docker
+- `references/configuration.md` — profiles, model registry, profiling
+- `references/multilingual-pii.md` — 9-language PII support
+- `references/privacy-filter.md` — OpenAI Privacy Filter, Nemotron, MLX

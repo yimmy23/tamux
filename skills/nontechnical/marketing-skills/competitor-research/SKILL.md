@@ -4,18 +4,7 @@ description: When the user wants to analyze competitors for SEO, content, backli
 tags: [nontechnical, marketing-skills, competitor-research, strategy, writing, marketing]
 metadata:
   version: 1.2.1
----
-
-# SEO Content: Competitor Research
-
-Guides competitor research for SEO, content, backlinks, and positioning. Use when planning content, auditing articles, building links, or evaluating market position.
-
-**When invoking**: On **first use**, if helpful, open with 1–2 sentences on what this skill covers and why it matters, then provide the main output. On **subsequent use** or when the user asks to skip, go directly to the main output.
-
-## Research Types
-
-| Type | Purpose | Output |
-|------|---------|--------|
+---|---------|--------|
 | **Keyword/topic** | Topics competitors rank for; gaps | Keyword opportunities; content ideas |
 | **Content** | Structure, length, gaps vs top rankers | Length target; H2 structure; content gaps |
 | **Backlink** | Link profile; sites linking to competitors | Link gap; outreach targets |

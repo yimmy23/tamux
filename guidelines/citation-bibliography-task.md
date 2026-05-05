@@ -4,23 +4,25 @@ description: Use for citation lookup, DOI/PMID metadata, BibTeX, Zotero workflow
 recommended_skills:
   - citation-management
   - pyzotero
-  - paper-lookup
-  - research-lookup
+recommended_guidelines:
+  - academic-literature-review-task
+  - research-writing-publication-task
 ---
 
-# Citation And Bibliography Task Guideline
+## Overview
 
-Citation work should prioritize metadata accuracy over formatting speed.
+Accurate citations and bibliography management is essential for academic integrity and reproducibility.
 
 ## Workflow
 
-1. Identify citation style, venue or publisher requirements, source identifiers, and output format.
-2. Use `citation-management` for DOI/PMID lookup, metadata validation, BibTeX generation, and citation formatting.
-3. Use `pyzotero` when the task involves an existing Zotero library, collections, tags, or attachments.
-4. Use `paper-lookup` when identifiers are missing or when the citation must be found from title, author, or topic.
-5. Validate author order, title, venue, year, DOI, PMID, volume, issue, pages, and preprint vs published status.
-6. Report unresolved or ambiguous references rather than silently guessing.
+1. Collect all sources during the research phase — don't wait until the end.
+2. Use `pyzotero` for Zotero integration or `citation-management` for manual formatting.
+3. Choose a citation style (APA, MLA, Chicago, etc.) and apply it consistently.
+4. Verify each citation against the original source — do not copy-paste from Google Scholar without checking.
+5. Include DOIs and URLs where available.
+6. Check that every citation has a corresponding reference entry and vice versa.
+7. Run a final consistency check before submission.
 
 ## Quality Gate
 
-Do not fabricate missing citation fields; mark them as unresolved or verify them from a source.
+Citation work is complete when every source is verified, formatted consistently, and cross-referenced correctly.

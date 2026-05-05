@@ -497,7 +497,13 @@ jobs:
       - name: Stage bundled skills and guidelines
         run: |
           rm -rf dist-release/macos/zorai-desktop.app
-          cp -R frontend/release/mac/zorai.app dist-release/macos/zorai-desktop.app
+          MAC_APP="$(find frontend/release -maxdepth 2 -type d -name "zorai.app" -print -quit)"
+          if [ -z "$MAC_APP" ]; then
+            echo "Electron macOS app bundle was not produced under frontend/release" >&2
+            find frontend/release -maxdepth 2 -print >&2
+            exit 1
+          fi
+          cp -R "$MAC_APP" dist-release/macos/zorai-desktop.app
           cat > dist-release/macos/zorai-desktop <<'SH'
           #!/bin/sh
           set -eu
@@ -614,7 +620,13 @@ jobs:
       - name: Stage bundled skills and guidelines
         run: |
           rm -rf dist-release/macos/zorai-desktop.app
-          cp -R frontend/release/mac/zorai.app dist-release/macos/zorai-desktop.app
+          MAC_APP="$(find frontend/release -maxdepth 2 -type d -name "zorai.app" -print -quit)"
+          if [ -z "$MAC_APP" ]; then
+            echo "Electron macOS app bundle was not produced under frontend/release" >&2
+            find frontend/release -maxdepth 2 -print >&2
+            exit 1
+          fi
+          cp -R "$MAC_APP" dist-release/macos/zorai-desktop.app
           cat > dist-release/macos/zorai-desktop <<'SH'
           #!/bin/sh
           set -eu

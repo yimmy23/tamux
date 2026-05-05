@@ -1135,6 +1135,8 @@ mod schema_helpers;
 mod schema_migrations;
 mod schema_sql;
 mod schema_sql_extra;
+mod semantic_documents;
+pub(crate) use semantic_documents::SemanticDocumentSyncSummary;
 mod skill_generation;
 mod statistics;
 mod temporal_foresight;

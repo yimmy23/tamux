@@ -19,35 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# CRM Management
-
-An opinionated framework for designing, configuring, and optimizing CRM systems
-that actually reflect reality - not wishful thinking. This skill covers pipeline
-architecture, lead scoring, forecasting methodology, automation design, and data
-hygiene. Aimed at revenue operations, sales leaders, and technical implementers
-who need CRM to be a system of truth, not a graveyard of stale opportunities.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-
-1. Designs or redesigns a sales pipeline (stage definitions, exit criteria, deal properties)
-2. Configures lead scoring in Salesforce, HubSpot, or similar CRM platforms
-3. Builds a revenue forecast - weighted, categorical, or AI-assisted
-4. Automates deal progression, task creation, or notification workflows
-5. Audits data quality and needs a dedup, enrichment, or field decay strategy
-6. Builds sales dashboards, win/loss reports, or pipeline velocity metrics
-7. Integrates CRM with marketing automation, product analytics, or billing systems
-
-Do NOT trigger this skill for:
-- General sales coaching or objection handling (this is a CRM architecture skill, not a sales playbook)
-- Writing email sequences or sales copy (use a copywriting or outbound skill instead)
-
----
-
 ## Key principles
 
 1. **Data hygiene is non-negotiable** - A CRM full of stale, duplicated, or

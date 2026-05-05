@@ -2,24 +2,27 @@
 name: code-review
 description: Use when reviewing local changes, pull requests, diffs, or proposed patches.
 recommended_skills:
-  - receiving-code-review
-  - requesting-code-review
-  - security-best-practices
+  - review
+recommended_guidelines:
+  - general-programming
+  - testing-task
+  - refactoring-task
 ---
 
-# Code Review Guideline
+## Overview
 
-Code review should prioritize correctness and risk over style commentary.
+Code review catches bugs, ensures consistency, and shares knowledge across the team.
 
 ## Workflow
 
-1. Identify the intended behavior from the request, commit message, issue, or surrounding code.
-2. Inspect changed files and nearby callers that depend on the changed contract.
-3. Look first for bugs, regressions, missing tests, data loss, race conditions, security issues, and user-facing breakage.
-4. Validate claims against code and tests; do not assume a change is safe because it is small.
-5. Report findings first, ordered by severity, with file and line references.
-6. Include open questions only when they change the review outcome.
+1. Understand the purpose of the change before reviewing the code.
+2. Review the diff first, then check surrounding context if needed.
+3. Focus on correctness, security, and maintainability — style is secondary.
+4. Leave specific, actionable comments — not vague criticism.
+5. Distinguish between blockers and suggestions clearly.
+6. Verify tests cover the claimed behavior changes.
+7. Approve only when you understand the code well enough to defend it.
 
 ## Quality Gate
 
-If no issues are found, say that directly and mention remaining verification gaps or residual risk.
+A review is complete when all blocker items are resolved and the reviewer understands and approves the change.

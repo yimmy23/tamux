@@ -2,30 +2,25 @@
 name: hr-recruiting-task
 description: Use for job descriptions, interview plans, candidate evaluation, onboarding, performance notes, or HR communications.
 recommended_skills:
-  - recruiting-ops
-  - job-description
-  - interview-kit
-  - sourcing-outreach
-  - employer-brand
-  - compensation-strategy
-  - performance-management
-  - employee-engagement
-  - employment-law
+recommended_guidelines:
+  - project-management-task
+  - legal-compliance-task
 ---
 
-# HR And Recruiting Task Guideline
+## Overview
 
-HR work should be fair, role-relevant, and careful with sensitive information.
+Effective recruiting identifies qualified candidates efficiently while providing a positive candidate experience.
 
 ## Workflow
 
-1. Identify role, level, competencies, evaluation criteria, and legal or policy constraints.
-2. Use job-relevant criteria and avoid protected-class assumptions.
-3. Use `recruiting-ops` for the full hiring process, `job-description` for postings, `interview-kit` for structured evaluation, and people skills for compensation, performance, engagement, or employment-law issue spotting.
-4. Keep feedback factual, specific, and behavior-based.
-5. Protect personal and confidential information.
-6. Escalate legal, disciplinary, compensation, or termination questions to qualified owners.
+1. Define the role requirements: skills, experience, cultural fit, and growth potential.
+2. Write a job description that attracts the right candidates.
+3. Screen candidates systematically against the requirements.
+4. Structure interviews around relevant competencies.
+5. Use consistent evaluation criteria across candidates.
+6. Gather feedback from all interviewers before deciding.
+7. Provide timely and respectful communication throughout the process.
 
 ## Quality Gate
 
-Do not generate HR decisions or feedback based on stereotypes, vague impressions, or protected attributes.
+A hire is complete when the role requirements are met and both the candidate and team confirm a good fit.

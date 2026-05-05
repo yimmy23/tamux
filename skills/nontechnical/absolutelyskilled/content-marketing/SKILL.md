@@ -19,39 +19,6 @@ maintainers:
   - github: maddhruv
 ---
 
-
-# Content Marketing
-
-Content marketing is the practice of creating and distributing valuable, relevant
-content to attract, engage, and convert a defined audience - rather than interrupting
-them with ads. Done well, it compounds over time: a single pillar page drives
-organic traffic for years, a repurposed webinar becomes ten assets, and a consistent
-editorial calendar builds brand authority that paid media cannot buy.
-
-This skill covers content strategy, SEO-driven editorial planning, pillar-cluster
-architecture, cross-channel repurposing, and performance measurement - giving an
-agent the judgment to plan, write, and distribute content the way a seasoned content
-strategist would.
-
----
-
-## When to use this skill
-
-Trigger this skill when the user:
-- Wants to build or audit a content strategy for a product, brand, or niche
-- Needs to create or redesign a content calendar (weekly, monthly, quarterly)
-- Asks for help writing, structuring, or optimizing an SEO blog post
-- Wants to design a pillar page and topic-cluster architecture
-- Needs a playbook for repurposing one piece of content across channels
-- Asks how to set up an editorial workflow (briefing, drafting, review, publish)
-- Wants to define or track content marketing KPIs and attribution
-
-Do NOT trigger this skill for:
-- Paid advertising copy or media buying (ad copy is a different discipline)
-- Technical SEO implementation - crawl budgets, structured data, site speed (use `absolute-seo`)
-
----
-
 ## Key principles
 
 1. **Audience first** - Every content decision starts with the reader. Who are they,

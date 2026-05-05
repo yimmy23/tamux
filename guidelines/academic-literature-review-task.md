@@ -8,9 +8,14 @@ recommended_skills:
   - bgpt-paper-search
   - citation-management
   - scientific-critical-thinking
+recommended_guidelines:
+  - research-task
+  - scientific-data-analysis-task
+  - citation-bibliography-task
+  - evidence-quality-task
 ---
 
-# Academic Literature Review Task Guideline
+## Overview
 
 Literature review work should make the search strategy, inclusion criteria, and evidence limits visible.
 

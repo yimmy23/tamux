@@ -1822,6 +1822,7 @@ async fn execute_message_agent_visible_thread_continuation(
                 task_id: None,
                 preferred_session_hint: preferred_session_hint.clone(),
                 llm_user_content: continuation_prompt,
+                queued_at_ms: 0,
                 force_compaction: false,
                 rerun_participant_observers_after_turn: true,
                 internal_delegate_sender: Some(sender.to_string()),

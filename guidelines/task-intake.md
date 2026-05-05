@@ -1,25 +1,26 @@
 ---
 name: task-intake
-description: Use at the start of broad, ambiguous, multi-step, or high-impact user requests.
+description: Use when receiving, clarifying, or scoping a new task or request before execution begins.
 recommended_skills:
-  - brainstorming
-  - writing-plans
-  - onecontext
+recommended_guidelines:
+  - project-management-task
+  - planning-task
 ---
 
-# Task Intake Guideline
 
-Use this guideline to turn a raw user request into a clear work shape.
+## Overview
+
+Clear task intake prevents wasted effort on misunderstood requirements. This guideline ensures tasks are properly scoped before execution.
 
 ## Workflow
 
-1. Restate the actual outcome the user appears to want, not only the literal words.
-2. Identify whether the task is a question, code change, investigation, setup, writing, planning, or operational action.
-3. Check project instructions, current workspace state, and history when past context could matter.
-4. Decide whether work can proceed safely or needs one concise clarifying question.
-5. Pick the most relevant guideline before skill discovery.
-6. Define done criteria: output artifact, command result, patch, explanation, or verified behavior.
+1. Read the full request before asking any questions.
+2. Identify what is clear and what needs clarification.
+3. Ask specific questions about ambiguous areas — don't guess intent.
+4. Confirm scope, constraints, success criteria, and timeline.
+5. If too large, propose breaking into independently completable steps.
+6. Restate understanding back to confirm alignment.
 
 ## Quality Gate
 
-Do not start broad work with a vague objective. If success cannot be checked, narrow the request first.
+A task is ready when scope, criteria, and constraints are confirmed and documented.
