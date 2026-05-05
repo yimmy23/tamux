@@ -498,17 +498,34 @@ impl TuiModel {
             }
         }
         if self.operator_profile_auto_start_pending_summary {
-            self.operator_profile_auto_start_pending_summary = false;
-            if !Self::operator_profile_summary_has_completed_onboarding(&summary_json)
-                && !self.operator_profile.loading
-                && self.operator_profile.session_id.is_none()
-                && self.operator_profile.question.is_none()
-            {
-                self.send_daemon_command(DaemonCommand::StartOperatorProfileSession {
-                    kind: "first_run_onboarding".to_string(),
-                });
-            }
+            let _ = self.try_start_operator_profile_autostart_from_pending_summary();
         }
+    }
+
+    pub(in crate::app) fn try_start_operator_profile_autostart_from_pending_summary(
+        &mut self,
+    ) -> bool {
+        if !self.operator_profile_auto_start_pending_summary {
+            return false;
+        }
+        if self.concierge.loading {
+            return true;
+        }
+        let Some(summary_json) = self.operator_profile.summary_json.clone() else {
+            return true;
+        };
+
+        self.operator_profile_auto_start_pending_summary = false;
+        if !Self::operator_profile_summary_has_completed_onboarding(&summary_json)
+            && !self.operator_profile.loading
+            && self.operator_profile.session_id.is_none()
+            && self.operator_profile.question.is_none()
+        {
+            self.send_daemon_command(DaemonCommand::StartOperatorProfileSession {
+                kind: "first_run_onboarding".to_string(),
+            });
+        }
+        true
     }
 
     fn operator_profile_summary_has_completed_onboarding(summary_json: &str) -> bool {

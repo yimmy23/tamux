@@ -247,7 +247,9 @@ impl TuiModel {
                     !welcome_complete,
                 ));
             if welcome_complete {
-                self.maybe_request_operator_profile_autostart_summary();
+                if !self.try_start_operator_profile_autostart_from_pending_summary() {
+                    self.maybe_request_operator_profile_autostart_summary();
+                }
             }
             return;
         }
@@ -327,7 +329,9 @@ impl TuiModel {
         self.main_pane_view = MainPaneView::Conversation;
         self.focus = FocusArea::Chat;
         if welcome_complete {
-            self.maybe_request_operator_profile_autostart_summary();
+            if !self.try_start_operator_profile_autostart_from_pending_summary() {
+                self.maybe_request_operator_profile_autostart_summary();
+            }
         }
     }
 

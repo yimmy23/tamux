@@ -437,6 +437,70 @@ fn partial_concierge_welcome_keeps_loading_animation_until_final_actions_arrive(
 }
 
 #[test]
+fn operator_profile_autostart_waits_for_streaming_concierge_welcome_to_finish() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = false;
+
+    model.handle_agent_config_raw_event(serde_json::json!({
+        "provider": PROVIDER_ID_OPENAI,
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-5.4",
+    }));
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.handle_client_event(ClientEvent::OperatorProfileSummary {
+        summary_json: serde_json::json!({
+            "field_count": 0,
+            "fields": {},
+            "consents": {
+                "enabled": true
+            }
+        })
+        .to_string(),
+    });
+
+    while let Ok(command) = daemon_rx.try_recv() {
+        assert!(
+            !matches!(
+                command,
+                crate::state::DaemonCommand::StartOperatorProfileSession { .. }
+            ),
+            "operator profile onboarding should not start while concierge welcome is streaming"
+        );
+    }
+    assert!(
+        model.concierge.loading,
+        "concierge welcome should still be in its streaming/loading phase"
+    );
+
+    model.handle_concierge_welcome_event(
+        "Final welcome".to_string(),
+        vec![crate::state::ConciergeActionVm {
+            label: "Send a message".to_string(),
+            action_type: "focus_chat".to_string(),
+            thread_id: None,
+        }],
+    );
+
+    let mut started_onboarding = false;
+    while let Ok(command) = daemon_rx.try_recv() {
+        if matches!(
+            command,
+            crate::state::DaemonCommand::StartOperatorProfileSession { kind }
+                if kind == "first_run_onboarding"
+        ) {
+            started_onboarding = true;
+            break;
+        }
+    }
+    assert!(
+        started_onboarding,
+        "operator profile onboarding should start after the final concierge welcome arrives"
+    );
+}
+
+#[test]
 fn final_concierge_welcome_requests_operator_profile_autostart_after_incomplete_summary() {
     let (_event_tx, event_rx) = std::sync::mpsc::channel();
     let (daemon_tx, mut daemon_rx) = unbounded_channel();
