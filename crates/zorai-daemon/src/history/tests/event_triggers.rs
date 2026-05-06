@@ -153,3 +153,44 @@ async fn event_trigger_registry_round_trips_weles_health_trigger() -> Result<()>
     std::fs::remove_dir_all(root)?;
     Ok(())
 }
+
+fn sample_trigger_fire(id: &str, fired_at_ms: u64) -> TriggerFireHistoryRow {
+    TriggerFireHistoryRow {
+        id: id.to_string(),
+        trigger_id: format!("trigger-{id}"),
+        event_family: "routine".to_string(),
+        event_kind: "daily_brief".to_string(),
+        status: "succeeded".to_string(),
+        fired_at_ms,
+        completed_at_ms: Some(fired_at_ms + 1),
+        retry_count: 0,
+        error_message: None,
+        created_task_id: None,
+        notice_id: None,
+        payload_json: "{}".to_string(),
+    }
+}
+
+#[tokio::test]
+async fn list_trigger_fire_history_since_filters_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .insert_trigger_fire_history(&sample_trigger_fire("old", 100))
+        .await?;
+    store
+        .insert_trigger_fire_history(&sample_trigger_fire("newer", 300))
+        .await?;
+    store
+        .insert_trigger_fire_history(&sample_trigger_fire("newest", 500))
+        .await?;
+
+    let rows = store.list_trigger_fire_history_since(250, 1).await?;
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, "newest");
+    assert!(rows.iter().all(|row| row.fired_at_ms >= 250));
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}

@@ -6,6 +6,7 @@ use super::*;
 use serde::{Deserialize, Serialize};
 
 const SESSION_ABANDON_WINDOW_MS: u64 = 30_000;
+const LAZY_CAPPED_IPC_MESSAGE_WINDOW: usize = 64;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ThreadListFilter {
@@ -99,6 +100,40 @@ fn thread_detail_frame_fits_ipc(thread: &Option<AgentThread>) -> bool {
     zorai_protocol::daemon_message_fits_ipc(&zorai_protocol::DaemonMessage::AgentThreadDetail {
         thread_json,
     })
+}
+
+fn cap_thread_detail_for_ipc(detail: ThreadDetailResult) -> ThreadDetailResult {
+    if thread_detail_frame_fits_ipc(&Some(detail.thread.clone())) {
+        return detail;
+    }
+
+    let mut low = 0usize;
+    let mut high = detail.thread.messages.len();
+    while low < high {
+        let mid = low + (high - low) / 2;
+        let mut candidate = detail.thread.clone();
+        candidate.messages = candidate.messages[mid..].to_vec();
+        if thread_detail_frame_fits_ipc(&Some(candidate)) {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+
+    let mut thread = detail.thread;
+    thread.messages = thread.messages[low..].to_vec();
+
+    ThreadDetailResult {
+        thread,
+        messages_truncated: detail.messages_truncated || low > 0,
+        total_message_count: detail.total_message_count,
+        loaded_message_start: detail.loaded_message_start + low,
+        loaded_message_end: detail.loaded_message_end,
+        active_context_window_start: detail.active_context_window_start,
+        active_context_window_end: detail.active_context_window_end,
+        active_context_window_tokens: detail.active_context_window_tokens,
+        pinned_messages: detail.pinned_messages,
+    }
 }
 
 impl AgentEngine {
@@ -413,6 +448,28 @@ impl AgentEngine {
         &self,
         filter: &ThreadListFilter,
     ) -> Vec<AgentThread> {
+        let config = self.config.read().await.clone();
+        let query = persisted_thread_list_query(filter, &config);
+        match self.history.list_threads_filtered(&query).await {
+            Ok(rows) if !rows.is_empty() || self.threads.read().await.is_empty() => {
+                return rows
+                    .into_iter()
+                    .map(summarize_persisted_thread_for_list)
+                    .collect();
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%error, "failed to list persisted thread summaries with SQL");
+            }
+        }
+
+        self.list_threads_filtered_from_memory(filter).await
+    }
+
+    async fn list_threads_filtered_from_memory(
+        &self,
+        filter: &ThreadListFilter,
+    ) -> Vec<AgentThread> {
         let threads = self.threads.read().await;
         let mut list: Vec<AgentThread> = threads
             .values()
@@ -453,8 +510,42 @@ impl AgentEngine {
                 )
                 .await
             {
+                tracing::info!(
+                    thread_id,
+                    message_limit = limit,
+                    message_offset,
+                    loaded_message_start = detail.loaded_message_start,
+                    loaded_message_end = detail.loaded_message_end,
+                    total_message_count = detail.total_message_count,
+                    returned_messages = detail.thread.messages.len(),
+                    source = "db",
+                    "daemon loaded thread message window"
+                );
                 return Some(detail);
             }
+        }
+
+        if let Some(detail) = self
+            .get_authoritative_persisted_thread_detail(
+                thread_id,
+                include_internal,
+                message_limit,
+                message_offset,
+            )
+            .await
+        {
+            tracing::info!(
+                thread_id,
+                message_limit,
+                message_offset,
+                loaded_message_start = detail.loaded_message_start,
+                loaded_message_end = detail.loaded_message_end,
+                total_message_count = detail.total_message_count,
+                returned_messages = detail.thread.messages.len(),
+                source = "db",
+                "daemon loaded thread message window"
+            );
+            return Some(detail);
         }
 
         self.ensure_thread_messages_loaded(thread_id).await;
@@ -473,6 +564,90 @@ impl AgentEngine {
             .unwrap_or(0);
         let messages_truncated = start > 0 || end < total_messages;
 
+        if messages_truncated {
+            thread.messages = thread
+                .messages
+                .into_iter()
+                .skip(start)
+                .take(end.saturating_sub(start))
+                .collect();
+        }
+
+        let detail = ThreadDetailResult {
+            thread,
+            messages_truncated,
+            total_message_count: total_messages,
+            loaded_message_start: start,
+            loaded_message_end: end,
+            active_context_window_start,
+            active_context_window_end,
+            active_context_window_tokens,
+            pinned_messages,
+        };
+        tracing::info!(
+            thread_id,
+            message_limit,
+            message_offset,
+            loaded_message_start = detail.loaded_message_start,
+            loaded_message_end = detail.loaded_message_end,
+            total_message_count = detail.total_message_count,
+            returned_messages = detail.thread.messages.len(),
+            source = "memory",
+            "daemon loaded thread message window"
+        );
+        Some(detail)
+    }
+
+    async fn get_authoritative_persisted_thread_detail(
+        &self,
+        thread_id: &str,
+        include_internal: bool,
+        message_limit: Option<usize>,
+        message_offset: usize,
+    ) -> Option<ThreadDetailResult> {
+        let existing_pinned = self
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .map(|thread| thread.pinned);
+        let mut thread = self.restore_thread_with_messages_from_db(thread_id).await?;
+        if let Some(pinned) = existing_pinned {
+            thread.pinned = pinned;
+        }
+
+        let pinned_messages = persisted_pinned_message_summaries(self, thread_id).await;
+        let (active_context_window_start, active_context_window_end, active_context_window_tokens) =
+            match self.history.list_active_context_window(thread_id).await {
+                Ok((rows, absolute_start, absolute_end)) => {
+                    let messages = rows
+                        .into_iter()
+                        .filter_map(super::messaging::agent_message_from_db)
+                        .collect::<Vec<_>>();
+                    let (relative_start, _, tokens) = thread_context_window_summary(&messages);
+                    (
+                        absolute_start.saturating_add(relative_start),
+                        absolute_end,
+                        tokens,
+                    )
+                }
+                Err(_) => thread_context_window_summary(&thread.messages),
+            };
+
+        let total_messages = thread.messages.len();
+        {
+            let mut threads = self.threads.write().await;
+            threads.insert(thread_id.to_string(), thread.clone());
+        }
+        if !thread_is_query_visible(&thread, include_internal) {
+            return None;
+        }
+
+        let end = total_messages.saturating_sub(message_offset);
+        let start = message_limit
+            .map(|limit| end.saturating_sub(limit))
+            .unwrap_or(0);
+        let messages_truncated = start > 0 || end < total_messages;
         if messages_truncated {
             thread.messages = thread
                 .messages
@@ -538,18 +713,23 @@ impl AgentEngine {
 
         let pinned_messages = persisted_pinned_message_summaries(self, thread_id).await;
         let (active_context_window_start, active_context_window_end, active_context_window_tokens) =
-            match self.history.list_messages(thread_id, None).await {
-                Ok(rows) => {
+            match self.history.list_active_context_window(thread_id).await {
+                Ok((rows, absolute_start, absolute_end)) => {
                     let messages = rows
                         .into_iter()
                         .filter_map(super::messaging::agent_message_from_db)
                         .collect::<Vec<_>>();
-                    thread_context_window_summary(&messages)
+                    let (relative_start, _, tokens) = thread_context_window_summary(&messages);
+                    (
+                        absolute_start.saturating_add(relative_start),
+                        absolute_end,
+                        tokens,
+                    )
                 }
                 Err(_) => thread_context_window_summary(&thread.messages),
             };
 
-        Some(ThreadDetailResult {
+        let detail = ThreadDetailResult {
             thread,
             messages_truncated: loaded_message_start > 0
                 || loaded_message_end < total_message_count,
@@ -560,7 +740,19 @@ impl AgentEngine {
             active_context_window_end,
             active_context_window_tokens,
             pinned_messages,
-        })
+        };
+        tracing::info!(
+            thread_id,
+            message_limit,
+            message_offset,
+            loaded_message_start = detail.loaded_message_start,
+            loaded_message_end = detail.loaded_message_end,
+            total_message_count = detail.total_message_count,
+            returned_messages = detail.thread.messages.len(),
+            source = "db",
+            "daemon loaded thread message window"
+        );
+        Some(detail)
     }
 
     pub(crate) async fn get_thread_capped_for_ipc(
@@ -568,41 +760,30 @@ impl AgentEngine {
         thread_id: &str,
         include_internal: bool,
     ) -> Option<ThreadDetailResult> {
+        if self
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id)
+        {
+            if let Some(detail) = self
+                .get_lazy_persisted_thread_window(
+                    thread_id,
+                    include_internal,
+                    LAZY_CAPPED_IPC_MESSAGE_WINDOW,
+                    0,
+                )
+                .await
+            {
+                return Some(cap_thread_detail_for_ipc(detail));
+            }
+        }
+
         let detail = self
             .get_thread_filtered(thread_id, include_internal, None, 0)
             .await?;
 
-        if thread_detail_frame_fits_ipc(&Some(detail.thread.clone())) {
-            return Some(detail);
-        }
-
-        let mut low = 0usize;
-        let mut high = detail.thread.messages.len();
-        while low < high {
-            let mid = low + (high - low) / 2;
-            let mut candidate = detail.thread.clone();
-            candidate.messages = candidate.messages[mid..].to_vec();
-            if thread_detail_frame_fits_ipc(&Some(candidate)) {
-                high = mid;
-            } else {
-                low = mid + 1;
-            }
-        }
-
-        let mut thread = detail.thread;
-        thread.messages = thread.messages[low..].to_vec();
-
-        Some(ThreadDetailResult {
-            thread,
-            messages_truncated: detail.messages_truncated || low > 0,
-            total_message_count: detail.total_message_count,
-            loaded_message_start: detail.loaded_message_start + low,
-            loaded_message_end: detail.loaded_message_end,
-            active_context_window_start: detail.active_context_window_start,
-            active_context_window_end: detail.active_context_window_end,
-            active_context_window_tokens: detail.active_context_window_tokens,
-            pinned_messages: detail.pinned_messages,
-        })
+        Some(cap_thread_detail_for_ipc(detail))
     }
 
     pub async fn planner_required_for_thread(&self, thread_id: &str) -> bool {
@@ -684,14 +865,11 @@ impl AgentEngine {
             return;
         }
 
-        let recent_existing = self
+        if self
             .history
-            .list_implicit_signals(&thread.id, 10)
+            .implicit_signal_exists(&thread.id, "session_abandon")
             .await
-            .unwrap_or_default();
-        if recent_existing
-            .iter()
-            .any(|signal| signal.signal_type == "session_abandon")
+            .unwrap_or(false)
         {
             return;
         }
@@ -722,6 +900,114 @@ fn thread_is_visible_by_default(thread: &AgentThread) -> bool {
 
 fn thread_is_query_visible(thread: &AgentThread, include_internal: bool) -> bool {
     include_internal || thread_is_visible_by_default(thread)
+}
+
+fn list_filter_timestamp(value: Option<u64>) -> Option<i64> {
+    value.map(|value| value.min(i64::MAX as u64) as i64)
+}
+
+fn persisted_thread_list_query(
+    filter: &ThreadListFilter,
+    config: &AgentConfig,
+) -> crate::history::AgentThreadListQuery {
+    let (agent_names, include_empty_agent_name) =
+        persisted_thread_agent_name_filter(filter.agent_name.as_deref(), config);
+
+    crate::history::AgentThreadListQuery {
+        created_after: list_filter_timestamp(filter.created_after),
+        created_before: list_filter_timestamp(filter.created_before),
+        updated_after: list_filter_timestamp(filter.updated_after),
+        updated_before: list_filter_timestamp(filter.updated_before),
+        agent_names,
+        include_empty_agent_name,
+        title_query: filter
+            .title_query
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
+        title_excluded_prefixes: Vec::new(),
+        pinned: filter.pinned,
+        min_message_count: None,
+        include_internal: filter.include_internal,
+        excluded_ids: Vec::new(),
+        hidden_id_prefixes: vec![
+            crate::agent::agent_identity::PARTICIPANT_PLAYGROUND_THREAD_PREFIX.to_string(),
+            crate::agent::thread_handoffs::INTERNAL_HANDOFF_THREAD_PREFIX.to_string(),
+        ],
+        hidden_message_substrings: vec![
+            format!(
+                "{} {}",
+                crate::agent::agent_identity::PERSONA_ID_MARKER,
+                crate::agent::agent_identity::WELES_AGENT_ID
+            ),
+            format!(
+                "{} {}",
+                crate::agent::agent_identity::PERSONA_ID_MARKER,
+                crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE
+            ),
+            format!(
+                "{} {}",
+                crate::agent::agent_identity::PERSONA_ID_MARKER,
+                crate::agent::agent_identity::WELES_VITALITY_SCOPE
+            ),
+        ],
+        limit: filter.limit,
+        offset: filter.offset,
+    }
+}
+
+fn persisted_thread_agent_name_filter(
+    agent_name: Option<&str>,
+    config: &AgentConfig,
+) -> (Vec<String>, bool) {
+    let Some(agent_name) = agent_name.map(str::trim).filter(|value| !value.is_empty()) else {
+        return (Vec::new(), false);
+    };
+
+    let target = crate::agent::agent_identity::resolve_agent_target(agent_name, &config.sub_agents);
+    let mut names = vec![target.agent_name, agent_name.to_string()];
+    let canonical = canonical_thread_agent_name(Some(agent_name));
+    names.push(canonical.to_string());
+
+    let include_empty_agent_name =
+        canonical.eq_ignore_ascii_case(crate::agent::agent_identity::MAIN_AGENT_NAME);
+    if include_empty_agent_name {
+        names.extend([
+            crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+            crate::agent::agent_identity::MAIN_AGENT_PUBLIC_ALIAS.to_string(),
+            crate::agent::agent_identity::MAIN_AGENT_ALIAS.to_string(),
+            crate::agent::agent_identity::MAIN_AGENT_LEGACY_ALIAS.to_string(),
+            crate::agent::agent_identity::MAIN_AGENT_FALLBACK_ALIAS.to_string(),
+        ]);
+    }
+
+    names.sort_by_key(|name| name.to_ascii_lowercase());
+    names.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+    (names, include_empty_agent_name)
+}
+
+fn summarize_persisted_thread_for_list(thread: zorai_protocol::AgentDbThread) -> AgentThread {
+    let metadata = parse_thread_metadata(thread.metadata_json.as_deref());
+    AgentThread {
+        id: thread.id,
+        agent_name: thread
+            .agent_name
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        title: thread.title,
+        messages: Vec::new(),
+        pinned: metadata.pinned,
+        upstream_thread_id: metadata.upstream_thread_id,
+        upstream_transport: metadata.upstream_transport,
+        upstream_provider: metadata.upstream_provider,
+        upstream_model: metadata.upstream_model,
+        upstream_assistant_id: metadata.upstream_assistant_id,
+        created_at: thread.created_at.max(0) as u64,
+        updated_at: thread.updated_at.max(0) as u64,
+        total_input_tokens: thread.total_tokens.max(0) as u64,
+        total_output_tokens: 0,
+    }
 }
 
 fn canonical_thread_agent_name(agent_name: Option<&str>) -> &'static str {

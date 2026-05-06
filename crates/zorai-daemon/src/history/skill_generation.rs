@@ -224,6 +224,44 @@ impl HistoryStore {
         Ok(page.variants)
     }
 
+    pub async fn list_discoverable_skill_variants(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<SkillVariantRecord>> {
+        let limit = limit.clamp(1, 2000) as i64;
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
+                     FROM skill_variants \
+                     WHERE status NOT IN ('archived', 'merged', 'draft') \
+                       AND lower(relative_path) LIKE '%.md' \
+                     ORDER BY CASE status \
+                         WHEN 'promoted-to-canonical' THEN 4 \
+                         WHEN 'active' THEN 3 \
+                         WHEN 'deprecated' THEN 2 \
+                         ELSE 0 \
+                       END DESC, \
+                       fitness_score DESC, \
+                       CASE WHEN use_count > 0 THEN CAST(success_count AS REAL) / CAST(use_count AS REAL) ELSE 0.0 END DESC, \
+                       use_count DESC, \
+                       CASE WHEN variant_name = 'canonical' THEN 1 ELSE 0 END DESC, \
+                       updated_at DESC, \
+                       relative_path ASC \
+                     LIMIT ?1",
+                )?;
+                let rows = stmt.query_map(params![limit], map_skill_variant_row)?;
+                let mut variants = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+                let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
+                variants.sort_by(|left, right| {
+                    compare_skill_variants(left, right, &[], &trend_by_variant)
+                });
+                Ok(variants)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     /// Update the maturity status of a skill variant and bump `updated_at`.
     pub async fn update_skill_variant_status(
         &self,

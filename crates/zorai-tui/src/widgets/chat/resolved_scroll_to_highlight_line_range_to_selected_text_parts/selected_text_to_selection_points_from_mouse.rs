@@ -7,18 +7,10 @@ pub fn selected_text(
     start: SelectionPoint,
     end: SelectionPoint,
 ) -> Option<String> {
-    let inner = content_inner(area);
-    let (all_lines, message_line_ranges) =
-        build_rendered_lines(chat, theme, inner.width as usize, current_tick, false);
-    if all_lines.is_empty() {
+    let snapshot = selection_snapshot(area, chat, theme, current_tick, false)?;
+    if snapshot.total_lines == 0 {
         return None;
     }
-    let _scroll = resolved_scroll(
-        chat,
-        all_lines.len(),
-        inner.height as usize,
-        &message_line_ranges,
-    );
 
     let (start_point, end_point) =
         if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
@@ -26,8 +18,8 @@ pub fn selected_text(
         } else {
             (end, start)
         };
-    let start_row = start_point.row.min(all_lines.len().saturating_sub(1));
-    let end_row = end_point.row.min(all_lines.len().saturating_sub(1));
+    let start_row = start_point.row.min(snapshot.total_lines.saturating_sub(1));
+    let end_row = end_point.row.min(snapshot.total_lines.saturating_sub(1));
     let start_col = start_point.col;
     let end_col = end_point.col;
 
@@ -38,7 +30,7 @@ pub fn selected_text(
     let mut lines = Vec::new();
 
     for row in start_row..=end_row {
-        let rendered = all_lines.get(row)?;
+        let rendered = snapshot_line_at(&snapshot, row)?;
         let (plain, content_start, content_end) = rendered_line_content_bounds(rendered);
         let content_width = content_end.saturating_sub(content_start);
         let from = if row == start_row {

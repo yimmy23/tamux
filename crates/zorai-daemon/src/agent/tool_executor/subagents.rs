@@ -1,5 +1,7 @@
 use crate::agent::operator_model::SatisfactionAdaptationMode;
 use crate::agent::types::AgentTask;
+use crate::history::AgentTaskListQuery;
+use std::collections::HashSet;
 
 const MAX_RECURSIVE_SUBAGENT_DEPTH: u8 = 3;
 const RECURSIVE_SUBAGENT_BUDGET_CURVE: [f64; 3] = [1.0, 0.6, 0.3];
@@ -138,6 +140,69 @@ fn merge_tool_call_limit(existing: Option<String>, max_tool_calls: Option<u32>) 
 
 async fn reserve_subagent_thread_id(agent: &AgentEngine) -> String {
     agent.reserve_unique_thread_id().await
+}
+
+async fn find_task_for_spawn(agent: &AgentEngine, task_id: &str) -> Option<AgentTask> {
+    let persisted_task = agent
+        .list_tasks_filtered(&AgentTaskListQuery {
+            id: Some(task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            goal_run_id: None,
+            parent_task_id: None,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next();
+    if persisted_task.is_some() {
+        return persisted_task;
+    }
+
+    agent
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == task_id)
+        .cloned()
+}
+
+async fn list_subagent_tasks_for_spawn(agent: &AgentEngine) -> Vec<AgentTask> {
+    let mut tasks = agent
+        .list_tasks_filtered(&AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: Some("subagent".to_string()),
+            thread_id: None,
+            goal_run_id: None,
+            parent_task_id: None,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await;
+    let mut task_ids = tasks
+        .iter()
+        .map(|task| task.id.clone())
+        .collect::<HashSet<_>>();
+    for task in agent
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .filter(|task| task.source == "subagent")
+    {
+        if task_ids.insert(task.id.clone()) {
+            tasks.push(task.clone());
+        }
+    }
+    tasks
 }
 
 async fn resolve_effective_subagent_provider_config(
@@ -432,15 +497,12 @@ async fn execute_spawn_subagent(
         })
         .unwrap_or_default();
 
-    let existing_tasks = agent.list_tasks().await;
     let task_snapshot = if let Some(current_task_id) = task_id {
-        existing_tasks
-            .iter()
-            .find(|task| task.id == current_task_id)
-            .cloned()
+        find_task_for_spawn(agent, current_task_id).await
     } else {
         None
     };
+    let subagent_tasks = list_subagent_tasks_for_spawn(agent).await;
     let inherited_client_surface = match agent.get_thread_client_surface(thread_id).await {
         Some(client_surface) => Some(client_surface),
         None => match task_snapshot
@@ -571,7 +633,7 @@ async fn execute_spawn_subagent(
     };
     let derived_limits = derive_subagent_limits(
         task_snapshot.as_ref(),
-        &existing_tasks,
+        &subagent_tasks,
         requested_max_depth,
         requested_budget,
         effective_provider_config.context_window_tokens,
@@ -1020,11 +1082,7 @@ pub(in crate::agent) async fn spawn_weles_internal_subagent(
         _ => format!("Internal governance review for {tool_name}"),
     };
     let task_snapshot = if let Some(current_task_id) = parent_task_id {
-        let tasks = agent.tasks.lock().await;
-        tasks
-            .iter()
-            .find(|task| task.id == current_task_id)
-            .cloned()
+        find_task_for_spawn(agent, current_task_id).await
     } else {
         None
     };
@@ -1890,8 +1948,8 @@ async fn execute_message_agent(
         .and_then(|value| value.as_bool());
 
     let sender = if let Some(current_task_id) = task_id {
-        let tasks = agent.tasks.lock().await;
-        sender_name_for_task(tasks.iter().find(|task| task.id == current_task_id))
+        let task = find_task_for_spawn(agent, current_task_id).await;
+        sender_name_for_task(task.as_ref())
     } else {
         canonical_agent_name(&current_agent_scope_id()).to_string()
     };

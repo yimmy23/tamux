@@ -36,6 +36,17 @@ mod workspace_update;
 
 include!("mod_parts/modal_body_to_step.rs");
 include!("mod_parts/pending_workspace_actor_picker.rs");
+
+const MESSAGE_DELETE_BACKFILL_THRESHOLD: usize = 5;
+
+#[derive(Clone, Copy, Debug)]
+struct PendingDeleteBackfillFetch {
+    message_limit: usize,
+    message_offset: usize,
+    outstanding_rows: usize,
+    requested_at_tick: u64,
+}
+
 pub struct TuiModel {
     // State modules
     chat: chat::ChatState,
@@ -92,6 +103,10 @@ pub struct TuiModel {
     bootstrap_pending_activity_threads: std::collections::HashSet<String>,
     pending_prompt_response_threads: std::collections::HashSet<String>,
     deleted_thread_ids: std::collections::HashSet<String>,
+    pending_local_message_delete_reload_suppression: std::collections::HashMap<String, usize>,
+    pending_local_message_delete_backfills: std::collections::HashMap<String, usize>,
+    pending_local_message_delete_fetches:
+        std::collections::HashMap<String, PendingDeleteBackfillFetch>,
     participant_playground_activity:
         std::collections::HashMap<String, ParticipantPlaygroundActivity>,
 

@@ -14,11 +14,11 @@ impl AgentEngine {
     }
 
     pub async fn reconcile_svarog_workspace_operator_tasks(&self) -> Result<()> {
-        let settings = self.history.list_workspace_settings().await?;
-        for settings in settings
-            .into_iter()
-            .filter(|settings| settings.operator == WorkspaceOperator::Svarog)
-        {
+        let settings = self
+            .history
+            .list_workspace_settings_by_operator(WorkspaceOperator::Svarog)
+            .await?;
+        for settings in settings {
             self.start_svarog_workspace_operator_tasks(&settings.workspace_id)
                 .await?;
         }

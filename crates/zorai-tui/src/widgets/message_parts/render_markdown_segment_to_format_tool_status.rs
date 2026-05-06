@@ -112,12 +112,40 @@ pub(crate) fn is_collapsible_system_notice_message(msg: &AgentMessage) -> bool {
 }
 
 pub(crate) fn collapsible_system_notice_label(msg: &AgentMessage) -> Option<&'static str> {
-    if is_meta_cognition_message(msg) {
+    if msg.message_kind == "compaction_artifact" {
+        Some("Auto compaction")
+    } else if is_meta_cognition_message(msg) {
         Some("🕵🏻‍♂️ Meta-cognition")
     } else if msg.role == MessageRole::System {
         background_operation_finished_label(&msg.content)
     } else {
         None
+    }
+}
+
+pub(crate) fn collapsible_system_notice_detail(msg: &AgentMessage) -> Option<String> {
+    collapsible_system_notice_label(msg)?;
+
+    if msg.message_kind == "compaction_artifact" {
+        Some(compaction_artifact_content(msg))
+    } else {
+        Some(msg.content.clone())
+    }
+}
+
+fn compaction_artifact_content(msg: &AgentMessage) -> String {
+    let visible_header = msg.content.trim();
+    let payload = msg
+        .compaction_payload
+        .as_deref()
+        .map(str::trim)
+        .filter(|payload| !payload.is_empty());
+
+    match payload {
+        Some(payload) if visible_header.is_empty() => payload.to_string(),
+        Some(payload) if visible_header.contains(payload) => visible_header.to_string(),
+        Some(payload) => format!("{visible_header}\n\nContent:\n{payload}"),
+        None => msg.content.clone(),
     }
 }
 
@@ -194,36 +222,6 @@ fn render_compact(
 ) {
     let content_width = width.max(1);
     let image_lines = inline_image_attachment_lines(msg, content_width, theme);
-
-    if msg.message_kind == "compaction_artifact" {
-        let compaction_content = {
-            let visible_header = msg.content.trim();
-            let payload = msg
-                .compaction_payload
-                .as_deref()
-                .map(str::trim)
-                .filter(|payload| !payload.is_empty());
-
-            match payload {
-                Some(payload) if visible_header.is_empty() => payload.to_string(),
-                Some(payload) if visible_header.contains(payload) => visible_header.to_string(),
-                Some(payload) => format!("{visible_header}\n\nContent:\n{payload}"),
-                None => msg.content.clone(),
-            }
-        };
-        lines.push(Line::from(Span::styled(
-            "---- auto compaction ----",
-            theme.fg_dim,
-        )));
-        for line in wrap_text(&compaction_content, content_width) {
-            lines.push(Line::from(Span::styled(line, theme.fg_active)));
-        }
-        lines.push(Line::from(Span::styled(
-            "------------------------",
-            theme.fg_dim,
-        )));
-        return;
-    }
 
     if let Some(operator_question_lines) =
         render_operator_question_message(msg, theme, content_width)
@@ -337,6 +335,32 @@ fn render_compact(
         return;
     }
 
+    if let Some(label) = collapsible_system_notice_label(msg) {
+        let is_expanded = expanded.contains(&msg_index);
+        lines.push(Line::from(vec![Span::styled(
+            format!("{} {label}", toggle_glyph(is_expanded)),
+            theme.meta_cognitive,
+        )]));
+
+        if is_expanded {
+            let detail_width = width.saturating_sub(2).max(1);
+            let dark_blue = Style::default().fg(Color::Indexed(24));
+            let detail = collapsible_system_notice_detail(msg).unwrap_or_default();
+            for detail_line in wrap_text(&detail, detail_width) {
+                lines.push(Line::from(vec![
+                    Span::styled("\u{2502}", dark_blue),
+                    Span::raw(" "),
+                    Span::styled(detail_line, theme.fg_dim),
+                ]));
+            }
+        }
+
+        if !image_lines.is_empty() {
+            lines.extend(image_lines);
+        }
+        return;
+    }
+
     let content = &msg.content;
     // Skip truly empty non-assistant messages (no content, no reasoning)
     if content.is_empty() && image_lines.is_empty() && msg.role != MessageRole::Assistant {
@@ -364,30 +388,6 @@ fn render_compact(
             .map(|s| Line::from(Span::styled(s, theme.fg_active)))
             .collect()
     };
-    if let Some(label) = collapsible_system_notice_label(msg) {
-        let is_expanded = expanded.contains(&msg_index);
-        lines.push(Line::from(vec![Span::styled(
-            format!("{} {label}", toggle_glyph(is_expanded)),
-            theme.meta_cognitive,
-        )]));
-
-        if is_expanded {
-            let detail_width = width.saturating_sub(2).max(1);
-            let dark_blue = Style::default().fg(Color::Indexed(24));
-            for detail_line in wrap_text(content, detail_width) {
-                lines.push(Line::from(vec![
-                    Span::styled("\u{2502}", dark_blue),
-                    Span::raw(" "),
-                    Span::styled(detail_line, theme.fg_dim),
-                ]));
-            }
-        }
-
-        if !image_lines.is_empty() {
-            lines.extend(image_lines);
-        }
-        return;
-    }
 
     let has_reasoning = msg.role == MessageRole::Assistant
         && msg

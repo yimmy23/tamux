@@ -260,6 +260,10 @@ async fn operator_profile_sessions_round_trip() -> Result<()> {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].session_id, "sess-a");
 
+    store.delete_all_operator_profile_sessions().await?;
+    let rows = store.list_operator_profile_sessions().await?;
+    assert!(rows.is_empty());
+
     fs::remove_dir_all(root)?;
     Ok(())
 }

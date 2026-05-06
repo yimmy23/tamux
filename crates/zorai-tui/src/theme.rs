@@ -12,7 +12,7 @@ pub struct ThemeTokens {
     pub accent_secondary: Style, // amber
     pub accent_success: Style,   // green
     pub accent_danger: Style,    // red
-    pub meta_cognitive: Style,    // purple
+    pub meta_cognitive: Style,   // purple
 }
 
 impl Default for ThemeTokens {

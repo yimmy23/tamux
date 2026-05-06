@@ -820,14 +820,9 @@ impl AgentEngine {
         let pending_approvals = self.pending_operator_approvals.read().await.len();
         let recent_health = self
             .history
-            .list_health_log(6)
+            .list_degraded_health_log_since(now.saturating_sub(RECENT_HEALTH_WINDOW_MS), None, 2)
             .await
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|entry| entry.3 != "healthy")
-            .filter(|entry| now.saturating_sub(entry.6) <= RECENT_HEALTH_WINDOW_MS)
-            .take(2)
-            .collect::<Vec<_>>();
+            .unwrap_or_default();
 
         let mut bullets = Vec::new();
         for goal_run in unfinished_goals {
@@ -1041,18 +1036,15 @@ impl AgentEngine {
             .next()?;
         let git = crate::git::get_git_status(&repo_root);
         let now = now_millis();
-        let recent_health = self.history.list_health_log(8).await.unwrap_or_default();
-        let degraded_cargo_entries = recent_health
-            .into_iter()
-            .filter(|entry| {
-                now.saturating_sub(entry.6) <= RECENT_HEALTH_WINDOW_MS
-                    && entry.3 != "healthy"
-                    && entry
-                        .5
-                        .as_deref()
-                        .is_some_and(|text| text.contains("cargo test failed"))
-            })
-            .collect::<Vec<_>>();
+        let degraded_cargo_entries = self
+            .history
+            .list_degraded_health_log_since(
+                now.saturating_sub(RECENT_HEALTH_WINDOW_MS),
+                Some("cargo test failed"),
+                8,
+            )
+            .await
+            .unwrap_or_default();
         let recent_cargo_failure = degraded_cargo_entries.first().cloned();
 
         let hydration_age_ms = {

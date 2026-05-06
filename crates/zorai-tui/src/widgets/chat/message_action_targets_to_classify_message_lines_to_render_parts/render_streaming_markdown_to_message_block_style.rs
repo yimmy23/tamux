@@ -320,9 +320,13 @@ struct RenderedChatLine {
 
 struct SelectionSnapshot {
     key: RenderCacheKey,
+    metrics_key: TranscriptMetricsCacheKey,
     inner: Rect,
     all_lines: Vec<RenderedChatLine>,
+    total_lines: usize,
+    rendered_start_idx: usize,
     message_line_ranges: Vec<(usize, usize)>,
+    responder_labels: Vec<Option<String>>,
     start_idx: usize,
     end_idx: usize,
     padding: usize,
@@ -345,6 +349,13 @@ struct RenderCacheKey {
     retry_wait_start_selected: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TranscriptMetricsCacheKey {
+    inner: Rect,
+    transcript_metrics_revision: u64,
+    selected_inline_action_message: Option<usize>,
+}
+
 fn render_cache_key(
     area: Rect,
     chat: &ChatState,
@@ -357,6 +368,14 @@ fn render_cache_key(
         render_revision: chat.render_revision(),
         render_epoch: chat.render_cache_epoch(current_tick),
         retry_wait_start_selected,
+    }
+}
+
+fn transcript_metrics_cache_key(area: Rect, chat: &ChatState) -> TranscriptMetricsCacheKey {
+    TranscriptMetricsCacheKey {
+        inner: content_inner(area),
+        transcript_metrics_revision: chat.transcript_metrics_revision(),
+        selected_inline_action_message: selected_inline_action_message_index(chat),
     }
 }
 
@@ -428,4 +447,3 @@ fn message_block_style(msg: &AgentMessage, theme: &ThemeTokens) -> Style {
         _ => Style::default(),
     }
 }
-

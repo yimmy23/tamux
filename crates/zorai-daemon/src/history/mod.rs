@@ -55,6 +55,47 @@ pub struct HistoryStore {
     worm_dir: PathBuf,
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AgentThreadListQuery {
+    pub created_after: Option<i64>,
+    pub created_before: Option<i64>,
+    pub updated_after: Option<i64>,
+    pub updated_before: Option<i64>,
+    pub agent_names: Vec<String>,
+    pub include_empty_agent_name: bool,
+    pub title_query: Option<String>,
+    pub title_excluded_prefixes: Vec<String>,
+    pub pinned: Option<bool>,
+    pub min_message_count: Option<i64>,
+    pub include_internal: bool,
+    pub excluded_ids: Vec<String>,
+    pub hidden_id_prefixes: Vec<String>,
+    pub hidden_message_substrings: Vec<String>,
+    pub limit: Option<usize>,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AgentTaskListQuery {
+    pub id: Option<String>,
+    pub status: Option<String>,
+    pub statuses: Vec<String>,
+    pub source: Option<String>,
+    pub thread_id: Option<String>,
+    pub goal_run_id: Option<String>,
+    pub parent_task_id: Option<String>,
+    pub exclude_terminal_statuses: bool,
+    pub order_by_recent_activity_desc: bool,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ConciergeGoalContext {
+    pub latest_goal_run: Option<GoalRun>,
+    pub running_goal_total: usize,
+    pub paused_goal_total: usize,
+}
+
 mod database_viewer;
 pub(crate) use database_viewer::{
     DatabaseRowUpdate, DatabaseSqlResult, DatabaseTablePage, DatabaseTableSummary,

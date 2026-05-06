@@ -3474,7 +3474,42 @@ async fn read_offloaded_payload_tool_reads_canonical_path_even_if_metadata_stora
         result.content
     );
     assert!(result.pending_approval.is_none());
-    assert_eq!(result.content, raw_payload);
+    let compact: serde_json::Value =
+        serde_json::from_str(&result.content).expect("default text payload read should be JSON");
+    assert_eq!(compact["content_type"].as_str(), Some("text"));
+    assert_eq!(compact["total_lines"].as_u64(), Some(3));
+    assert_eq!(compact["returned"].as_u64(), Some(3));
+    assert_eq!(
+        compact["lines"][1].as_str(),
+        Some("Authorization: Bearer super_secret_token_123")
+    );
+
+    let full_call = ToolCall::with_default_weles_review(
+        "tool-read-offloaded-payload-full-canonical".to_string(),
+        ToolFunction {
+            name: "read_offloaded_payload".to_string(),
+            arguments: serde_json::json!({ "payload_id": payload_id, "full": true }).to_string(),
+        },
+    );
+    let full_result = execute_tool(
+        &full_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+    assert!(
+        !full_result.is_error,
+        "full read_offloaded_payload should succeed with valid payload_id: {}",
+        full_result.content
+    );
+    assert_eq!(full_result.content, raw_payload);
 }
 
 #[tokio::test]
@@ -3593,6 +3628,12 @@ async fn read_offloaded_payload_tool_defaults_to_compact_thread_payload_and_full
     assert_eq!(
         compact,
         serde_json::json!({
+            "total_message_count": 14,
+            "loaded_message_start": 10,
+            "loaded_message_end": 14,
+            "message_start": 11,
+            "message_end": 13,
+            "returned": 2,
             "messages": [
                 {
                     "role": "assistant",
@@ -3645,6 +3686,106 @@ async fn read_offloaded_payload_tool_defaults_to_compact_thread_payload_and_full
         full_result.content
     );
     assert_eq!(full_result.content, raw_payload);
+}
+
+#[tokio::test]
+async fn fetch_gateway_history_returns_paged_window_metadata() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-fetch-gateway-history-page";
+
+    engine
+        .history
+        .create_thread(&zorai_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
+            title: "Gateway history page".to_string(),
+            created_at: 1,
+            updated_at: 1,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await
+        .expect("seed thread row");
+
+    for index in 0..5 {
+        engine
+            .history
+            .add_message(&zorai_protocol::AgentDbMessage {
+                id: format!("message-{index}"),
+                thread_id: thread_id.to_string(),
+                created_at: index + 1,
+                role: if index % 2 == 0 {
+                    "user".to_string()
+                } else {
+                    "assistant".to_string()
+                },
+                content: format!("message content {index}"),
+                provider: None,
+                model: None,
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(0),
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+                cost_usd: None,
+            })
+            .await
+            .expect("seed message row");
+    }
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-fetch-gateway-history-page".to_string(),
+        ToolFunction {
+            name: "fetch_gateway_history".to_string(),
+            arguments: serde_json::json!({ "limit": 2, "offset": 1 }).to_string(),
+        },
+    );
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "fetch_gateway_history should succeed: {}",
+        result.content
+    );
+    let page: serde_json::Value =
+        serde_json::from_str(&result.content).expect("history should be JSON");
+    assert_eq!(page["total_message_count"].as_u64(), Some(5));
+    assert_eq!(page["limit"].as_u64(), Some(2));
+    assert_eq!(page["offset"].as_u64(), Some(1));
+    assert_eq!(page["loaded_message_start"].as_u64(), Some(2));
+    assert_eq!(page["loaded_message_end"].as_u64(), Some(4));
+    assert_eq!(page["returned"].as_u64(), Some(2));
+    assert_eq!(page["has_more_newer"].as_bool(), Some(true));
+    assert_eq!(page["has_more_older"].as_bool(), Some(true));
+    assert_eq!(
+        page["messages"][0]["content"].as_str(),
+        Some("message content 2")
+    );
+    assert_eq!(
+        page["messages"][1]["content"].as_str(),
+        Some("message content 3")
+    );
 }
 
 #[tokio::test]
@@ -4107,7 +4248,88 @@ async fn allowlisted_web_search_tool_result_writes_preview_file() {
 }
 
 #[tokio::test]
-async fn large_read_offloaded_payload_result_stays_inline_in_thread_messages() {
+async fn read_offloaded_payload_paginates_generic_json_arrays_by_default() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+
+    let thread_id = "thread-read-json-array-page";
+    let payload_id = "payload-read-json-array-page";
+    let raw_payload = serde_json::json!([
+        { "id": "row-0" },
+        { "id": "row-1" },
+        { "id": "row-2" }
+    ])
+    .to_string();
+    let payload_path = root
+        .path()
+        .join("offloaded-payloads")
+        .join(thread_id)
+        .join(format!("{payload_id}.txt"));
+    std::fs::create_dir_all(payload_path.parent().expect("payload parent"))
+        .expect("create payload directory");
+    std::fs::write(&payload_path, &raw_payload).expect("write raw offloaded payload");
+
+    engine
+        .history
+        .upsert_offloaded_payload_metadata(
+            payload_id,
+            thread_id,
+            "list_goal_runs",
+            Some("tool-call-read-json-array-page"),
+            "application/json",
+            raw_payload.len() as u64,
+            "summary placeholder",
+            1_700_000_124,
+        )
+        .await
+        .expect("store offloaded payload metadata");
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-read-offloaded-payload-json-array-page".to_string(),
+        ToolFunction {
+            name: "read_offloaded_payload".to_string(),
+            arguments: serde_json::json!({
+                "payload_id": payload_id,
+                "limit": 1,
+                "offset": 1
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "read_offloaded_payload should succeed: {}",
+        result.content
+    );
+    let page: serde_json::Value =
+        serde_json::from_str(&result.content).expect("generic payload page should be JSON");
+    assert_eq!(page["total"].as_u64(), Some(3));
+    assert_eq!(page["limit"].as_u64(), Some(1));
+    assert_eq!(page["offset"].as_u64(), Some(1));
+    assert_eq!(page["returned"].as_u64(), Some(1));
+    assert_eq!(page["next_offset"].as_u64(), Some(2));
+    assert_eq!(page["items"][0]["id"].as_str(), Some("row-1"));
+}
+
+#[tokio::test]
+async fn large_read_offloaded_payload_result_can_be_reoffloaded_from_thread_messages() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
@@ -4169,7 +4391,8 @@ async fn large_read_offloaded_payload_result_stays_inline_in_thread_messages() {
         "read_offloaded_payload should succeed for inline-preservation regression: {}",
         result.content
     );
-    assert_eq!(result.content, raw_payload);
+    assert!(result.content.contains("\"content_type\": \"text\""));
+    assert!(result.content.contains("\"total_lines\": 16"));
 
     let prepared =
         crate::agent::agent_loop::send_message::tool_results::prepare_tool_result_thread_message(
@@ -4181,8 +4404,13 @@ async fn large_read_offloaded_payload_result_stays_inline_in_thread_messages() {
         )
         .await;
 
-    assert_eq!(prepared.content, raw_payload);
-    assert_eq!(prepared.offloaded_payload_id, None);
+    let new_payload_id = prepared
+        .offloaded_payload_id
+        .clone()
+        .expect("large read result should be offloaded again instead of forced inline");
+    assert_ne!(new_payload_id, payload_id);
+    assert!(prepared.content.contains("Tool result offloaded"));
+    assert!(prepared.content.contains("- tool: read_offloaded_payload"));
     assert_eq!(prepared.tool_output_preview_path, None);
 
     let metadata = engine
@@ -4192,10 +4420,11 @@ async fn large_read_offloaded_payload_result_stays_inline_in_thread_messages() {
         .expect("metadata lookup should succeed");
     assert_eq!(
         metadata.len(),
-        1,
-        "read tool result should not create a second offloaded payload row"
+        2,
+        "large read tool result should create a bounded thread summary plus a second payload row"
     );
-    assert_eq!(metadata[0].payload_id, payload_id);
+    assert!(metadata.iter().any(|row| row.payload_id == payload_id));
+    assert!(metadata.iter().any(|row| row.payload_id == new_payload_id));
 }
 
 #[tokio::test]

@@ -11,6 +11,7 @@ use crate::agent::types::{AgentMessage, AgentMessageKind, MessageRole, ToolCall}
 
 const META_COGNITIVE_INTERVENTION_PREFIX: &str = "Meta-cognitive intervention:";
 const META_COGNITIVE_REPEAT_PREFIX: &str = "Repeated count:";
+const META_COGNITIVE_GROUP_PREFIX: &str = "Grouped count:";
 const META_COGNITIVE_RECENT_SCAN_LIMIT: usize = 16;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -93,6 +94,27 @@ impl AgentEngine {
                         })
                     {
                         existing_message.content = compact_repeated_metacognitive_message(
+                            &existing_message.content,
+                            content,
+                            &new_signature,
+                        );
+                        existing_message.timestamp = now;
+                        thread.updated_at = now;
+                        drop(threads);
+                        self.persist_thread_by_id(thread_id).await;
+                        return;
+                    }
+                    if let Some(existing_message) = thread
+                        .messages
+                        .iter_mut()
+                        .rev()
+                        .take(META_COGNITIVE_RECENT_SCAN_LIMIT)
+                        .find(|message| {
+                            message.role == MessageRole::System
+                                && is_metacognitive_intervention_content(&message.content)
+                        })
+                    {
+                        existing_message.content = group_metacognitive_message(
                             &existing_message.content,
                             content,
                             &new_signature,
@@ -252,7 +274,7 @@ struct MetacognitiveMessageSignature {
 
 fn metacognitive_message_signature(content: &str) -> Option<MetacognitiveMessageSignature> {
     let trimmed = content.trim_start();
-    if !trimmed.starts_with(META_COGNITIVE_INTERVENTION_PREFIX) {
+    if !is_metacognitive_intervention_content(trimmed) {
         return None;
     }
     let mut lines = trimmed.lines();
@@ -284,6 +306,12 @@ fn metacognitive_message_signature(content: &str) -> Option<MetacognitiveMessage
     })
 }
 
+fn is_metacognitive_intervention_content(content: &str) -> bool {
+    content
+        .trim_start()
+        .starts_with(META_COGNITIVE_INTERVENTION_PREFIX)
+}
+
 fn stable_short_hash(value: &str) -> String {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     for byte in value.as_bytes() {
@@ -301,13 +329,46 @@ fn metacognitive_repeat_count(content: &str) -> u32 {
         .unwrap_or(1)
 }
 
-fn compact_repeated_metacognitive_message(
-    existing_content: &str,
-    latest_content: &str,
-    signature: &MetacognitiveMessageSignature,
-) -> String {
-    let repeat_count = metacognitive_repeat_count(existing_content).saturating_add(1);
-    let warnings = latest_content
+fn metacognitive_group_count(content: &str) -> u32 {
+    content
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(META_COGNITIVE_GROUP_PREFIX))
+        .and_then(|value| value.trim().parse::<u32>().ok())
+        .unwrap_or_else(|| metacognitive_repeat_count(content))
+}
+
+fn metacognitive_tools(content: &str) -> Vec<String> {
+    let mut tools = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(value) = trimmed.strip_prefix("Tools:") {
+            for tool in value
+                .split(',')
+                .map(str::trim)
+                .filter(|tool| !tool.is_empty())
+            {
+                push_unique_tool(&mut tools, tool);
+            }
+        } else if let Some(value) = trimmed
+            .strip_prefix("Planned tool:")
+            .or_else(|| trimmed.strip_prefix("Latest planned tool:"))
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && *value != "<grouped>")
+        {
+            push_unique_tool(&mut tools, value);
+        }
+    }
+    tools
+}
+
+fn push_unique_tool(tools: &mut Vec<String>, tool: &str) {
+    if !tools.iter().any(|existing| existing == tool) {
+        tools.push(tool.to_string());
+    }
+}
+
+fn metacognitive_detected_risks(content: &str) -> String {
+    content
         .split_once("Detected risks:")
         .map(|(_, tail)| {
             tail.lines()
@@ -321,7 +382,40 @@ fn compact_repeated_metacognitive_message(
                 .to_string()
         })
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "- repeated intervention".to_string());
+        .unwrap_or_else(|| "- repeated intervention".to_string())
+}
+
+fn group_metacognitive_message(
+    existing_content: &str,
+    latest_content: &str,
+    signature: &MetacognitiveMessageSignature,
+) -> String {
+    let group_count = metacognitive_group_count(existing_content).saturating_add(1);
+    let mut tools = metacognitive_tools(existing_content);
+    push_unique_tool(&mut tools, &signature.planned_tool);
+    let tools = if tools.is_empty() {
+        signature.planned_tool.clone()
+    } else {
+        tools.join(", ")
+    };
+    let warnings = metacognitive_detected_risks(latest_content);
+
+    format!(
+        "{prefix} grouped advisory notices.\n{group_prefix} {group_count}\nPlanned tool: <grouped>\nTools: {tools}\nLatest planned tool: {latest_tool}\nArguments: <latest omitted; hash={hash}>\nDetected risks:\n{warnings}\nRepeated meta-cognitive interventions are grouped here instead of appended as separate system messages.",
+        prefix = META_COGNITIVE_INTERVENTION_PREFIX,
+        group_prefix = META_COGNITIVE_GROUP_PREFIX,
+        latest_tool = signature.planned_tool,
+        hash = signature.arguments_hash,
+    )
+}
+
+fn compact_repeated_metacognitive_message(
+    existing_content: &str,
+    latest_content: &str,
+    signature: &MetacognitiveMessageSignature,
+) -> String {
+    let repeat_count = metacognitive_repeat_count(existing_content).saturating_add(1);
+    let warnings = metacognitive_detected_risks(latest_content);
     format!(
         "{prefix} {kind}\nPlanned tool: {tool}\nArguments: <same signature omitted; hash={hash}>\n{repeat_prefix} {repeat_count}\nDetected risks:\n{warnings}\nRepeated meta-cognitive interventions for this same tool call are compacted here instead of appended as separate system messages.",
         prefix = META_COGNITIVE_INTERVENTION_PREFIX,

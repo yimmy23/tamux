@@ -237,6 +237,46 @@ use zorai_shared::providers::{
     }
 
     #[test]
+    fn openrouter_chat_request_drops_empty_assistant_messages_without_tool_calls() {
+        let mut config = responses_test_config(
+            "https://openrouter.ai/api/v1".to_string(),
+            AuthSource::ApiKey,
+        );
+        config.model = "deepseek/deepseek-chat-v3.1".to_string();
+
+        let body = build_openai_chat_completions_body(
+            PROVIDER_ID_OPENROUTER,
+            &config,
+            "system prompt",
+            &[
+                ApiMessage {
+                    role: "assistant".to_string(),
+                    content: ApiContent::Text(String::new()),
+                    reasoning: None,
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+                ApiMessage {
+                    role: "user".to_string(),
+                    content: ApiContent::Text("Background operation finished.".to_string()),
+                    reasoning: None,
+                    tool_call_id: None,
+                    name: None,
+                    tool_calls: None,
+                },
+            ],
+            &[],
+        )
+        .expect("body should build");
+
+        let messages = body["messages"].as_array().expect("messages array");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["role"], "system");
+        assert_eq!(messages[1]["role"], "user");
+    }
+
+    #[test]
     fn deepseek_chat_request_preserves_tool_reasoning_content() {
         let mut config = responses_test_config(
             "https://api.deepseek.com".to_string(),

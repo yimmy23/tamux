@@ -187,6 +187,31 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn first_consolidation_state_by_prefix_value(
+        &self,
+        prefix: &str,
+        value: &str,
+    ) -> Result<Option<(String, String)>> {
+        let like = format!("{}%", prefix);
+        let value = value.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT key, value \
+                     FROM consolidation_state \
+                     WHERE key LIKE ?1 AND value = ?2 AND deleted_at IS NULL \
+                     ORDER BY updated_at ASC, key ASC \
+                     LIMIT 1",
+                    params![like, value],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     /// List skill variants matching a given status string, up to `limit` rows.
     pub async fn list_skill_variants_by_status(
         &self,
@@ -249,6 +274,42 @@ impl HistoryStore {
             })?;
             rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn get_successful_execution_trace_by_id(
+        &self,
+        trace_id: &str,
+    ) -> Result<Option<ExecutionTraceRow>> {
+        let trace_id = trace_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms, tokens_used, created_at \
+                     FROM execution_traces \
+                     WHERE id = ?1 AND outcome = 'success' \
+                     LIMIT 1",
+                    params![trace_id],
+                    |row| {
+                        Ok(ExecutionTraceRow {
+                            id: row.get(0)?,
+                            goal_run_id: row.get(1)?,
+                            task_id: row.get(2)?,
+                            task_type: row.get(3)?,
+                            outcome: row.get(4)?,
+                            quality_score: row.get(5)?,
+                            tool_sequence_json: row.get(6)?,
+                            metrics_json: row.get(7)?,
+                            duration_ms: row.get(8)?,
+                            tokens_used: row.get(9)?,
+                            created_at: row.get(10)?,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn trace_has_skill_consultation(

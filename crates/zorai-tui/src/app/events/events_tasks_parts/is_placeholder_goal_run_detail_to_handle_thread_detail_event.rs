@@ -306,10 +306,7 @@ impl TuiModel {
             .map(conversion::convert_thread)
             .collect::<Vec<_>>();
         for existing_thread in preserve_missing_threads {
-            if !threads
-                .iter()
-                .any(|thread| thread.id == existing_thread.id)
-            {
+            if !threads.iter().any(|thread| thread.id == existing_thread.id) {
                 threads.push(existing_thread);
             }
         }
@@ -374,35 +371,42 @@ impl TuiModel {
         } else {
             self.empty_hydrated_runtime_thread_ids.remove(&thread_id);
         }
+        let incoming_window = chat::chat_window::MessageWindow::from_parts(
+            thread.total_message_count,
+            thread.loaded_message_start,
+            thread.loaded_message_end,
+            thread.messages.len(),
+        );
+        let pending_delete_fetch = self
+            .pending_local_message_delete_fetches
+            .get(&thread_id)
+            .copied();
+        if let Some(fetch) = pending_delete_fetch {
+            tracing::info!(
+                thread_id = %thread_id,
+                requested_limit = fetch.message_limit,
+                requested_offset = fetch.message_offset,
+                outstanding_rows = fetch.outstanding_rows,
+                requested_at_tick = fetch.requested_at_tick,
+                incoming_loaded_count = incoming_window.loaded_count,
+                incoming_loaded_start = incoming_window.start,
+                incoming_loaded_end = incoming_window.end,
+                incoming_total_messages = incoming_window.total,
+                local_deleted_count = self.chat.local_deleted_message_count_for_thread(&thread_id),
+                "received older messages after delete request"
+            );
+        }
         let should_preserve_prepend_anchor = self.chat.active_thread().is_some_and(|existing| {
-            let incoming_total = thread.total_message_count.max(thread.messages.len());
-            let incoming_end = if thread.loaded_message_end == 0 && !thread.messages.is_empty() {
-                incoming_total
-            } else {
-                thread.loaded_message_end.max(thread.messages.len())
-            };
-            let incoming_start = if incoming_end >= thread.messages.len() {
-                thread
-                    .loaded_message_start
-                    .min(incoming_end.saturating_sub(thread.messages.len()))
-            } else {
-                0
-            };
+            let existing_window = chat::chat_window::MessageWindow::from_thread(existing);
             self.chat.active_thread_id() == Some(thread_id.as_str())
                 && self.chat.scroll_offset() > 0
-                && incoming_end == existing.loaded_message_start
-                && incoming_start < incoming_end
+                && incoming_window.prepends_into(existing_window)
+                && incoming_window.has_non_empty_range()
         });
         let preserved_scroll = if should_preserve_prepend_anchor {
-            widgets::chat::scrollbar_layout(
-                self.pane_layout().chat,
-                &self.chat,
-                &self.theme,
-                self.tick_counter,
-                self.retry_wait_start_selected,
-            )
-            .map(|layout| layout.scroll)
-            .unwrap_or_else(|| self.chat.scroll_offset())
+            self.chat_scrollbar_layout()
+                .map(|layout| layout.scroll)
+                .unwrap_or_else(|| self.chat.scroll_offset())
         } else {
             0
         };
@@ -419,6 +423,66 @@ impl TuiModel {
         self.chat.reduce(chat::ChatAction::ThreadDetailReceived(
             conversion::convert_thread(thread),
         ));
+        self.chat_selection_snapshot = None;
+        if let Some(updated) = self
+            .chat
+            .threads()
+            .iter()
+            .find(|thread| thread.id == thread_id)
+        {
+            let updated_window = chat::chat_window::MessageWindow::from_thread(updated);
+            tracing::info!(
+                thread_id = %thread_id,
+                incoming_loaded_count = incoming_window.loaded_count,
+                incoming_loaded_start = incoming_window.start,
+                incoming_loaded_end = incoming_window.end,
+                incoming_total_messages = incoming_window.total,
+                render_loaded_count = updated_window.loaded_count,
+                render_loaded_start = updated_window.start,
+                render_loaded_end = updated_window.end,
+                render_total_messages = updated_window.total,
+                local_deleted_count = self.chat.local_deleted_message_count_for_thread(&thread_id),
+                render_revision = self.chat.render_revision(),
+                scroll_offset = self.chat.scroll_offset(),
+                older_page_pending = self.chat.active_thread_older_page_pending(),
+                "applied thread messages to chat view"
+            );
+        }
+        if self.chat.active_thread_id() != Some(thread_id.as_str()) {
+            self.pending_local_message_delete_backfills
+                .remove(&thread_id);
+            self.pending_local_message_delete_fetches.remove(&thread_id);
+        }
+        if pending_delete_fetch.is_some() {
+            self.pending_local_message_delete_fetches.remove(&thread_id);
+            if let Some(updated) = self
+                .chat
+                .threads()
+                .iter()
+                .find(|thread| thread.id == thread_id)
+            {
+                let updated_window = chat::chat_window::MessageWindow::from_thread(updated);
+                tracing::info!(
+                    thread_id = %thread_id,
+                    appended_loaded_count = incoming_window.loaded_count,
+                    render_loaded_count = updated_window.loaded_count,
+                    render_loaded_start = updated_window.start,
+                    render_loaded_end = updated_window.end,
+                    render_total_messages = updated_window.total,
+                    local_deleted_count = self.chat.local_deleted_message_count_for_thread(&thread_id),
+                    render_revision = self.chat.render_revision(),
+                    scroll_offset = self.chat.scroll_offset(),
+                    older_page_pending = self.chat.active_thread_older_page_pending(),
+                    "applied older messages after delete to chat view"
+                );
+            } else {
+                tracing::info!(
+                    thread_id = %thread_id,
+                    render_revision = self.chat.render_revision(),
+                    "delete backfill response applied but thread is no longer cached"
+                );
+            }
+        }
         if self.active_auto_response_suggestion().is_some() {
             self.auto_response_selection = AutoResponseActionSelection::Yes;
         }
@@ -479,5 +543,4 @@ impl TuiModel {
         let _ = self.maybe_auto_send_always_auto_response();
         self.sync_contextual_approval_overlay();
     }
-
 }

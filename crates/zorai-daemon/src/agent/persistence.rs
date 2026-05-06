@@ -292,7 +292,7 @@ impl AgentEngine {
                             agent_name: hydrated_agent_name,
                             title: thread_title,
                             messages: Vec::new(),
-                            pinned: false,
+                            pinned: thread_metadata.pinned,
                             upstream_thread_id: thread_metadata.upstream_thread_id,
                             upstream_transport: thread_metadata.upstream_transport,
                             upstream_provider: thread_metadata.upstream_provider,

@@ -27,4 +27,114 @@ mod tests {
     include!("tests/whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task.rs");
     include!("tests/bootstrap_rearms_after_successful_connection_cycle_to_daemon_bootstrap.rs");
     include!("tests/daemon_collaboration_sessions_reply_emits_client_event_to_workspace.rs");
+
+    #[tokio::test]
+    async fn dispatch_client_event_does_not_panic_when_receiver_dropped() {
+        let (tx, rx) = mpsc::channel::<ClientEvent>(1);
+        drop(rx);
+        // The helper must absorb the SendError without panicking so that a
+        // closed event channel during shutdown / overflow only logs a warning
+        // and does not poison the daemon dispatch loop.
+        super::dispatch_client_event(&tx, ClientEvent::Error("test".to_string()), "test_context")
+            .await;
+    }
+
+    #[tokio::test]
+    async fn dispatch_client_event_delivers_to_receiver() {
+        let (tx, mut rx) = mpsc::channel::<ClientEvent>(1);
+        super::dispatch_client_event(&tx, ClientEvent::Error("hello".to_string()), "test_context")
+            .await;
+        match rx.try_recv() {
+            Ok(ClientEvent::Error(msg)) => assert_eq!(msg, "hello"),
+            other => panic!("expected ClientEvent::Error('hello'), got {:?}", other),
+        }
+    }
+
+    async fn dispatch_for_test(
+        message: zorai_protocol::DaemonMessage,
+        event_tx: &mpsc::Sender<ClientEvent>,
+    ) -> bool {
+        let mut thread_detail_chunks = None;
+        DaemonClient::handle_daemon_message(message, event_tx, &mut thread_detail_chunks).await
+    }
+
+    #[tokio::test]
+    async fn agent_tier_changed_routes_to_tier_changed_client_event() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+        let cont = dispatch_for_test(
+            zorai_protocol::DaemonMessage::AgentTierChanged {
+                previous_tier: "newcomer".to_string(),
+                new_tier: "trusted".to_string(),
+                reason: "auto-promote".to_string(),
+            },
+            &event_tx,
+        )
+        .await;
+        assert!(cont);
+        match event_rx.recv().await.expect("expected ClientEvent emitted") {
+            ClientEvent::TierChanged { new_tier } => assert_eq!(new_tier, "trusted"),
+            other => panic!("expected TierChanged, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn semantic_index_repair_result_routes_to_repaired_client_event() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+        let cont = dispatch_for_test(
+            zorai_protocol::DaemonMessage::SemanticIndexRepairResult {
+                result_json: serde_json::json!({
+                    "removed_vector_index": true,
+                    "cleared_completions": 42,
+                    "cleared_deletions": 7,
+                    "reset_failed_jobs": 3,
+                })
+                .to_string(),
+            },
+            &event_tx,
+        )
+        .await;
+        assert!(cont);
+        match event_rx.recv().await.expect("expected ClientEvent emitted") {
+            ClientEvent::SemanticIndexRepaired { summary } => {
+                assert!(
+                    summary.contains("repair"),
+                    "summary missing 'repair': {summary}"
+                );
+                assert!(
+                    summary.contains("42"),
+                    "summary missing cleared count: {summary}"
+                );
+            }
+            other => panic!("expected SemanticIndexRepaired, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn unhandled_daemon_message_does_not_panic_dispatcher() {
+        let (event_tx, _event_rx) = mpsc::channel(8);
+        // `Pong` is currently routed nowhere — exercising the catch-all branch.
+        let cont = dispatch_for_test(zorai_protocol::DaemonMessage::Pong, &event_tx).await;
+        assert!(
+            cont,
+            "dispatcher must continue running after an unhandled variant"
+        );
+    }
+
+    #[tokio::test]
+    async fn semantic_index_repair_with_unparseable_payload_emits_error_event() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+        dispatch_for_test(
+            zorai_protocol::DaemonMessage::SemanticIndexRepairResult {
+                result_json: "not-valid-json".to_string(),
+            },
+            &event_tx,
+        )
+        .await;
+        match event_rx.recv().await.expect("expected ClientEvent emitted") {
+            ClientEvent::Error(msg) => {
+                assert!(msg.contains("semantic"), "msg missing 'semantic': {msg}");
+            }
+            other => panic!("expected Error, got {:?}", other),
+        }
+    }
 }

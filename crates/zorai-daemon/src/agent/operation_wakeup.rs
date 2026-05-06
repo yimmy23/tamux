@@ -428,18 +428,34 @@ fn operation_wakeup_debounce_ms() -> u64 {
 
 impl AgentEngine {
     async fn operation_wakeup_active_task_id(&self, thread_id: &str) -> Option<String> {
-        let tasks = self.tasks.lock().await;
-        tasks
-            .iter()
-            .rev()
-            .find(|task| {
-                task.thread_id.as_deref() == Some(thread_id)
-                    && matches!(
-                        task.status,
-                        TaskStatus::InProgress | TaskStatus::Blocked | TaskStatus::AwaitingApproval
-                    )
-            })
-            .map(|task| task.id.clone())
+        let active_statuses = [
+            TaskStatus::InProgress,
+            TaskStatus::Blocked,
+            TaskStatus::AwaitingApproval,
+        ]
+        .into_iter()
+        .filter_map(|status| {
+            serde_json::to_value(status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        })
+        .collect::<Vec<_>>();
+        self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: active_statuses,
+            source: None,
+            thread_id: Some(thread_id.to_string()),
+            goal_run_id: None,
+            parent_task_id: None,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: true,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
+        .map(|task| task.id)
     }
 }
 
@@ -467,7 +483,7 @@ mod tests {
     use tempfile::tempdir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
-    use tokio::time::{Duration, timeout};
+    use tokio::time::{timeout, Duration};
     use zorai_shared::providers::PROVIDER_ID_OPENAI;
 
     async fn read_http_request_body(socket: &mut TcpStream) -> std::io::Result<String> {
@@ -607,14 +623,12 @@ mod tests {
             .expect("offloaded operation wakeup payload should exist");
         assert!(payload.contains(&operation.operation_id));
         assert!(payload.contains("\"state\": \"completed\""));
-        assert!(
-            engine
-                .history
-                .get_offloaded_payload_metadata(payload_id)
-                .await
-                .expect("metadata lookup should succeed")
-                .is_some()
-        );
+        assert!(engine
+            .history
+            .get_offloaded_payload_metadata(payload_id)
+            .await
+            .expect("metadata lookup should succeed")
+            .is_some());
         assert!(engine.pending_operation_wakeup_count().await == 0);
     }
 
@@ -1276,12 +1290,10 @@ mod tests {
             1,
             "operator reply should supersede queued background continuations instead of draining them into repeated assistant turns"
         );
-        assert!(
-            engine
-                .deferred_visible_thread_continuations_for(thread_id)
-                .await
-                .is_empty()
-        );
+        assert!(engine
+            .deferred_visible_thread_continuations_for(thread_id)
+            .await
+            .is_empty());
     }
 
     #[tokio::test]
@@ -1439,12 +1451,10 @@ mod tests {
             1,
             "completed resumed turn should supersede a queued same-prompt continuation instead of producing a duplicate assistant row"
         );
-        assert!(
-            engine
-                .deferred_visible_thread_continuations_for(thread_id)
-                .await
-                .is_empty()
-        );
+        assert!(engine
+            .deferred_visible_thread_continuations_for(thread_id)
+            .await
+            .is_empty());
     }
 
     #[tokio::test]
@@ -1506,6 +1516,8 @@ mod tests {
                     .to_string(),
             );
         }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
         assert_eq!(
             engine
                 .operation_wakeup_active_task_id(thread_id)

@@ -454,6 +454,146 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub(crate) async fn list_threads_filtered(
+        &self,
+        query: &AgentThreadListQuery,
+    ) -> Result<Vec<AgentDbThread>> {
+        let query = query.clone();
+        self.read_conn
+            .call(move |conn| {
+                let mut sql = String::from(
+                    "SELECT id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview, metadata_json \
+                     FROM agent_threads t WHERE t.deleted_at IS NULL",
+                );
+                let mut values = Vec::<rusqlite::types::Value>::new();
+
+                if let Some(created_after) = query.created_after {
+                    sql.push_str(" AND t.created_at >= ?");
+                    values.push(rusqlite::types::Value::Integer(created_after));
+                }
+                if let Some(created_before) = query.created_before {
+                    sql.push_str(" AND t.created_at <= ?");
+                    values.push(rusqlite::types::Value::Integer(created_before));
+                }
+                if let Some(updated_after) = query.updated_after {
+                    sql.push_str(" AND t.updated_at >= ?");
+                    values.push(rusqlite::types::Value::Integer(updated_after));
+                }
+                if let Some(updated_before) = query.updated_before {
+                    sql.push_str(" AND t.updated_at <= ?");
+                    values.push(rusqlite::types::Value::Integer(updated_before));
+                }
+                if let Some(title_query) = query
+                    .title_query
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    sql.push_str(" AND instr(lower(t.title), lower(?)) > 0");
+                    values.push(rusqlite::types::Value::Text(title_query.to_string()));
+                }
+                for prefix in &query.title_excluded_prefixes {
+                    sql.push_str(" AND t.title NOT LIKE ?");
+                    values.push(rusqlite::types::Value::Text(format!("{prefix}%")));
+                }
+                if let Some(min_message_count) = query.min_message_count {
+                    sql.push_str(" AND t.message_count >= ?");
+                    values.push(rusqlite::types::Value::Integer(min_message_count.max(0)));
+                }
+                if let Some(pinned) = query.pinned {
+                    sql.push_str(
+                        " AND COALESCE(
+                            CASE
+                                WHEN t.metadata_json IS NOT NULL AND json_valid(t.metadata_json)
+                                THEN json_extract(t.metadata_json, '$.pinned')
+                            END,
+                            CASE
+                                WHEN t.metadata_json IS NOT NULL AND json_valid(t.metadata_json)
+                                THEN json_extract(t.metadata_json, '$.pinnedThread')
+                            END,
+                            0
+                        ) = ?",
+                    );
+                    values.push(rusqlite::types::Value::Integer(if pinned { 1 } else { 0 }));
+                }
+                if !query.agent_names.is_empty() || query.include_empty_agent_name {
+                    let mut clauses = Vec::new();
+                    if query.include_empty_agent_name {
+                        clauses.push("(t.agent_name IS NULL OR trim(t.agent_name) = '')".to_string());
+                    }
+                    if !query.agent_names.is_empty() {
+                        let placeholders = std::iter::repeat_n("?", query.agent_names.len())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        clauses.push(format!("lower(trim(t.agent_name)) IN ({placeholders})"));
+                        values.extend(query.agent_names.iter().map(|name| {
+                            rusqlite::types::Value::Text(name.trim().to_ascii_lowercase())
+                        }));
+                    }
+                    sql.push_str(" AND (");
+                    sql.push_str(&clauses.join(" OR "));
+                    sql.push(')');
+                }
+                if !query.excluded_ids.is_empty() {
+                    let placeholders = std::iter::repeat_n("?", query.excluded_ids.len())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    sql.push_str(&format!(" AND t.id NOT IN ({placeholders})"));
+                    values.extend(
+                        query
+                            .excluded_ids
+                            .iter()
+                            .map(|id| rusqlite::types::Value::Text(id.to_string())),
+                    );
+                }
+                if !query.include_internal {
+                    for prefix in &query.hidden_id_prefixes {
+                        sql.push_str(" AND t.id NOT LIKE ?");
+                        values.push(rusqlite::types::Value::Text(format!("{prefix}%")));
+                    }
+                    if !query.hidden_message_substrings.is_empty() {
+                        sql.push_str(
+                            " AND NOT EXISTS (
+                                SELECT 1 FROM agent_messages m
+                                WHERE m.thread_id = t.id
+                                  AND m.deleted_at IS NULL
+                                  AND (",
+                        );
+                        let clauses = std::iter::repeat_n(
+                            "instr(lower(m.content), lower(?)) > 0",
+                            query.hidden_message_substrings.len(),
+                        )
+                        .collect::<Vec<_>>()
+                        .join(" OR ");
+                        sql.push_str(&clauses);
+                        sql.push_str("))");
+                        values.extend(query.hidden_message_substrings.iter().map(|substring| {
+                            rusqlite::types::Value::Text(substring.to_string())
+                        }));
+                    }
+                }
+
+                sql.push_str(" ORDER BY t.updated_at DESC, t.id ASC");
+                if let Some(limit) = query.limit {
+                    sql.push_str(" LIMIT ?");
+                    values.push(rusqlite::types::Value::Integer(limit as i64));
+                    if query.offset > 0 {
+                        sql.push_str(" OFFSET ?");
+                        values.push(rusqlite::types::Value::Integer(query.offset as i64));
+                    }
+                } else if query.offset > 0 {
+                    sql.push_str(" LIMIT -1 OFFSET ?");
+                    values.push(rusqlite::types::Value::Integer(query.offset as i64));
+                }
+
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), map_agent_thread)?;
+                Ok(rows.filter_map(|row| row.ok()).collect())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn get_thread(&self, id: &str) -> Result<Option<AgentDbThread>> {
         let id = id.to_string();
         self.read_conn.call(move |conn| {
@@ -820,6 +960,86 @@ impl HistoryStore {
                     start,
                     end,
                 ))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_active_context_window(
+        &self,
+        thread_id: &str,
+    ) -> Result<(Vec<AgentDbMessage>, usize, usize)> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let total_count = conn.query_row(
+                    "SELECT COUNT(*) FROM agent_messages WHERE thread_id = ?1 AND deleted_at IS NULL",
+                    params![&thread_id],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                let total_count = total_count.max(0) as usize;
+
+                let start = conn
+                    .query_row(
+                        "SELECT absolute_index FROM (
+                            SELECT ROW_NUMBER() OVER (ORDER BY created_at ASC, rowid ASC) - 1 AS absolute_index,
+                                   content,
+                                   metadata_json
+                            FROM agent_messages
+                            WHERE thread_id = ?1 AND deleted_at IS NULL
+                         )
+                         WHERE (
+                            metadata_json IS NOT NULL
+                            AND json_valid(metadata_json)
+                            AND json_extract(metadata_json, '$.message_kind') = 'compaction_artifact'
+                         )
+                         OR content LIKE '[Compacted earlier context]%'
+                         OR content LIKE 'Pre-compaction context:%'
+                         ORDER BY absolute_index DESC
+                         LIMIT 1",
+                        params![&thread_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()?
+                    .unwrap_or(0)
+                    .max(0) as usize;
+
+                if start >= total_count {
+                    return Ok((Vec::new(), total_count, total_count));
+                }
+
+                let mut stmt = conn.prepare(
+                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json \
+                     FROM agent_messages WHERE thread_id = ?1 AND deleted_at IS NULL ORDER BY created_at ASC, rowid ASC LIMIT ?2 OFFSET ?3",
+                )?;
+                let rows = stmt.query_map(
+                    params![
+                        &thread_id,
+                        total_count.saturating_sub(start) as i64,
+                        start as i64
+                    ],
+                    map_agent_message,
+                )?;
+                Ok((rows.filter_map(|row| row.ok()).collect(), start, total_count))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn thread_message_token_totals(&self, thread_id: &str) -> Result<(u64, u64)> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let (input_tokens, output_tokens): (i64, i64) = conn.query_row(
+                    "SELECT
+                        COALESCE(SUM(COALESCE(input_tokens, 0)), 0),
+                        COALESCE(SUM(COALESCE(output_tokens, 0)), 0)
+                     FROM agent_messages
+                     WHERE thread_id = ?1 AND deleted_at IS NULL",
+                    params![&thread_id],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                Ok((input_tokens.max(0) as u64, output_tokens.max(0) as u64))
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
@@ -1207,23 +1427,66 @@ impl HistoryStore {
         &self,
         workspace_id: Option<&str>,
     ) -> Result<Vec<TranscriptIndexEntry>> {
+        self.list_transcript_index_limited(workspace_id, None).await
+    }
+
+    pub async fn list_transcript_index_limited(
+        &self,
+        workspace_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<TranscriptIndexEntry>> {
         let workspace_id = workspace_id.map(str::to_string);
-        self.conn.call(move |conn| {
-        let sql = if workspace_id.is_some() {
-            "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview \
-             FROM transcript_index WHERE workspace_id = ?1 ORDER BY captured_at DESC"
-        } else {
-            "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview \
-             FROM transcript_index ORDER BY captured_at DESC"
-        };
-        let mut stmt = conn.prepare(sql)?;
-        let rows = if let Some(workspace_id) = workspace_id {
-            stmt.query_map(params![workspace_id], map_transcript_index_entry)?
-        } else {
-            stmt.query_map([], map_transcript_index_entry)?
-        };
-        Ok(rows.filter_map(|row| row.ok()).collect())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        self.read_conn
+            .call(move |conn| {
+                let mut sql = String::from(
+                    "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview FROM transcript_index",
+                );
+                let mut values = Vec::<rusqlite::types::Value>::new();
+                if let Some(workspace_id) = workspace_id {
+                    sql.push_str(" WHERE workspace_id = ?");
+                    values.push(rusqlite::types::Value::Text(workspace_id));
+                }
+                sql.push_str(" ORDER BY captured_at DESC");
+                if let Some(limit) = limit {
+                    sql.push_str(" LIMIT ?");
+                    values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(
+                    rusqlite::params_from_iter(values.iter()),
+                    map_transcript_index_entry,
+                )?;
+                Ok(rows.filter_map(|row| row.ok()).collect())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_transcript_index_matching(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<TranscriptIndexEntry>> {
+        let query = query.trim().to_ascii_lowercase();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let like = format!("%{query}%");
+        let limit = limit.max(1) as i64;
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview \
+                     FROM transcript_index \
+                     WHERE lower(filename) LIKE ?1 OR lower(COALESCE(preview, '')) LIKE ?1 \
+                     ORDER BY captured_at DESC \
+                     LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(params![like, limit], map_transcript_index_entry)?;
+                Ok(rows.filter_map(|row| row.ok()).collect())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn upsert_snapshot_index(&self, entry: &SnapshotIndexEntry) -> Result<()> {
@@ -1255,23 +1518,39 @@ impl HistoryStore {
         &self,
         workspace_id: Option<&str>,
     ) -> Result<Vec<SnapshotIndexEntry>> {
+        self.list_snapshot_index_ordered(workspace_id, false).await
+    }
+
+    pub async fn list_snapshot_index_ordered(
+        &self,
+        workspace_id: Option<&str>,
+        oldest_first: bool,
+    ) -> Result<Vec<SnapshotIndexEntry>> {
         let workspace_id = workspace_id.map(str::to_string);
-        self.conn.call(move |conn| {
-        let sql = if workspace_id.is_some() {
-            "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
-             FROM snapshot_index WHERE (workspace_id = ?1 OR workspace_id IS NULL) AND deleted_at IS NULL ORDER BY created_at DESC"
-        } else {
-            "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
-             FROM snapshot_index WHERE deleted_at IS NULL ORDER BY created_at DESC"
-        };
-        let mut stmt = conn.prepare(sql)?;
-        let rows = if let Some(workspace_id) = workspace_id {
-            stmt.query_map(params![workspace_id], map_snapshot_index_entry)?
-        } else {
-            stmt.query_map([], map_snapshot_index_entry)?
-        };
-        Ok(rows.filter_map(|row| row.ok()).collect())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        self.conn
+            .call(move |conn| {
+                let order = if oldest_first { "ASC" } else { "DESC" };
+                let sql = if workspace_id.is_some() {
+                    format!(
+                        "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
+                         FROM snapshot_index WHERE (workspace_id = ?1 OR workspace_id IS NULL) AND deleted_at IS NULL ORDER BY created_at {order}"
+                    )
+                } else {
+                    format!(
+                        "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
+                         FROM snapshot_index WHERE deleted_at IS NULL ORDER BY created_at {order}"
+                    )
+                };
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = if let Some(workspace_id) = workspace_id {
+                    stmt.query_map(params![workspace_id], map_snapshot_index_entry)?
+                } else {
+                    stmt.query_map([], map_snapshot_index_entry)?
+                };
+                Ok(rows.filter_map(|row| row.ok()).collect())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn get_snapshot_index(

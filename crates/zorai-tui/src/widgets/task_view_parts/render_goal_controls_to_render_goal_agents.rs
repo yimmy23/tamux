@@ -98,15 +98,6 @@ fn format_cost(cost: f64) -> String {
     }
 }
 
-fn format_duration_ms(duration_ms: u64) -> String {
-    let seconds = (duration_ms / 1000).max(1);
-    if seconds < 120 {
-        format!("{seconds}s")
-    } else {
-        format!("{}m", (seconds + 30) / 60)
-    }
-}
-
 fn has_goal_usage(run: &GoalRun) -> bool {
     run.total_prompt_tokens > 0
         || run.total_completion_tokens > 0

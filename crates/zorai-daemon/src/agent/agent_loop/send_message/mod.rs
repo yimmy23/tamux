@@ -208,8 +208,8 @@ impl AgentEngine {
         task_id: Option<&str>,
     ) -> String {
         if let Some(current_task_id) = task_id {
-            let tasks = self.tasks.lock().await;
-            return agent_scope_id_for_task(tasks.iter().find(|task| task.id == current_task_id));
+            let task = self.task_by_id_for_turn_scope(current_task_id).await;
+            return agent_scope_id_for_task(task.as_ref());
         }
 
         if thread_id == Some(crate::agent::concierge::CONCIERGE_THREAD_ID) {
@@ -224,6 +224,32 @@ impl AgentEngine {
         }
 
         MAIN_AGENT_ID.to_string()
+    }
+
+    async fn task_by_id_for_turn_scope(&self, task_id: &str) -> Option<AgentTask> {
+        match self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                goal_run_id: None,
+                parent_task_id: None,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+        {
+            Some(task) => Some(task),
+            None => {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find(|task| task.id == task_id).cloned()
+            }
+        }
     }
 
     pub(in crate::agent) async fn run_internal_send_loop(

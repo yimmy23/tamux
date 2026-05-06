@@ -50,7 +50,7 @@ fn build_log_filter(tui_log: Option<&str>, zorai_log: Option<&str>) -> EnvFilter
     tui_log
         .and_then(parse_log_filter)
         .or_else(|| zorai_log.and_then(parse_log_filter))
-        .unwrap_or_else(|| EnvFilter::new("error"))
+        .unwrap_or_else(|| EnvFilter::new("warn,zorai_tui=info"))
 }
 
 fn parse_log_filter(value: &str) -> Option<EnvFilter> {

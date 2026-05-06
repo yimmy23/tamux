@@ -249,6 +249,10 @@ impl TuiModel {
             items.push(GoalActionPickerItem::RerunFromStep);
         }
 
+        if self.selected_goal_run().is_some() {
+            items.push(GoalActionPickerItem::DeleteGoal);
+        }
+
         items
     }
 

@@ -10,7 +10,7 @@ impl ConciergeEngine {
         content: &str,
         recent_channel_history: Option<&str>,
         gateway_thread_id: Option<&str>,
-        threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
+        _threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
         _tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
     ) -> GatewayTriage {
         let config = self.config.read().await;
@@ -37,7 +37,12 @@ impl ConciergeEngine {
         );
         drop(config);
 
-        let context = self.gather_gateway_context(threads, &agent.goal_runs).await;
+        let recent_history_threads = self
+            .recent_persisted_history_threads(&agent.session_manager)
+            .await;
+        let context = self
+            .gather_gateway_context(&agent.history, &recent_history_threads)
+            .await;
         let user_prompt = build_gateway_triage_prompt(
             platform,
             sender,

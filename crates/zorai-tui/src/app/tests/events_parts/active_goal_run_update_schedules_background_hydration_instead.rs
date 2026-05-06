@@ -28,6 +28,40 @@ fn active_goal_run_update_schedules_background_hydration_instead_of_immediate_re
 }
 
 #[test]
+fn goal_run_controlled_ack_requests_authoritative_goal_refresh() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+
+    model.handle_client_event(ClientEvent::GoalRunControlled {
+        goal_run_id: "goal-1".to_string(),
+        ok: true,
+    });
+
+    assert_eq!(
+        next_goal_run_detail_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(
+        next_goal_run_checkpoints_request(&mut daemon_rx).as_deref(),
+        Some("goal-1")
+    );
+    assert_eq!(model.status_line, "Goal run updated");
+}
+
+#[test]
+fn failed_goal_run_control_ack_does_not_refresh_goal() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+
+    model.handle_client_event(ClientEvent::GoalRunControlled {
+        goal_run_id: "goal-1".to_string(),
+        ok: false,
+    });
+
+    assert!(next_goal_run_detail_request(&mut daemon_rx).is_none());
+    assert!(next_goal_run_checkpoints_request(&mut daemon_rx).is_none());
+    assert_eq!(model.status_line, "Goal run update failed");
+}
+
+#[test]
 fn repeated_active_goal_updates_only_schedule_background_hydration_once_per_burst() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
@@ -460,4 +494,3 @@ fn active_goal_run_task_tab_preserves_selected_task_across_reorder_refresh() {
         "task-tab selection should follow the same task id when child task order changes"
     );
 }
-

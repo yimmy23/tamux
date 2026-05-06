@@ -113,18 +113,16 @@ impl ConciergeEngine {
     pub async fn on_client_connected(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
-        tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
-        goal_runs: &tokio::sync::Mutex<std::collections::VecDeque<GoalRun>>,
+        history: &crate::history::HistoryStore,
     ) {
-        self.on_client_connected_with_persisted_threads(threads, tasks, goal_runs, &[])
+        self.on_client_connected_with_persisted_threads(threads, history, &[])
             .await;
     }
 
     pub(crate) async fn on_client_connected_with_persisted_threads(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
-        tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
-        goal_runs: &tokio::sync::Mutex<std::collections::VecDeque<GoalRun>>,
+        history: &crate::history::HistoryStore,
         persisted_recent_threads: &[ThreadSummary],
     ) {
         tracing::info!("concierge: on_client_connected called");
@@ -139,13 +137,7 @@ impl ConciergeEngine {
         drop(config);
 
         let context = self
-            .gather_context(
-                threads,
-                tasks,
-                goal_runs,
-                detail_level,
-                persisted_recent_threads,
-            )
+            .gather_context(history, detail_level, persisted_recent_threads)
             .await;
         tracing::info!(
             "concierge: gathered {} threads, latest_goal={}, running_goals={}, paused_goals={}",
@@ -186,8 +178,7 @@ impl ConciergeEngine {
     pub async fn generate_welcome(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
-        tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
-        goal_runs: &tokio::sync::Mutex<std::collections::VecDeque<GoalRun>>,
+        history: &crate::history::HistoryStore,
     ) -> Option<(String, ConciergeDetailLevel, Vec<ConciergeAction>)> {
         let config = self.config.read().await;
         if !config.concierge.enabled {
@@ -197,9 +188,7 @@ impl ConciergeEngine {
         let detail_level = config.concierge.detail_level;
         drop(config);
 
-        let context = self
-            .gather_context(threads, tasks, goal_runs, detail_level, &[])
-            .await;
+        let context = self.gather_context(history, detail_level, &[]).await;
         let (content, actions) = if let Some(existing) = self
             .reuse_welcome_from_history(threads, detail_level, &context)
             .await
@@ -335,5 +324,55 @@ impl ConciergeEngine {
             actions: actions.to_vec(),
             created_at: std::time::Instant::now(),
         });
+    }
+}
+
+impl super::super::AgentEngine {
+    pub(crate) async fn request_concierge_welcome(&self) {
+        let (onboarding_done, tier) = {
+            let cfg = self.config.read().await;
+            let done = cfg.tier.onboarding_completed;
+            let tier = cfg
+                .tier
+                .user_self_assessment
+                .unwrap_or(crate::agent::capability_tier::CapabilityTier::Newcomer);
+            (done, tier)
+        };
+
+        let recent_history_threads = self
+            .concierge
+            .recent_persisted_history_threads(&self.session_manager)
+            .await;
+        let should_deliver_onboarding = !onboarding_done && recent_history_threads.is_empty();
+
+        if !onboarding_done && !should_deliver_onboarding {
+            let mut cfg = self.config.write().await;
+            cfg.tier.onboarding_completed = true;
+        }
+
+        if should_deliver_onboarding {
+            if let Err(error) = self.concierge.deliver_onboarding(tier, &self.threads).await {
+                tracing::warn!(
+                    "onboarding delivery failed, falling back to generic welcome: {error}"
+                );
+            } else {
+                self.persist_thread_by_id(CONCIERGE_THREAD_ID).await;
+                let mut cfg = self.config.write().await;
+                cfg.tier.onboarding_completed = true;
+                return;
+            }
+
+            let mut cfg = self.config.write().await;
+            cfg.tier.onboarding_completed = true;
+        }
+
+        self.concierge
+            .on_client_connected_with_persisted_threads(
+                &self.threads,
+                &self.history,
+                &recent_history_threads,
+            )
+            .await;
+        self.persist_thread_by_id(CONCIERGE_THREAD_ID).await;
     }
 }

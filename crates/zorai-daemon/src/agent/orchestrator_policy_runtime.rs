@@ -8,6 +8,37 @@ use crate::agent::{
 
 use super::*;
 
+impl AgentEngine {
+    async fn task_by_id_for_orchestrator_policy(
+        &self,
+        task_id: &str,
+    ) -> Option<crate::agent::types::AgentTask> {
+        match self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                goal_run_id: None,
+                parent_task_id: None,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+        {
+            Some(task) => Some(task),
+            None => {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find(|task| task.id == task_id).cloned()
+            }
+        }
+    }
+}
+
 fn build_strategy_refresh_prompt(
     trigger: &PolicyTriggerContext,
     step_title: &str,
@@ -151,10 +182,8 @@ impl AgentEngine {
             "current step".to_string()
         };
         let task_retry_count = if let Some(task_id) = task_id {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|task| task.id == task_id)
+            self.task_by_id_for_orchestrator_policy(task_id)
+                .await
                 .map(|task| task.retry_count)
                 .unwrap_or(0)
         } else {
@@ -219,10 +248,8 @@ impl AgentEngine {
             None => return Ok(PolicyLoopAction::Continue),
         };
         let attempts = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|task| task.id == task_id)
+            self.task_by_id_for_orchestrator_policy(task_id)
+                .await
                 .map(|task| task.retry_count)
                 .unwrap_or(0)
         };
@@ -249,20 +276,10 @@ impl AgentEngine {
         };
         self.mark_task_awaiting_approval(task_id, thread_id, &pending_approval)
             .await;
-        let goal_run_id = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|task| task.id == task_id)
-                .and_then(|task| task.goal_run_id.clone())
-        };
-        if let Some(goal_run_id) = goal_run_id {
-            let task = {
-                let tasks = self.tasks.lock().await;
-                tasks.iter().find(|task| task.id == task_id).cloned()
-            };
-            if let Some(task) = task.as_ref() {
-                self.sync_goal_run_with_task(&goal_run_id, task).await;
+        let task = self.task_by_id_for_orchestrator_policy(task_id).await;
+        if let Some(task) = task.as_ref() {
+            if let Some(goal_run_id) = task.goal_run_id.as_deref() {
+                self.sync_goal_run_with_task(goal_run_id, task).await;
             }
         }
         self.append_system_message(

@@ -131,13 +131,7 @@ fn render_user_profile_markdown(fields: &[crate::history::OperatorProfileFieldRo
         "".to_string(),
     ];
 
-    let mut ordered = fields
-        .iter()
-        .filter(|row| row.field_key != USER_PROFILE_IMPORT_SENTINEL)
-        .cloned()
-        .collect::<Vec<_>>();
-    ordered.sort_by(|a, b| a.field_key.cmp(&b.field_key));
-    for row in ordered {
+    for row in fields {
         lines.push(format!("- {}: {}", row.field_key, row.field_value_json));
     }
     lines.push(String::new());
@@ -166,7 +160,10 @@ async fn reconcile_inner(agent_data_dir: &Path, history: &HistoryStore) -> Resul
         return Err(error);
     }
 
-    let rows = match history.list_profile_fields().await {
+    let rows = match history
+        .list_profile_fields_excluding_ordered_by_key(USER_PROFILE_IMPORT_SENTINEL)
+        .await
+    {
         Ok(r) => r,
         Err(error) => {
             set_user_sync_state(UserProfileSyncState::Dirty);

@@ -87,6 +87,34 @@ impl TuiModel {
         if !is_active_thread && !is_header_thread {
             return;
         }
+        if self
+            .pending_local_message_delete_reload_suppression
+            .contains_key(&thread_id)
+        {
+            let remaining_suppressed_reloads = {
+                let remaining = self
+                    .pending_local_message_delete_reload_suppression
+                    .get_mut(&thread_id)
+                    .expect("checked delete reload suppression entry");
+                *remaining = remaining.saturating_sub(1);
+                *remaining
+            };
+            let confirmed_local_delete = self
+                .chat
+                .confirm_local_deleted_message_for_thread(&thread_id);
+            tracing::info!(
+                thread_id = %thread_id,
+                confirmed_local_delete,
+                remaining_suppressed_reloads,
+                "confirmed optimistic message delete without reloading thread"
+            );
+            if remaining_suppressed_reloads == 0 {
+                self.pending_local_message_delete_reload_suppression
+                    .remove(&thread_id);
+            }
+            self.status_line = "Message deleted".to_string();
+            return;
+        }
         self.empty_hydrated_runtime_thread_ids.remove(&thread_id);
         self.chat.reduce(chat::ChatAction::InvalidateContextWindow {
             thread_id: thread_id.clone(),

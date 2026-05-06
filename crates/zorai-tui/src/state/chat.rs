@@ -6,10 +6,13 @@ use serde_json::Value;
 
 #[path = "chat_types.rs"]
 mod chat_types;
+#[path = "chat_window.rs"]
+pub(crate) mod chat_window;
 #[path = "chat_interactions.rs"]
 mod interactions;
 
 pub use chat_types::*;
+use chat_window::MessageWindow;
 
 use zorai_protocol::AGENT_NAME_RAROG;
 
@@ -50,6 +53,7 @@ pub struct ChatState {
     thread_history_stack: Vec<String>,
     thread_activity: std::collections::HashMap<String, ThreadActivityState>,
     render_revision: u64,
+    transcript_metrics_revision: u64,
     scroll_offset: usize,
     scroll_locked: bool,
     transcript_mode: TranscriptMode,
@@ -57,6 +61,7 @@ pub struct ChatState {
     selected_message: Option<StoredMessageRef>,
     selected_message_action: usize,
     expanded_tools: std::collections::HashSet<StoredMessageRef>,
+    local_deleted_messages: std::collections::HashSet<StoredMessageRef>,
     pinned_message_top: Option<StoredMessageRef>,
     copied_message_feedback: Option<CopiedMessageFeedback>,
 }
@@ -107,8 +112,12 @@ fn merge_message_pair(
 }
 
 fn normalize_thread_window(thread: &mut AgentThread) {
+    let loaded_count = thread.messages.len();
     if thread.total_message_count == 0 {
-        thread.total_message_count = thread.messages.len();
+        thread.total_message_count = loaded_count;
+    }
+    if thread.total_message_count < loaded_count {
+        thread.total_message_count = loaded_count;
     }
     if thread.loaded_message_end == 0 && !thread.messages.is_empty() {
         thread.loaded_message_end = thread.total_message_count;
@@ -117,15 +126,27 @@ fn normalize_thread_window(thread: &mut AgentThread) {
         thread.loaded_message_end = thread.loaded_message_start;
     }
     if thread.loaded_message_end > thread.total_message_count {
-        thread.total_message_count = thread.loaded_message_end;
+        thread.loaded_message_end = thread.total_message_count;
     }
-    let loaded_count = thread.messages.len();
     if loaded_count == 0 {
         thread.loaded_message_start = thread.loaded_message_end.min(thread.total_message_count);
+        thread.loaded_message_end = thread.loaded_message_start;
         return;
     }
-    let max_start = thread.loaded_message_end.saturating_sub(loaded_count);
-    thread.loaded_message_start = thread.loaded_message_start.min(max_start);
+
+    let tail_window_start_missing = thread.loaded_message_start == 0
+        && thread.loaded_message_end == thread.total_message_count
+        && loaded_count < thread.total_message_count;
+    if tail_window_start_missing {
+        thread.loaded_message_start = thread.loaded_message_end.saturating_sub(loaded_count);
+    } else if thread.loaded_message_start.saturating_add(loaded_count) <= thread.total_message_count
+    {
+        thread.loaded_message_end = thread.loaded_message_start + loaded_count;
+    } else {
+        thread.loaded_message_end = thread.total_message_count;
+        thread.loaded_message_start = thread.loaded_message_end.saturating_sub(loaded_count);
+    }
+
     thread.active_compaction_window_start = latest_loaded_compaction_window_start(thread)
         .or(thread.active_compaction_window_start)
         .filter(|start| *start < thread.total_message_count);
@@ -169,14 +190,12 @@ fn merge_thread_window(
     existing: &AgentThread,
     incoming: &AgentThread,
 ) -> (Vec<AgentMessage>, usize, usize, bool) {
-    let existing_start = existing.loaded_message_start;
-    let existing_end = existing
-        .loaded_message_end
-        .max(existing_start + existing.messages.len());
-    let incoming_start = incoming.loaded_message_start;
-    let incoming_end = incoming
-        .loaded_message_end
-        .max(incoming_start + incoming.messages.len());
+    let existing_window = MessageWindow::from_thread(existing);
+    let incoming_window = MessageWindow::from_thread(incoming);
+    let existing_start = existing_window.start;
+    let existing_end = existing_window.end;
+    let incoming_start = incoming_window.start;
+    let incoming_end = incoming_window.end;
 
     let union_start = existing_start.min(incoming_start);
     let union_end = existing_end.max(incoming_end);
@@ -298,14 +317,12 @@ fn message_kinds_match(left: &str, right: &str) -> bool {
 }
 
 fn overlapping_thread_messages_match(existing: &AgentThread, incoming: &AgentThread) -> bool {
-    let existing_start = existing.loaded_message_start;
-    let existing_end = existing
-        .loaded_message_end
-        .max(existing_start + existing.messages.len());
-    let incoming_start = incoming.loaded_message_start;
-    let incoming_end = incoming
-        .loaded_message_end
-        .max(incoming_start + incoming.messages.len());
+    let existing_window = MessageWindow::from_thread(existing);
+    let incoming_window = MessageWindow::from_thread(incoming);
+    let existing_start = existing_window.start;
+    let existing_end = existing_window.end;
+    let incoming_start = incoming_window.start;
+    let incoming_end = incoming_window.end;
     let overlap_start = existing_start.max(incoming_start);
     let overlap_end = existing_end.min(incoming_end);
 
@@ -326,14 +343,11 @@ fn overlapping_thread_messages_match(existing: &AgentThread, incoming: &AgentThr
 }
 
 fn has_optimistic_local_tail(existing: &AgentThread, incoming: &AgentThread) -> bool {
-    let existing_start = existing.loaded_message_start;
-    let existing_end = existing
-        .loaded_message_end
-        .max(existing_start + existing.messages.len());
-    let incoming_start = incoming.loaded_message_start;
-    let incoming_end = incoming
-        .loaded_message_end
-        .max(incoming_start + incoming.messages.len());
+    let existing_window = MessageWindow::from_thread(existing);
+    let incoming_window = MessageWindow::from_thread(incoming);
+    let existing_start = existing_window.start;
+    let existing_end = existing_window.end;
+    let incoming_end = incoming_window.end;
 
     if existing_end <= incoming_end {
         return false;
@@ -428,12 +442,15 @@ fn is_older_thread_page(existing: &AgentThread, incoming: &AgentThread) -> bool 
         return false;
     }
 
-    let incoming_end = incoming.loaded_message_end.max(
-        incoming
-            .loaded_message_start
-            .saturating_add(incoming.messages.len()),
-    );
-    incoming_end <= existing.loaded_message_start
+    MessageWindow::from_thread(incoming).end <= MessageWindow::from_thread(existing).start
+}
+
+fn is_disjoint_older_thread_page(existing: &AgentThread, incoming: &AgentThread) -> bool {
+    if incoming.messages.is_empty() {
+        return false;
+    }
+
+    MessageWindow::from_thread(incoming).end < MessageWindow::from_thread(existing).start
 }
 
 fn trim_thread_to_latest_page(thread: &mut AgentThread, page_size: usize) -> usize {
@@ -663,6 +680,65 @@ fn effective_pinned_messages(thread: &AgentThread) -> Vec<PinnedThreadMessage> {
     pinned
 }
 
+fn locally_deleted_message_matches(
+    deleted: &StoredMessageRef,
+    thread_id: &str,
+    message: &AgentMessage,
+) -> bool {
+    if deleted.thread_id != thread_id {
+        return false;
+    }
+
+    match (deleted.message_id.as_deref(), message.id.as_deref()) {
+        (Some(deleted_id), Some(message_id)) if !deleted_id.is_empty() => deleted_id == message_id,
+        _ => false,
+    }
+}
+
+fn filter_locally_deleted_messages(
+    thread: &mut AgentThread,
+    local_deleted_messages: &std::collections::HashSet<StoredMessageRef>,
+) -> bool {
+    if local_deleted_messages.is_empty() {
+        return false;
+    }
+
+    let thread_id = thread.id.clone();
+    let local_deleted_count = local_deleted_messages
+        .iter()
+        .filter(|deleted| deleted.thread_id == thread_id)
+        .count();
+    if local_deleted_count == 0 {
+        return false;
+    }
+
+    if !thread.messages.is_empty() {
+        thread.messages.retain(|message| {
+            !local_deleted_messages
+                .iter()
+                .any(|deleted| locally_deleted_message_matches(deleted, &thread_id, message))
+        });
+    }
+
+    thread.total_message_count = thread
+        .total_message_count
+        .saturating_sub(local_deleted_count);
+    thread.loaded_message_end = thread
+        .loaded_message_start
+        .saturating_add(thread.messages.len());
+    thread.pinned_messages.retain(|message| {
+        !local_deleted_messages.iter().any(|deleted| {
+            deleted.thread_id == thread.id
+                && ((!message.message_id.is_empty()
+                    && deleted.message_id.as_deref() == Some(message.message_id.as_str()))
+                    || (deleted.message_id.is_none()
+                        && deleted.absolute_index == message.absolute_index))
+        })
+    });
+    normalize_thread_window(thread);
+    true
+}
+
 fn adjust_pinned_message_for_deleted_absolute(
     mut message: PinnedThreadMessage,
     deleted_absolute_index: usize,
@@ -687,6 +763,7 @@ impl ChatState {
             thread_history_stack: Vec::new(),
             thread_activity: std::collections::HashMap::new(),
             render_revision: 0,
+            transcript_metrics_revision: 0,
             scroll_offset: 0,
             expanded_reasoning: std::collections::HashSet::new(),
             scroll_locked: false,
@@ -694,6 +771,7 @@ impl ChatState {
             selected_message: None,
             selected_message_action: 0,
             expanded_tools: std::collections::HashSet::new(),
+            local_deleted_messages: std::collections::HashSet::new(),
             pinned_message_top: None,
             copied_message_feedback: None,
         }
@@ -724,6 +802,25 @@ impl ChatState {
 
     pub fn threads(&self) -> &[AgentThread] {
         &self.threads
+    }
+
+    pub fn local_deleted_message_count_for_thread(&self, thread_id: &str) -> usize {
+        self.local_deleted_messages
+            .iter()
+            .filter(|message_ref| message_ref.thread_id == thread_id)
+            .count()
+    }
+
+    pub fn confirm_local_deleted_message_for_thread(&mut self, thread_id: &str) -> bool {
+        let Some(message_ref) = self
+            .local_deleted_messages
+            .iter()
+            .find(|message_ref| message_ref.thread_id == thread_id)
+            .cloned()
+        else {
+            return false;
+        };
+        self.local_deleted_messages.remove(&message_ref)
     }
 
     pub fn set_history_page_size(&mut self, page_size: usize) {
@@ -891,12 +988,11 @@ impl ChatState {
         let cooldown_elapsed = thread
             .older_page_request_cooldown_until_tick
             .is_none_or(|deadline| current_tick >= deadline);
-        (thread.loaded_message_start > 0 && !thread.older_page_pending && cooldown_elapsed)
-            .then_some(
-                thread
-                    .loaded_message_end
-                    .saturating_sub(thread.loaded_message_start),
-            )
+        if thread.older_page_pending || thread.loaded_message_start == 0 || !cooldown_elapsed {
+            return None;
+        }
+        let window = chat_window::MessageWindow::from_thread(thread);
+        (window.start > 0).then_some(window.total.saturating_sub(window.start))
     }
 
     pub fn mark_active_thread_older_page_pending(
@@ -970,9 +1066,11 @@ impl ChatState {
         let mut removed = false;
         let mut deleted_absolute_index = None;
         let mut deleted_thread_id = None;
+        let mut deleted_message_ref = None;
         if let Some(thread) = self.active_thread_mut() {
             if index < thread.messages.len() {
                 let absolute_index = thread.loaded_message_start + index;
+                deleted_message_ref = stored_message_ref(thread, index);
                 deleted_absolute_index = Some(absolute_index);
                 deleted_thread_id = Some(thread.id.clone());
                 thread.messages.remove(index);
@@ -1005,6 +1103,23 @@ impl ChatState {
                 deleted_absolute_index.expect("removed message should have absolute index");
             let deleted_thread_id =
                 deleted_thread_id.expect("removed message should have thread id");
+            self.local_deleted_messages = self
+                .local_deleted_messages
+                .iter()
+                .cloned()
+                .filter_map(|message_ref| {
+                    adjust_message_ref_for_deleted_absolute(
+                        message_ref,
+                        &deleted_thread_id,
+                        deleted_absolute_index,
+                    )
+                })
+                .collect();
+            if let Some(deleted_message_ref) =
+                deleted_message_ref.filter(|message_ref| message_ref.message_id.is_some())
+            {
+                self.local_deleted_messages.insert(deleted_message_ref);
+            }
             self.selected_message = self.selected_message.take().and_then(|message_ref| {
                 adjust_message_ref_for_deleted_absolute(
                     message_ref,
@@ -1153,6 +1268,10 @@ impl ChatState {
         self.render_revision
     }
 
+    pub fn transcript_metrics_revision(&self) -> u64 {
+        self.transcript_metrics_revision
+    }
+
     pub fn render_cache_epoch(&self, current_tick: u64) -> u64 {
         let mut epoch = if self.copied_message_feedback.is_some() {
             1_u64 << 63
@@ -1165,6 +1284,9 @@ impl ChatState {
         {
             let ticks_per_second = (1_000 / crate::app::TUI_TICK_RATE_MS).max(1);
             epoch |= current_tick / ticks_per_second;
+        }
+        if self.active_thread_older_page_pending() {
+            epoch |= current_tick / 3;
         }
         epoch
     }
@@ -1217,6 +1339,11 @@ impl ChatState {
 
     fn bump_render_revision(&mut self) {
         self.render_revision = self.render_revision.wrapping_add(1);
+        self.transcript_metrics_revision = self.transcript_metrics_revision.wrapping_add(1);
+    }
+
+    pub(super) fn bump_render_revision_only(&mut self) {
+        self.render_revision = self.render_revision.wrapping_add(1);
     }
 
     fn move_thread_to_front(&mut self, thread_id: &str) {
@@ -1238,6 +1365,7 @@ impl ChatState {
         let mut should_bump_render_revision = true;
         match action {
             ChatAction::Delta { thread_id, content } => {
+                should_bump_render_revision = false;
                 self.pinned_message_top = None;
                 // Set active thread if not set, or if it matches the incoming thread
                 if (self.active_thread_id.is_none() && !self.new_thread_pending)
@@ -1255,13 +1383,16 @@ impl ChatState {
                 self.activity_for_thread_mut(&thread_id)
                     .streaming_content
                     .push_str(&content);
+                self.bump_render_revision_only();
             }
 
             ChatAction::Reasoning { thread_id, content } => {
+                should_bump_render_revision = false;
                 self.pinned_message_top = None;
                 self.activity_for_thread_mut(&thread_id)
                     .streaming_reasoning
                     .push_str(&content);
+                self.bump_render_revision_only();
             }
 
             ChatAction::ToolCall {
@@ -1471,6 +1602,7 @@ impl ChatState {
                 message,
                 received_at_tick,
             } => {
+                should_bump_render_revision = false;
                 if self.active_thread_id.is_none() && !self.new_thread_pending {
                     self.active_thread_id = Some(thread_id.clone());
                 }
@@ -1483,13 +1615,16 @@ impl ChatState {
                     message,
                     received_at_tick,
                 });
+                self.bump_render_revision_only();
             }
 
             ChatAction::ClearRetryStatus { thread_id } => {
+                should_bump_render_revision = false;
                 if let Some(activity) = self.thread_activity.get_mut(&thread_id) {
                     activity.retry_status = None;
                 }
                 self.cleanup_thread_activity(&thread_id);
+                self.bump_render_revision_only();
             }
 
             ChatAction::ThreadListReceived(new_threads) => {
@@ -1507,6 +1642,7 @@ impl ChatState {
                 self.retain_thread_history_stack(&new_thread_ids);
 
                 let existing_threads = std::mem::take(&mut self.threads);
+                let local_deleted_messages = self.local_deleted_messages.clone();
                 self.threads = new_threads
                     .into_iter()
                     .map(|mut incoming| {
@@ -1579,6 +1715,8 @@ impl ChatState {
                                     existing.queued_participant_suggestions.clone();
                             }
                         }
+                        normalize_thread_window(&mut incoming);
+                        filter_locally_deleted_messages(&mut incoming, &local_deleted_messages);
                         incoming
                     })
                     .collect();
@@ -1592,23 +1730,38 @@ impl ChatState {
                 }
                 let mut incoming = incoming;
                 normalize_thread_window(&mut incoming);
+                let local_deleted_messages = self.local_deleted_messages.clone();
+                filter_locally_deleted_messages(&mut incoming, &local_deleted_messages);
                 if let Some(existing) = self.threads.iter_mut().find(|t| t.id == incoming.id) {
                     normalize_thread_window(existing);
+                    let has_local_deleted_messages = local_deleted_messages
+                        .iter()
+                        .any(|deleted| deleted.thread_id == incoming.id);
                     reanchor_unloaded_optimistic_tail(existing, &incoming);
                     realign_short_reload_window(existing, &mut incoming);
                     let responder_before = active_thread_responder_identity(existing);
                     let metadata_only_detail =
                         incoming.messages.is_empty() && !existing.messages.is_empty();
                     let older_history_page = is_older_thread_page(existing, &incoming);
+                    let disjoint_older_history_page =
+                        is_disjoint_older_thread_page(existing, &incoming);
                     let stale_context_window =
                         incoming_context_window_is_stale(existing, &incoming);
-                    let replace_existing_window = should_replace_thread_window(existing, &incoming);
+                    let replace_existing_window = !has_local_deleted_messages
+                        && should_replace_thread_window(existing, &incoming);
                     let (merged, merged_start, merged_end, disjoint) = if metadata_only_detail {
                         (
                             existing.messages.clone(),
                             existing.loaded_message_start,
                             existing.loaded_message_end,
                             false,
+                        )
+                    } else if disjoint_older_history_page {
+                        (
+                            existing.messages.clone(),
+                            existing.loaded_message_start,
+                            existing.loaded_message_end,
+                            true,
                         )
                     } else if replace_existing_window || existing.messages.is_empty() {
                         (
@@ -1633,11 +1786,7 @@ impl ChatState {
                             .max(existing.total_message_count)
                     };
                     existing.loaded_message_start = merged_start;
-                    existing.loaded_message_end = if metadata_only_detail {
-                        merged_end
-                    } else {
-                        merged_end.max(existing.total_message_count)
-                    };
+                    existing.loaded_message_end = merged_end;
                     if !older_history_page && !stale_context_window {
                         existing.active_context_window_start = incoming.active_context_window_start;
                         existing.active_context_window_end = incoming.active_context_window_end;
@@ -1834,6 +1983,8 @@ impl ChatState {
             ChatAction::ThreadDeleted { thread_id } => {
                 self.threads.retain(|thread| thread.id != thread_id);
                 self.thread_activity.remove(&thread_id);
+                self.local_deleted_messages
+                    .retain(|message_ref| message_ref.thread_id != thread_id);
                 let remaining_thread_ids = self
                     .threads
                     .iter()
@@ -1863,6 +2014,8 @@ impl ChatState {
                     thread.history_window_expanded = false;
                     thread.collapse_deadline_tick = None;
                 }
+                self.local_deleted_messages
+                    .retain(|message_ref| message_ref.thread_id != thread_id);
                 self.thread_activity.remove(&thread_id);
             }
 

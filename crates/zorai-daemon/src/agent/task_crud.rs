@@ -1107,6 +1107,42 @@ impl AgentEngine {
             .0
     }
 
+    pub(crate) async fn list_goal_runs_paginated_for_tool(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> (Vec<GoalRun>, usize) {
+        match self.history.list_goal_run_ids_page(limit, offset).await {
+            Ok((goal_run_ids, total)) => {
+                let mut page = Vec::with_capacity(goal_run_ids.len());
+                for goal_run_id in goal_run_ids {
+                    match self.history.get_goal_run(&goal_run_id).await {
+                        Ok(Some(goal_run)) => page.push(self.project_goal_run(goal_run).await),
+                        Ok(None) => {}
+                        Err(error) => {
+                            tracing::warn!(goal_run_id = %goal_run_id, error = %error, "failed to load paged goal run");
+                        }
+                    }
+                }
+                (page, total)
+            }
+            Err(error) => {
+                tracing::warn!("failed to list paged persisted goal runs: {error}");
+                let goal_runs = self.goal_runs.lock().await;
+                let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
+                drop(goal_runs);
+                let mut projected = Vec::with_capacity(items.len());
+                for goal_run in items.drain(..) {
+                    projected.push(self.project_goal_run(goal_run).await);
+                }
+                projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                let total = projected.len();
+                let page = projected.into_iter().skip(offset).take(limit).collect();
+                (page, total)
+            }
+        }
+    }
+
     pub(crate) async fn list_goal_runs_paginated_capped_for_ipc(
         &self,
         limit: Option<usize>,
@@ -1238,28 +1274,54 @@ impl AgentEngine {
     }
 
     pub(super) async fn project_goal_run(&self, goal_run: GoalRun) -> GoalRun {
-        let tasks = self.tasks.lock().await;
-        let related_tasks = tasks
+        let mut related_tasks = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                goal_run_id: Some(goal_run.id.clone()),
+                parent_task_id: None,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await;
+        let mut task_ids = related_tasks
+            .iter()
+            .map(|task| task.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        for task in self
+            .tasks
+            .lock()
+            .await
             .iter()
             .filter(|task| task.goal_run_id.as_deref() == Some(goal_run.id.as_str()))
-            .cloned()
-            .collect::<Vec<_>>();
+        {
+            if task_ids.insert(task.id.clone()) {
+                related_tasks.push(task.clone());
+            }
+        }
         project_goal_run_snapshot(goal_run, &related_tasks, now_millis())
     }
 
     pub(super) async fn goal_run_has_active_tasks(&self, goal_run_id: &str) -> bool {
-        let tasks = self.tasks.lock().await;
-        tasks.iter().any(|task| {
-            task.goal_run_id.as_deref() == Some(goal_run_id)
-                && matches!(
-                    task.status,
-                    TaskStatus::Queued
-                        | TaskStatus::InProgress
-                        | TaskStatus::Blocked
-                        | TaskStatus::FailedAnalyzing
-                        | TaskStatus::AwaitingApproval
-                )
-        })
+        !self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                goal_run_id: Some(goal_run_id.to_string()),
+                parent_task_id: None,
+                exclude_terminal_statuses: true,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .is_empty()
     }
 
     async fn goal_related_task_ids(&self, goal_run: &GoalRun) -> Vec<String> {

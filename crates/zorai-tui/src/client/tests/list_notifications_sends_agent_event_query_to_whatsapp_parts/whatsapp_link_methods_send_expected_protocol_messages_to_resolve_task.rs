@@ -390,6 +390,29 @@ use zorai_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
     }
 
     #[tokio::test]
+    async fn goal_run_controlled_ack_emits_client_event() {
+        let (event_tx, mut event_rx) = mpsc::channel(8);
+
+        let should_continue = handle_daemon_message_for_test(
+            DaemonMessage::AgentGoalRunControlled {
+                goal_run_id: "goal-1".to_string(),
+                ok: true,
+            },
+            &event_tx,
+        )
+        .await;
+
+        assert!(should_continue);
+        match event_rx.recv().await.expect("expected goal control event") {
+            ClientEvent::GoalRunControlled { goal_run_id, ok } => {
+                assert_eq!(goal_run_id, "goal-1");
+                assert!(ok);
+            }
+            other => panic!("expected goal control event, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
     async fn done_event_parses_reasoning_payload() {
         let (event_tx, mut event_rx) = mpsc::channel(8);
 
@@ -454,4 +477,3 @@ use zorai_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
             other => panic!("expected pin result event, got {:?}", other),
         }
     }
-

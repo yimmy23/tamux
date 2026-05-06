@@ -100,6 +100,15 @@ impl TuiModel {
                 self.handle_goal_run_update_event(run);
                 None
             }
+            ClientEvent::GoalRunControlled { goal_run_id, ok } => {
+                if ok {
+                    self.request_authoritative_goal_run_refresh(goal_run_id);
+                    self.status_line = "Goal run updated".to_string();
+                } else {
+                    self.status_line = "Goal run update failed".to_string();
+                }
+                None
+            }
             ClientEvent::GoalRunDeleted {
                 goal_run_id,
                 deleted,

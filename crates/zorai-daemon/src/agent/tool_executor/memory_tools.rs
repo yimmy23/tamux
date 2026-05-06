@@ -933,12 +933,10 @@ async fn task_or_current_scope_id(
     task_id: Option<&str>,
 ) -> Result<String> {
     if let Some(current_task_id) = task_id {
-        let tasks = agent.tasks.lock().await;
-        let task = tasks
-            .iter()
-            .find(|task| task.id == current_task_id)
+        let task = task_by_id_for_tool_scope(agent, current_task_id)
+            .await
             .ok_or_else(|| anyhow::anyhow!("unknown task_id: {current_task_id}"))?;
-        return Ok(crate::agent::agent_scope_id_for_task(Some(task)));
+        return Ok(crate::agent::agent_scope_id_for_task(Some(&task)));
     }
     if thread_id.is_some() {
         if thread_id == Some(crate::agent::concierge::CONCIERGE_THREAD_ID) {
@@ -961,6 +959,35 @@ async fn task_or_current_scope_id(
         anyhow::bail!("unknown thread_id: {thread_id}");
     }
     Ok(current_agent_scope_id())
+}
+
+async fn task_by_id_for_tool_scope(
+    agent: &AgentEngine,
+    task_id: &str,
+) -> Option<crate::agent::types::AgentTask> {
+    match agent
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            goal_run_id: None,
+            parent_task_id: None,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
+    {
+        Some(task) => Some(task),
+        None => {
+            let tasks = agent.tasks.lock().await;
+            tasks.iter().find(|task| task.id == task_id).cloned()
+        }
+    }
 }
 
 async fn execute_memory_read_tool(
@@ -1544,5 +1571,59 @@ pub(crate) async fn execute_memory_tool_for_mcp(
             .await
         }
         _ => anyhow::bail!("unsupported memory tool for MCP: {tool_name}"),
+    }
+}
+
+#[cfg(test)]
+mod memory_tools_tests {
+    use super::*;
+    use crate::agent::types::AgentConfig;
+    use crate::session_manager::SessionManager;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn task_scope_resolves_persisted_task_by_id() -> Result<()> {
+        let root = TempDir::new()?;
+        let session_manager = SessionManager::new_test(root.path()).await;
+        let engine = crate::agent::AgentEngine::new_test(
+            session_manager,
+            AgentConfig::default(),
+            root.path(),
+        )
+        .await;
+
+        let mut task = engine
+            .enqueue_task(
+                "Persisted memory scope".to_string(),
+                "Resolve memory scope from a persisted task.".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                None,
+                None,
+                Some("daemon".to_string()),
+            )
+            .await;
+        task.override_system_prompt =
+            Some("Agent persona id: persisted-memory-scope\nUse task-local memory.".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            let persisted = tasks
+                .iter_mut()
+                .find(|entry| entry.id == task.id)
+                .expect("enqueued task should exist in live queue");
+            *persisted = task.clone();
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        let scope_id = task_or_current_scope_id(engine.as_ref(), None, Some(&task.id)).await?;
+
+        assert_eq!(scope_id, "persisted-memory-scope");
+        Ok(())
     }
 }

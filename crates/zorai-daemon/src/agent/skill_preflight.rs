@@ -766,18 +766,14 @@ impl AgentEngine {
         skills_root: &PathBuf,
         cfg: &SkillRecommendationConfig,
     ) -> Result<Vec<SemanticSkillCatalogEntry>> {
-        let mut records = self.history.list_skill_variants(None, 512).await?;
+        let mut records = self.history.list_discoverable_skill_variants(512).await?;
         if records.is_empty() {
             super::skill_recommendation::sync_skill_catalog(&self.history, skills_root).await?;
-            records = self.history.list_skill_variants(None, 512).await?;
+            records = self.history.list_discoverable_skill_variants(512).await?;
         }
 
         let mut entries = Vec::new();
         for record in records {
-            if matches!(record.status.as_str(), "archived" | "merged" | "draft") {
-                continue;
-            }
-
             let (skill_path, metadata_relative_path) =
                 super::skill_recommendation::resolve_skill_document_path(
                     skills_root,

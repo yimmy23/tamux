@@ -125,33 +125,47 @@ async fn execute_fetch_gateway_history(
     agent: &AgentEngine,
     thread_id: &str,
 ) -> Result<String> {
-    let count = args
-        .get("count")
+    let limit = args
+        .get("limit")
+        .or_else(|| args.get("count"))
         .and_then(|v| v.as_u64())
         .unwrap_or(10)
         .clamp(1, 100) as usize;
+    let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
 
-    let messages = agent.history.list_recent_messages(thread_id, count).await?;
-    if messages.is_empty() {
-        return Ok("No prior messages found for this gateway thread.".to_string());
-    }
+    let (messages, total_message_count, loaded_message_start, loaded_message_end) = agent
+        .history
+        .list_message_window(thread_id, limit, offset)
+        .await?;
+    let messages = messages
+        .into_iter()
+        .map(|msg| {
+            serde_json::json!({
+                "id": msg.id,
+                "created_at": msg.created_at,
+                "role": msg.role,
+                "content": msg.content.replace('\n', " ").chars().take(240).collect::<String>(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let returned = messages.len();
+    let has_more_newer = loaded_message_end < total_message_count;
+    let has_more_older = loaded_message_start > 0;
 
-    let mut lines = Vec::with_capacity(messages.len() + 1);
-    lines.push(format!(
-        "Recent gateway thread history ({} messages):",
-        messages.len()
-    ));
-    for msg in messages {
-        let role = msg.role;
-        let content = msg
-            .content
-            .replace('\n', " ")
-            .chars()
-            .take(240)
-            .collect::<String>();
-        lines.push(format!("- {role}: {content}"));
-    }
-    Ok(lines.join("\n"))
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "thread_id": thread_id,
+        "total_message_count": total_message_count,
+        "limit": limit,
+        "offset": offset,
+        "loaded_message_start": loaded_message_start,
+        "loaded_message_end": loaded_message_end,
+        "returned": returned,
+        "has_more_newer": has_more_newer,
+        "has_more_older": has_more_older,
+        "next_newer_offset": if has_more_newer { Some(offset.saturating_sub(limit)) } else { None },
+        "next_older_offset": if has_more_older { Some(offset.saturating_add(returned)) } else { None },
+        "messages": messages,
+    }))?)
 }
 
 async fn execute_session_search(
@@ -320,28 +334,22 @@ async fn execute_update_memory(
         .get("content")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("missing 'content' argument"))?;
-    let goal_run_id = if let Some(current_task_id) = task_id {
-        let tasks = agent.tasks.lock().await;
-        tasks
-            .iter()
-            .find(|task| task.id == current_task_id)
-            .and_then(|task| task.goal_run_id.clone())
-    } else {
-        None
+    let current_task = match task_id {
+        Some(current_task_id) => task_by_id_for_tool_scope(agent, current_task_id).await,
+        None => None,
     };
-    let acting_scope_id = if let Some(current_task_id) = task_id {
-        let tasks = agent.tasks.lock().await;
-        crate::agent::agent_scope_id_for_task(tasks.iter().find(|task| task.id == current_task_id))
-    } else {
-        current_agent_scope_id()
-    };
+    let goal_run_id = current_task
+        .as_ref()
+        .and_then(|task| task.goal_run_id.clone());
+    let acting_scope_id = current_task
+        .as_ref()
+        .map(|task| crate::agent::agent_scope_id_for_task(Some(task)))
+        .unwrap_or_else(current_agent_scope_id);
     if target == MemoryTarget::User && !crate::agent::is_main_agent_scope(&acting_scope_id) {
-        let sender = if let Some(current_task_id) = task_id {
-            let tasks = agent.tasks.lock().await;
-            sender_name_for_task(tasks.iter().find(|task| task.id == current_task_id))
-        } else {
-            canonical_agent_name(&acting_scope_id).to_string()
-        };
+        let sender = current_task
+            .as_ref()
+            .map(|task| sender_name_for_task(Some(task)))
+            .unwrap_or_else(|| canonical_agent_name(&acting_scope_id).to_string());
         let mediation_request = format!(
             "A non-main agent is requesting a shared USER.md update.\n\
              Requesting agent: {} ({})\n\

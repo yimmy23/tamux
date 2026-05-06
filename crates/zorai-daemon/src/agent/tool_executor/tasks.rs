@@ -18,15 +18,46 @@ async fn execute_list_subagents(
         false
     }
 
-    let all_tasks = agent.list_tasks().await;
-    let fallback_parent_task_id = if let Some(task_id) = task_id {
-        all_tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .and_then(|task| task.parent_task_id.clone().or_else(|| Some(task.id.clone())))
+    let all_tasks = agent
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: Some("subagent".to_string()),
+            thread_id: None,
+            goal_run_id: None,
+            parent_task_id: None,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await;
+    let current_task = if let Some(task_id) = task_id {
+        match all_tasks.iter().find(|task| task.id == task_id).cloned() {
+            Some(task) => Some(task),
+            None => agent
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
+                .await
+                .into_iter()
+                .next(),
+        }
     } else {
         None
     };
+    let fallback_parent_task_id = current_task
+        .as_ref()
+        .and_then(|task| task.parent_task_id.clone().or_else(|| Some(task.id.clone())));
 
     let status_filter = args
         .get("status")
@@ -674,26 +705,46 @@ async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Re
         .and_then(|value| value.as_u64())
         .map(|value| value as usize);
 
-    let mut tasks = agent.list_tasks().await;
-    if let Some(status_filter) = status_filter {
-        tasks.retain(|task| {
-            serde_json::to_value(task.status)
-                .ok()
-                .and_then(|value| value.as_str().map(ToOwned::to_owned))
-                .map(|value| value == status_filter)
-                .unwrap_or(false)
-        });
-    }
-    if let Some(limit) = limit {
-        tasks.truncate(limit);
-    }
+    let tasks = agent
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: status_filter,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            goal_run_id: None,
+            parent_task_id: None,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit,
+        })
+        .await;
 
     Ok(serde_json::to_string_pretty(&tasks).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_list_goal_runs(agent: &AgentEngine) -> Result<String> {
-    let goal_runs = agent.list_goal_runs().await;
-    Ok(serde_json::to_string_pretty(&goal_runs).unwrap_or_else(|_| "[]".to_string()))
+async fn execute_list_goal_runs(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(20)
+        .clamp(1, 100) as usize;
+    let offset = args.get("offset").and_then(|value| value.as_u64()).unwrap_or(0) as usize;
+    let (items, total) = agent.list_goal_runs_paginated_for_tool(limit, offset).await;
+    let returned = items.len();
+    let next_offset = offset.saturating_add(returned);
+    let has_more = next_offset < total;
+
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "returned": returned,
+        "has_more": has_more,
+        "next_offset": if has_more { Some(next_offset) } else { None },
+        "items": items,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
 }
 
 async fn execute_submit_goal_step_verdict(
@@ -747,14 +798,9 @@ async fn execute_submit_goal_step_verdict(
         .ok_or_else(|| anyhow::anyhow!("missing non-empty 'explanation' argument"))?
         .to_string();
 
-    let task = {
-        let tasks = agent.tasks.lock().await;
-        tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?
-    };
+    let task = task_by_id_for_tool_scope(agent, task_id)
+        .await
+        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
     if task.source != super::GOAL_VERIFICATION_SOURCE {
         anyhow::bail!(
             "submit_goal_step_verdict can only be used by goal verification tasks; current task source is '{}'.",
@@ -832,25 +878,32 @@ async fn execute_submit_goal_step_verdict(
         )
         .await?;
 
-    let updated = {
+    let mut updated = task.clone();
+    updated.result = Some(format!(
+        "Structured verdict: {:?}\n{}",
+        record.verdict, record.explanation
+    ));
+    updated.logs.push(make_task_log_entry(
+        updated.retry_count,
+        TaskLogLevel::Info,
+        "verification",
+        "structured goal-step verdict submitted",
+        Some(record_json.clone()),
+    ));
+
+    let updated_live_task = {
         let mut tasks = agent.tasks.lock().await;
-        let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) else {
-            anyhow::bail!("task {task_id} disappeared while recording verdict");
-        };
-        task.result = Some(format!(
-            "Structured verdict: {:?}\n{}",
-            record.verdict, record.explanation
-        ));
-        task.logs.push(make_task_log_entry(
-            task.retry_count,
-            TaskLogLevel::Info,
-            "verification",
-            "structured goal-step verdict submitted",
-            Some(record_json.clone()),
-        ));
-        task.clone()
+        if let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) {
+            *task = updated.clone();
+            true
+        } else {
+            false
+        }
     };
-    agent.persist_tasks().await;
+    agent.history.upsert_agent_task(&updated).await?;
+    if updated_live_task {
+        agent.persist_tasks().await;
+    }
     agent.emit_task_update(&updated, Some("Goal-step verdict submitted".into()));
     agent
         .record_provenance_event(
@@ -1164,23 +1217,12 @@ async fn execute_list_browser_profiles(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let rows = agent.list_browser_profiles_with_current_health().await?;
+    let rows = agent
+        .list_browser_profiles_with_current_health_filtered(health_filter, workspace_filter)
+        .await?;
 
     let filtered: Vec<serde_json::Value> = rows
         .into_iter()
-        .filter(|row| {
-            if let Some(hs) = health_filter {
-                if row.health_state != hs {
-                    return false;
-                }
-            }
-            if let Some(ws) = workspace_filter {
-                if row.workspace_id.as_deref() != Some(ws) {
-                    return false;
-                }
-            }
-            true
-        })
         .map(|row| {
             serde_json::json!({
                 "profile_id": row.profile_id,
@@ -1403,10 +1445,21 @@ async fn execute_show_harness_state(
     let resolved_task = if let Some(task_id) = requested_task_id.as_deref() {
         Some(
             agent
-                .list_tasks()
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
                 .await
                 .into_iter()
-                .find(|task| task.id == task_id)
+                .next()
                 .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
         )
     } else {
@@ -1525,11 +1578,8 @@ async fn execute_get_todos(
         .filter(|value| !value.is_empty());
     let resolved_task = if let Some(task_id) = requested_task_id.or(current_task_id) {
         Some(
-            agent
-                .list_tasks()
+            task_by_id_for_tool_scope(agent, task_id)
                 .await
-                .into_iter()
-                .find(|task| task.id == task_id)
                 .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
         )
     } else {

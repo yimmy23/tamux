@@ -379,6 +379,16 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                         model.status_line = "Goal action is unavailable".to_string();
                     }
                 }
+                Some(GoalActionPickerItem::DeleteGoal) => {
+                    if let Some(run) = model.selected_goal_run() {
+                        model.open_pending_action_confirm(PendingConfirmAction::DeleteGoalRun {
+                            goal_run_id: run.id.clone(),
+                            title: run.title.clone(),
+                        });
+                    } else {
+                        model.status_line = "Goal action is unavailable".to_string();
+                    }
+                }
                 Some(GoalActionPickerItem::RetryStep) => {
                     if !model.request_selected_goal_step_retry_confirmation() {
                         model.status_line = "Selected goal step is unavailable".to_string();

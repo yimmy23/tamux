@@ -4,6 +4,91 @@ use super::*;
 
 const TASK_APPROVAL_REASON_PREFIX: &str = "waiting for operator approval: ";
 
+fn task_matches_list_query(task: &AgentTask, query: &crate::history::AgentTaskListQuery) -> bool {
+    if let Some(id) = query.id.as_deref().filter(|value| !value.is_empty()) {
+        if task.id != id {
+            return false;
+        }
+    }
+    if let Some(status) = query.status.as_deref().filter(|value| !value.is_empty()) {
+        let task_status = serde_json::to_value(task.status)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned));
+        if task_status.as_deref() != Some(status) {
+            return false;
+        }
+    }
+    if !query.statuses.is_empty() {
+        let task_status = serde_json::to_value(task.status)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned));
+        let matches_status = task_status.as_deref().is_some_and(|task_status| {
+            query
+                .statuses
+                .iter()
+                .map(|status| status.trim())
+                .any(|status| !status.is_empty() && status == task_status)
+        });
+        if !matches_status {
+            return false;
+        }
+    }
+    if let Some(source) = query.source.as_deref().filter(|value| !value.is_empty()) {
+        if task.source != source {
+            return false;
+        }
+    }
+    if let Some(thread_id) = query.thread_id.as_deref().filter(|value| !value.is_empty()) {
+        if task.thread_id.as_deref() != Some(thread_id) {
+            return false;
+        }
+    }
+    if let Some(goal_run_id) = query
+        .goal_run_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        if task.goal_run_id.as_deref() != Some(goal_run_id) {
+            return false;
+        }
+    }
+    if let Some(parent_task_id) = query
+        .parent_task_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        if task.parent_task_id.as_deref() != Some(parent_task_id) {
+            return false;
+        }
+    }
+    if query.exclude_terminal_statuses
+        && crate::agent::task_scheduler::is_task_terminal_status(task.status)
+    {
+        return false;
+    }
+    true
+}
+
+fn task_recent_activity_at(task: &AgentTask) -> u64 {
+    task.completed_at
+        .or(task.started_at)
+        .unwrap_or(task.created_at)
+}
+
+fn filter_task_snapshot_for_query(
+    mut tasks: Vec<AgentTask>,
+    query: &crate::history::AgentTaskListQuery,
+) -> Vec<AgentTask> {
+    tasks.retain(|task| task_matches_list_query(task, query));
+    if query.order_by_recent_activity_desc {
+        tasks.sort_by_key(|task| std::cmp::Reverse(task_recent_activity_at(task)));
+    }
+    if let Some(limit) = query.limit {
+        tasks.truncate(limit.max(1));
+    }
+    tasks
+}
+
 fn is_policy_escalation_approval(approval_id: &str) -> bool {
     approval_id.starts_with("policy-escalation-")
 }
@@ -857,6 +942,42 @@ impl AgentEngine {
 
     pub async fn list_tasks(&self) -> Vec<AgentTask> {
         self.snapshot_tasks().await
+    }
+
+    async fn refresh_task_queue_state_for_filtered_list(&self) {
+        let sessions = self.session_manager.list().await;
+        let config = self.config.read().await.clone();
+        let changed = {
+            let mut tasks = self.tasks.lock().await;
+            refresh_task_queue_state(&mut tasks, now_millis(), &sessions, &config)
+        };
+
+        if !changed.is_empty() {
+            self.persist_tasks().await;
+            for task in changed {
+                self.emit_task_update(&task, Some(status_message(&task).into()));
+            }
+        }
+    }
+
+    pub(crate) async fn list_tasks_filtered(
+        &self,
+        query: &crate::history::AgentTaskListQuery,
+    ) -> Vec<AgentTask> {
+        self.refresh_task_queue_state_for_filtered_list().await;
+        match self.history.list_agent_tasks_filtered(query).await {
+            Ok(mut tasks) => {
+                for task in &mut tasks {
+                    crate::agent::persistence::sanitize_task_for_external_view(task);
+                }
+                tasks
+            }
+            Err(error) => {
+                tracing::warn!("failed to list filtered persisted tasks: {error}");
+                let snapshot = self.snapshot_tasks().await;
+                filter_task_snapshot_for_query(snapshot, query)
+            }
+        }
     }
 
     pub async fn list_runs(&self) -> Vec<AgentRun> {

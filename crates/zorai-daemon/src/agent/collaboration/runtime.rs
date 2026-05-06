@@ -382,6 +382,32 @@ fn seed_debate_from_bid_resolution(
 }
 
 impl AgentEngine {
+    async fn task_by_id_for_collaboration(&self, task_id: &str) -> Option<AgentTask> {
+        match self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                goal_run_id: None,
+                parent_task_id: None,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+        {
+            Some(task) => Some(task),
+            None => {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find(|task| task.id == task_id).cloned()
+            }
+        }
+    }
+
     async fn collaboration_outcome_scores(
         &self,
         parent_task_id: &str,
@@ -517,26 +543,19 @@ impl AgentEngine {
         parent_task_id: &str,
         bid_task_ids: &[String],
     ) -> Result<()> {
-        let (parent, eligible_subagents) = {
-            let tasks = self.tasks.lock().await;
-            let parent = tasks
-                .iter()
-                .find(|task| task.id == parent_task_id)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("unknown parent task {parent_task_id}"))?;
-            let eligible_subagents = bid_task_ids
-                .iter()
-                .filter_map(|task_id| {
-                    tasks.iter().find(|task| {
-                        task.id == *task_id
-                            && task.source == "subagent"
-                            && task.parent_task_id.as_deref() == Some(parent_task_id)
-                    })
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            (parent, eligible_subagents)
-        };
+        let parent = self
+            .task_by_id_for_collaboration(parent_task_id)
+            .await
+            .ok_or_else(|| anyhow::anyhow!("unknown parent task {parent_task_id}"))?;
+        let mut eligible_subagents = Vec::new();
+        for task_id in bid_task_ids {
+            let Some(task) = self.task_by_id_for_collaboration(task_id).await else {
+                continue;
+            };
+            if task.source == "subagent" && task.parent_task_id.as_deref() == Some(parent_task_id) {
+                eligible_subagents.push(task);
+            }
+        }
 
         let mut collaboration = self.collaboration.write().await;
         let session = collaboration
@@ -597,10 +616,8 @@ impl AgentEngine {
     ) -> Result<Option<CollaborationSession>> {
         let row = self
             .history
-            .list_collaboration_sessions()
-            .await?
-            .into_iter()
-            .find(|row| row.parent_task_id == parent_task_id);
+            .get_collaboration_session(parent_task_id)
+            .await?;
         let Some(row) = row else {
             return Ok(None);
         };
@@ -1044,10 +1061,7 @@ impl AgentEngine {
         if !self.config.read().await.collaboration.enabled {
             return;
         }
-        let parent = {
-            let tasks = self.tasks.lock().await;
-            tasks.iter().find(|task| task.id == parent_task_id).cloned()
-        };
+        let parent = self.task_by_id_for_collaboration(parent_task_id).await;
         let Some(parent) = parent else {
             return;
         };
@@ -1108,18 +1122,12 @@ impl AgentEngine {
         if !self.config.read().await.collaboration.enabled {
             anyhow::bail!("collaboration capability is disabled in agent config");
         }
-        let inferred_roles_by_task = {
-            let tasks = self.tasks.lock().await;
-            eligible_agents
-                .iter()
-                .filter_map(|task_id| {
-                    tasks
-                        .iter()
-                        .find(|task| task.id == *task_id)
-                        .map(|task| (task.id.clone(), infer_collaboration_role(task)))
-                })
-                .collect::<HashMap<_, _>>()
-        };
+        let mut inferred_roles_by_task = HashMap::new();
+        for task_id in eligible_agents {
+            if let Some(task) = self.task_by_id_for_collaboration(task_id).await {
+                inferred_roles_by_task.insert(task.id.clone(), infer_collaboration_role(&task));
+            }
+        }
         let mut collaboration = self.collaboration.write().await;
         let Some(session) = collaboration.get_mut(parent_task_id) else {
             anyhow::bail!("no collaboration session found for parent task {parent_task_id}");

@@ -407,23 +407,27 @@ pub(crate) fn hidden_dangling_tool_turn(
 
 pub(crate) fn active_request_messages(messages: &[AgentMessage]) -> Vec<AgentMessage> {
     let (window_start, active_messages) = active_compaction_window(messages);
-    let repaired_hidden_turn = hidden_dangling_tool_turn(messages, window_start);
+    let Some((first_message, remaining_messages)) = active_messages.split_first() else {
+        return Vec::new();
+    };
 
-    if repaired_hidden_turn.is_empty() {
-        return active_messages
+    let mut request_messages = vec![materialize_compaction_message(first_message)];
+    let mut remaining_start = 0;
+    if window_start > 0 && message_is_compaction_summary(first_message) {
+        while remaining_start < remaining_messages.len()
+            && remaining_messages[remaining_start].role == MessageRole::Tool
+        {
+            remaining_start += 1;
+        }
+    } else {
+        let repaired_hidden_turn = hidden_dangling_tool_turn(messages, window_start);
+        request_messages.extend(repaired_hidden_turn);
+    }
+
+    request_messages.extend(
+        remaining_messages[remaining_start..]
             .iter()
-            .map(materialize_compaction_message)
-            .collect();
-    }
-
-    let mut active_iter = active_messages.iter();
-    let mut request_messages = Vec::new();
-
-    if let Some(first_message) = active_iter.next() {
-        request_messages.push(materialize_compaction_message(first_message));
-    }
-
-    request_messages.extend(repaired_hidden_turn);
-    request_messages.extend(active_iter.map(materialize_compaction_message));
+            .map(materialize_compaction_message),
+    );
     request_messages
 }

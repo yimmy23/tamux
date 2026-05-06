@@ -1,5 +1,26 @@
 use super::*;
 
+fn map_trigger_fire_history_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<TriggerFireHistoryRow> {
+    Ok(TriggerFireHistoryRow {
+        id: row.get(0)?,
+        trigger_id: row.get(1)?,
+        event_family: row.get(2)?,
+        event_kind: row.get(3)?,
+        status: row.get(4)?,
+        fired_at_ms: row.get::<_, i64>(5)?.max(0) as u64,
+        completed_at_ms: row
+            .get::<_, Option<i64>>(6)?
+            .map(|value| value.max(0) as u64),
+        retry_count: row.get::<_, i64>(7)?.max(0) as u64,
+        error_message: row.get(8)?,
+        created_task_id: row.get(9)?,
+        notice_id: row.get(10)?,
+        payload_json: row.get(11)?,
+    })
+}
+
 impl HistoryStore {
     pub async fn upsert_event_trigger(&self, row: &EventTriggerRow) -> Result<()> {
         let row = row.clone();
@@ -232,24 +253,36 @@ impl HistoryStore {
                 let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
                 let mut stmt = conn.prepare(sql)?;
                 let rows = stmt
-                    .query_map(param_refs.as_slice(), |row| {
-                        Ok(TriggerFireHistoryRow {
-                            id: row.get(0)?,
-                            trigger_id: row.get(1)?,
-                            event_family: row.get(2)?,
-                            event_kind: row.get(3)?,
-                            status: row.get(4)?,
-                            fired_at_ms: row.get::<_, i64>(5)?.max(0) as u64,
-                            completed_at_ms: row.get::<_, Option<i64>>(6)?.map(|value| value.max(0) as u64),
-                            retry_count: row.get::<_, i64>(7)?.max(0) as u64,
-                            error_message: row.get(8)?,
-                            created_task_id: row.get(9)?,
-                            notice_id: row.get(10)?,
-                            payload_json: row.get(11)?,
-                        })
-                    })?
+                    .query_map(param_refs.as_slice(), map_trigger_fire_history_row)?
                     .collect::<std::result::Result<Vec<_>, _>>()?;
                 Ok(rows)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_trigger_fire_history_since(
+        &self,
+        since_fired_at_ms: u64,
+        limit: usize,
+    ) -> Result<Vec<TriggerFireHistoryRow>> {
+        let since_fired_at_ms = since_fired_at_ms.min(i64::MAX as u64) as i64;
+        let limit = limit.max(1) as i64;
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, trigger_id, event_family, event_kind, status, fired_at_ms, completed_at_ms, retry_count, error_message, created_task_id, notice_id, payload_json \
+                     FROM trigger_fire_history \
+                     WHERE fired_at_ms >= ?1 \
+                     ORDER BY fired_at_ms DESC \
+                     LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(
+                    params![since_fired_at_ms, limit],
+                    map_trigger_fire_history_row,
+                )?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))

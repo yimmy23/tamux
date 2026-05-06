@@ -379,7 +379,10 @@ impl AgentEngine {
         issues: &[crate::plugin::PluginAuthHealthIssue],
     ) {
         let now = now_millis() as i64;
-        let existing = self.history.list_notifications(true, Some(500)).await;
+        let existing = self
+            .history
+            .list_notifications_by_source("plugin_auth", true, Some(500))
+            .await;
         let Ok(existing) = existing else {
             return;
         };
@@ -455,8 +458,7 @@ impl AgentEngine {
             .collect();
 
         for mut notification in existing.into_iter().filter(|notification| {
-            notification.source == "plugin_auth"
-                && notification.archived_at.is_none()
+            notification.archived_at.is_none()
                 && notification.deleted_at.is_none()
                 && !active_ids.contains(notification.id.as_str())
         }) {

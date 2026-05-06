@@ -13,6 +13,7 @@ impl DaemonClient {
             | DaemonMessage::AgentGoalRunList { .. }
             | DaemonMessage::AgentGoalRunStarted { .. }
             | DaemonMessage::AgentGoalRunDetail { .. }
+            | DaemonMessage::AgentGoalRunControlled { .. }
             | DaemonMessage::AgentCheckpointList { .. }
             | DaemonMessage::AgentCheckpointRestored { .. }
             | DaemonMessage::AgentTodoDetail { .. }
@@ -84,6 +85,8 @@ impl DaemonClient {
             | DaemonMessage::AgentGenerateImageResult { .. }
             | DaemonMessage::AgentOperatorProfileSessionCompleted { .. }
             | DaemonMessage::AgentError { .. }
+            | DaemonMessage::AgentTierChanged { .. }
+            | DaemonMessage::SemanticIndexRepairResult { .. }
             | DaemonMessage::GatewayBootstrap { .. }
             | DaemonMessage::GatewaySendRequest { .. }
             | DaemonMessage::GatewayReloadCommand { .. }
@@ -92,7 +95,27 @@ impl DaemonClient {
                 Self::handle_activity_profile_gateway_daemon_messages(message, event_tx).await
             }
             other => {
-                debug!("Ignoring daemon message: {:?}", other);
+                // Surface unhandled variants loudly in dev builds so future
+                // protocol drift gets noticed; stay quiet in release so users
+                // aren't spammed if the daemon adds new message types between
+                // releases. To handle a variant, add it to one of the explicit
+                // arms above.
+                #[cfg(debug_assertions)]
+                {
+                    warn!(
+                        target: "zorai_tui::client",
+                        message = ?other,
+                        "unhandled DaemonMessage variant — dispatcher needs an explicit arm",
+                    );
+                }
+                #[cfg(not(debug_assertions))]
+                {
+                    debug!(
+                        target: "zorai_tui::client",
+                        message = ?other,
+                        "ignoring unhandled daemon message",
+                    );
+                }
             }
         }
 

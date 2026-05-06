@@ -22,6 +22,140 @@ fn sample_assignment(
     }
 }
 
+fn sample_goal_run_record(id: &str, updated_at: u64) -> GoalRun {
+    GoalRun {
+        id: id.to_string(),
+        title: format!("Goal {id}"),
+        goal: "Do the thing".to_string(),
+        client_request_id: None,
+        status: GoalRunStatus::Running,
+        priority: TaskPriority::Normal,
+        created_at: updated_at.saturating_sub(1),
+        updated_at,
+        started_at: Some(updated_at.saturating_sub(1)),
+        completed_at: None,
+        thread_id: Some(format!("thread-{id}")),
+        session_id: None,
+        current_step_index: 0,
+        current_step_title: Some("Inspect".to_string()),
+        current_step_kind: Some(GoalRunStepKind::Research),
+        planner_owner_profile: None,
+        current_step_owner_profile: None,
+        replan_count: 0,
+        max_replans: 2,
+        plan_summary: Some("Plan".to_string()),
+        reflection_summary: None,
+        memory_updates: Vec::new(),
+        generated_skill_path: None,
+        last_error: None,
+        failure_cause: None,
+        dossier: None,
+        stopped_reason: None,
+        child_task_ids: Vec::new(),
+        child_task_count: 0,
+        approval_count: 0,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        active_task_id: None,
+        duration_ms: None,
+        steps: vec![GoalRunStep {
+            id: format!("step-{id}"),
+            position: 0,
+            title: "Inspect".to_string(),
+            instructions: "Inspect state".to_string(),
+            kind: GoalRunStepKind::Research,
+            success_criteria: "Know state".to_string(),
+            session_id: None,
+            status: GoalRunStepStatus::InProgress,
+            task_id: None,
+            summary: None,
+            error: None,
+            started_at: Some(updated_at.saturating_sub(1)),
+            completed_at: None,
+        }],
+        events: vec![GoalRunEvent {
+            id: format!("event-{id}"),
+            timestamp: updated_at,
+            phase: "todo".to_string(),
+            message: "goal todo updated".to_string(),
+            details: None,
+            step_index: Some(0),
+            todo_snapshot: Vec::new(),
+        }],
+        total_prompt_tokens: 0,
+        total_completion_tokens: 0,
+        estimated_cost_usd: None,
+        model_usage: Vec::new(),
+        autonomy_level: Default::default(),
+        authorship_tag: None,
+        launch_assignment_snapshot: Vec::new(),
+        runtime_assignment_list: Vec::new(),
+        root_thread_id: None,
+        active_thread_id: None,
+        execution_thread_ids: Vec::new(),
+    }
+}
+
+fn sample_agent_task_record(id: &str, status: TaskStatus, created_at: u64) -> AgentTask {
+    AgentTask {
+        id: id.to_string(),
+        title: format!("Task {id}"),
+        description: "Do the task".to_string(),
+        status,
+        priority: TaskPriority::Normal,
+        progress: 0,
+        created_at,
+        started_at: None,
+        completed_at: None,
+        error: None,
+        result: None,
+        thread_id: Some(format!("thread-{id}")),
+        source: "user".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: None,
+        goal_run_title: None,
+        goal_step_id: None,
+        goal_step_title: None,
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 3,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    }
+}
+
 #[tokio::test]
 async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Result<()> {
     let (store, root) = make_test_store().await?;
@@ -248,6 +382,158 @@ async fn agent_task_subagent_metadata_round_trips() -> Result<()> {
 }
 
 #[tokio::test]
+async fn list_agent_tasks_filtered_applies_status_and_limit_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut newest_running =
+        sample_agent_task_record("task-newest-running", TaskStatus::InProgress, 30);
+    newest_running.dependencies = vec!["dep-newest".to_string()];
+    newest_running.logs = vec![AgentTaskLogEntry {
+        id: "log-newest".to_string(),
+        timestamp: 31,
+        level: TaskLogLevel::Info,
+        phase: "run".to_string(),
+        message: "running".to_string(),
+        details: None,
+        attempt: 0,
+    }];
+    let mut older_running =
+        sample_agent_task_record("task-older-running", TaskStatus::InProgress, 20);
+    older_running.dependencies = vec!["dep-older".to_string()];
+    older_running.logs = vec![AgentTaskLogEntry {
+        id: "log-older".to_string(),
+        timestamp: 21,
+        level: TaskLogLevel::Warn,
+        phase: "run".to_string(),
+        message: "older".to_string(),
+        details: None,
+        attempt: 0,
+    }];
+    let completed = sample_agent_task_record("task-completed", TaskStatus::Completed, 40);
+
+    store.upsert_agent_task(&newest_running).await?;
+    store.upsert_agent_task(&older_running).await?;
+    store.upsert_agent_task(&completed).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-completed"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let tasks = store
+        .list_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: Some("in_progress".to_string()),
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            goal_run_id: None,
+            parent_task_id: None,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await?;
+
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].id, "task-newest-running");
+    assert_eq!(tasks[0].dependencies, vec!["dep-newest"]);
+    assert_eq!(tasks[0].logs.len(), 1);
+    assert_eq!(tasks[0].logs[0].id, "log-newest");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_agent_tasks_filtered_finds_active_subagent_children_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut active_child =
+        sample_agent_task_record("task-active-child", TaskStatus::InProgress, 30);
+    active_child.source = "subagent".to_string();
+    active_child.parent_task_id = Some("task-parent".to_string());
+    let mut completed_child =
+        sample_agent_task_record("task-completed-child", TaskStatus::Completed, 40);
+    completed_child.source = "subagent".to_string();
+    completed_child.parent_task_id = Some("task-parent".to_string());
+    let mut unrelated_child =
+        sample_agent_task_record("task-unrelated-child", TaskStatus::InProgress, 50);
+    unrelated_child.source = "subagent".to_string();
+    unrelated_child.parent_task_id = Some("task-other-parent".to_string());
+
+    store.upsert_agent_task(&active_child).await?;
+    store.upsert_agent_task(&completed_child).await?;
+    store.upsert_agent_task(&unrelated_child).await?;
+
+    let tasks = store
+        .list_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: Some("subagent".to_string()),
+            thread_id: None,
+            goal_run_id: None,
+            parent_task_id: Some("task-parent".to_string()),
+            exclude_terminal_statuses: true,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await?;
+
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].id, "task-active-child");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_agent_task_session_for_thread_filters_thread_and_session_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut older = sample_agent_task_record("task-session-older", TaskStatus::Queued, 20);
+    older.thread_id = Some("thread-session-sql".to_string());
+    older.session_id = Some("session-older".to_string());
+    let mut newest = sample_agent_task_record("task-session-newest", TaskStatus::Queued, 30);
+    newest.thread_id = Some("thread-session-sql".to_string());
+    newest.session_id = Some("session-newest".to_string());
+    let mut unrelated = sample_agent_task_record("task-session-other", TaskStatus::Queued, 40);
+    unrelated.thread_id = Some("thread-other".to_string());
+    unrelated.session_id = Some("session-other".to_string());
+    let mut missing_session =
+        sample_agent_task_record("task-session-missing", TaskStatus::Queued, 50);
+    missing_session.thread_id = Some("thread-session-sql".to_string());
+    missing_session.session_id = None;
+
+    store.upsert_agent_task(&older).await?;
+    store.upsert_agent_task(&newest).await?;
+    store.upsert_agent_task(&unrelated).await?;
+    store.upsert_agent_task(&missing_session).await?;
+
+    assert_eq!(
+        store
+            .latest_agent_task_session_for_thread("thread-session-sql")
+            .await?
+            .as_deref(),
+        Some("session-newest")
+    );
+    assert!(store
+        .latest_agent_task_session_for_thread("thread-missing")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn goal_run_event_todo_snapshot_round_trips() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
@@ -345,6 +631,147 @@ async fn goal_run_event_todo_snapshot_round_trips() -> Result<()> {
     assert_eq!(loaded.events[0].step_index, Some(0));
     assert_eq!(loaded.events[0].todo_snapshot.len(), 1);
     assert_eq!(loaded.events[0].todo_snapshot[0].content, "Inspect state");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_goal_run_ignores_unrelated_malformed_rows() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let target = sample_goal_run_record("goal-target", 20);
+    let unrelated = sample_goal_run_record("goal-unrelated", 30);
+    store.upsert_goal_run(&target).await?;
+    store.upsert_goal_run(&unrelated).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_runs SET updated_at = 'not-an-integer' WHERE id = ?1",
+                params!["goal-unrelated"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let loaded = store
+        .get_goal_run("goal-target")
+        .await?
+        .expect("target goal run should load");
+
+    assert_eq!(loaded.id, "goal-target");
+    assert_eq!(loaded.steps.len(), 1);
+    assert_eq!(loaded.events.len(), 1);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn concierge_goal_context_loads_latest_goal_and_counts_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut old_running = sample_goal_run_record("goal-old-running", 10);
+    old_running.status = GoalRunStatus::Running;
+    let mut latest_paused = sample_goal_run_record("goal-latest-paused", 30);
+    latest_paused.title = "Latest paused goal".to_string();
+    latest_paused.status = GoalRunStatus::Paused;
+    let mut old_paused = sample_goal_run_record("goal-old-paused", 20);
+    old_paused.status = GoalRunStatus::Paused;
+
+    store.upsert_goal_run(&old_running).await?;
+    store.upsert_goal_run(&latest_paused).await?;
+    store.upsert_goal_run(&old_paused).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_runs SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["goal-old-paused"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let context = store.concierge_goal_context().await?;
+
+    assert_eq!(
+        context
+            .latest_goal_run
+            .as_ref()
+            .map(|goal_run| goal_run.id.as_str()),
+        Some("goal-latest-paused")
+    );
+    assert_eq!(context.running_goal_total, 1);
+    assert_eq!(context.paused_goal_total, 2);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_goal_run_ids_page_applies_order_limit_and_offset_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .upsert_goal_run(&sample_goal_run_record("goal-oldest", 10))
+        .await?;
+    store
+        .upsert_goal_run(&sample_goal_run_record("goal-middle", 20))
+        .await?;
+    store
+        .upsert_goal_run(&sample_goal_run_record("goal-newest", 30))
+        .await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_runs SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["goal-oldest"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let (ids, total) = store.list_goal_run_ids_page(1, 1).await?;
+
+    assert_eq!(total, 3);
+    assert_eq!(ids, vec!["goal-middle"]);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_goal_run_for_thread_filters_thread_and_orders_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut older = sample_goal_run_record("goal-thread-older", 20);
+    older.thread_id = Some("thread-goal-sql".to_string());
+    let mut newest = sample_goal_run_record("goal-thread-newest", 30);
+    newest.thread_id = Some("thread-goal-sql".to_string());
+    newest.session_id = Some("session-goal-newest".to_string());
+    let mut unrelated = sample_goal_run_record("goal-thread-other", 40);
+    unrelated.thread_id = Some("thread-other".to_string());
+
+    store.upsert_goal_run(&older).await?;
+    store.upsert_goal_run(&newest).await?;
+    store.upsert_goal_run(&unrelated).await?;
+
+    let latest = store
+        .latest_goal_run_for_thread("thread-goal-sql")
+        .await?
+        .expect("latest goal run should exist");
+    assert_eq!(latest.id, "goal-thread-newest");
+    assert_eq!(latest.session_id.as_deref(), Some("session-goal-newest"));
+    assert!(store
+        .latest_goal_run_for_thread("thread-missing")
+        .await?
+        .is_none());
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -797,6 +1224,219 @@ async fn memory_provenance_write_round_trips() -> Result<()> {
 }
 
 #[tokio::test]
+async fn latest_memory_provenance_created_at_by_fact_keys_filters_keys_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let alpha = vec!["alpha".to_string()];
+    let beta = vec!["beta".to_string()];
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "mem-alpha-old",
+            target: "MEMORY.md",
+            mode: "append",
+            source_kind: "test",
+            content: "old alpha",
+            fact_keys: &alpha,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: 100,
+            sign: false,
+        })
+        .await?;
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "mem-beta",
+            target: "MEMORY.md",
+            mode: "append",
+            source_kind: "test",
+            content: "beta",
+            fact_keys: &beta,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: 200,
+            sign: false,
+        })
+        .await?;
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "mem-alpha-new",
+            target: "MEMORY.md",
+            mode: "append",
+            source_kind: "test",
+            content: "new alpha",
+            fact_keys: &alpha,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: 300,
+            sign: false,
+        })
+        .await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "INSERT INTO memory_provenance \
+                 (id, target, mode, source_kind, content, fact_keys_json, created_at, entry_hash, signature, signature_scheme) \
+                 VALUES ('malformed-facts', 'MEMORY.md', 'append', 'test', 'bad', 'not-json', 999, '', NULL, NULL)",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let keys = vec![
+        "alpha".to_string(),
+        "beta".to_string(),
+        "missing".to_string(),
+    ];
+    let timestamps = store
+        .latest_memory_provenance_created_at_by_fact_keys("MEMORY.md", &keys)
+        .await?;
+
+    assert_eq!(timestamps.get("alpha"), Some(&300));
+    assert_eq!(timestamps.get("beta"), Some(&200));
+    assert!(!timestamps.contains_key("missing"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn active_memory_provenance_conventions_filter_status_and_tokens_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let rust_keys = vec!["rust".to_string()];
+    let cargo_keys = vec!["cargo".to_string()];
+    let docs_keys = vec!["docs".to_string()];
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "active-rust-old",
+            target: "MEMORY.md",
+            mode: "append",
+            source_kind: "test",
+            content: "rust convention old",
+            fact_keys: &rust_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: 100,
+            sign: false,
+        })
+        .await?;
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "active-rust-new",
+            target: "USER.md",
+            mode: "append",
+            source_kind: "test",
+            content: "newer rust convention",
+            fact_keys: &rust_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: 200,
+            sign: false,
+        })
+        .await?;
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "removed-rust-newest",
+            target: "MEMORY.md",
+            mode: "remove",
+            source_kind: "test",
+            content: "removed rust convention",
+            fact_keys: &rust_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: 500,
+            sign: false,
+        })
+        .await?;
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "retracted-rust-newer",
+            target: "MEMORY.md",
+            mode: "append",
+            source_kind: "test",
+            content: "retracted rust convention",
+            fact_keys: &rust_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: 400,
+            sign: false,
+        })
+        .await?;
+    store
+        .retract_memory_provenance_entry("retracted-rust-newer", 450)
+        .await?;
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "active-cargo-newest",
+            target: "MEMORY.md",
+            mode: "append",
+            source_kind: "test",
+            content: "cargo convention",
+            fact_keys: &cargo_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: 600,
+            sign: false,
+        })
+        .await?;
+    store
+        .record_memory_provenance(&MemoryProvenanceRecord {
+            id: "project-docs",
+            target: "PROJECT.md",
+            mode: "append",
+            source_kind: "test",
+            content: "docs convention",
+            fact_keys: &docs_keys,
+            thread_id: None,
+            task_id: None,
+            goal_run_id: None,
+            created_at: 700,
+            sign: false,
+        })
+        .await?;
+
+    let entries = store
+        .list_active_memory_provenance_conventions(&["rust".to_string()], 2)
+        .await?;
+    let ids = entries
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, vec!["active-rust-new", "active-rust-old"]);
+
+    let default_entries = store
+        .list_active_memory_provenance_conventions(&[], 10)
+        .await?;
+    assert!(default_entries
+        .iter()
+        .all(|entry| matches!(entry.target.as_str(), "MEMORY.md" | "USER.md")));
+    assert!(!default_entries
+        .iter()
+        .any(|entry| entry.id == "project-docs"));
+
+    let exact_target_entries = store
+        .list_active_memory_provenance_for_target("MEMORY.md", 10)
+        .await?;
+    assert!(!exact_target_entries
+        .iter()
+        .any(|entry| entry.id == "removed-rust-newest" || entry.id == "retracted-rust-newer"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn memory_provenance_report_marks_old_entries_uncertain() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;
@@ -1072,6 +1712,38 @@ async fn collaboration_session_round_trips() -> Result<()> {
     assert_eq!(rows[0].parent_task_id, "task-parent");
     assert_eq!(rows[0].updated_at, 42);
     assert!(rows[0].session_json.contains("\"id\":\"c1\""));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn get_collaboration_session_filters_parent_task_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    store
+        .upsert_collaboration_session(
+            "task-other",
+            r#"{"id":"other","parent_task_id":"task-other"}"#,
+            100,
+        )
+        .await?;
+    store
+        .upsert_collaboration_session(
+            "task-parent",
+            r#"{"id":"c1","parent_task_id":"task-parent"}"#,
+            42,
+        )
+        .await?;
+
+    let row = store
+        .get_collaboration_session("task-parent")
+        .await?
+        .expect("parent task session should be returned");
+
+    assert_eq!(row.parent_task_id, "task-parent");
+    assert_eq!(row.updated_at, 42);
+    assert!(row.session_json.contains("\"id\":\"c1\""));
 
     fs::remove_dir_all(root)?;
     Ok(())

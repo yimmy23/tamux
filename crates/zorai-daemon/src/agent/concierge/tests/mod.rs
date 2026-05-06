@@ -3,7 +3,6 @@ use crate::agent::engine::AgentEngine;
 use crate::session_manager::SessionManager;
 use std::collections::HashMap;
 use tempfile::tempdir;
-use tokio::sync::Mutex;
 
 mod basic;
 mod context;

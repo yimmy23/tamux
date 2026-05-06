@@ -395,6 +395,21 @@ pub(crate) fn render_markdown_pub(content: &str, width: usize) -> Vec<Line<'stat
     render_markdown(content, width)
 }
 
+#[cfg(test)]
+thread_local! {
+    static MARKDOWN_RENDER_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_markdown_render_call_count() {
+    MARKDOWN_RENDER_CALLS.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn markdown_render_call_count() -> usize {
+    MARKDOWN_RENDER_CALLS.with(std::cell::Cell::get)
+}
+
 fn normalize_markdown_for_tui(content: &str) -> String {
     let mut normalized = String::with_capacity(content.len());
     let mut active_fence: Option<(char, usize)> = None;
@@ -459,6 +474,9 @@ fn fence_marker(line: &str) -> Option<(char, usize)> {
 }
 
 fn render_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
+    #[cfg(test)]
+    MARKDOWN_RENDER_CALLS.with(|calls| calls.set(calls.get() + 1));
+
     if content.is_empty() {
         return vec![];
     }
@@ -496,4 +514,3 @@ fn render_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
 
     result
 }
-

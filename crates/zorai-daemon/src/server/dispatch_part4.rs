@@ -116,6 +116,12 @@ if matches!(
                     message_limit,
                     message_offset,
                 } => {
+                    tracing::info!(
+                        thread_id = %thread_id,
+                        message_limit,
+                        message_offset,
+                        "daemon received thread message request"
+                    );
                     client_agent_threads.insert(thread_id.clone());
                     let json = agent
                         .agent_thread_detail_json(&thread_id, message_limit, message_offset)

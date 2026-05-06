@@ -178,12 +178,75 @@ impl HistoryStore {
     }
 
     pub async fn list_goal_runs(&self) -> Result<Vec<GoalRun>> {
+        self.list_goal_runs_filtered(None).await
+    }
+
+    pub(crate) async fn concierge_goal_context(&self) -> Result<ConciergeGoalContext> {
+        let (latest_goal_run_id, running_goal_total, paused_goal_total) = self
+            .read_conn
+            .call(|conn| {
+                let latest_goal_run_id = conn
+                    .query_row(
+                        "SELECT id FROM goal_runs \
+                         WHERE deleted_at IS NULL \
+                         ORDER BY updated_at DESC \
+                         LIMIT 1",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?;
+
+                let (running_goal_total, paused_goal_total) = conn.query_row(
+                    "SELECT \
+                         COALESCE(SUM(CASE WHEN status = ?1 THEN 1 ELSE 0 END), 0), \
+                         COALESCE(SUM(CASE WHEN status = ?2 THEN 1 ELSE 0 END), 0) \
+                     FROM goal_runs \
+                     WHERE deleted_at IS NULL",
+                    params![
+                        goal_run_status_to_str(GoalRunStatus::Running),
+                        goal_run_status_to_str(GoalRunStatus::Paused),
+                    ],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+
+                Ok((
+                    latest_goal_run_id,
+                    running_goal_total.max(0) as usize,
+                    paused_goal_total.max(0) as usize,
+                ))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let latest_goal_run = match latest_goal_run_id {
+            Some(goal_run_id) => self
+                .list_goal_runs_filtered(Some(goal_run_id))
+                .await?
+                .into_iter()
+                .next(),
+            None => None,
+        };
+
+        Ok(ConciergeGoalContext {
+            latest_goal_run,
+            running_goal_total,
+            paused_goal_total,
+        })
+    }
+
+    async fn list_goal_runs_filtered(&self, goal_run_id: Option<String>) -> Result<Vec<GoalRun>> {
         self.read_conn.call(move |conn| {
-        let mut step_stmt = conn.prepare(
-            "SELECT id, goal_run_id, ordinal, title, instructions, kind, success_criteria, session_id, status, task_id, summary, error, started_at, completed_at \
-             FROM goal_run_steps WHERE deleted_at IS NULL ORDER BY goal_run_id ASC, ordinal ASC",
-        )?;
-        let step_rows = step_stmt.query_map([], |row| {
+        let mut step_sql = "SELECT id, goal_run_id, ordinal, title, instructions, kind, success_criteria, session_id, status, task_id, summary, error, started_at, completed_at \
+             FROM goal_run_steps WHERE deleted_at IS NULL".to_string();
+        let mut step_values = Vec::<rusqlite::types::Value>::new();
+        if let Some(goal_run_id) = goal_run_id.as_deref() {
+            step_sql.push_str(" AND goal_run_id = ?");
+            step_values.push(rusqlite::types::Value::Text(goal_run_id.to_string()));
+        }
+        step_sql.push_str(" ORDER BY goal_run_id ASC, ordinal ASC");
+
+        let mut step_stmt = conn.prepare(&step_sql)?;
+        let step_rows = step_stmt.query_map(rusqlite::params_from_iter(step_values.iter()), |row| {
             Ok((
                 row.get::<_, String>(1)?,
                 GoalRunStep {
@@ -209,10 +272,16 @@ impl HistoryStore {
             step_map.entry(goal_run_id).or_default().push(step);
         }
 
-        let mut event_stmt = conn.prepare(
-            "SELECT id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json FROM goal_run_events WHERE deleted_at IS NULL ORDER BY timestamp ASC",
-        )?;
-        let event_rows = event_stmt.query_map([], |row| {
+        let mut event_sql = "SELECT id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json FROM goal_run_events WHERE deleted_at IS NULL".to_string();
+        let mut event_values = Vec::<rusqlite::types::Value>::new();
+        if let Some(goal_run_id) = goal_run_id.as_deref() {
+            event_sql.push_str(" AND goal_run_id = ?");
+            event_values.push(rusqlite::types::Value::Text(goal_run_id.to_string()));
+        }
+        event_sql.push_str(" ORDER BY timestamp ASC");
+
+        let mut event_stmt = conn.prepare(&event_sql)?;
+        let event_rows = event_stmt.query_map(rusqlite::params_from_iter(event_values.iter()), |row| {
             let todo_snapshot_json: Option<String> = row.get(7)?;
             Ok((
                 row.get::<_, String>(1)?,
@@ -236,11 +305,17 @@ impl HistoryStore {
             event_map.entry(goal_run_id).or_default().push(event);
         }
 
-        let mut stmt = conn.prepare(
-            "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, model_usage_json, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json \
-             FROM goal_runs WHERE deleted_at IS NULL ORDER BY updated_at DESC",
-        )?;
-        let rows = stmt.query_map([], |row| {
+        let mut goal_sql = "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, model_usage_json, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json \
+             FROM goal_runs WHERE deleted_at IS NULL".to_string();
+        let mut goal_values = Vec::<rusqlite::types::Value>::new();
+        if let Some(goal_run_id) = goal_run_id.as_deref() {
+            goal_sql.push_str(" AND id = ?");
+            goal_values.push(rusqlite::types::Value::Text(goal_run_id.to_string()));
+        }
+        goal_sql.push_str(" ORDER BY updated_at DESC");
+
+        let mut stmt = conn.prepare(&goal_sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(goal_values.iter()), |row| {
             let id: String = row.get(0)?;
             let thread_id: Option<String> = row.get(10)?;
             let root_thread_id: Option<String> = row.get(12)?;
@@ -352,10 +427,71 @@ impl HistoryStore {
 
     pub async fn get_goal_run(&self, goal_run_id: &str) -> Result<Option<GoalRun>> {
         Ok(self
-            .list_goal_runs()
+            .list_goal_runs_filtered(Some(goal_run_id.to_string()))
             .await?
             .into_iter()
-            .find(|goal_run| goal_run.id == goal_run_id))
+            .next())
+    }
+
+    pub(crate) async fn latest_goal_run_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<GoalRun>> {
+        let thread_id = thread_id.to_string();
+        let goal_run_id = self
+            .read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT id
+                     FROM goal_runs
+                     WHERE deleted_at IS NULL
+                       AND thread_id = ?1
+                     ORDER BY updated_at DESC, id DESC
+                     LIMIT 1",
+                    params![thread_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        match goal_run_id {
+            Some(goal_run_id) => self.get_goal_run(&goal_run_id).await,
+            None => Ok(None),
+        }
+    }
+
+    pub(crate) async fn list_goal_run_ids_page(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<(Vec<String>, usize)> {
+        let limit = limit.max(1) as i64;
+        let offset = offset as i64;
+        self.read_conn
+            .call(move |conn| {
+                let total = conn.query_row(
+                    "SELECT COUNT(*) FROM goal_runs WHERE deleted_at IS NULL",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                let mut stmt = conn.prepare(
+                    "SELECT id FROM goal_runs \
+                     WHERE deleted_at IS NULL \
+                     ORDER BY updated_at DESC \
+                     LIMIT ?1 OFFSET ?2",
+                )?;
+                let rows = stmt.query_map(params![limit, offset], |row| row.get::<_, String>(0))?;
+                let mut ids = Vec::new();
+                for row in rows {
+                    ids.push(row?);
+                }
+                Ok((ids, total.max(0) as usize))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn delete_goal_run(&self, goal_run_id: &str) -> Result<()> {

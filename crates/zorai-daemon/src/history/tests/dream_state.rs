@@ -114,3 +114,53 @@ async fn dream_state_round_trips_cycle_and_counterfactual_evaluations() -> Resul
     fs::remove_dir_all(root)?;
     Ok(())
 }
+
+#[tokio::test]
+async fn limited_counterfactual_evaluations_reads_only_recent_rows() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let cycle_id = store
+        .insert_dream_cycle(&DreamCycleRow {
+            id: None,
+            started_at_ms: 100,
+            completed_at_ms: Some(180),
+            idle_duration_ms: 30_000,
+            tasks_analyzed: 4,
+            counterfactuals_generated: 7,
+            counterfactuals_successful: 2,
+            status: "completed".to_string(),
+        })
+        .await?;
+
+    for index in 0..4 {
+        store
+            .insert_counterfactual_evaluation(&CounterfactualEvaluationRow {
+                id: None,
+                dream_cycle_id: cycle_id,
+                source_task_id: format!("task-{index}"),
+                variation_type: "tool_substitution".to_string(),
+                counterfactual_description: format!("counterfactual {index}"),
+                estimated_token_saving: Some(42.0),
+                estimated_time_saving_ms: Some(900),
+                estimated_revision_reduction: Some(1),
+                score: 0.87,
+                threshold_met: true,
+                created_at_ms: 100 + index,
+            })
+            .await?;
+    }
+
+    let evaluations = store
+        .list_counterfactual_evaluations_limited(cycle_id, 2)
+        .await?;
+
+    assert_eq!(
+        evaluations
+            .iter()
+            .map(|row| row.source_task_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["task-3", "task-2"]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

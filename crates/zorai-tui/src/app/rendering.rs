@@ -1257,6 +1257,8 @@ impl TuiModel {
             area
         };
 
+        self.clamp_chat_scroll_offset_for_area(area);
+
         let mouse_selection = self
             .chat_drag_anchor_point
             .zip(self.chat_drag_current_point)
@@ -1325,6 +1327,44 @@ impl TuiModel {
                 mouse_selection,
             );
             return;
+        }
+
+        if self
+            .chat_selection_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| {
+                widgets::chat::cached_snapshot_matches_render_key(
+                    snapshot,
+                    area,
+                    &self.chat,
+                    self.tick_counter,
+                    self.retry_wait_start_selected,
+                )
+            })
+        {
+            self.chat_selection_snapshot =
+                self.chat_selection_snapshot.as_ref().and_then(|snapshot| {
+                    widgets::chat::refresh_cached_snapshot_window(
+                        snapshot,
+                        area,
+                        &self.chat,
+                        &self.theme,
+                        self.tick_counter,
+                        self.retry_wait_start_selected,
+                    )
+                });
+
+            if let Some(snapshot) = self.chat_selection_snapshot.as_ref() {
+                widgets::chat::render_cached(
+                    frame,
+                    area,
+                    &self.chat,
+                    &self.theme,
+                    snapshot,
+                    mouse_selection,
+                );
+                return;
+            }
         }
 
         self.chat_selection_snapshot = widgets::chat::build_selection_snapshot(

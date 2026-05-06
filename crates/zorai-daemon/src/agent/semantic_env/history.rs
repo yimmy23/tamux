@@ -10,23 +10,9 @@ pub(super) async fn render_conventions(
     limit: usize,
 ) -> Result<String> {
     let target_tokens = target.map(tokenize_convention_query).unwrap_or_default();
-    let report = history
-        .memory_provenance_report(None, limit.saturating_mul(4).max(20))
+    let matching_entries = history
+        .list_active_memory_provenance_conventions(&target_tokens, limit)
         .await?;
-    let mut matching_entries = report
-        .entries
-        .into_iter()
-        .filter(|entry| entry.mode != "remove")
-        .filter(|entry| entry.status != "retracted")
-        .filter(|entry| convention_entry_matches(entry, &target_tokens))
-        .collect::<Vec<_>>();
-    matching_entries.sort_by(|left, right| {
-        right
-            .confidence
-            .partial_cmp(&left.confidence)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| right.created_at.cmp(&left.created_at))
-    });
 
     let skill_matches = collect_matching_skills(&skills_dir(agent_data_dir), target, limit);
     let package_match = target
@@ -61,7 +47,7 @@ pub(super) async fn render_conventions(
         None => format!("Conventions for {}:", root.display()),
     }];
 
-    for entry in matching_entries.into_iter().take(limit) {
+    for entry in matching_entries {
         lines.push(format!(
             "- [{} | {} | {:.0}% confidence | {:.1}d old] {}",
             entry.target,
@@ -126,33 +112,16 @@ pub(super) async fn render_temporal(
 
     let transcripts = if normalized_target.is_some() {
         history
-            .list_transcript_index(None)
+            .list_transcript_index_matching(normalized_target.as_deref().unwrap_or_default(), limit)
             .await?
-            .into_iter()
-            .filter(|entry| {
-                normalized_target.as_ref().is_some_and(|target| {
-                    target_matches_text(&entry.filename, target)
-                        || entry
-                            .preview
-                            .as_deref()
-                            .is_some_and(|preview| target_matches_text(preview, target))
-                })
-            })
-            .take(limit)
-            .collect::<Vec<_>>()
     } else {
         Vec::new()
     };
 
     let memory_matches = if normalized_target.is_some() {
         history
-            .memory_provenance_report(target, limit.saturating_mul(2).max(12))
+            .list_active_memory_provenance_for_target(target.unwrap_or_default(), limit)
             .await?
-            .entries
-            .into_iter()
-            .filter(|entry| entry.mode != "remove" && entry.status != "retracted")
-            .take(limit)
-            .collect::<Vec<_>>()
     } else {
         Vec::new()
     };

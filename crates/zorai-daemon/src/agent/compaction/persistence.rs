@@ -226,8 +226,29 @@ impl AgentEngine {
         task_id: Option<&str>,
     ) -> Option<CompactionScopeSnapshot> {
         let task = if let Some(task_id) = task_id {
-            let tasks = self.tasks.lock().await;
-            tasks.iter().find(|task| task.id == task_id).cloned()
+            match self
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
+                .await
+                .into_iter()
+                .next()
+            {
+                Some(task) => Some(task),
+                None => {
+                    let tasks = self.tasks.lock().await;
+                    tasks.iter().find(|task| task.id == task_id).cloned()
+                }
+            }
         } else {
             None
         };

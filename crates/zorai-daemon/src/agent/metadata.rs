@@ -28,6 +28,7 @@ pub(super) struct ParsedThreadMetadata {
     pub identity: Option<ThreadIdentityMetadata>,
     pub client_surface: Option<zorai_protocol::ClientSurface>,
     pub execution_profile: Option<ThreadExecutionProfile>,
+    pub pinned: bool,
     pub upstream_thread_id: Option<String>,
     pub upstream_transport: Option<ApiTransport>,
     pub upstream_provider: Option<String>,
@@ -256,6 +257,23 @@ pub(super) fn parse_thread_metadata(metadata_json: Option<&str>) -> ParsedThread
         identity,
         client_surface,
         execution_profile,
+        pinned: metadata
+            .as_ref()
+            .and_then(|value| value.get("pinned"))
+            .and_then(|value| value.as_bool())
+            .or_else(|| {
+                metadata
+                    .as_ref()
+                    .and_then(|value| value.get("pinned_thread"))
+                    .and_then(|value| value.as_bool())
+            })
+            .or_else(|| {
+                metadata
+                    .as_ref()
+                    .and_then(|value| value.get("pinnedThread"))
+                    .and_then(|value| value.as_bool())
+            })
+            .unwrap_or(false),
         upstream_thread_id: get_str("upstream_thread_id"),
         upstream_transport,
         upstream_provider: get_str("upstream_provider"),
@@ -413,6 +431,8 @@ pub(super) fn build_thread_metadata_json(
         "clientSurface": client_surface,
         "execution_profile": execution_profile,
         "thread_profile": execution_profile,
+        "pinned": thread.pinned,
+        "pinnedThread": thread.pinned,
         "upstream_thread_id": thread.upstream_thread_id,
         "upstreamThreadId": thread.upstream_thread_id,
         "upstream_transport": thread.upstream_transport,

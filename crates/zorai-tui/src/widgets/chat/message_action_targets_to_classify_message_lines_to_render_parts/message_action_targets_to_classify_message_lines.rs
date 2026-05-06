@@ -200,6 +200,7 @@ fn classify_message_lines(
     msg_index: usize,
     mode: TranscriptMode,
     width: usize,
+    rendered_message_line_count: usize,
     expanded: &std::collections::HashSet<usize>,
     expanded_tools: &std::collections::HashSet<usize>,
 ) -> Vec<RenderedLineKind> {
@@ -265,18 +266,13 @@ fn classify_message_lines(
                 return kinds;
             }
 
-            if msg.content.is_empty() && image_line_count == 0 && msg.role != MessageRole::Assistant {
-                return Vec::new();
-            }
-            if msg.content.is_empty() && image_line_count == 0 && msg.reasoning.is_none() {
-                return Vec::new();
-            }
-
             if super::message::is_collapsible_system_notice_message(msg) {
                 let mut kinds = vec![reasoning_toggle_kind];
                 if reasoning_expanded {
                     let detail_width = content_width.saturating_sub(2).max(1);
-                    let detail_line_count = wrap_text(&msg.content, detail_width).len();
+                    let detail =
+                        super::message::collapsible_system_notice_detail(msg).unwrap_or_default();
+                    let detail_line_count = wrap_text(&detail, detail_width).len();
                     kinds.extend(std::iter::repeat_n(
                         RenderedLineKind::ReasoningContent,
                         detail_line_count.max(1),
@@ -285,19 +281,42 @@ fn classify_message_lines(
                 return kinds;
             }
 
-            let content_lines = if msg.content.is_empty() {
-                0
-            } else if msg.role == MessageRole::Assistant {
-                super::message::render_markdown_pub(&msg.content, content_width).len()
-            } else {
-                wrap_text(&msg.content, content_width).len()
-            };
+            if msg.content.is_empty() && image_line_count == 0 && msg.role != MessageRole::Assistant {
+                return Vec::new();
+            }
+            if msg.content.is_empty() && image_line_count == 0 && msg.reasoning.is_none() {
+                return Vec::new();
+            }
 
             let has_reasoning = msg.role == MessageRole::Assistant
                 && msg
                     .reasoning
                     .as_deref()
                     .is_some_and(|reasoning| !reasoning.is_empty());
+
+            let content_lines = if msg.content.is_empty() {
+                0
+            } else if msg.role == MessageRole::Assistant {
+                let reasoning_lines = if has_reasoning {
+                    let reasoning_expanded =
+                        matches!(mode, TranscriptMode::Full) || expanded.contains(&msg_index);
+                    if reasoning_expanded {
+                        let reasoning_width = content_width.saturating_sub(2).max(1);
+                        1 + wrap_text(msg.reasoning.as_deref().unwrap_or_default(), reasoning_width)
+                            .len()
+                            .max(1)
+                    } else {
+                        1
+                    }
+                } else {
+                    0
+                };
+                rendered_message_line_count
+                    .saturating_sub(reasoning_lines)
+                    .saturating_sub(image_line_count)
+            } else {
+                wrap_text(&msg.content, content_width).len()
+            };
 
             if has_reasoning {
                 let mut kinds = vec![reasoning_toggle_kind];

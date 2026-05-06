@@ -29,7 +29,7 @@ impl ChatState {
 
     pub fn select_message_action(&mut self, index: usize) {
         self.selected_message_action = index;
-        self.bump_render_revision();
+        self.bump_render_revision_only();
     }
 
     pub fn navigate_selected_message_action(&mut self, delta: i32, action_count: usize) {
@@ -43,13 +43,13 @@ impl ChatState {
                 .selected_message_action
                 .saturating_sub((-delta) as usize);
         }
-        self.bump_render_revision();
+        self.bump_render_revision_only();
     }
 
     pub fn select_message(&mut self, index: Option<usize>) {
         self.selected_message = index.and_then(|index| self.message_ref_for_active_index(index));
         self.selected_message_action = 0;
-        self.bump_render_revision();
+        self.bump_render_revision_only();
     }
 
     pub fn toggle_message_selection(&mut self, index: usize) {
@@ -60,7 +60,7 @@ impl ChatState {
             self.selected_message = self.message_ref_for_active_index(index);
             self.selected_message_action = 0;
         }
-        self.bump_render_revision();
+        self.bump_render_revision_only();
     }
 
     pub fn select_next_message(&mut self) {
@@ -85,7 +85,7 @@ impl ChatState {
                 }
             }
         }
-        self.bump_render_revision();
+        self.bump_render_revision_only();
     }
 
     pub fn select_prev_message(&mut self) {
@@ -106,7 +106,7 @@ impl ChatState {
                 self.selected_message_action = 0;
             }
         }
-        self.bump_render_revision();
+        self.bump_render_revision_only();
     }
 
     pub fn expanded_tools(&self) -> std::collections::HashSet<usize> {
@@ -152,7 +152,7 @@ impl ChatState {
             message_ref,
             expires_at_tick,
         });
-        self.bump_render_revision();
+        self.bump_render_revision_only();
     }
 
     pub fn clear_expired_copy_feedback(&mut self, current_tick: u64) {
@@ -162,7 +162,7 @@ impl ChatState {
             .is_some_and(|feedback| current_tick >= feedback.expires_at_tick)
         {
             self.copied_message_feedback = None;
-            self.bump_render_revision();
+            self.bump_render_revision_only();
         }
     }
 

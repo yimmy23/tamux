@@ -5,6 +5,41 @@ use bytes::BytesMut;
 use tempfile::tempdir;
 use tokio_util::codec::Encoder;
 
+#[tokio::test]
+async fn compaction_scope_snapshot_resolves_persisted_task_by_id() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let task = engine
+        .enqueue_task(
+            "Compact this task".to_string(),
+            "Preserve task context while compacting".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-compaction-scope".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine.tasks.lock().await.clear();
+
+    let scope = engine
+        .compaction_scope_snapshot("thread-compaction-scope", Some(&task.id))
+        .await
+        .expect("persisted task should produce a compaction scope");
+
+    assert_eq!(scope.task_id.as_deref(), Some(task.id.as_str()));
+    assert_eq!(scope.active_task_id.as_deref(), Some(task.id.as_str()));
+    assert_eq!(scope.thread_id, "thread-compaction-scope");
+}
+
 fn sample_supervised_goal_run(goal_run_id: &str, task_id: &str, approval_id: &str) -> GoalRun {
     GoalRun {
         id: goal_run_id.to_string(),

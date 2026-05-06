@@ -629,6 +629,47 @@ async fn operator_turns_route_through_active_thread_responder_scope() {
 }
 
 #[tokio::test]
+async fn agent_scope_id_for_turn_resolves_persisted_task_scope() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut task = engine
+        .enqueue_task(
+            "Persisted turn scope".to_string(),
+            "Resolve turn scope from a persisted task.".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            None,
+            None,
+            Some("daemon".to_string()),
+        )
+        .await;
+    task.override_system_prompt =
+        Some("Agent persona id: persisted-turn-scope\nUse task-local scope.".to_string());
+    {
+        let mut tasks = engine.tasks.lock().await;
+        let persisted = tasks
+            .iter_mut()
+            .find(|entry| entry.id == task.id)
+            .expect("enqueued task should exist in live queue");
+        *persisted = task.clone();
+    }
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    assert_eq!(
+        engine.agent_scope_id_for_turn(None, Some(&task.id)).await,
+        "persisted-turn-scope"
+    );
+}
+
+#[tokio::test]
 async fn handoff_activation_clears_thread_continuation_state_for_new_responder_stream() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;

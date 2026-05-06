@@ -184,7 +184,7 @@ fn active_thread_reload_required_requests_detail_and_sidebar_context() {
             message_offset,
         }) => {
             assert_eq!(thread_id, "thread-user");
-            assert_eq!(message_limit, Some(123));
+            assert_eq!(message_limit, Some(136));
             assert_eq!(message_offset, Some(0));
         }
         other => panic!("expected thread detail request, got {other:?}"),
@@ -363,7 +363,7 @@ fn active_thread_reload_required_reuses_loaded_page_window_when_viewing_older_hi
             message_offset,
         }) => {
             assert_eq!(thread_id, "thread-user");
-            assert_eq!(message_limit, Some(123));
+            assert_eq!(message_limit, Some(136));
             assert_eq!(message_offset, Some(123));
         }
         other => panic!("expected current page refresh request, got {other:?}"),
@@ -448,4 +448,3 @@ fn inactive_thread_reload_required_does_not_interrupt_selected_thread() {
     assert_eq!(model.chat.active_tool_calls().len(), 1);
     assert!(daemon_rx.try_recv().is_err());
 }
-

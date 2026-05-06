@@ -1,12 +1,84 @@
 impl TuiModel {
     fn chat_scrollbar_layout(&self) -> Option<widgets::chat::ChatScrollbarLayout> {
+        self.chat_scrollbar_layout_for_area(self.pane_layout().chat)
+    }
+
+    fn chat_scrollbar_layout_for_area(
+        &self,
+        area: Rect,
+    ) -> Option<widgets::chat::ChatScrollbarLayout> {
+        if let Some(snapshot) = self.chat_selection_snapshot.as_ref().filter(|snapshot| {
+            widgets::chat::cached_snapshot_matches_render_key(
+                snapshot,
+                area,
+                &self.chat,
+                self.tick_counter,
+                self.retry_wait_start_selected,
+            )
+        }) {
+            return widgets::chat::scrollbar_layout_from_cached_snapshot(snapshot, &self.chat);
+        }
+
         widgets::chat::scrollbar_layout(
-            self.pane_layout().chat,
+            area,
             &self.chat,
             &self.theme,
             self.tick_counter,
             self.retry_wait_start_selected,
         )
+    }
+
+    fn chat_scrollbar_scroll_offset_for_pointer(
+        &self,
+        area: Rect,
+        pointer_row: u16,
+        grab_offset: u16,
+    ) -> Option<usize> {
+        if let Some(snapshot) = self.chat_selection_snapshot.as_ref().filter(|snapshot| {
+            widgets::chat::cached_snapshot_matches_render_key(
+                snapshot,
+                area,
+                &self.chat,
+                self.tick_counter,
+                self.retry_wait_start_selected,
+            )
+        }) {
+            return widgets::chat::scrollbar_scroll_offset_for_pointer_from_cached_snapshot(
+                snapshot,
+                &self.chat,
+                pointer_row,
+                grab_offset,
+            );
+        }
+
+        widgets::chat::scrollbar_scroll_offset_for_pointer(
+            area,
+            &self.chat,
+            &self.theme,
+            self.tick_counter,
+            self.retry_wait_start_selected,
+            pointer_row,
+            grab_offset,
+        )
+    }
+
+    fn clamp_chat_scroll_offset_for_area(&mut self, area: Rect) {
+        let max_scroll = widgets::chat::scrollbar_layout(
+            area,
+            &self.chat,
+            &self.theme,
+            self.tick_counter,
+            self.retry_wait_start_selected,
+        )
+        .map(|layout| layout.max_scroll)
+        .unwrap_or(0);
+        let current_scroll = self.chat.scroll_offset();
+        if current_scroll <= max_scroll {
+            return;
+        }
+
+        self.chat_selection_snapshot = None;
+        self.set_chat_scroll_offset(max_scroll);
     }
 
     fn capture_locked_chat_viewport(&self, thread_id: Option<&str>) -> Option<(usize, usize)> {

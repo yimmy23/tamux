@@ -764,11 +764,7 @@ impl AgentEngine {
             }
         }
 
-        if let Ok(profiles) = self.history.list_browser_profiles().await {
-            let unhealthy: Vec<_> = profiles
-                .iter()
-                .filter(|p| p.health_state != "healthy")
-                .collect();
+        if let Ok(unhealthy) = self.history.list_unhealthy_browser_profiles().await {
             if !unhealthy.is_empty() {
                 let profile_list = unhealthy
                     .iter()

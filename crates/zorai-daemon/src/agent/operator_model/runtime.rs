@@ -1,6 +1,8 @@
 use super::*;
 use crate::agent::learning::traces::hash_context_blob;
 use crate::agent::tool_executor::execute_tool;
+use crate::history::AgentTaskListQuery;
+use std::collections::HashSet;
 
 impl AgentEngine {
     async fn persist_implicit_feedback_signal(
@@ -1351,7 +1353,35 @@ impl AgentEngine {
                     })
                 })
             });
-        let all_tasks = self.list_tasks().await;
+        let mut subagent_tasks = self
+            .list_tasks_filtered(&AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: Some("subagent".to_string()),
+                thread_id: None,
+                goal_run_id: None,
+                parent_task_id: None,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await;
+        let mut subagent_task_ids = subagent_tasks
+            .iter()
+            .map(|task| task.id.clone())
+            .collect::<HashSet<_>>();
+        for task in self
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .filter(|task| task.source == "subagent")
+        {
+            if subagent_task_ids.insert(task.id.clone()) {
+                subagent_tasks.push(task.clone());
+            }
+        }
         let parse_subagent_containment_scope = |scope: Option<&str>| -> Option<(u8, u8)> {
             let scope = scope?.trim();
             let payload = scope.strip_prefix("subagent-depth:")?;
@@ -1365,7 +1395,7 @@ impl AgentEngine {
             let mut current_parent_id = task.parent_task_id.as_deref();
             while let Some(parent_id) = current_parent_id {
                 depth = depth.saturating_add(1);
-                current_parent_id = all_tasks
+                current_parent_id = subagent_tasks
                     .iter()
                     .find(|candidate| candidate.id == parent_id)
                     .and_then(|parent| parent.parent_task_id.as_deref());
@@ -1377,16 +1407,12 @@ impl AgentEngine {
                 .map(|(_, max_depth)| max_depth)
                 .unwrap_or_else(|| compute_task_delegation_depth(task).max(1))
         };
-        let active_subagents = all_tasks
-            .iter()
-            .filter(|task| task.source == "subagent")
-            .collect::<Vec<_>>();
-        let max_observed_depth = active_subagents
+        let max_observed_depth = subagent_tasks
             .iter()
             .map(|task| compute_task_delegation_depth(task))
             .max()
             .unwrap_or(0);
-        let max_observed_allowed_depth = active_subagents
+        let max_observed_allowed_depth = subagent_tasks
             .iter()
             .map(|task| {
                 parse_subagent_containment_scope(task.containment_scope.as_deref())
@@ -1395,12 +1421,12 @@ impl AgentEngine {
             })
             .max()
             .unwrap_or(0);
-        let root_parent_task_ids = active_subagents
+        let root_parent_task_ids = subagent_tasks
             .iter()
             .filter_map(|task| {
                 let mut current_parent_id = task.parent_task_id.as_deref()?;
                 loop {
-                    let next_parent = all_tasks
+                    let next_parent = subagent_tasks
                         .iter()
                         .find(|candidate| candidate.id == current_parent_id)
                         .and_then(|parent| parent.parent_task_id.as_deref());
@@ -1414,7 +1440,7 @@ impl AgentEngine {
             .into_iter()
             .collect::<Vec<_>>();
         let recursive_subagents = serde_json::json!({
-            "active_subagent_count": active_subagents.len(),
+            "active_subagent_count": subagent_tasks.len(),
             "max_observed_depth": max_observed_depth,
             "max_observed_allowed_depth": max_observed_allowed_depth,
             "root_parent_task_ids": root_parent_task_ids,

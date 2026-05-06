@@ -242,15 +242,11 @@ impl AgentEngine {
         moving_task_id: &str,
         sort_order: i64,
     ) -> Result<()> {
-        let mut tasks = self
+        let tasks = self
             .history
-            .list_workspace_tasks(workspace_id, false)
+            .list_workspace_tasks_for_sort_shift(workspace_id, status, moving_task_id, sort_order)
             .await?;
-        tasks.sort_by_key(|task| (task.sort_order, task.created_at));
         for mut task in tasks {
-            if task.id == moving_task_id || task.status != status || task.sort_order < sort_order {
-                continue;
-            }
             task.sort_order += 1;
             task.updated_at = now_millis();
             self.history.upsert_workspace_task(&task).await?;
@@ -311,13 +307,15 @@ impl AgentEngine {
             _ => return Ok(task),
         };
         if task.status == next_status && notice_type != "runtime_completed" {
-            let notices = self
+            if self
                 .history
-                .list_workspace_notices(&task.workspace_id, Some(&task.id))
-                .await?;
-            if notices
-                .iter()
-                .any(|notice| notice.notice_type == notice_type && notice.message == notice_message)
+                .workspace_notice_with_message_exists(
+                    &task.workspace_id,
+                    &task.id,
+                    notice_type,
+                    &notice_message,
+                )
+                .await?
             {
                 return Ok(task);
             }
@@ -380,13 +378,10 @@ impl AgentEngine {
         task: &WorkspaceTask,
         goal_run: &GoalRun,
     ) -> Result<()> {
-        let notices = self
+        if self
             .history
-            .list_workspace_notices(&task.workspace_id, Some(&task.id))
-            .await?;
-        if notices
-            .iter()
-            .any(|notice| notice.notice_type == "task_completion")
+            .workspace_notice_exists(&task.workspace_id, &task.id, "task_completion")
+            .await?
         {
             return Ok(());
         }

@@ -58,7 +58,7 @@ pub(super) fn agent_message_from_db(msg: zorai_protocol::AgentDbMessage) -> Opti
     })
 }
 
-fn thread_message_token_totals(messages: &[AgentMessage]) -> (u64, u64) {
+fn sum_message_token_totals(messages: &[AgentMessage]) -> (u64, u64) {
     messages
         .iter()
         .fold((0u64, 0u64), |(input_acc, output_acc), message| {
@@ -74,19 +74,25 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<AgentTask> {
-        let tasks = self.tasks.lock().await;
-        tasks
-            .iter()
-            .filter(|task| {
-                task.thread_id.as_deref() == Some(thread_id)
-                    && task.status == TaskStatus::BudgetExceeded
-            })
-            .max_by_key(|task| {
-                task.completed_at
-                    .or(task.started_at)
-                    .unwrap_or(task.created_at)
-            })
-            .cloned()
+        let budget_exceeded_status = serde_json::to_value(TaskStatus::BudgetExceeded)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned))
+            .unwrap_or_else(|| "budget_exceeded".to_string());
+        self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: Some(budget_exceeded_status),
+            statuses: Vec::new(),
+            source: None,
+            thread_id: Some(thread_id.to_string()),
+            goal_run_id: None,
+            parent_task_id: None,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: true,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
     }
 
     #[cfg(test)]
@@ -133,7 +139,11 @@ impl AgentEngine {
             .into_iter()
             .filter_map(agent_message_from_db)
             .collect();
-        let (total_input_tokens, total_output_tokens) = thread_message_token_totals(&messages);
+        let (total_input_tokens, total_output_tokens) = self
+            .history
+            .thread_message_token_totals(thread_id)
+            .await
+            .unwrap_or_else(|_| sum_message_token_totals(&messages));
 
         let updated = {
             let mut threads = self.threads.write().await;
@@ -214,7 +224,7 @@ impl AgentEngine {
                 threads.get(thread_id).map(|thread| thread.pinned)
             };
 
-            if let Some(mut restored) = self.restore_thread_from_db(thread_id).await {
+            if let Some(mut restored) = self.restore_thread_with_messages_from_db(thread_id).await {
                 if let Some(pinned) = existing_pinned {
                     restored.pinned = pinned;
                 }
@@ -283,7 +293,9 @@ impl AgentEngine {
                 threads.get(thread_id).map(|thread| thread.pinned)
             };
 
-            if let Some(mut restored_thread) = self.restore_thread_from_db(thread_id).await {
+            if let Some(mut restored_thread) =
+                self.restore_thread_with_messages_from_db(thread_id).await
+            {
                 if let Some(pinned) = existing_pinned {
                     restored_thread.pinned = pinned;
                 }
@@ -317,10 +329,10 @@ impl AgentEngine {
             .read()
             .await
             .contains(&tid);
-        if has_pending_persisted_messages && !self.ensure_thread_messages_loaded(&tid).await {
-            tracing::warn!(
+        if has_pending_persisted_messages {
+            tracing::debug!(
                 thread_id = %tid,
-                "skipped frontend context seeding because persisted thread hydration failed"
+                "skipped frontend context seeding because persisted thread history is pending lazy hydration"
             );
             return;
         }
@@ -496,13 +508,13 @@ impl AgentEngine {
             None
         };
 
-        let mut threads = self.threads.write().await;
-        if !threads.contains_key(&id) {
-            // Try to restore the thread from the database (history continuation)
+        let exists = self.threads.read().await.contains_key(&id);
+        if !exists {
             if let Some(restored) = self.restore_thread_from_db(&id).await {
-                tracing::info!(thread_id = %id, messages = restored.messages.len(), "restored thread from history");
-                threads.insert(id.clone(), restored);
+                tracing::info!(thread_id = %id, "restored thread shell from history");
+                self.threads.write().await.insert(id.clone(), restored);
             } else {
+                let mut threads = self.threads.write().await;
                 created = true;
                 let created_at = now_millis();
                 let active_agent_id = resolved_target
@@ -555,7 +567,6 @@ impl AgentEngine {
                 });
             }
         }
-        drop(threads);
         if let Some(target) = resolved_target.as_ref().filter(|_| !created) {
             self.retarget_existing_thread_to_agent(&id, target).await;
         }
@@ -599,10 +610,9 @@ impl AgentEngine {
             .remove(thread_id);
     }
 
-    /// Attempt to restore a thread and its messages from the SQLite history database.
+    /// Restore a thread shell from SQLite without loading its message payloads.
     async fn restore_thread_from_db(&self, thread_id: &str) -> Option<AgentThread> {
         let db_thread = self.history.get_thread(thread_id).await.ok().flatten()?;
-        let db_messages = self.history.list_messages(thread_id, None).await.ok()?;
         let thread_metadata = parse_thread_metadata(db_thread.metadata_json.as_deref());
         if let Some(client_surface) = thread_metadata.client_surface {
             self.thread_client_surfaces
@@ -669,19 +679,25 @@ impl AgentEngine {
             .await
             .insert(thread_id.to_string(), handoff_state.clone());
 
-        let messages: Vec<AgentMessage> = db_messages
-            .into_iter()
-            .filter_map(agent_message_from_db)
-            .collect();
-
-        let (total_input, total_output) = thread_message_token_totals(&messages);
-        self.clear_thread_message_hydration_pending(thread_id).await;
+        let (total_input, total_output) = self
+            .history
+            .thread_message_token_totals(thread_id)
+            .await
+            .unwrap_or_else(|_| (db_thread.total_tokens.max(0) as u64, 0));
+        {
+            let mut pending = self.thread_message_hydration_pending.write().await;
+            if db_thread.message_count > 0 {
+                pending.insert(thread_id.to_string());
+            } else {
+                pending.remove(thread_id);
+            }
+        }
 
         Some(AgentThread {
             id: thread_id.to_string(),
             agent_name: Some(hydrated_agent_name),
             title: db_thread.title,
-            messages,
+            messages: Vec::new(),
             pinned: false,
             upstream_thread_id: thread_metadata.upstream_thread_id,
             upstream_transport: thread_metadata.upstream_transport,
@@ -693,6 +709,29 @@ impl AgentEngine {
             total_input_tokens: total_input,
             total_output_tokens: total_output,
         })
+    }
+
+    /// Restore a thread and its complete message payloads from SQLite.
+    pub(super) async fn restore_thread_with_messages_from_db(
+        &self,
+        thread_id: &str,
+    ) -> Option<AgentThread> {
+        let mut thread = self.restore_thread_from_db(thread_id).await?;
+        let db_messages = self.history.list_messages(thread_id, None).await.ok()?;
+        let messages: Vec<AgentMessage> = db_messages
+            .into_iter()
+            .filter_map(agent_message_from_db)
+            .collect();
+        let (total_input, total_output) = self
+            .history
+            .thread_message_token_totals(thread_id)
+            .await
+            .unwrap_or_else(|_| sum_message_token_totals(&messages));
+        thread.messages = messages;
+        thread.total_input_tokens = total_input;
+        thread.total_output_tokens = total_output;
+        self.clear_thread_message_hydration_pending(thread_id).await;
+        Some(thread)
     }
 
     // -----------------------------------------------------------------------

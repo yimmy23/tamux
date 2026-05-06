@@ -148,6 +148,11 @@ impl DaemonClient {
                     })
                     .await;
             }
+            DaemonMessage::AgentGoalRunControlled { goal_run_id, ok } => {
+                let _ = event_tx
+                    .send(ClientEvent::GoalRunControlled { goal_run_id, ok })
+                    .await;
+            }
             DaemonMessage::AgentCheckpointList {
                 goal_run_id,
                 checkpoints_json,

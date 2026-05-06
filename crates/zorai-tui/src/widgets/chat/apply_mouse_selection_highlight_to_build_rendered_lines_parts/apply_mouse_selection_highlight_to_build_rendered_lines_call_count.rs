@@ -74,9 +74,13 @@ fn render_snapshot(
         .into_iter()
         .map(|line| line.line)
         .collect::<Vec<_>>();
-    let scroll = snapshot.all_lines.len().saturating_sub(end_idx);
-    if let Some(layout) =
-        scrollbar_layout_from_metrics(snapshot.inner, snapshot.all_lines.len(), scroll)
+    let scroll = resolved_scroll(
+        chat,
+        snapshot.total_lines,
+        snapshot.inner.height as usize,
+        &snapshot.message_line_ranges,
+    );
+    if let Some(layout) = scrollbar_layout_from_metrics(snapshot.inner, snapshot.total_lines, scroll)
     {
         frame.render_widget(Paragraph::new(visible_lines), layout.content);
 
@@ -118,4 +122,24 @@ pub fn reset_build_rendered_lines_call_count() {
 #[cfg(test)]
 pub fn build_rendered_lines_call_count() -> usize {
     BUILD_RENDERED_LINES_CALLS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub fn reset_build_transcript_metrics_call_count() {
+    BUILD_TRANSCRIPT_METRICS_CALLS.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+pub fn build_transcript_metrics_call_count() -> usize {
+    BUILD_TRANSCRIPT_METRICS_CALLS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn reset_assistant_responder_labels_call_count() {
+    ASSISTANT_RESPONDER_LABELS_CALLS.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+fn assistant_responder_labels_call_count() -> usize {
+    ASSISTANT_RESPONDER_LABELS_CALLS.with(std::cell::Cell::get)
 }

@@ -3589,6 +3589,55 @@ async fn cognitive_resonance_sampling_persists_samples_and_adjustment_logs() {
 }
 
 #[tokio::test]
+async fn cognitive_resonance_sampling_finds_revision_signal_beyond_recent_unrelated_window() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-revision-velocity-sql";
+    let now = now_millis();
+
+    engine
+        .history
+        .insert_implicit_signal(&crate::history::ImplicitSignalRow {
+            id: "older-operator-correction".to_string(),
+            session_id: thread_id.to_string(),
+            signal_type: "operator_correction".to_string(),
+            weight: -0.2,
+            timestamp_ms: now.saturating_sub(60_000),
+            context_snapshot_json: None,
+        })
+        .await
+        .expect("insert correction signal");
+    for index in 0..12u64 {
+        engine
+            .history
+            .insert_implicit_signal(&crate::history::ImplicitSignalRow {
+                id: format!("newer-tool-signal-{index}"),
+                session_id: thread_id.to_string(),
+                signal_type: "tool_fallback".to_string(),
+                weight: -0.01,
+                timestamp_ms: now.saturating_sub(10_000).saturating_add(index),
+                context_snapshot_json: None,
+            })
+            .await
+            .expect("insert unrelated signal");
+    }
+    engine.anticipatory.write().await.active_attention_thread_id = Some(thread_id.to_string());
+
+    engine.sample_cognitive_resonance_runtime().await;
+
+    let samples = engine
+        .history
+        .list_cognitive_resonance_samples(1)
+        .await
+        .expect("resonance samples should load");
+    assert!(
+        samples[0].revision_velocity_ms.unwrap_or_default() >= 60_000,
+        "revision velocity should be based on the latest matching signal type, not the latest mixed signal window"
+    );
+}
+
+#[tokio::test]
 async fn low_risk_event_trigger_records_succeeded_fire_history_with_created_task_id() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;

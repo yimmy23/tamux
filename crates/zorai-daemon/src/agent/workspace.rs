@@ -106,13 +106,9 @@ impl AgentEngine {
     ) -> Result<()> {
         let tasks = self
             .history
-            .list_workspace_tasks(workspace_id, false)
+            .list_assigned_workspace_tasks_by_status(workspace_id, WorkspaceTaskStatus::Todo)
             .await?;
-        for task in tasks
-            .into_iter()
-            .filter(|task| task.status == WorkspaceTaskStatus::Todo)
-            .filter(|task| task.assignee.is_some())
-        {
+        for task in tasks {
             self.run_workspace_task(&task.id).await?;
         }
         Ok(())
@@ -124,13 +120,9 @@ impl AgentEngine {
     ) -> Result<()> {
         let tasks = self
             .history
-            .list_workspace_tasks(workspace_id, false)
+            .list_assigned_workspace_tasks_by_status(workspace_id, WorkspaceTaskStatus::Todo)
             .await?;
-        for task in tasks
-            .into_iter()
-            .filter(|task| task.status == WorkspaceTaskStatus::Todo)
-            .filter(|task| task.assignee.is_some())
-        {
+        for task in tasks {
             self.run_workspace_task_deferred(&task.id).await?;
         }
         Ok(())

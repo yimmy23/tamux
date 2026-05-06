@@ -533,8 +533,14 @@ fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> {
                     continue;
                 }
             }
-            // Regular assistant message (no tool calls).
-            out.push(msg.clone());
+            if api_content_has_non_empty_payload(&msg.content) {
+                // Regular assistant message (no tool calls).
+                out.push(msg.clone());
+            } else {
+                tracing::warn!(
+                    "sanitize_api_messages: dropping empty assistant message without tool calls"
+                );
+            }
         } else if msg.role == "tool" {
             // Orphaned tool result — skip it.
             tracing::warn!(
@@ -547,6 +553,13 @@ fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> {
         i += 1;
     }
     out
+}
+
+fn api_content_has_non_empty_payload(content: &ApiContent) -> bool {
+    match content {
+        ApiContent::Text(text) => !text.trim().is_empty(),
+        ApiContent::Blocks(blocks) => !blocks.is_empty(),
+    }
 }
 
 fn build_anthropic_messages(messages: &[ApiMessage]) -> Vec<serde_json::Value> {

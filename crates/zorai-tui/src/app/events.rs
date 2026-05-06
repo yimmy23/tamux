@@ -166,6 +166,10 @@ impl TuiModel {
             include(tick / ticks_per_second);
         }
 
+        if self.chat.active_thread_older_page_pending() {
+            include(tick / 3);
+        }
+
         if self
             .chat
             .active_thread()

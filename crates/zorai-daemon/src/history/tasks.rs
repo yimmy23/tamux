@@ -75,28 +75,80 @@ impl HistoryStore {
         include_inactive: bool,
         limit: Option<usize>,
     ) -> Result<Vec<zorai_protocol::InboxNotification>> {
-        let rows = self
-            .list_agent_events(
-                Some(crate::notifications::NOTIFICATION_CATEGORY),
-                None,
-                limit,
-            )
-            .await?;
-        let mut notifications: Vec<zorai_protocol::InboxNotification> = rows
-            .iter()
-            .filter_map(crate::notifications::parse_notification_row)
-            .filter(|notification| {
-                include_inactive
-                    || (notification.archived_at.is_none() && notification.deleted_at.is_none())
+        let limit = limit.unwrap_or(500).max(1) as i64;
+        self.read_conn
+            .call(move |conn| {
+                let inactive_filter = if include_inactive {
+                    ""
+                } else {
+                    " AND json_extract(payload_json, '$.archived_at') IS NULL
+                      AND json_extract(payload_json, '$.deleted_at') IS NULL"
+                };
+                let sql = format!(
+                    "SELECT id, category, kind, pane_id, workspace_id, surface_id, session_id, payload_json, timestamp
+                     FROM agent_events
+                     WHERE category = ?1
+                       AND json_valid(payload_json)
+                       {inactive_filter}
+                     ORDER BY
+                       COALESCE(json_extract(payload_json, '$.updated_at'), timestamp) DESC,
+                       COALESCE(json_extract(payload_json, '$.created_at'), timestamp) DESC
+                     LIMIT ?2"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(
+                    params![crate::notifications::NOTIFICATION_CATEGORY, limit],
+                    map_agent_event_row,
+                )?;
+                Ok(rows
+                    .filter_map(|row| row.ok())
+                    .filter_map(|row| crate::notifications::parse_notification_row(&row))
+                    .collect())
             })
-            .collect();
-        notifications.sort_by(|left, right| {
-            right
-                .updated_at
-                .cmp(&left.updated_at)
-                .then_with(|| right.created_at.cmp(&left.created_at))
-        });
-        Ok(notifications)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_notifications_by_source(
+        &self,
+        source: &str,
+        include_inactive: bool,
+        limit: Option<usize>,
+    ) -> Result<Vec<zorai_protocol::InboxNotification>> {
+        let source = source.to_string();
+        let limit = limit.unwrap_or(500).max(1) as i64;
+        self.read_conn
+            .call(move |conn| {
+                let inactive_filter = if include_inactive {
+                    ""
+                } else {
+                    " AND json_extract(payload_json, '$.archived_at') IS NULL
+                      AND json_extract(payload_json, '$.deleted_at') IS NULL"
+                };
+                let sql = format!(
+                    "SELECT id, category, kind, pane_id, workspace_id, surface_id, session_id, payload_json, timestamp
+                     FROM agent_events
+                     WHERE category = ?1
+                       AND json_valid(payload_json)
+                       AND json_extract(payload_json, '$.source') = ?2
+                       {inactive_filter}
+                     ORDER BY
+                       COALESCE(json_extract(payload_json, '$.updated_at'), timestamp) DESC,
+                       COALESCE(json_extract(payload_json, '$.created_at'), timestamp) DESC
+                     LIMIT ?3"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(
+                    params![crate::notifications::NOTIFICATION_CATEGORY, source, limit],
+                    map_agent_event_row,
+                )?;
+                Ok(rows
+                    .filter_map(|row| row.ok())
+                    .filter_map(|row| crate::notifications::parse_notification_row(&row))
+                    .collect())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
@@ -301,46 +353,79 @@ impl HistoryStore {
     }
 
     pub async fn list_agent_tasks(&self) -> Result<Vec<AgentTask>> {
+        self.list_agent_tasks_filtered(&AgentTaskListQuery::default())
+            .await
+    }
+
+    pub(crate) async fn list_agent_tasks_filtered(
+        &self,
+        query: &AgentTaskListQuery,
+    ) -> Result<Vec<AgentTask>> {
+        let query = query.clone();
         self.read_conn.call(move |conn| {
-        let mut dependency_stmt = conn.prepare(
-            "SELECT task_id, depends_on_task_id FROM agent_task_dependencies WHERE deleted_at IS NULL ORDER BY ordinal ASC",
-        )?;
-        let dependency_rows = dependency_stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?;
-        let mut dependency_map = std::collections::HashMap::<String, Vec<String>>::new();
-        for row in dependency_rows {
-            let (task_id, dependency) = row?;
-            dependency_map.entry(task_id).or_default().push(dependency);
+        let mut task_sql = "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json \
+             FROM agent_tasks WHERE deleted_at IS NULL".to_string();
+        let mut task_values = Vec::<rusqlite::types::Value>::new();
+        if let Some(id) = query.id.as_deref().filter(|value| !value.is_empty()) {
+            task_sql.push_str(" AND id = ?");
+            task_values.push(rusqlite::types::Value::Text(id.to_string()));
         }
-
-        let mut log_stmt = conn.prepare(
-            "SELECT id, task_id, timestamp, level, phase, message, details, attempt FROM agent_task_logs WHERE deleted_at IS NULL ORDER BY timestamp ASC",
-        )?;
-        let log_rows = log_stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(1)?,
-                AgentTaskLogEntry {
-                    id: row.get(0)?,
-                    timestamp: row.get::<_, i64>(2)? as u64,
-                    level: parse_task_log_level(&row.get::<_, String>(3)?),
-                    phase: row.get(4)?,
-                    message: row.get(5)?,
-                    details: row.get(6)?,
-                    attempt: row.get::<_, i64>(7)? as u32,
-                },
-            ))
-        })?;
-        let mut log_map = std::collections::HashMap::<String, Vec<AgentTaskLogEntry>>::new();
-        for row in log_rows {
-            let (task_id, log) = row?;
-            log_map.entry(task_id).or_default().push(log);
+        if let Some(status) = query.status.as_deref().filter(|value| !value.is_empty()) {
+            task_sql.push_str(" AND status = ?");
+            task_values.push(rusqlite::types::Value::Text(status.to_string()));
         }
-
-        let mut stmt = conn.prepare(
-            "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json \
-             FROM agent_tasks WHERE deleted_at IS NULL \
-             ORDER BY CASE status \
+        let statuses = query
+            .statuses
+            .iter()
+            .map(|status| status.trim())
+            .filter(|status| !status.is_empty())
+            .collect::<Vec<_>>();
+        if !statuses.is_empty() {
+            let placeholders = std::iter::repeat("?")
+                .take(statuses.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            task_sql.push_str(&format!(" AND status IN ({placeholders})"));
+            for status in statuses {
+                task_values.push(rusqlite::types::Value::Text(status.to_string()));
+            }
+        }
+        if let Some(source) = query.source.as_deref().filter(|value| !value.is_empty()) {
+            task_sql.push_str(" AND source = ?");
+            task_values.push(rusqlite::types::Value::Text(source.to_string()));
+        }
+        if let Some(thread_id) = query.thread_id.as_deref().filter(|value| !value.is_empty()) {
+            task_sql.push_str(" AND thread_id = ?");
+            task_values.push(rusqlite::types::Value::Text(thread_id.to_string()));
+        }
+        if let Some(goal_run_id) = query
+            .goal_run_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            task_sql.push_str(" AND goal_run_id = ?");
+            task_values.push(rusqlite::types::Value::Text(goal_run_id.to_string()));
+        }
+        if let Some(parent_task_id) = query
+            .parent_task_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            task_sql.push_str(" AND parent_task_id = ?");
+            task_values.push(rusqlite::types::Value::Text(parent_task_id.to_string()));
+        }
+        if query.exclude_terminal_statuses {
+            task_sql.push_str(
+                " AND status NOT IN ('completed', 'budget_exceeded', 'failed', 'cancelled')",
+            );
+        }
+        if query.order_by_recent_activity_desc {
+            task_sql.push_str(
+                " ORDER BY COALESCE(completed_at, started_at, created_at) DESC, created_at DESC",
+            );
+        } else {
+            task_sql.push_str(
+                " ORDER BY CASE status \
                  WHEN 'in_progress' THEN 0 \
                  WHEN 'awaiting_approval' THEN 1 \
                  WHEN 'failed_analyzing' THEN 2 \
@@ -355,8 +440,15 @@ impl HistoryStore {
                  WHEN 'normal' THEN 2 \
                  ELSE 3 END, \
                  created_at DESC",
-        )?;
-        let rows = stmt.query_map([], |row| {
+            );
+        }
+        if let Some(limit) = query.limit {
+            task_sql.push_str(" LIMIT ?");
+            task_values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+        }
+
+        let mut stmt = conn.prepare(&task_sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(task_values.iter()), |row| {
             let task_id: String = row.get(0)?;
             let notify_channels_json: String = row.get(14)?;
             Ok(AgentTask {
@@ -420,12 +512,99 @@ impl HistoryStore {
 
         let mut tasks = Vec::new();
         for row in rows {
-            let mut task = row?;
+            tasks.push(row?);
+        }
+        if tasks.is_empty() {
+            return Ok(tasks);
+        }
+
+        let task_ids = tasks
+            .iter()
+            .map(|task| task.id.clone())
+            .collect::<Vec<_>>();
+        let id_placeholders = std::iter::repeat("?")
+            .take(task_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let id_values = task_ids
+            .iter()
+            .cloned()
+            .map(rusqlite::types::Value::Text)
+            .collect::<Vec<_>>();
+
+        let mut dependency_stmt = conn.prepare(&format!(
+            "SELECT task_id, depends_on_task_id \
+             FROM agent_task_dependencies \
+             WHERE deleted_at IS NULL AND task_id IN ({id_placeholders}) \
+             ORDER BY task_id ASC, ordinal ASC"
+        ))?;
+        let dependency_rows = dependency_stmt.query_map(
+            rusqlite::params_from_iter(id_values.iter()),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )?;
+        let mut dependency_map = std::collections::HashMap::<String, Vec<String>>::new();
+        for row in dependency_rows {
+            let (task_id, dependency) = row?;
+            dependency_map.entry(task_id).or_default().push(dependency);
+        }
+
+        let mut log_stmt = conn.prepare(&format!(
+            "SELECT id, task_id, timestamp, level, phase, message, details, attempt \
+             FROM agent_task_logs \
+             WHERE deleted_at IS NULL AND task_id IN ({id_placeholders}) \
+             ORDER BY task_id ASC, timestamp ASC"
+        ))?;
+        let log_rows = log_stmt.query_map(rusqlite::params_from_iter(id_values.iter()), |row| {
+            Ok((
+                row.get::<_, String>(1)?,
+                AgentTaskLogEntry {
+                    id: row.get(0)?,
+                    timestamp: row.get::<_, i64>(2)? as u64,
+                    level: parse_task_log_level(&row.get::<_, String>(3)?),
+                    phase: row.get(4)?,
+                    message: row.get(5)?,
+                    details: row.get(6)?,
+                    attempt: row.get::<_, i64>(7)? as u32,
+                },
+            ))
+        })?;
+        let mut log_map = std::collections::HashMap::<String, Vec<AgentTaskLogEntry>>::new();
+        for row in log_rows {
+            let (task_id, log) = row?;
+            log_map.entry(task_id).or_default().push(log);
+        }
+
+        for task in &mut tasks {
             task.dependencies = dependency_map.remove(&task.id).unwrap_or_default();
             task.logs = log_map.remove(&task.id).unwrap_or_default();
-            tasks.push(task);
         }
         Ok(tasks)
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn latest_agent_task_session_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<String>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT session_id
+                     FROM agent_tasks
+                     WHERE deleted_at IS NULL
+                       AND thread_id = ?1
+                       AND session_id IS NOT NULL
+                       AND TRIM(session_id) <> ''
+                     ORDER BY created_at DESC, id DESC
+                     LIMIT 1",
+                    params![thread_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 }

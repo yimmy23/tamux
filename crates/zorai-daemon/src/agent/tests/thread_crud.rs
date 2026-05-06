@@ -181,6 +181,75 @@ async fn delete_thread_cancels_active_stream() {
 }
 
 #[tokio::test]
+async fn delete_thread_skips_session_abandon_when_existing_signal_is_older_than_recent_window() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-delete-existing-abandon";
+    let now = now_millis();
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Existing abandon",
+            false,
+            now.saturating_sub(20_000),
+            now.saturating_sub(1_000),
+            vec![assistant_message(
+                "Waiting for operator response",
+                now.saturating_sub(1_000),
+            )],
+        ),
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    engine
+        .history
+        .insert_implicit_signal(&crate::history::ImplicitSignalRow {
+            id: "old-session-abandon".to_string(),
+            session_id: thread_id.to_string(),
+            signal_type: "session_abandon".to_string(),
+            weight: -0.2,
+            timestamp_ms: now.saturating_sub(20_000),
+            context_snapshot_json: None,
+        })
+        .await
+        .expect("insert existing abandon signal");
+    for index in 0..10u64 {
+        engine
+            .history
+            .insert_implicit_signal(&crate::history::ImplicitSignalRow {
+                id: format!("newer-non-abandon-{index}"),
+                session_id: thread_id.to_string(),
+                signal_type: "tool_fallback".to_string(),
+                weight: -0.01,
+                timestamp_ms: now.saturating_sub(10_000).saturating_add(index),
+                context_snapshot_json: None,
+            })
+            .await
+            .expect("insert newer non-abandon signal");
+    }
+
+    assert!(engine.delete_thread(thread_id).await);
+
+    let signals = engine
+        .history
+        .list_implicit_signals(thread_id, 20)
+        .await
+        .expect("list implicit signals");
+    let abandon_count = signals
+        .iter()
+        .filter(|signal| signal.signal_type == "session_abandon")
+        .count();
+    assert_eq!(
+        abandon_count, 1,
+        "delete should use an exact SQL existence check instead of scanning only recent rows"
+    );
+}
+
+#[tokio::test]
 async fn list_threads_filters_visible_threads_by_default() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -683,6 +752,85 @@ async fn list_threads_orders_same_updated_at_deterministically() {
 }
 
 #[tokio::test]
+async fn list_threads_filtered_reads_persisted_summaries_without_hydration() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut threads = engine.threads.write().await;
+    threads.insert(
+        "old-main".to_string(),
+        make_thread(
+            "old-main",
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Alpha archive",
+            false,
+            1,
+            10,
+            vec![AgentMessage::user("old", 1)],
+        ),
+    );
+    threads.insert(
+        "new-main-pinned".to_string(),
+        make_thread(
+            "new-main-pinned",
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Alpha current",
+            true,
+            2,
+            30,
+            vec![AgentMessage::user("new", 2)],
+        ),
+    );
+    threads.insert(
+        "other-agent".to_string(),
+        make_thread(
+            "other-agent",
+            Some("Dola"),
+            "Alpha delegated",
+            true,
+            3,
+            20,
+            vec![AgentMessage::user("delegated", 3)],
+        ),
+    );
+    drop(threads);
+
+    engine.persist_thread_by_id("old-main").await;
+    engine.persist_thread_by_id("new-main-pinned").await;
+    engine.persist_thread_by_id("other-agent").await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(root.path()).await,
+        AgentConfig::default(),
+        root.path(),
+    )
+    .await;
+
+    let listed = rehydrated
+        .list_threads_filtered(&ThreadListFilter {
+            created_after: Some(2),
+            updated_before: Some(30),
+            agent_name: Some("main-agent".to_string()),
+            title_query: Some("current".to_string()),
+            pinned: Some(true),
+            limit: Some(1),
+            ..ThreadListFilter::default()
+        })
+        .await;
+
+    assert_eq!(list_ids(&listed), vec!["new-main-pinned"]);
+    assert!(
+        listed[0].messages.is_empty(),
+        "persisted SQL list should return summaries without message bodies"
+    );
+    assert!(
+        rehydrated.threads.read().await.is_empty(),
+        "listing persisted summaries should not hydrate the engine thread map"
+    );
+}
+
+#[tokio::test]
 async fn get_thread_filtered_truncates_to_last_n_messages() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -1008,8 +1156,155 @@ async fn continuing_paged_persisted_thread_keeps_hydration_pending_until_loaded(
         .expect("continued thread should remain in memory");
     assert_eq!(thread.messages.len(), 12);
     assert_eq!(
-        thread.messages.last().map(|message| message.content.as_str()),
+        thread
+            .messages
+            .last()
+            .map(|message| message.content.as_str()),
         Some("message-11")
+    );
+}
+
+#[tokio::test]
+async fn get_or_create_persisted_thread_restores_shell_without_loading_messages() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-restore-shell-only";
+    let messages = (0..24)
+        .map(|index| AgentMessage::user(format!("message-{index}"), index))
+        .collect::<Vec<_>>();
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Restore shell only",
+            false,
+            1,
+            24,
+            messages,
+        ),
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(root.path()).await,
+        AgentConfig::default(),
+        root.path(),
+    )
+    .await;
+
+    let (restored_thread_id, created) = rehydrated
+        .get_or_create_thread(Some(thread_id), "follow up")
+        .await;
+    assert_eq!(restored_thread_id, thread_id);
+    assert!(!created);
+
+    let in_memory = rehydrated.threads.read().await;
+    let thread = in_memory
+        .get(thread_id)
+        .expect("thread shell should be restored");
+    assert!(
+        thread.messages.is_empty(),
+        "restoring a persisted thread shell must not load every persisted message"
+    );
+    drop(in_memory);
+    assert!(
+        rehydrated
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id),
+        "restored thread shell should keep full message hydration pending"
+    );
+}
+
+#[tokio::test]
+async fn get_thread_filtered_reloads_soft_deleted_persisted_messages_after_hydration() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-authoritative-refresh";
+    let messages = (0..6)
+        .map(|index| {
+            if index % 2 == 0 {
+                AgentMessage::user(format!("message-{index}"), index)
+            } else {
+                assistant_message(format!("message-{index}"), index)
+            }
+        })
+        .collect::<Vec<_>>();
+    let deleted_message_id = messages[2].id.clone();
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Authoritative refresh",
+            false,
+            1,
+            6,
+            messages,
+        ),
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(root.path()).await,
+        AgentConfig::default(),
+        root.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    let initial_detail = rehydrated
+        .get_thread_filtered(thread_id, false, None, 0)
+        .await
+        .expect("initial detail should load");
+    assert_eq!(initial_detail.thread.messages.len(), 6);
+    assert!(
+        initial_detail
+            .thread
+            .messages
+            .iter()
+            .any(|message| message.id == deleted_message_id),
+        "sanity check: persisted message should exist before soft delete"
+    );
+
+    let deleted = rehydrated
+        .history
+        .delete_messages(thread_id, &[deleted_message_id.as_str()])
+        .await
+        .expect("soft delete persisted message");
+    assert_eq!(deleted, 1);
+
+    let refreshed_detail = rehydrated
+        .get_thread_filtered(thread_id, false, None, 0)
+        .await
+        .expect("refreshed detail should load");
+    assert_eq!(refreshed_detail.thread.messages.len(), 5);
+    assert!(
+        refreshed_detail
+            .thread
+            .messages
+            .iter()
+            .all(|message| message.id != deleted_message_id),
+        "authoritative refresh should exclude soft-deleted persisted rows"
+    );
+
+    let threads = rehydrated.threads.read().await;
+    let cached = threads
+        .get(thread_id)
+        .expect("thread should remain cached after refresh");
+    assert_eq!(cached.messages.len(), 5);
+    assert!(
+        cached
+            .messages
+            .iter()
+            .all(|message| message.id != deleted_message_id),
+        "authoritative refresh should also repair in-memory thread messages"
     );
 }
 
@@ -1062,6 +1357,79 @@ async fn get_thread_capped_for_ipc_truncates_oversized_thread_detail_payload() {
     assert!(
         frame.len().saturating_sub(4) <= MAX_FRAME_SIZE_BYTES,
         "capped thread detail should stay below the IPC frame cap"
+    );
+}
+
+#[tokio::test]
+async fn get_thread_capped_for_ipc_keeps_persisted_lazy_thread_unhydrated() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-lazy-capped-ipc";
+    let huge_message = "x".repeat(MAX_FRAME_SIZE_BYTES + 1024);
+    let mut messages = (0..198)
+        .map(|index| AgentMessage::user(format!("message-{index}"), index))
+        .collect::<Vec<_>>();
+    messages.push(AgentMessage::user(huge_message, 199));
+    messages.push(assistant_message("recent tail", 200));
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Lazy capped IPC",
+            false,
+            1,
+            200,
+            messages,
+        ),
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    let rehydrated = AgentEngine::new_test(
+        SessionManager::new_test(root.path()).await,
+        AgentConfig::default(),
+        root.path(),
+    )
+    .await;
+    rehydrated.hydrate().await.expect("hydrate should succeed");
+
+    let detail = rehydrated
+        .get_thread_capped_for_ipc(thread_id, false)
+        .await
+        .expect("visible lazy thread should load");
+
+    assert_eq!(detail.total_message_count, 200);
+    assert!(
+        detail.loaded_message_start >= 136,
+        "capped lazy IPC should read only a bounded tail window"
+    );
+    assert!(detail.messages_truncated);
+    assert_eq!(
+        detail
+            .thread
+            .messages
+            .last()
+            .map(|message| message.content.as_str()),
+        Some("recent tail")
+    );
+    let in_memory = rehydrated.threads.read().await;
+    let thread = in_memory
+        .get(thread_id)
+        .expect("thread summary should remain in memory");
+    assert!(
+        thread.messages.is_empty(),
+        "capped IPC detail must not hydrate every persisted message into memory"
+    );
+    drop(in_memory);
+    assert!(
+        rehydrated
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id),
+        "capped IPC detail should leave full message hydration pending"
     );
 }
 

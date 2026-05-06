@@ -1,3 +1,5 @@
+use super::default_command_items::default_command_items;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModalKind {
     CommandPalette,

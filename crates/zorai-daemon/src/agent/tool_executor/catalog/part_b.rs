@@ -19,11 +19,13 @@ fn add_available_tools_part_b(
     ));
     tools.push(tool_def(
         tool_names::FETCH_GATEWAY_HISTORY,
-        "Fetch recent messages from the current gateway conversation thread. Use this when handling platform messages and you need additional prior context.",
+        "Fetch a paged recent-message window from the current gateway conversation thread. Returns total_message_count, loaded_message_start/end, limit, offset, and has_more flags.",
         serde_json::json!({
             "type": "object",
             "properties": {
-                "count": { "type": "integer", "description": "Number of recent messages to fetch (default: 10, max: 100)" }
+                "limit": { "type": "integer", "description": "Number of messages to fetch (default: 10, max: 100)" },
+                "count": { "type": "integer", "description": "Deprecated alias for limit" },
+                "offset": { "type": "integer", "description": "Number of newest messages to skip before applying the limit (default: 0)" }
             }
         }),
     ));

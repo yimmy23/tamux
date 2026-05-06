@@ -45,11 +45,7 @@ impl AgentEngine {
         self.active_operator_sessions.write().await.clear();
         self.pending_operator_approvals.write().await.clear();
         self.operator_profile_sessions.write().await.clear();
-        for row in self.history.list_operator_profile_sessions().await? {
-            self.history
-                .delete_operator_profile_session(&row.session_id)
-                .await?;
-        }
+        self.history.delete_all_operator_profile_sessions().await?;
         if self.config.read().await.operator_model.enabled {
             persist_operator_model(&self.data_dir, &reset)?;
         } else {

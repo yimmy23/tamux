@@ -2,13 +2,33 @@ use super::*;
 
 impl HistoryStore {
     pub async fn list_external_runtime_profiles(&self) -> Result<Vec<ExternalRuntimeProfileRow>> {
+        self.list_external_runtime_profiles_filtered(None, None)
+            .await
+    }
+
+    pub async fn list_external_runtime_profiles_filtered(
+        &self,
+        runtime: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<ExternalRuntimeProfileRow>> {
+        let runtime = runtime.map(str::to_string);
         self.read_conn
             .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT runtime, profile_json, session_id, source_config_path, source_fingerprint, updated_at \
-                     FROM external_runtime_profiles ORDER BY updated_at DESC, runtime ASC",
-                )?;
-                let rows = stmt.query_map([], |row| {
+                let mut sql = "SELECT runtime, profile_json, session_id, source_config_path, source_fingerprint, updated_at \
+                     FROM external_runtime_profiles".to_string();
+                let mut values = Vec::<rusqlite::types::Value>::new();
+                if let Some(runtime) = runtime.as_deref() {
+                    sql.push_str(" WHERE runtime = ? COLLATE NOCASE");
+                    values.push(rusqlite::types::Value::Text(runtime.to_string()));
+                }
+                sql.push_str(" ORDER BY updated_at DESC, runtime ASC");
+                if let Some(limit) = limit {
+                    sql.push_str(" LIMIT ?");
+                    values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
                     Ok(ExternalRuntimeProfileRow {
                         runtime: row.get(0)?,
                         profile_json: row.get(1)?,
@@ -18,7 +38,8 @@ impl HistoryStore {
                         updated_at: row.get::<_, i64>(5)? as u64,
                     })
                 })?;
-                Ok(rows.filter_map(|row| row.ok()).collect())
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
@@ -256,11 +277,26 @@ impl HistoryStore {
         let session_id = session_id.map(str::to_string);
         self.read_conn
             .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT asset_id, session_id, runtime, asset_kind, bucket, severity, recommended_action, source_path, source_fingerprint, conflict_policy, asset_json, created_at_ms, updated_at \
-                     FROM imported_runtime_assets ORDER BY updated_at DESC, asset_kind ASC",
-                )?;
-                let rows = stmt.query_map([], |row| {
+                let mut sql = "SELECT asset_id, session_id, runtime, asset_kind, bucket, severity, recommended_action, source_path, source_fingerprint, conflict_policy, asset_json, created_at_ms, updated_at \
+                     FROM imported_runtime_assets".to_string();
+                let mut conditions = Vec::new();
+                let mut values = Vec::<rusqlite::types::Value>::new();
+                if let Some(runtime) = runtime.as_deref() {
+                    conditions.push("runtime = ? COLLATE NOCASE");
+                    values.push(rusqlite::types::Value::Text(runtime.to_string()));
+                }
+                if let Some(session_id) = session_id.as_deref() {
+                    conditions.push("session_id = ?");
+                    values.push(rusqlite::types::Value::Text(session_id.to_string()));
+                }
+                if !conditions.is_empty() {
+                    sql.push_str(" WHERE ");
+                    sql.push_str(&conditions.join(" AND "));
+                }
+                sql.push_str(" ORDER BY updated_at DESC, asset_kind ASC");
+
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
                     Ok(ImportedRuntimeAssetRow {
                         asset_id: row.get(0)?,
                         session_id: row.get(1)?,
@@ -277,24 +313,8 @@ impl HistoryStore {
                         updated_at: row.get::<_, i64>(12)? as u64,
                     })
                 })?;
-                let mut items = Vec::new();
-                for row in rows {
-                    let row = row?;
-                    if runtime
-                        .as_deref()
-                        .is_some_and(|value| !row.runtime.eq_ignore_ascii_case(value))
-                    {
-                        continue;
-                    }
-                    if session_id
-                        .as_deref()
-                        .is_some_and(|value| row.session_id != value)
-                    {
-                        continue;
-                    }
-                    items.push(row);
-                }
-                Ok(items)
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
@@ -350,11 +370,26 @@ impl HistoryStore {
         let session_id = session_id.map(str::to_string);
         self.read_conn
             .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT run_id, runtime, session_id, workflow, readiness_score, blocker_count, summary, payload_json, created_at_ms, updated_at \
-                     FROM external_runtime_shadow_runs ORDER BY created_at_ms DESC, run_id DESC",
-                )?;
-                let rows = stmt.query_map([], |row| {
+                let mut sql = "SELECT run_id, runtime, session_id, workflow, readiness_score, blocker_count, summary, payload_json, created_at_ms, updated_at \
+                     FROM external_runtime_shadow_runs".to_string();
+                let mut conditions = Vec::new();
+                let mut values = Vec::<rusqlite::types::Value>::new();
+                if let Some(runtime) = runtime.as_deref() {
+                    conditions.push("runtime = ? COLLATE NOCASE");
+                    values.push(rusqlite::types::Value::Text(runtime.to_string()));
+                }
+                if let Some(session_id) = session_id.as_deref() {
+                    conditions.push("session_id = ?");
+                    values.push(rusqlite::types::Value::Text(session_id.to_string()));
+                }
+                if !conditions.is_empty() {
+                    sql.push_str(" WHERE ");
+                    sql.push_str(&conditions.join(" AND "));
+                }
+                sql.push_str(" ORDER BY created_at_ms DESC, run_id DESC");
+
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
                     Ok(ExternalRuntimeShadowRunRow {
                         run_id: row.get(0)?,
                         runtime: row.get(1)?,
@@ -368,24 +403,8 @@ impl HistoryStore {
                         updated_at: row.get::<_, i64>(9)? as u64,
                     })
                 })?;
-                let mut items = Vec::new();
-                for row in rows {
-                    let row = row?;
-                    if runtime
-                        .as_deref()
-                        .is_some_and(|value| !row.runtime.eq_ignore_ascii_case(value))
-                    {
-                        continue;
-                    }
-                    if session_id
-                        .as_deref()
-                        .is_some_and(|value| row.session_id != value)
-                    {
-                        continue;
-                    }
-                    items.push(row);
-                }
-                Ok(items)
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))

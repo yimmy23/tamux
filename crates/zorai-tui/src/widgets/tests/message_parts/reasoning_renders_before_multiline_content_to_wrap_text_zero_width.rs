@@ -224,6 +224,61 @@ fn batched_background_operations_message_collapses_by_default_and_expands() {
 }
 
 #[test]
+fn compaction_artifact_collapses_by_default_and_expands() {
+    let msg = AgentMessage {
+        role: MessageRole::Assistant,
+        content:
+            "Pre-compaction context: ~182,400 / 200,000 tokens (threshold 160,000)\nTrigger: token-threshold\nStrategy: custom model generated"
+                .into(),
+        compaction_payload: Some("# Compact summary\n- preserved goals".into()),
+        message_kind: "compaction_artifact".into(),
+        ..Default::default()
+    };
+
+    let collapsed = message_to_lines(
+        &msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &empty_expanded(),
+        &empty_tools(),
+    );
+    let collapsed_plain = plain_lines(&collapsed).join("\n");
+
+    assert!(
+        collapsed_plain.contains("Auto compaction"),
+        "collapsed compaction artifact should show a disclosure header: {collapsed_plain}"
+    );
+    assert!(
+        !collapsed_plain.contains("Pre-compaction context")
+            && !collapsed_plain.contains("Compact summary")
+            && !collapsed_plain.contains("preserved goals"),
+        "collapsed compaction artifact should hide details: {collapsed_plain}"
+    );
+
+    let mut expanded = empty_expanded();
+    expanded.insert(0);
+    let expanded_lines = message_to_lines(
+        &msg,
+        0,
+        TranscriptMode::Compact,
+        &ThemeTokens::default(),
+        80,
+        &expanded,
+        &empty_tools(),
+    );
+    let expanded_plain = plain_lines(&expanded_lines).join("\n");
+
+    assert!(
+        expanded_plain.contains("Pre-compaction context")
+            && expanded_plain.contains("Compact summary")
+            && expanded_plain.contains("preserved goals"),
+        "expanded compaction artifact should show header and payload details: {expanded_plain}"
+    );
+}
+
+#[test]
 fn tools_mode_skips_non_tool_messages() {
     let msg = AgentMessage {
         role: MessageRole::User,

@@ -84,9 +84,12 @@ async fn recall_from_threads(
     session_manager: &SessionManager,
     tokens: &[String],
 ) -> Result<Vec<RecallGroup>> {
-    let mut threads = session_manager.list_agent_threads().await?;
-    threads.sort_by_key(|thread| Reverse(thread.updated_at));
-    threads.truncate(MAX_THREAD_SCAN);
+    let threads = session_manager
+        .list_agent_threads_filtered(&crate::history::AgentThreadListQuery {
+            limit: Some(MAX_THREAD_SCAN),
+            ..crate::history::AgentThreadListQuery::default()
+        })
+        .await?;
 
     let mut groups = Vec::new();
     for thread in threads {
@@ -134,9 +137,11 @@ async fn recall_from_transcripts(
     session_manager: &SessionManager,
     tokens: &[String],
 ) -> Result<Vec<RecallGroup>> {
-    let entries = session_manager.list_transcript_index(None).await?;
+    let entries = session_manager
+        .list_transcript_index_limited(None, Some(MAX_THREAD_SCAN))
+        .await?;
     let mut groups = Vec::new();
-    for entry in entries.into_iter().take(MAX_THREAD_SCAN) {
+    for entry in entries {
         let mut combined = entry.preview.clone().unwrap_or_default();
         let transcript_path = PathBuf::from(&entry.filename);
         if transcript_path.exists() {

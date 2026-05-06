@@ -328,10 +328,10 @@ impl AgentEngine {
             return 0;
         }
 
-        // List pending candidates
-        let candidates = match self
+        // Load the oldest pending candidate.
+        let pending = match self
             .history
-            .list_consolidation_state_by_prefix("skill_draft_candidate:")
+            .first_consolidation_state_by_prefix_value("skill_draft_candidate:", "pending")
             .await
         {
             Ok(c) => c,
@@ -341,31 +341,28 @@ impl AgentEngine {
             }
         };
 
-        let pending: Vec<_> = candidates.iter().filter(|(_, v)| v == "pending").collect();
-
-        if pending.is_empty() {
-            return 0;
-        }
-
         // Process at most ONE candidate per tick
-        let (key, _) = &pending[0];
-        let trace_id = key.strip_prefix("skill_draft_candidate:").unwrap_or(key);
+        let Some((key, _)) = pending else {
+            return 0;
+        };
+        let trace_id = key.strip_prefix("skill_draft_candidate:").unwrap_or(&key);
 
         // Extract tool sequence from the trace (look it up again)
-        let traces = match self.history.list_recent_successful_traces(0, 500).await {
-            Ok(t) => t,
-            Err(_) => return 0,
-        };
-        let trace = match traces.iter().find(|t| t.id == trace_id) {
-            Some(t) => t,
-            None => {
+        let trace = match self
+            .history
+            .get_successful_execution_trace_by_id(trace_id)
+            .await
+        {
+            Ok(Some(trace)) => trace,
+            Ok(None) => {
                 // Trace no longer available -- mark as skipped
                 let _ = self
                     .history
-                    .set_consolidation_state(key, "skipped", super::now_millis())
+                    .set_consolidation_state(&key, "skipped", super::now_millis())
                     .await;
                 return 0;
             }
+            Err(_) => return 0,
         };
 
         let tool_sequence = extract_tool_sequence_from_json(trace.tool_sequence_json.as_deref());
@@ -450,7 +447,7 @@ impl AgentEngine {
         let now = super::now_millis();
         let _ = self
             .history
-            .set_consolidation_state(key, "drafted", now)
+            .set_consolidation_state(&key, "drafted", now)
             .await;
 
         // Record provenance for skill drafting (D-07)

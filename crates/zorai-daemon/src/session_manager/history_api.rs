@@ -59,6 +59,13 @@ impl SessionManager {
         self.history.list_threads().await
     }
 
+    pub(crate) async fn list_agent_threads_filtered(
+        &self,
+        query: &crate::history::AgentThreadListQuery,
+    ) -> Result<Vec<AgentDbThread>> {
+        self.history.list_threads_filtered(query).await
+    }
+
     pub async fn get_agent_thread(&self, thread_id: &str) -> Result<Option<AgentDbThread>> {
         self.history.get_thread(thread_id).await
     }
@@ -94,6 +101,16 @@ impl SessionManager {
         workspace_id: Option<&str>,
     ) -> Result<Vec<TranscriptIndexEntry>> {
         self.history.list_transcript_index(workspace_id).await
+    }
+
+    pub(crate) async fn list_transcript_index_limited(
+        &self,
+        workspace_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<TranscriptIndexEntry>> {
+        self.history
+            .list_transcript_index_limited(workspace_id, limit)
+            .await
     }
 
     pub async fn upsert_snapshot_index(&self, entry: &SnapshotIndexEntry) -> Result<()> {

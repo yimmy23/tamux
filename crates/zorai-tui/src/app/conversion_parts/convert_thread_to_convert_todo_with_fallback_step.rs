@@ -7,24 +7,14 @@ thread_local! {
 }
 
 pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
-    let derived_total_message_count = t.total_message_count.max(t.messages.len());
-    let derived_loaded_message_end = if t.loaded_message_end == 0 && !t.messages.is_empty() {
-        derived_total_message_count
-    } else {
-        t.loaded_message_end.max(t.messages.len())
-    };
-    let derived_loaded_message_start = if derived_loaded_message_end >= t.messages.len() {
-        let inferred_start = derived_loaded_message_end.saturating_sub(t.messages.len());
-        if t.loaded_message_start == 0 && inferred_start > 0 {
-            inferred_start
-        } else {
-            t.loaded_message_start.min(inferred_start)
-        }
-    } else {
-        0
-    };
+    let window = chat::chat_window::MessageWindow::from_parts(
+        t.total_message_count,
+        t.loaded_message_start,
+        t.loaded_message_end,
+        t.messages.len(),
+    );
     let messages: Vec<_> = t.messages.into_iter().map(convert_message).collect();
-    let latest_turn_context_tokens = if derived_loaded_message_end >= derived_total_message_count {
+    let latest_turn_context_tokens = if window.end >= window.total {
         messages.iter().rev().find_map(|message| {
             let tokens = message.input_tokens.saturating_add(message.output_tokens);
             (tokens > 0).then_some(tokens)
@@ -43,9 +33,9 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
         created_at: t.created_at,
         updated_at: t.updated_at,
         messages,
-        total_message_count: derived_total_message_count,
-        loaded_message_start: derived_loaded_message_start,
-        loaded_message_end: derived_loaded_message_end,
+        total_message_count: window.total,
+        loaded_message_start: window.start,
+        loaded_message_end: window.end,
         active_compaction_window_start: None,
         active_context_window_start: t.active_context_window_start,
         active_context_window_end: t.active_context_window_end,
@@ -491,4 +481,3 @@ pub(super) fn convert_todo_with_fallback_step(
         updated_at: t.updated_at,
     }
 }
-

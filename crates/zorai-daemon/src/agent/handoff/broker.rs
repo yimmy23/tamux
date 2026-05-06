@@ -38,6 +38,35 @@ fn validate_match_threshold(threshold: f64) -> Result<()> {
 }
 
 impl AgentEngine {
+    async fn task_by_id_for_handoff_context(
+        &self,
+        task_id: &str,
+    ) -> Option<crate::agent::types::AgentTask> {
+        match self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                goal_run_id: None,
+                parent_task_id: None,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+        {
+            Some(task) => Some(task),
+            None => {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find(|task| task.id == task_id).cloned()
+            }
+        }
+    }
+
     async fn route_goal_local_handoff(
         &self,
         task_description: &str,
@@ -301,8 +330,7 @@ impl AgentEngine {
 
         // 1. Pull partial outputs from parent task if available
         if let Some(ptid) = parent_task_id {
-            let tasks = self.tasks.lock().await;
-            if let Some(parent) = tasks.iter().find(|t| t.id == ptid) {
+            if let Some(parent) = self.task_by_id_for_handoff_context(ptid).await {
                 if let Some(ref result) = parent.result {
                     bundle.partial_outputs.push(super::PartialOutput {
                         step_index: 0,
@@ -1285,5 +1313,158 @@ mod tests {
             .await
             .expect("cached resonance snapshot should exist");
         assert!(cached.hit_count >= 1);
+    }
+
+    #[tokio::test]
+    async fn assemble_context_bundle_includes_persisted_parent_result_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine.threads.write().await.insert(
+            "thread-handoff-parent-result".to_string(),
+            AgentThread {
+                id: "thread-handoff-parent-result".to_string(),
+                agent_name: Some("Svarog".to_string()),
+                title: "handoff parent result".to_string(),
+                messages: vec![AgentMessage::user("reuse parent result", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+
+        let mut parent = engine
+            .enqueue_task(
+                "Parent".to_string(),
+                "Coordinate child work".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "user",
+                None,
+                None,
+                Some("thread-handoff-parent-result".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        parent.status = TaskStatus::Completed;
+        parent.result = Some("parent completed result".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            if let Some(existing) = tasks.iter_mut().find(|task| task.id == parent.id) {
+                *existing = parent.clone();
+            }
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        let bundle = engine
+            .assemble_context_bundle(
+                "build on parent result",
+                Some(parent.id.as_str()),
+                None,
+                "thread-handoff-parent-result",
+                "non_empty",
+                1,
+            )
+            .await
+            .expect("bundle should assemble");
+
+        assert!(bundle.partial_outputs.iter().any(|output| {
+            output.content == "parent completed result" && output.status == "Completed"
+        }));
+    }
+
+    #[tokio::test]
+    async fn resonance_snapshot_uses_persisted_task_parent_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let parent = engine
+            .enqueue_task(
+                "Parent".to_string(),
+                "Coordinate child work".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "user",
+                None,
+                None,
+                Some("thread-resonance-persisted-parent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        let child = engine
+            .enqueue_task(
+                "Child".to_string(),
+                "Use collaboration context".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                Some(parent.id.clone()),
+                Some("thread-resonance-persisted-parent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+
+        engine.collaboration.write().await.insert(
+            parent.id.clone(),
+            crate::agent::collaboration::CollaborationSession {
+                id: "collab-persisted-parent".to_string(),
+                parent_task_id: parent.id.clone(),
+                thread_id: Some("thread-resonance-persisted-parent".to_string()),
+                goal_run_id: None,
+                mission: "shared mission".to_string(),
+                agents: Vec::new(),
+                contributions: vec![crate::agent::collaboration::Contribution {
+                    id: "contrib-persisted-parent".to_string(),
+                    task_id: "peer-task".to_string(),
+                    topic: "debugging".to_string(),
+                    position: "reuse persisted parent context".to_string(),
+                    confidence: 0.8,
+                    evidence: vec!["peer evidence".to_string()],
+                    created_at: 1,
+                }],
+                disagreements: Vec::new(),
+                consensus: None,
+                bids: Vec::new(),
+                role_assignment: None,
+                call_metadata: None,
+                updated_at: 1,
+            },
+        );
+        engine.tasks.lock().await.clear();
+
+        let snapshot = engine
+            .build_resonance_context_snapshot(
+                "inspect persisted parent",
+                Some("thread-resonance-persisted-parent"),
+                Some(child.id.as_str()),
+                3,
+            )
+            .await;
+
+        assert_eq!(snapshot.collaboration_context.len(), 1);
+        assert_eq!(
+            snapshot.collaboration_context[0]["position"].as_str(),
+            Some("reuse persisted parent context")
+        );
     }
 }

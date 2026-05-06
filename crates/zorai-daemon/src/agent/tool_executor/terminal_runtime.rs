@@ -374,10 +374,7 @@ async fn resolve_shell_tool_client_surface(
 
     let task_id = task_id?;
     let (task_thread_ids, goal_run_id) = {
-        let tasks = agent.tasks.lock().await;
-        let task = tasks
-            .iter()
-            .find(|task| task.id == task_id)?;
+        let task = task_by_id_for_tool_scope(agent, task_id).await?;
         let mut thread_ids = Vec::new();
         if let Some(task_thread_id) = task.thread_id.as_deref() {
             thread_ids.push(task_thread_id.to_string());

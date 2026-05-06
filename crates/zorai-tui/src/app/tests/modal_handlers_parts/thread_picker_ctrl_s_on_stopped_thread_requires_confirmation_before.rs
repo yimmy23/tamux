@@ -302,6 +302,70 @@ fn goal_view_action_menu_can_pause_running_goal_without_step_selection() {
 }
 
 #[test]
+fn goal_view_action_menu_can_delete_terminal_goal_without_picker() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.focus = FocusArea::Chat;
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(make_goal_run(
+            "goal-1",
+            "Goal One",
+            task::GoalRunStatus::Completed,
+        )));
+    model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
+        goal_run_id: "goal-1".to_string(),
+        step_id: None,
+    });
+
+    assert!(model
+        .goal_action_picker_items()
+        .contains(&crate::app::commands::GoalActionPickerItem::DeleteGoal));
+
+    let handled = model.handle_key(KeyCode::Char('a'), KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::GoalStepActionPicker)
+    );
+    let delete_index = model
+        .goal_action_picker_items()
+        .iter()
+        .position(|item| *item == crate::app::commands::GoalActionPickerItem::DeleteGoal)
+        .expect("delete action should be present");
+    model
+        .modal
+        .reduce(modal::ModalAction::Navigate(delete_index as i32));
+
+    let handled = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::GoalStepActionPicker,
+    );
+    assert!(!handled);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ChatActionConfirm));
+    assert_eq!(
+        model
+            .pending_chat_action_confirm
+            .as_ref()
+            .map(PendingConfirmAction::modal_body)
+            .as_deref(),
+        Some("Delete goal run \"Goal One\"?")
+    );
+
+    let handled = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::ChatActionConfirm,
+    );
+    assert!(!handled);
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected delete-goal command"),
+        DaemonCommand::DeleteGoalRun { goal_run_id } if goal_run_id == "goal-1"
+    ));
+}
+
+#[test]
 fn goal_view_retry_uses_current_step_without_explicit_step_selection() {
     let (mut model, _daemon_rx) = make_model();
     model.focus = FocusArea::Chat;
@@ -480,4 +544,3 @@ fn goal_workspace_refresh_action_requests_authoritative_goal_refresh() {
         Ok(DaemonCommand::RefreshServices)
     ));
 }
-

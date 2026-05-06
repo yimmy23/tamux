@@ -64,9 +64,44 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
 
 #[cfg(test)]
 mod tests {
+    use super::render;
+    use crate::theme::ThemeTokens;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn render_to_lines(width: u16, height: u16) -> Vec<String> {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| render(frame, frame.area(), &ThemeTokens::default()))
+            .expect("splash render");
+        let buffer = terminal.backend().buffer();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
     #[test]
-    fn splash_module_exists() {
-        // Just ensure the module compiles
-        assert!(true);
+    fn splash_renders_brand_logo() {
+        let rows = render_to_lines(60, 20);
+        let body = rows.join("\n");
+        assert!(
+            body.contains("Z o r a i"),
+            "expected brand logo in splash output, got:\n{body}"
+        );
+    }
+
+    #[test]
+    fn splash_renders_command_palette_hint() {
+        let rows = render_to_lines(60, 20);
+        let body = rows.join("\n");
+        assert!(
+            body.contains("Ctrl+P"),
+            "expected Ctrl+P hint in splash output, got:\n{body}"
+        );
     }
 }

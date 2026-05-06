@@ -2396,11 +2396,100 @@ async fn start_goal_run_tool_creates_goal_and_list_goal_runs_returns_it() {
         "list_goal_runs should succeed: {}",
         list_result.content
     );
-    let goal_runs: Vec<crate::agent::GoalRun> =
-        serde_json::from_str(&list_result.content).expect("parse goal run list");
+    let goal_runs_page: serde_json::Value =
+        serde_json::from_str(&list_result.content).expect("parse goal run list page");
+    assert_eq!(goal_runs_page["offset"].as_u64(), Some(0));
+    assert_eq!(goal_runs_page["returned"].as_u64(), Some(1));
+    assert_eq!(goal_runs_page["total"].as_u64(), Some(1));
+    let goal_runs = goal_runs_page["items"]
+        .as_array()
+        .expect("goal run page should expose items");
     assert!(
-        goal_runs.iter().any(|goal_run| goal_run.id == goal_run_id),
+        goal_runs
+            .iter()
+            .any(|goal_run| goal_run.get("id").and_then(|value| value.as_str()) == Some(goal_run_id)),
         "list_goal_runs should include the started goal run"
+    );
+}
+
+#[tokio::test]
+async fn list_goal_runs_tool_returns_paged_result_with_total_count() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-list-goal-runs-page";
+
+    for index in 0..3 {
+        let call = ToolCall::with_default_weles_review(
+            format!("tool-start-goal-run-{index}"),
+            ToolFunction {
+                name: "start_goal_run".to_string(),
+                arguments: serde_json::json!({
+                    "goal": format!("Goal {index}"),
+                    "title": format!("Goal {index}")
+                })
+                .to_string(),
+            },
+        );
+        let result = execute_tool(
+            &call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+        assert!(
+            !result.is_error,
+            "start_goal_run should succeed: {}",
+            result.content
+        );
+    }
+
+    let list_call = ToolCall::with_default_weles_review(
+        "tool-list-goal-runs-paged".to_string(),
+        ToolFunction {
+            name: "list_goal_runs".to_string(),
+            arguments: serde_json::json!({ "limit": 1, "offset": 1 }).to_string(),
+        },
+    );
+    let result = execute_tool(
+        &list_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "list_goal_runs should succeed: {}",
+        result.content
+    );
+    let page: serde_json::Value =
+        serde_json::from_str(&result.content).expect("list_goal_runs should return page JSON");
+    assert_eq!(page["total"].as_u64(), Some(3));
+    assert_eq!(page["limit"].as_u64(), Some(1));
+    assert_eq!(page["offset"].as_u64(), Some(1));
+    assert_eq!(page["returned"].as_u64(), Some(1));
+    assert_eq!(page["has_more"].as_bool(), Some(true));
+    assert_eq!(page["next_offset"].as_u64(), Some(2));
+    assert_eq!(
+        page["items"].as_array().map(Vec::len),
+        Some(1),
+        "only the requested page should be returned"
     );
 }
 
@@ -2731,6 +2820,72 @@ async fn spawn_subagent_reserves_thread_id_immediately() {
         metadata["parent_thread_id"]
     );
     assert_eq!(metadata["identity"]["goal_run_id"], metadata["goal_run_id"]);
+}
+
+#[tokio::test]
+async fn spawn_subagent_inherits_goal_from_persisted_parent_task() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-persisted-parent-subagent";
+    let parent_task = engine
+        .enqueue_task(
+            "Persisted parent goal task".to_string(),
+            "Coordinate persisted child work".to_string(),
+            "normal",
+            None,
+            Some("session-parent".to_string()),
+            Vec::new(),
+            None,
+            "goal_run",
+            Some("goal-persisted-spawn-1".to_string()),
+            None,
+            Some(thread_id.to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let result = super::execute_spawn_subagent(
+        &serde_json::json!({
+            "title": "Persisted parent child",
+            "description": "Inherit goal metadata from a parent task that only exists in history."
+        }),
+        &engine,
+        thread_id,
+        Some(&parent_task.id),
+        &manager,
+        None,
+        &event_tx,
+    )
+    .await
+    .expect("spawn_subagent should resolve the persisted parent task");
+
+    assert!(result.contains("Spawned subagent"));
+    let spawned = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: Some("subagent".to_string()),
+            thread_id: None,
+            goal_run_id: None,
+            parent_task_id: Some(parent_task.id.clone()),
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
+        .expect("spawned subagent should be persisted with the parent task id");
+    assert_eq!(
+        spawned.goal_run_id.as_deref(),
+        Some("goal-persisted-spawn-1"),
+        "spawned subagent should inherit goal metadata from the persisted parent"
+    );
 }
 
 #[tokio::test]
@@ -3209,6 +3364,22 @@ async fn dispatch_via_bid_protocol_tool_bootstraps_collaboration_agents_before_r
             Some("daemon".to_string()),
         )
         .await;
+
+    engine.tasks.lock().await.clear();
+    let persisted_parent = engine
+        .history
+        .list_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(parent.id.clone()),
+            limit: Some(1),
+            ..Default::default()
+        })
+        .await
+        .expect("parent task query should succeed");
+    assert_eq!(
+        persisted_parent.len(),
+        1,
+        "fixture must persist the parent task before clearing live queue"
+    );
 
     let tool_call = ToolCall::with_default_weles_review(
         "tool-dispatch-via-bid-protocol-bootstrap".to_string(),
@@ -5321,6 +5492,103 @@ async fn list_subagents_from_child_task_uses_parent_scope_by_default() {
 }
 
 #[tokio::test]
+async fn list_subagents_from_child_task_uses_persisted_parent_scope() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Persisted parent coordinator".to_string(),
+            "Coordinate persisted child work".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    let mut child_a = engine
+        .enqueue_task(
+            "Persisted child A".to_string(),
+            "Inspect deployment risks".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let mut child_b = engine
+        .enqueue_task(
+            "Persisted child B".to_string(),
+            "Inspect auth risks".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    child_a.status = crate::agent::types::TaskStatus::InProgress;
+    child_b.status = crate::agent::types::TaskStatus::InProgress;
+    {
+        let mut tasks = engine.tasks.lock().await;
+        if let Some(existing) = tasks.iter_mut().find(|task| task.id == child_a.id) {
+            *existing = child_a.clone();
+        }
+        if let Some(existing) = tasks.iter_mut().find(|task| task.id == child_b.id) {
+            *existing = child_b.clone();
+        }
+    }
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let result = super::execute_list_subagents(
+        &serde_json::json!({ "status": "in_progress" }),
+        &engine,
+        "thread-parent",
+        Some(child_a.id.as_str()),
+    )
+    .await
+    .expect("list_subagents should succeed");
+
+    let payload: serde_json::Value = serde_json::from_str(&result).expect("valid JSON payload");
+    let items = payload
+        .as_array()
+        .expect("list_subagents should return an array");
+    let returned_ids = items
+        .iter()
+        .filter_map(|item| item.get("id").and_then(|value| value.as_str()))
+        .collect::<std::collections::HashSet<_>>();
+
+    assert!(
+        returned_ids.contains(child_a.id.as_str()),
+        "persisted child scope should include the current subagent via its parent tree"
+    );
+    assert!(
+        returned_ids.contains(child_b.id.as_str()),
+        "persisted child scope should include sibling subagents under the same parent task"
+    );
+}
+
+#[tokio::test]
 async fn handoff_thread_agent_push_updates_active_responder_and_writes_system_event() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
@@ -6202,6 +6470,48 @@ async fn get_todos_returns_thread_scoped_items_with_optional_task_id() {
 }
 
 #[tokio::test]
+async fn get_todos_resolves_persisted_task_context_by_id() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-get-todos-persisted-task";
+    let task = engine
+        .enqueue_task(
+            "Persisted todo context".to_string(),
+            "Resolve todo metadata from SQLite after the live queue is gone.".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "agent",
+            Some("goal-persisted-todos".to_string()),
+            None,
+            Some(thread_id.to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine.tasks.lock().await.clear();
+
+    let payload = execute_get_todos(
+        &serde_json::json!({
+            "thread_id": thread_id,
+            "task_id": task.id,
+        }),
+        &engine,
+        None,
+    )
+    .await
+    .expect("get_todos should resolve persisted task context");
+    let payload: serde_json::Value =
+        serde_json::from_str(&payload).expect("get_todos should return JSON");
+
+    assert_eq!(payload["thread_id"], thread_id);
+    assert_eq!(payload["task_id"], task.id);
+    assert_eq!(payload["goal_run_id"], "goal-persisted-todos");
+}
+
+#[tokio::test]
 async fn show_harness_state_returns_projected_sections_for_current_scope() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;
@@ -6285,6 +6595,89 @@ async fn show_harness_state_returns_projected_sections_for_current_scope() {
     assert!(payload["tensions"]["active"].as_array().is_some_and(|items| !items.is_empty()));
     assert!(payload["procedures"]["latest"].is_object());
     assert!(payload["verifications"]["latest"]["verified"].is_boolean());
+}
+
+#[tokio::test]
+async fn show_harness_state_resolves_explicit_task_id_from_persisted_row() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let thread_id = "thread-show-harness-state-persisted-task";
+    let task = engine
+        .enqueue_task(
+            "Inspect persisted harness task".to_string(),
+            "Return harness state for an explicit persisted task id.".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "agent",
+            None,
+            None,
+            Some(thread_id.to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    crate::agent::harness::run_minimal_closed_loop(
+        &engine.history,
+        crate::agent::harness::HarnessLoopInput {
+            thread_id: Some(thread_id.to_string()),
+            goal_run_id: Some("goal-show-harness-state-persisted-task".to_string()),
+            task_id: Some(task.id.clone()),
+            observation_summary: "persisted task rows should resolve tool scope".to_string(),
+            observation_details: serde_json::json!({
+                "state": {"actual": "persisted"},
+            }),
+            goal_summary: "avoid broad task snapshots for exact task lookups".to_string(),
+            desired_state: Some(serde_json::json!({"actual": "persisted"})),
+            preferred_effect_kind: Some(crate::agent::harness::EffectExecutionKind::ReadOnly),
+            allow_network: false,
+            sandbox_enabled: true,
+        },
+    )
+    .await
+    .expect("harness loop should succeed");
+
+    engine.tasks.lock().await.clear();
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-show-harness-state-persisted-task".to_string(),
+        ToolFunction {
+            name: "show_harness_state".to_string(),
+            arguments: serde_json::json!({
+                "task_id": task.id,
+                "limit": 3,
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        thread_id,
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "show_harness_state should resolve the task from sqlite: {}",
+        result.content
+    );
+
+    let payload: serde_json::Value =
+        serde_json::from_str(&result.content).expect("show_harness_state should return JSON");
+    assert_eq!(payload["scope"]["task_id"], task.id);
 }
 
 #[tokio::test]
@@ -7372,6 +7765,8 @@ async fn submit_goal_step_verdict_records_structured_verdict_for_current_goal_ve
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     let verdict_call = ToolCall::with_default_weles_review(
         "tool-goal-step-verdict".to_string(),

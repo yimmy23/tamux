@@ -112,6 +112,32 @@ fn terminal_task_notification_excerpt(value: Option<&str>) -> Option<String> {
 }
 
 impl AgentEngine {
+    async fn task_by_id_for_dispatcher(&self, task_id: &str) -> Option<AgentTask> {
+        match self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                goal_run_id: None,
+                parent_task_id: None,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+        {
+            Some(task) => Some(task),
+            None => {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find(|task| task.id == task_id).cloned()
+            }
+        }
+    }
+
     pub(crate) async fn notify_task_terminal_state(&self, task: &AgentTask) {
         if !task.notify_on_complete {
             return;
@@ -442,10 +468,7 @@ impl AgentEngine {
 
         if goal_run.current_step_index >= goal_run.steps.len() {
             if let Some(task_id) = goal_run.active_task_id.clone() {
-                let task = {
-                    let tasks = self.tasks.lock().await;
-                    tasks.iter().find(|task| task.id == task_id).cloned()
-                };
+                let task = self.task_by_id_for_dispatcher(&task_id).await;
                 if let Some(task) = task {
                     match task.status {
                         TaskStatus::Queued
@@ -482,10 +505,7 @@ impl AgentEngine {
         }
 
         let task_id = current_step.task_id.as_deref().unwrap_or_default();
-        let task = {
-            let tasks = self.tasks.lock().await;
-            tasks.iter().find(|task| task.id == task_id).cloned()
-        };
+        let task = self.task_by_id_for_dispatcher(task_id).await;
 
         let Some(task) = task else {
             self.requeue_goal_run_step(goal_run_id, &format!("child task {task_id} disappeared"))
@@ -605,12 +625,13 @@ impl AgentEngine {
             .then(|| task.sub_agent_def_id.as_deref())
             .flatten();
         let weles_sender_scope = if use_internal_weles_dm {
-            let tasks = self.tasks.lock().await;
-            task.parent_task_id
-                .as_deref()
-                .and_then(|parent_task_id| tasks.iter().find(|entry| entry.id == parent_task_id))
-                .map(|parent| crate::agent::agent_identity::agent_scope_id_for_task(Some(parent)))
-                .unwrap_or_else(|| crate::agent::agent_identity::MAIN_AGENT_ID.to_string())
+            match task.parent_task_id.as_deref() {
+                Some(parent_task_id) => self.task_by_id_for_dispatcher(parent_task_id).await,
+                None => None,
+            }
+            .as_ref()
+            .map(|parent| crate::agent::agent_identity::agent_scope_id_for_task(Some(parent)))
+            .unwrap_or_else(|| crate::agent::agent_identity::MAIN_AGENT_ID.to_string())
         } else {
             String::new()
         };
@@ -1098,6 +1119,240 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
     use tokio::time::{timeout, Duration};
+
+    #[tokio::test]
+    async fn advance_goal_run_uses_persisted_step_task_before_requeueing() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let goal = engine
+            .start_goal_run(
+                "Keep persisted running step attached".to_string(),
+                Some("Persisted step task".to_string()),
+                Some("thread-persisted-step-task".to_string()),
+                None,
+                None,
+                None,
+                Some("agent".to_string()),
+                None,
+            )
+            .await;
+        let mut task = engine
+            .enqueue_task(
+                "Persisted running step task".to_string(),
+                "Do the current goal step".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "goal_run",
+                Some(goal.id.clone()),
+                None,
+                Some("thread-persisted-step-task".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        task.status = TaskStatus::InProgress;
+        task.started_at = Some(now_millis());
+        task.goal_step_id = Some("step-persisted".to_string());
+        task.goal_step_title = Some("Do persisted work".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            let persisted = tasks
+                .iter_mut()
+                .find(|entry| entry.id == task.id)
+                .expect("enqueued task should exist");
+            *persisted = task.clone();
+        }
+
+        {
+            let mut goals = engine.goal_runs.lock().await;
+            let goal = goals
+                .iter_mut()
+                .find(|entry| entry.id == goal.id)
+                .expect("goal should exist");
+            goal.status = GoalRunStatus::Running;
+            goal.started_at = Some(now_millis());
+            goal.active_task_id = Some(task.id.clone());
+            goal.current_step_index = 0;
+            goal.current_step_title = Some("Do persisted work".to_string());
+            goal.current_step_kind = Some(GoalRunStepKind::Command);
+            goal.steps = vec![GoalRunStep {
+                id: "step-persisted".to_string(),
+                position: 0,
+                title: "Do persisted work".to_string(),
+                instructions: "Continue the persisted task.".to_string(),
+                kind: GoalRunStepKind::Command,
+                success_criteria: "Task remains attached.".to_string(),
+                session_id: None,
+                status: GoalRunStepStatus::InProgress,
+                task_id: Some(task.id.clone()),
+                summary: None,
+                error: None,
+                started_at: Some(now_millis()),
+                completed_at: None,
+            }];
+        }
+        engine.persist_tasks().await;
+        engine.persist_goal_runs().await;
+        engine.tasks.lock().await.clear();
+
+        let persisted_task = engine
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task.id.clone()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                goal_run_id: None,
+                parent_task_id: None,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+            .expect("persisted task row should be queryable by id");
+        assert_eq!(persisted_task.status, TaskStatus::InProgress);
+        assert_eq!(
+            persisted_task.goal_step_id.as_deref(),
+            Some("step-persisted")
+        );
+        let persisted_goal = engine
+            .get_goal_run(&goal.id)
+            .await
+            .expect("persisted goal should be queryable by id");
+        assert_eq!(persisted_goal.status, GoalRunStatus::Running);
+        assert_eq!(
+            persisted_goal.active_task_id.as_deref(),
+            Some(task.id.as_str())
+        );
+        assert_eq!(
+            persisted_goal.steps[0].task_id.as_deref(),
+            Some(task.id.as_str())
+        );
+
+        engine
+            .advance_goal_run(&goal.id)
+            .await
+            .expect("advancing goal should not fail");
+
+        let updated = engine
+            .get_goal_run(&goal.id)
+            .await
+            .expect("goal should remain available");
+        assert_eq!(updated.active_task_id.as_deref(), Some(task.id.as_str()));
+        assert_eq!(
+            updated.steps[0].task_id.as_deref(),
+            Some(task.id.as_str()),
+            "persisted running task should not be treated as disappeared"
+        );
+        assert_eq!(updated.steps[0].status, GoalRunStepStatus::InProgress);
+        assert!(
+            updated
+                .events
+                .iter()
+                .all(|event| !event.message.contains("returned to pending")),
+            "goal step should not be requeued when task exists in sqlite"
+        );
+    }
+
+    #[tokio::test]
+    async fn advance_goal_run_does_not_complete_when_persisted_goal_task_is_active() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let goal = engine
+            .start_goal_run(
+                "Wait for persisted active task".to_string(),
+                Some("Persisted active task".to_string()),
+                Some("thread-persisted-active-task".to_string()),
+                None,
+                None,
+                None,
+                Some("agent".to_string()),
+                None,
+            )
+            .await;
+        let mut task = engine
+            .enqueue_task(
+                "Persisted active goal task".to_string(),
+                "Still working after the goal step list is exhausted.".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "goal_run",
+                Some(goal.id.clone()),
+                None,
+                Some("thread-persisted-active-task".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        task.status = TaskStatus::InProgress;
+        task.started_at = Some(now_millis());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            let persisted = tasks
+                .iter_mut()
+                .find(|entry| entry.id == task.id)
+                .expect("enqueued task should exist");
+            *persisted = task.clone();
+        }
+
+        {
+            let mut goals = engine.goal_runs.lock().await;
+            let goal = goals
+                .iter_mut()
+                .find(|entry| entry.id == goal.id)
+                .expect("goal should exist");
+            goal.status = GoalRunStatus::Running;
+            goal.started_at = Some(now_millis());
+            goal.active_task_id = None;
+            goal.current_step_index = 1;
+            goal.current_step_title = None;
+            goal.current_step_kind = None;
+            goal.steps = vec![GoalRunStep {
+                id: "step-completed".to_string(),
+                position: 0,
+                title: "Completed step".to_string(),
+                instructions: "Already complete.".to_string(),
+                kind: GoalRunStepKind::Command,
+                success_criteria: "Done.".to_string(),
+                session_id: None,
+                status: GoalRunStepStatus::Completed,
+                task_id: None,
+                summary: Some("completed".to_string()),
+                error: None,
+                started_at: Some(now_millis()),
+                completed_at: Some(now_millis()),
+            }];
+        }
+        engine.persist_tasks().await;
+        engine.persist_goal_runs().await;
+        engine.tasks.lock().await.clear();
+
+        engine
+            .advance_goal_run(&goal.id)
+            .await
+            .expect("advancing goal should not fail");
+
+        let updated = engine
+            .get_goal_run(&goal.id)
+            .await
+            .expect("goal should remain available");
+        assert_eq!(
+            updated.status,
+            GoalRunStatus::Running,
+            "persisted active task should prevent premature goal completion"
+        );
+        assert!(updated.completed_at.is_none());
+    }
 
     #[tokio::test]
     async fn budget_exceeded_subagent_notifies_child_and_parent_threads() {

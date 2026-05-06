@@ -257,7 +257,11 @@ impl AgentEngine {
 
     async fn sync_anticipatory_notifications(&self, items: &[AnticipatoryItem]) {
         let now = now_millis() as i64;
-        let existing = match self.history.list_notifications(true, Some(500)).await {
+        let existing = match self
+            .history
+            .list_notifications_by_source("anticipatory", true, Some(500))
+            .await
+        {
             Ok(existing) => existing,
             Err(_) => return,
         };
@@ -326,8 +330,7 @@ impl AgentEngine {
             .collect();
 
         for mut notification in existing.into_iter().filter(|notification| {
-            notification.source == "anticipatory"
-                && notification.archived_at.is_none()
+            notification.archived_at.is_none()
                 && notification.deleted_at.is_none()
                 && !active_ids.contains(notification.id.as_str())
         }) {

@@ -1,6 +1,49 @@
 use super::*;
 
 #[tokio::test]
+async fn list_discoverable_skill_variants_filters_status_and_markdown_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let active = root.join("skills/generated/build-pipeline.md");
+    let archived = root.join("skills/generated/old-build-pipeline.md");
+    fs::write(&active, "# Build pipeline\nRun cargo build.\n")?;
+    fs::write(
+        &archived,
+        "# Old build pipeline\nUse legacy build scripts.\n",
+    )?;
+
+    let active_record = store.register_skill_document(&active).await?;
+    let archived_record = store.register_skill_document(&archived).await?;
+    let active_tags_json = serde_json::to_string(&active_record.context_tags)?;
+
+    store
+        .conn
+        .call(move |conn| {
+            conn.execute(
+                "UPDATE skill_variants SET status = 'archived', updated_at = 9999 WHERE variant_id = ?1",
+                params![archived_record.variant_id],
+            )?;
+            conn.execute(
+                "INSERT INTO skill_variants \
+                 (variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at) \
+                 VALUES ('not-markdown', 'build-pipeline', 'txt', 'generated/build-pipeline.txt', NULL, 'v99.0', ?1, 999, 999, 0, 999.0, 'active', NULL, 1, 10000)",
+                params![active_tags_json],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let variants = store.list_discoverable_skill_variants(10).await?;
+
+    assert_eq!(variants.len(), 1);
+    assert_eq!(variants[0].variant_id, active_record.variant_id);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn register_skill_document_infers_variant_metadata() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;

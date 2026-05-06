@@ -568,9 +568,21 @@ impl AgentEngine {
             return 0;
         }
 
-        // For each fact, look up its last provenance timestamp to approximate
-        // last_confirmed_at. Fall back to using the current time minus 30 days
-        // if no provenance record exists (treating it as very old).
+        // Look up provenance timestamps for the whole batch once. Missing keys
+        // are skipped because decay needs a real confirmation anchor.
+        let fact_keys = facts
+            .iter()
+            .map(|fact| fact.key.clone())
+            .collect::<Vec<_>>();
+        let provenance_created_at = self
+            .history
+            .latest_memory_provenance_created_at_by_fact_keys(
+                MemoryTarget::Memory.label(),
+                &fact_keys,
+            )
+            .await
+            .unwrap_or_default();
+
         let mut decayed_count = 0;
 
         for fact in &facts {
@@ -583,23 +595,7 @@ impl AgentEngine {
                 continue;
             }
 
-            // Query provenance for this fact key to get last_confirmed_at
-            let last_confirmed_at = match self
-                .history
-                .memory_provenance_report(Some(MemoryTarget::Memory.label()), 50)
-                .await
-            {
-                Ok(report) => {
-                    // Find the most recent provenance entry mentioning this fact key
-                    report
-                        .entries
-                        .iter()
-                        .find(|e| e.fact_keys.contains(&fact.key))
-                        .map(|e| e.created_at as u64)
-                        .unwrap_or(0)
-                }
-                Err(_) => 0,
-            };
+            let last_confirmed_at = provenance_created_at.get(&fact.key).copied().unwrap_or(0);
 
             // If no provenance record, skip (we cannot compute meaningful decay)
             if last_confirmed_at == 0 {

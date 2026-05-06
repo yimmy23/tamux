@@ -179,4 +179,67 @@ impl HistoryStore {
             .map_err(Into::into)
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
+
+    pub async fn list_degraded_health_log_since(
+        &self,
+        since: u64,
+        intervention_contains: Option<&str>,
+        limit: u32,
+    ) -> Result<
+        Vec<(
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            u64,
+        )>,
+    > {
+        let intervention_contains = intervention_contains
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        self.read_conn
+            .call(move |conn| {
+                let limit = limit.max(1) as i64;
+                let since = since as i64;
+                let sql = if intervention_contains.is_some() {
+                    "SELECT id, entity_type, entity_id, health_state, indicators_json, intervention, created_at
+                     FROM agent_health_log
+                     WHERE health_state != 'healthy'
+                       AND created_at >= ?1
+                       AND intervention LIKE ?2
+                     ORDER BY created_at DESC
+                     LIMIT ?3"
+                } else {
+                    "SELECT id, entity_type, entity_id, health_state, indicators_json, intervention, created_at
+                     FROM agent_health_log
+                     WHERE health_state != 'healthy'
+                       AND created_at >= ?1
+                     ORDER BY created_at DESC
+                     LIMIT ?2"
+                };
+                let mut stmt = conn.prepare(sql)?;
+                let mapper = |row: &rusqlite::Row<'_>| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, i64>(6)?.max(0) as u64,
+                    ))
+                };
+                let rows = match intervention_contains {
+                    Some(text) => stmt.query_map(params![since, format!("%{text}%"), limit], mapper)?,
+                    None => stmt.query_map(params![since, limit], mapper)?,
+                };
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
 }

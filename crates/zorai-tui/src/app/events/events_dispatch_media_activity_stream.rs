@@ -240,6 +240,10 @@ impl TuiModel {
                 self.handle_tier_changed_event(new_tier);
                 None
             }
+            ClientEvent::SemanticIndexRepaired { summary } => {
+                self.status_line = summary;
+                None
+            }
             ClientEvent::Delta { thread_id, content } => {
                 self.handle_delta_event(thread_id, content);
                 None

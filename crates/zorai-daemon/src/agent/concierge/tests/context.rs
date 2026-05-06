@@ -76,6 +76,43 @@ fn sample_goal_run(
     }
 }
 
+fn persisted_thread_summary(
+    id: &str,
+    title: &str,
+    updated_at: u64,
+    message_count: usize,
+) -> ThreadSummary {
+    ThreadSummary {
+        id: id.to_string(),
+        title: title.to_string(),
+        updated_at,
+        message_count,
+        opening_message: None,
+        last_messages: Vec::new(),
+    }
+}
+
+fn concierge_goal_context<I>(goal_runs: I) -> crate::history::ConciergeGoalContext
+where
+    I: IntoIterator<Item = GoalRun>,
+{
+    let goal_runs = goal_runs.into_iter().collect::<Vec<_>>();
+    crate::history::ConciergeGoalContext {
+        latest_goal_run: goal_runs
+            .iter()
+            .max_by_key(|goal_run| goal_run.updated_at)
+            .cloned(),
+        running_goal_total: goal_runs
+            .iter()
+            .filter(|goal_run| goal_run.status == GoalRunStatus::Running)
+            .count(),
+        paused_goal_total: goal_runs
+            .iter()
+            .filter(|goal_run| goal_run.status == GoalRunStatus::Paused)
+            .count(),
+    }
+}
+
 #[tokio::test]
 async fn context_summary_gathers_recent_messages_and_goal_snapshot() {
     let config = Arc::new(RwLock::new(AgentConfig::default()));
@@ -85,7 +122,7 @@ async fn context_summary_gathers_recent_messages_and_goal_snapshot() {
     ));
     let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
     let now = test_now_millis();
-    let threads = RwLock::new(HashMap::from([
+    let _threads = RwLock::new(HashMap::from([
         (
             "thread-1".to_string(),
             AgentThread {
@@ -133,8 +170,7 @@ async fn context_summary_gathers_recent_messages_and_goal_snapshot() {
             },
         ),
     ]));
-    let tasks = Mutex::new(std::collections::VecDeque::new());
-    let goal_runs = Mutex::new(std::collections::VecDeque::from([
+    let goal_context = concierge_goal_context([
         sample_goal_run(
             "goal-running",
             "Ship concierge perf fix",
@@ -156,25 +192,20 @@ async fn context_summary_gathers_recent_messages_and_goal_snapshot() {
             now - 1_500,
             Some("Wrap up cleanup"),
         ),
-    ]));
+    ]);
 
-    let context = engine
-        .gather_context(
-            &threads,
-            &tasks,
-            &goal_runs,
-            ConciergeDetailLevel::ContextSummary,
-            &[],
-        )
-        .await;
+    let persisted_threads = [persisted_thread_summary("thread-1", "Newest", now, 7)];
+    let context = engine.context_from_goal_context(
+        ConciergeDetailLevel::ContextSummary,
+        &persisted_threads,
+        goal_context,
+    );
 
     assert_eq!(context.recent_threads.len(), 1);
     assert_eq!(context.recent_threads[0].title, "Newest");
-    assert_eq!(
-        context.recent_threads[0].opening_message.as_deref(),
-        Some("User: kickoff scope")
-    );
-    assert_eq!(context.recent_threads[0].last_messages.len(), 5);
+    assert_eq!(context.recent_threads[0].opening_message, None);
+    assert!(context.recent_threads[0].last_messages.is_empty());
+    assert_eq!(context.recent_threads[0].message_count, 7);
     assert_eq!(context.running_goal_total, 1);
     assert_eq!(context.paused_goal_total, 2);
     let latest_goal = context
@@ -198,7 +229,7 @@ async fn context_summary_picks_latest_goal_by_updated_at() {
     ));
     let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
     let now = test_now_millis();
-    let threads = RwLock::new(HashMap::from([(
+    let _threads = RwLock::new(HashMap::from([(
         "thread-1".to_string(),
         thread_with_messages(
             "thread-1",
@@ -207,8 +238,7 @@ async fn context_summary_picks_latest_goal_by_updated_at() {
             vec![AgentMessage::user("kickoff", now - 5)],
         ),
     )]));
-    let tasks = Mutex::new(std::collections::VecDeque::new());
-    let goal_runs = Mutex::new(std::collections::VecDeque::from([
+    let goal_context = concierge_goal_context([
         sample_goal_run(
             "goal-old",
             "Older goal",
@@ -223,17 +253,10 @@ async fn context_summary_picks_latest_goal_by_updated_at() {
             now - 1_000,
             Some("Newer summary"),
         ),
-    ]));
+    ]);
 
-    let context = engine
-        .gather_context(
-            &threads,
-            &tasks,
-            &goal_runs,
-            ConciergeDetailLevel::ContextSummary,
-            &[],
-        )
-        .await;
+    let context =
+        engine.context_from_goal_context(ConciergeDetailLevel::ContextSummary, &[], goal_context);
 
     assert_eq!(
         context
@@ -253,7 +276,7 @@ async fn context_summary_excludes_goal_threads_but_keeps_goal_metadata() {
     ));
     let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
     let now = test_now_millis();
-    let threads = RwLock::new(HashMap::from([
+    let _threads = RwLock::new(HashMap::from([
         (
             "thread-real".to_string(),
             thread_with_messages(
@@ -291,7 +314,6 @@ async fn context_summary_excludes_goal_threads_but_keeps_goal_metadata() {
             ),
         ),
     ]));
-    let tasks = Mutex::new(std::collections::VecDeque::new());
     let mut goal_run = sample_goal_run(
         "goal-latest",
         "Trim concierge goal context",
@@ -307,17 +329,19 @@ async fn context_summary_excludes_goal_threads_but_keeps_goal_metadata() {
     goal_run.steps[0].status = GoalRunStepStatus::Completed;
     goal_run.steps[0].summary = Some("Identified all goal-owned thread IDs".to_string());
     goal_run.steps[0].completed_at = Some(now - 5);
-    let goal_runs = Mutex::new(std::collections::VecDeque::from([goal_run]));
+    let goal_context = concierge_goal_context([goal_run]);
 
-    let context = engine
-        .gather_context(
-            &threads,
-            &tasks,
-            &goal_runs,
-            ConciergeDetailLevel::ProactiveTriage,
-            &[],
-        )
-        .await;
+    let persisted_threads = [persisted_thread_summary(
+        "thread-real",
+        "Actual work",
+        now - 100,
+        1,
+    )];
+    let context = engine.context_from_goal_context(
+        ConciergeDetailLevel::ProactiveTriage,
+        &persisted_threads,
+        goal_context,
+    );
 
     assert_eq!(
         context
@@ -351,7 +375,7 @@ async fn context_summary_ignores_assistant_only_concierge_like_threads() {
     ));
     let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
     let now = test_now_millis();
-    let threads = RwLock::new(HashMap::from([
+    let _threads = RwLock::new(HashMap::from([
         (
             "thread-real".to_string(),
             thread_with_messages(
@@ -374,18 +398,16 @@ async fn context_summary_ignores_assistant_only_concierge_like_threads() {
             ),
         ),
     ]));
-    let tasks = Mutex::new(std::collections::VecDeque::new());
-    let goal_runs = Mutex::new(std::collections::VecDeque::new());
-
-    let context = engine
-        .gather_context(
-            &threads,
-            &tasks,
-            &goal_runs,
-            ConciergeDetailLevel::ContextSummary,
-            &[],
-        )
-        .await;
+    let context = engine.context_from_goal_context(
+        ConciergeDetailLevel::ContextSummary,
+        &[persisted_thread_summary(
+            "thread-real",
+            "Actual work",
+            now - 100,
+            2,
+        )],
+        crate::history::ConciergeGoalContext::default(),
+    );
 
     assert_eq!(context.recent_threads.len(), 1);
     assert_eq!(context.recent_threads[0].id, "thread-real");
@@ -400,7 +422,7 @@ async fn context_summary_excludes_structured_heartbeat_threads() {
     ));
     let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
     let now = test_now_millis();
-    let threads = RwLock::new(HashMap::from([
+    let _threads = RwLock::new(HashMap::from([
         (
             "thread-real".to_string(),
             thread_with_messages(
@@ -432,18 +454,16 @@ async fn context_summary_excludes_structured_heartbeat_threads() {
             ),
         ),
     ]));
-    let tasks = Mutex::new(std::collections::VecDeque::new());
-    let goal_runs = Mutex::new(std::collections::VecDeque::new());
-
-    let context = engine
-        .gather_context(
-            &threads,
-            &tasks,
-            &goal_runs,
-            ConciergeDetailLevel::ContextSummary,
-            &[],
-        )
-        .await;
+    let context = engine.context_from_goal_context(
+        ConciergeDetailLevel::ContextSummary,
+        &[persisted_thread_summary(
+            "thread-real",
+            "Actual work",
+            now - 100,
+            2,
+        )],
+        crate::history::ConciergeGoalContext::default(),
+    );
 
     assert_eq!(context.recent_threads.len(), 1);
     assert_eq!(context.recent_threads[0].id, "thread-real");
@@ -458,7 +478,7 @@ async fn context_summary_hides_weles_internal_threads() {
     ));
     let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
     let now = test_now_millis();
-    let threads = RwLock::new(HashMap::from([
+    let _threads = RwLock::new(HashMap::from([
         (
             "thread-real".to_string(),
             thread_with_messages(
@@ -487,18 +507,16 @@ async fn context_summary_hides_weles_internal_threads() {
             ),
         ),
     ]));
-    let tasks = Mutex::new(std::collections::VecDeque::new());
-    let goal_runs = Mutex::new(std::collections::VecDeque::new());
-
-    let context = engine
-        .gather_context(
-            &threads,
-            &tasks,
-            &goal_runs,
-            ConciergeDetailLevel::ContextSummary,
-            &[],
-        )
-        .await;
+    let context = engine.context_from_goal_context(
+        ConciergeDetailLevel::ContextSummary,
+        &[persisted_thread_summary(
+            "thread-real",
+            "Actual work",
+            now - 100,
+            2,
+        )],
+        crate::history::ConciergeGoalContext::default(),
+    );
 
     assert_eq!(context.recent_threads.len(), 1);
     assert_eq!(context.recent_threads[0].id, "thread-real");
@@ -517,7 +535,7 @@ async fn context_summary_excludes_internal_dm_threads() {
         crate::agent::agent_identity::MAIN_AGENT_ID,
         crate::agent::agent_identity::CONCIERGE_AGENT_ID,
     );
-    let threads = RwLock::new(HashMap::from([
+    let _threads = RwLock::new(HashMap::from([
         (
             "thread-real".to_string(),
             thread_with_messages(
@@ -543,18 +561,16 @@ async fn context_summary_excludes_internal_dm_threads() {
             ),
         ),
     ]));
-    let tasks = Mutex::new(std::collections::VecDeque::new());
-    let goal_runs = Mutex::new(std::collections::VecDeque::new());
-
-    let context = engine
-        .gather_context(
-            &threads,
-            &tasks,
-            &goal_runs,
-            ConciergeDetailLevel::ContextSummary,
-            &[],
-        )
-        .await;
+    let context = engine.context_from_goal_context(
+        ConciergeDetailLevel::ContextSummary,
+        &[persisted_thread_summary(
+            "thread-real",
+            "Actual work",
+            now - 100,
+            2,
+        )],
+        crate::history::ConciergeGoalContext::default(),
+    );
 
     assert_eq!(context.recent_threads.len(), 1);
     assert_eq!(context.recent_threads[0].id, "thread-real");
@@ -571,7 +587,7 @@ async fn context_summary_excludes_participant_playground_threads() {
     let now = test_now_millis();
     let playground_thread_id =
         crate::agent::agent_identity::participant_playground_thread_id("thread-real", "weles");
-    let threads = RwLock::new(HashMap::from([
+    let _threads = RwLock::new(HashMap::from([
         (
             "thread-real".to_string(),
             thread_with_messages(
@@ -597,18 +613,16 @@ async fn context_summary_excludes_participant_playground_threads() {
             ),
         ),
     ]));
-    let tasks = Mutex::new(std::collections::VecDeque::new());
-    let goal_runs = Mutex::new(std::collections::VecDeque::new());
-
-    let context = engine
-        .gather_context(
-            &threads,
-            &tasks,
-            &goal_runs,
-            ConciergeDetailLevel::ContextSummary,
-            &[],
-        )
-        .await;
+    let context = engine.context_from_goal_context(
+        ConciergeDetailLevel::ContextSummary,
+        &[persisted_thread_summary(
+            "thread-real",
+            "Actual work",
+            now - 100,
+            2,
+        )],
+        crate::history::ConciergeGoalContext::default(),
+    );
 
     assert_eq!(context.recent_threads.len(), 1);
     assert_eq!(context.recent_threads[0].id, "thread-real");

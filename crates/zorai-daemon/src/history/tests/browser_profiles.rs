@@ -85,6 +85,108 @@ async fn browser_profile_list_and_delete() -> Result<()> {
 }
 
 #[tokio::test]
+async fn browser_profile_filtered_list_ignores_unrelated_malformed_rows() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "INSERT INTO browser_profiles \
+                 (profile_id, label, profile_dir, browser_kind, workspace_id, health_state, created_at, updated_at, last_used_at, last_auth_success_at, last_auth_failure_at, last_auth_failure_reason) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, NULL, NULL)",
+                rusqlite::params![
+                    "profile-target",
+                    "Target",
+                    "/tmp/zorai/browser/target",
+                    "chrome",
+                    "workspace-main",
+                    "healthy",
+                    1i64,
+                    2i64
+                ],
+            )?;
+            conn.execute(
+                "INSERT INTO browser_profiles \
+                 (profile_id, label, profile_dir, browser_kind, workspace_id, health_state, created_at, updated_at, last_used_at, last_auth_success_at, last_auth_failure_at, last_auth_failure_reason) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, NULL, NULL)",
+                rusqlite::params![
+                    "profile-unrelated",
+                    "Unrelated",
+                    "/tmp/zorai/browser/unrelated",
+                    "chrome",
+                    "workspace-other",
+                    "repair_needed",
+                    1i64,
+                    "not-an-integer"
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+
+    let rows = store
+        .list_browser_profiles_filtered(Some("healthy"), Some("workspace-main"))
+        .await?;
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].profile_id, "profile-target");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn unhealthy_browser_profile_list_filters_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "INSERT INTO browser_profiles \
+                 (profile_id, label, profile_dir, browser_kind, workspace_id, health_state, created_at, updated_at, last_used_at, last_auth_success_at, last_auth_failure_at, last_auth_failure_reason) \
+                 VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, NULL, NULL, NULL, NULL)",
+                rusqlite::params![
+                    "profile-unhealthy",
+                    "Unhealthy",
+                    "/tmp/zorai/browser/unhealthy",
+                    "chrome",
+                    "repair_needed",
+                    1i64,
+                    3i64
+                ],
+            )?;
+            conn.execute(
+                "INSERT INTO browser_profiles \
+                 (profile_id, label, profile_dir, browser_kind, workspace_id, health_state, created_at, updated_at, last_used_at, last_auth_success_at, last_auth_failure_at, last_auth_failure_reason) \
+                 VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, NULL, NULL, NULL, NULL)",
+                rusqlite::params![
+                    "profile-healthy-malformed",
+                    "Healthy Malformed",
+                    "/tmp/zorai/browser/healthy-malformed",
+                    "chrome",
+                    "healthy",
+                    1i64,
+                    "not-an-integer"
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+
+    let rows = store.list_unhealthy_browser_profiles().await?;
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].profile_id, "profile-unhealthy");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn browser_profile_health_state_transitions() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
@@ -160,6 +262,29 @@ async fn browser_profile_expiry_detection_and_repair_flow() -> Result<()> {
         last_auth_failure_reason: None,
     };
     store.upsert_browser_profile(&old_profile).await?;
+    store
+        .conn
+        .call(move |conn| {
+            conn.execute(
+                "INSERT INTO browser_profiles \
+                 (profile_id, label, profile_dir, browser_kind, workspace_id, health_state, created_at, updated_at, last_used_at, last_auth_success_at, last_auth_failure_at, last_auth_failure_reason) \
+                 VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9, NULL, NULL)",
+                rusqlite::params![
+                    "fresh-malformed",
+                    "Fresh Malformed",
+                    "/tmp/zorai/browser/fresh-malformed",
+                    "chrome",
+                    "healthy",
+                    1i64,
+                    "not-an-integer",
+                    now_ms as i64,
+                    now_ms as i64
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
 
     // Verify it starts as healthy
     let row = store.get_browser_profile("expired-work").await?.unwrap();
@@ -210,6 +335,17 @@ async fn browser_profile_expiry_detection_and_repair_flow() -> Result<()> {
         reclassified.is_empty(),
         "repaired profile should not be reclassified"
     );
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "DELETE FROM browser_profiles WHERE profile_id = ?1",
+                rusqlite::params!["fresh-malformed"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
 
     // Step 4: Verify it appears in list_browser_profiles
     let all = store.list_browser_profiles().await?;

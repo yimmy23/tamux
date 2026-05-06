@@ -357,64 +357,9 @@ if matches!(
                         background_daemon_tx,
                         &mut background_daemon_pending,
                         async move {
-                        let (onboarding_done, tier) = {
-                            let cfg = agent.config.read().await;
-                            let done = cfg.tier.onboarding_completed;
-                            let t = cfg
-                                .tier
-                                .user_self_assessment
-                                .unwrap_or(crate::agent::capability_tier::CapabilityTier::Newcomer);
-                            (done, t)
-                        };
-
-                        let recent_history_threads = agent
-                            .concierge
-                            .recent_persisted_history_threads(&agent.session_manager, 5)
-                            .await;
-                        let should_deliver_onboarding =
-                            !onboarding_done && recent_history_threads.is_empty();
-
-                        if !onboarding_done && !should_deliver_onboarding {
-                            let mut cfg = agent.config.write().await;
-                            cfg.tier.onboarding_completed = true;
-                        }
-
-                        if should_deliver_onboarding {
-                            if let Err(e) = agent
-                                .concierge
-                                .deliver_onboarding(tier, &agent.threads)
-                                .await
-                            {
-                                tracing::warn!(
-                                    "onboarding delivery failed, falling back to generic welcome: {e}"
-                                );
-                            } else {
-                                agent
-                                    .persist_thread_by_id(crate::agent::concierge::CONCIERGE_THREAD_ID)
-                                    .await;
-                                let mut cfg = agent.config.write().await;
-                                cfg.tier.onboarding_completed = true;
-                                return BackgroundSideEffectOutcome::Completed;
-                            }
-
-                            let mut cfg = agent.config.write().await;
-                            cfg.tier.onboarding_completed = true;
-                        }
-
-                        agent
-                            .concierge
-                            .on_client_connected_with_persisted_threads(
-                                &agent.threads,
-                                &agent.tasks,
-                                &agent.goal_runs,
-                                &recent_history_threads,
-                            )
-                            .await;
-                        agent
-                            .persist_thread_by_id(crate::agent::concierge::CONCIERGE_THREAD_ID)
-                            .await;
-                        BackgroundSideEffectOutcome::Completed
-                    },
+                            agent.request_concierge_welcome().await;
+                            BackgroundSideEffectOutcome::Completed
+                        },
                     );
                 }
 

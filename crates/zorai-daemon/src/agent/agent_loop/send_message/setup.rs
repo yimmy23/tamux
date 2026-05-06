@@ -63,6 +63,36 @@ fn allow_workspace_task_tools(filter: &mut crate::agent::subagent::tool_filter::
     );
 }
 
+async fn load_current_task_for_send_message(
+    engine: &AgentEngine,
+    task_id: Option<&str>,
+) -> Option<AgentTask> {
+    let task_id = task_id?;
+    match engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            goal_run_id: None,
+            parent_task_id: None,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
+    {
+        Some(task) => Some(task),
+        None => {
+            let tasks = engine.tasks.lock().await;
+            tasks.iter().find(|task| task.id == task_id).cloned()
+        }
+    }
+}
+
 fn thread_artifact_prompt_block(data_root: &Path, thread_id: &str) -> String {
     let specs_dir = zorai_protocol::thread_specs_dir(data_root, thread_id);
     let media_dir = zorai_protocol::thread_media_dir(data_root, thread_id);
@@ -438,30 +468,26 @@ impl<'a> SendMessageRunner<'a> {
         }
         let agent_scope_id = current_agent_scope_id();
         let sub_agents = engine.list_sub_agents().await;
-        let task_provider_override = {
-            let tasks = engine.tasks.lock().await;
-            task_id.and_then(|tid| {
-                tasks.iter().find(|t| t.id == tid).and_then(|t| {
-                    if let Some(provider) = t.override_provider.as_ref() {
-                        return Some((
-                            provider.clone(),
-                            t.override_model.clone(),
-                            t.override_system_prompt.clone(),
-                            t.sub_agent_def_id.clone(),
-                        ));
-                    }
+        let current_task_for_setup = load_current_task_for_send_message(engine, task_id).await;
+        let task_provider_override = current_task_for_setup.as_ref().and_then(|t| {
+            if let Some(provider) = t.override_provider.as_ref() {
+                return Some((
+                    provider.clone(),
+                    t.override_model.clone(),
+                    t.override_system_prompt.clone(),
+                    t.sub_agent_def_id.clone(),
+                ));
+            }
 
-                    let sub_agent_def_id = t.sub_agent_def_id.as_ref()?;
-                    let def = sub_agents.iter().find(|def| def.id == *sub_agent_def_id)?;
-                    Some((
-                        def.provider.clone(),
-                        Some(def.model.clone()),
-                        t.override_system_prompt.clone(),
-                        Some(def.id.clone()),
-                    ))
-                })
-            })
-        };
+            let sub_agent_def_id = t.sub_agent_def_id.as_ref()?;
+            let def = sub_agents.iter().find(|def| def.id == *sub_agent_def_id)?;
+            Some((
+                def.provider.clone(),
+                Some(def.model.clone()),
+                t.override_system_prompt.clone(),
+                Some(def.id.clone()),
+            ))
+        });
         let thread_execution_profile = engine
             .thread_execution_profiles
             .read()
@@ -655,10 +681,7 @@ impl<'a> SendMessageRunner<'a> {
             task_termination_eval,
             task_type_for_trace,
         ) = {
-            let tasks = engine.tasks.lock().await;
-            let current_task = task_id
-                .and_then(|current_task_id| tasks.iter().find(|task| task.id == current_task_id))
-                .cloned();
+            let current_task = current_task_for_setup.clone();
             let is_goal = current_task
                 .as_ref()
                 .and_then(|task| task.goal_run_id.as_ref())
@@ -1448,6 +1471,114 @@ mod tests {
         assert_eq!(runner.provider_config.model, "weles-model");
         assert_eq!(runner.provider_config.reasoning_effort, "medium");
         assert_eq!(runner.provider_config.context_window_tokens, 222_000);
+    }
+
+    #[tokio::test]
+    async fn runner_initialization_uses_persisted_task_provider_override() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = "openai".to_string();
+        config.model = "gpt-5.4".to_string();
+        config.providers.insert(
+            "task-provider".to_string(),
+            ProviderConfig {
+                base_url: String::new(),
+                model: "provider-default".to_string(),
+                api_key: "task-key".to_string(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ApiKey,
+                api_transport: ApiTransport::Responses,
+                reasoning_effort: "low".to_string(),
+                context_window_tokens: 123_456,
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+                openrouter_provider_order: Vec::new(),
+                openrouter_provider_ignore: Vec::new(),
+                openrouter_allow_fallbacks: None,
+                openrouter_response_cache_enabled: false,
+            },
+        );
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let thread_id = "thread-persisted-task-provider-override";
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: None,
+                title: "Persisted task provider override".to_string(),
+                messages: vec![AgentMessage::user("check task override", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+
+        let mut task = engine
+            .enqueue_task(
+                "Persisted provider override task".to_string(),
+                "Initialize runner from persisted task override.".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                None,
+                Some(thread_id.to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        task.override_provider = Some("task-provider".to_string());
+        task.override_model = Some("task-model".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            if let Some(existing) = tasks.iter_mut().find(|entry| entry.id == task.id) {
+                *existing = task.clone();
+            }
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        let runner = SendMessageRunner::initialize(
+            &engine,
+            Some(thread_id),
+            "check task override",
+            &[],
+            "check task override",
+            Some(&task.id),
+            None,
+            None,
+            None,
+            true,
+            true,
+            0,
+        )
+        .await
+        .expect("runner should initialize from persisted task metadata");
+
+        assert_eq!(runner.config.provider, "task-provider");
+        assert_eq!(runner.provider_config.model, "task-model");
+        assert_eq!(runner.provider_config.context_window_tokens, 123_456);
     }
 
     #[test]

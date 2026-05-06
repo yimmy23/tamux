@@ -120,6 +120,8 @@ async fn apply_pivot_routes_into_existing_strategy_refresh_behavior() {
     let engine = test_engine().await;
     let thread_id = "thread-policy-pivot";
     seed_runtime(&engine, thread_id).await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
     let decision = PolicyDecision {
         action: PolicyAction::Pivot,
         reason: "The repeated failures justify a different strategy.".to_string(),
@@ -129,7 +131,7 @@ async fn apply_pivot_routes_into_existing_strategy_refresh_behavior() {
     let trigger = PolicyTriggerContext {
         thread_id: thread_id.to_string(),
         goal_run_id: Some("goal-1".to_string()),
-        repeated_approach: true,
+        repeated_approach: false,
         awareness_stuck: true,
         self_assessment: PolicySelfAssessmentSummary {
             should_pivot: true,
@@ -164,6 +166,11 @@ async fn apply_pivot_routes_into_existing_strategy_refresh_behavior() {
         })
         .expect("strategy refresh prompt");
     assert!(injected.content.contains("Fallback strategy"));
+    assert!(
+        injected.content.contains("Spawn a sub-agent"),
+        "pivot should use persisted retry_count=1 when choosing the refresh strategy: {}",
+        injected.content
+    );
 }
 
 #[tokio::test]

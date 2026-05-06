@@ -134,6 +134,16 @@ fn map_workspace_notice(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceNo
     })
 }
 
+fn map_workspace_settings(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceSettings> {
+    Ok(WorkspaceSettings {
+        workspace_id: row.get(0)?,
+        workspace_root: row.get(1)?,
+        operator: parse_workspace_operator(&row.get::<_, String>(2)?),
+        created_at: row.get::<_, i64>(3)? as u64,
+        updated_at: row.get::<_, i64>(4)? as u64,
+    })
+}
+
 impl HistoryStore {
     pub async fn upsert_workspace_settings(&self, settings: &WorkspaceSettings) -> Result<()> {
         let settings = settings.clone();
@@ -168,15 +178,7 @@ impl HistoryStore {
                     "SELECT workspace_id, workspace_root, operator, created_at, updated_at \
                      FROM workspace_settings WHERE workspace_id = ?1",
                     params![workspace_id],
-                    |row| {
-                        Ok(WorkspaceSettings {
-                            workspace_id: row.get(0)?,
-                            workspace_root: row.get(1)?,
-                            operator: parse_workspace_operator(&row.get::<_, String>(2)?),
-                            created_at: row.get::<_, i64>(3)? as u64,
-                            updated_at: row.get::<_, i64>(4)? as u64,
-                        })
-                    },
+                    map_workspace_settings,
                 )
                 .optional()
                 .map_err(Into::into)
@@ -192,15 +194,26 @@ impl HistoryStore {
                     "SELECT workspace_id, workspace_root, operator, created_at, updated_at \
                      FROM workspace_settings ORDER BY workspace_id ASC",
                 )?;
-                let rows = stmt.query_map([], |row| {
-                    Ok(WorkspaceSettings {
-                        workspace_id: row.get(0)?,
-                        workspace_root: row.get(1)?,
-                        operator: parse_workspace_operator(&row.get::<_, String>(2)?),
-                        created_at: row.get::<_, i64>(3)? as u64,
-                        updated_at: row.get::<_, i64>(4)? as u64,
-                    })
-                })?;
+                let rows = stmt.query_map([], map_workspace_settings)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn list_workspace_settings_by_operator(
+        &self,
+        operator: WorkspaceOperator,
+    ) -> Result<Vec<WorkspaceSettings>> {
+        let operator = workspace_operator_to_str(operator).to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT workspace_id, workspace_root, operator, created_at, updated_at \
+                     FROM workspace_settings WHERE operator = ?1 ORDER BY workspace_id ASC",
+                )?;
+                let rows = stmt.query_map(params![operator], map_workspace_settings)?;
                 rows.collect::<std::result::Result<Vec<_>, _>>()
                     .map_err(Into::into)
             })
@@ -314,6 +327,62 @@ impl HistoryStore {
             .map_err(|error| anyhow::anyhow!("{error}"))
     }
 
+    pub async fn list_assigned_workspace_tasks_by_status(
+        &self,
+        workspace_id: &str,
+        status: WorkspaceTaskStatus,
+    ) -> Result<Vec<WorkspaceTask>> {
+        let workspace_id = workspace_id.to_string();
+        let status = workspace_task_status_to_str(status).to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, workspace_id, title, task_type, description, definition_of_done, priority, status, sort_order, reporter_json, assignee_json, reviewer_json, thread_id, goal_run_id, runtime_history_json, created_at, updated_at, started_at, completed_at, deleted_at, last_notice_id \
+                     FROM workspace_tasks \
+                     WHERE workspace_id = ?1 AND status = ?2 AND assignee_json IS NOT NULL AND deleted_at IS NULL \
+                     ORDER BY sort_order ASC, created_at ASC",
+                )?;
+                let rows = stmt.query_map(params![workspace_id, status], map_workspace_task)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn list_workspace_tasks_for_sort_shift(
+        &self,
+        workspace_id: &str,
+        status: WorkspaceTaskStatus,
+        moving_task_id: &str,
+        min_sort_order: i64,
+    ) -> Result<Vec<WorkspaceTask>> {
+        let workspace_id = workspace_id.to_string();
+        let status = workspace_task_status_to_str(status).to_string();
+        let moving_task_id = moving_task_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, workspace_id, title, task_type, description, definition_of_done, priority, status, sort_order, reporter_json, assignee_json, reviewer_json, thread_id, goal_run_id, runtime_history_json, created_at, updated_at, started_at, completed_at, deleted_at, last_notice_id \
+                     FROM workspace_tasks \
+                     WHERE workspace_id = ?1
+                       AND status = ?2
+                       AND id != ?3
+                       AND sort_order >= ?4
+                       AND deleted_at IS NULL \
+                     ORDER BY sort_order ASC, created_at ASC",
+                )?;
+                let rows = stmt.query_map(
+                    params![workspace_id, status, moving_task_id, min_sort_order],
+                    map_workspace_task,
+                )?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
     pub async fn max_workspace_task_sort_order(
         &self,
         workspace_id: &str,
@@ -400,6 +469,107 @@ impl HistoryStore {
                     rows.collect::<std::result::Result<Vec<_>, _>>()
                         .map_err(Into::into)
                 }
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn list_workspace_notices_limited(
+        &self,
+        workspace_id: &str,
+        task_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<WorkspaceNotice>> {
+        let workspace_id = workspace_id.to_string();
+        let task_id = task_id.map(str::to_string);
+        let limit = limit.max(1) as i64;
+        self.read_conn
+            .call(move |conn| match task_id {
+                Some(task_id) => {
+                    let mut stmt = conn.prepare(
+                        "SELECT id, workspace_id, task_id, notice_type, message, actor_json, created_at \
+                         FROM workspace_notices \
+                         WHERE workspace_id = ?1 AND task_id = ?2 \
+                         ORDER BY created_at ASC \
+                         LIMIT ?3",
+                    )?;
+                    let rows = stmt.query_map(
+                        params![workspace_id, task_id, limit],
+                        map_workspace_notice,
+                    )?;
+                    rows.collect::<std::result::Result<Vec<_>, _>>()
+                        .map_err(Into::into)
+                }
+                None => {
+                    let mut stmt = conn.prepare(
+                        "SELECT id, workspace_id, task_id, notice_type, message, actor_json, created_at \
+                         FROM workspace_notices \
+                         WHERE workspace_id = ?1 \
+                         ORDER BY created_at ASC \
+                         LIMIT ?2",
+                    )?;
+                    let rows =
+                        stmt.query_map(params![workspace_id, limit], map_workspace_notice)?;
+                    rows.collect::<std::result::Result<Vec<_>, _>>()
+                        .map_err(Into::into)
+                }
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn workspace_notice_exists(
+        &self,
+        workspace_id: &str,
+        task_id: &str,
+        notice_type: &str,
+    ) -> Result<bool> {
+        let workspace_id = workspace_id.to_string();
+        let task_id = task_id.to_string();
+        let notice_type = notice_type.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM workspace_notices
+                        WHERE workspace_id = ?1 AND task_id = ?2 AND notice_type = ?3
+                    )",
+                    params![workspace_id, task_id, notice_type],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map(|value| value == 1)
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn workspace_notice_with_message_exists(
+        &self,
+        workspace_id: &str,
+        task_id: &str,
+        notice_type: &str,
+        message: &str,
+    ) -> Result<bool> {
+        let workspace_id = workspace_id.to_string();
+        let task_id = task_id.to_string();
+        let notice_type = notice_type.to_string();
+        let message = message.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM workspace_notices
+                        WHERE workspace_id = ?1
+                          AND task_id = ?2
+                          AND notice_type = ?3
+                          AND message = ?4
+                    )",
+                    params![workspace_id, task_id, notice_type, message],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map(|value| value == 1)
+                .map_err(Into::into)
             })
             .await
             .map_err(|error| anyhow::anyhow!("{error}"))

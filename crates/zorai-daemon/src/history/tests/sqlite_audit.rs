@@ -139,6 +139,139 @@ async fn async_connection_roundtrip() -> Result<()> {
 }
 
 #[tokio::test]
+async fn filtered_thread_list_applies_persisted_context_filters_before_limit() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for (id, title, updated_at, message_count) in [
+        ("concierge", "Concierge", 50, 1),
+        ("dm:svarog:weles", "Internal DM", 40, 1),
+        ("playground:visible:weles", "Participant Playground", 30, 1),
+        ("heartbeat", "HEARTBEAT SYNTHESIS nightly", 20, 1),
+        ("empty", "No messages yet", 10, 0),
+        ("visible", "Visible work", 5, 2),
+    ] {
+        store
+            .create_thread(&AgentDbThread {
+                id: id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: Some("Svarog".to_string()),
+                title: title.to_string(),
+                created_at: updated_at,
+                updated_at,
+                message_count,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: None,
+            })
+            .await?;
+    }
+
+    let rows = store
+        .list_threads_filtered(&AgentThreadListQuery {
+            excluded_ids: vec!["concierge".to_string()],
+            hidden_id_prefixes: vec!["dm:".to_string(), "playground:".to_string()],
+            title_excluded_prefixes: vec![
+                "HEARTBEAT SYNTHESIS".to_string(),
+                "Heartbeat check:".to_string(),
+            ],
+            min_message_count: Some(1),
+            limit: Some(1),
+            ..AgentThreadListQuery::default()
+        })
+        .await?;
+
+    assert_eq!(
+        rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        vec!["visible"]
+    );
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn limited_transcript_index_reads_only_requested_recent_rows() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for index in 0..5 {
+        store
+            .upsert_transcript_index(&TranscriptIndexEntry {
+                id: format!("transcript-{index}"),
+                pane_id: None,
+                workspace_id: None,
+                surface_id: None,
+                filename: format!("transcript-{index}.jsonl"),
+                reason: None,
+                captured_at: index,
+                size_bytes: Some(0),
+                preview: None,
+            })
+            .await?;
+    }
+
+    let rows = store.list_transcript_index_limited(None, Some(2)).await?;
+
+    assert_eq!(
+        rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        vec!["transcript-4", "transcript-3"]
+    );
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn matching_transcript_index_filters_query_before_limit_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store
+        .upsert_transcript_index(&TranscriptIndexEntry {
+            id: "newest-unrelated".to_string(),
+            pane_id: None,
+            workspace_id: None,
+            surface_id: None,
+            filename: "other.jsonl".to_string(),
+            reason: None,
+            captured_at: 300,
+            size_bytes: Some(0),
+            preview: Some("no match".to_string()),
+        })
+        .await?;
+    store
+        .upsert_transcript_index(&TranscriptIndexEntry {
+            id: "matched-preview".to_string(),
+            pane_id: None,
+            workspace_id: None,
+            surface_id: None,
+            filename: "session.jsonl".to_string(),
+            reason: None,
+            captured_at: 200,
+            size_bytes: Some(0),
+            preview: Some("contains rust target".to_string()),
+        })
+        .await?;
+    store
+        .upsert_transcript_index(&TranscriptIndexEntry {
+            id: "matched-filename".to_string(),
+            pane_id: None,
+            workspace_id: None,
+            surface_id: None,
+            filename: "rust-build.jsonl".to_string(),
+            reason: None,
+            captured_at: 100,
+            size_bytes: Some(0),
+            preview: None,
+        })
+        .await?;
+
+    let rows = store.list_transcript_index_matching("rust", 1).await?;
+
+    assert_eq!(
+        rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        vec!["matched-preview"]
+    );
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn init_schema_migrates_legacy_agent_messages_before_deleted_at_index() -> Result<()> {
     let root = std::env::temp_dir().join(format!("zorai-history-test-{}", Uuid::new_v4()));
     let history_dir = root.join("history");
@@ -974,6 +1107,129 @@ async fn list_messages_with_limit_returns_latest_messages_in_chronological_order
         .map(|message| message.content.as_str())
         .collect::<Vec<_>>();
     assert_eq!(contents, vec!["message-5", "message-6", "message-7"]);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_active_context_window_starts_at_latest_compaction_artifact() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "active-context-window";
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: None,
+            title: "Active context".to_string(),
+            created_at: 1,
+            updated_at: 1,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+
+    for index in 0..6 {
+        let metadata_json = (index == 3).then(|| {
+            serde_json::json!({
+                "message_kind": "compaction_artifact",
+                "compaction_payload": "active summary"
+            })
+            .to_string()
+        });
+        store
+            .add_message(&AgentDbMessage {
+                id: format!("m{index}"),
+                thread_id: thread_id.to_string(),
+                created_at: index,
+                role: "assistant".to_string(),
+                content: format!("message-{index}"),
+                provider: None,
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json,
+            })
+            .await?;
+    }
+
+    let (messages, loaded_start, loaded_end) = store.list_active_context_window(thread_id).await?;
+
+    assert_eq!((loaded_start, loaded_end), (3, 6));
+    assert_eq!(
+        messages
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m3", "m4", "m5"]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_message_token_totals_sum_visible_message_token_columns() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "token-total-thread";
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: None,
+            title: "Token totals".to_string(),
+            created_at: 1,
+            updated_at: 1,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+
+    for (id, input_tokens, output_tokens) in [
+        ("m1", Some(7), Some(3)),
+        ("m2", Some(11), None),
+        ("m3", None, Some(13)),
+        ("m4", Some(100), Some(200)),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at: 1,
+                role: "assistant".to_string(),
+                content: id.to_string(),
+                provider: None,
+                model: None,
+                input_tokens,
+                output_tokens,
+                total_tokens: input_tokens
+                    .zip(output_tokens)
+                    .map(|(input, output)| input + output),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            })
+            .await?;
+    }
+    assert_eq!(store.delete_messages(thread_id, &["m4"]).await?, 1);
+
+    assert_eq!(
+        store.thread_message_token_totals(thread_id).await?,
+        (18, 16)
+    );
 
     fs::remove_dir_all(root)?;
     Ok(())

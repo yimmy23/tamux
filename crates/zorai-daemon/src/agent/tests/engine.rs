@@ -280,6 +280,15 @@ async fn seed_thread_context_does_not_replace_lazy_hydrated_history() {
         )
         .await;
 
+    assert!(
+        rehydrated
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id),
+        "frontend context seeding must not hydrate persisted history"
+    );
+
     let loaded = rehydrated
         .get_thread(thread_id)
         .await

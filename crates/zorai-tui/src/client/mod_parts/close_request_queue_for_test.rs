@@ -106,6 +106,10 @@ pub enum ClientEvent {
     GoalRunStarted(GoalRun),
     GoalRunDetail(Option<GoalRun>),
     GoalRunUpdate(GoalRun),
+    GoalRunControlled {
+        goal_run_id: String,
+        ok: bool,
+    },
     GoalRunDeleted {
         goal_run_id: String,
         deleted: bool,
@@ -364,6 +368,10 @@ pub enum ClientEvent {
         new_tier: String,
     },
 
+    SemanticIndexRepaired {
+        summary: String,
+    },
+
     // Plugin settings events (Plan 16-03)
     PluginList(Vec<zorai_protocol::PluginInfo>),
     PluginGet {
@@ -459,4 +467,3 @@ impl DaemonClient {
             .take();
     }
 }
-

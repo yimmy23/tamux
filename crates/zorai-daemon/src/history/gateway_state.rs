@@ -322,6 +322,19 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn delete_all_operator_profile_sessions(&self) -> Result<()> {
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "UPDATE operator_profile_sessions SET deleted_at = ?1 WHERE deleted_at IS NULL",
+                    params![now_ts() as i64],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn list_operator_profile_sessions(&self) -> Result<Vec<OperatorProfileSessionRow>> {
         self.read_conn
             .call(move |conn| {

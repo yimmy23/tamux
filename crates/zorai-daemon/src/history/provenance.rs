@@ -27,6 +27,34 @@ fn relationship_rows_for_entry(
     rows.collect()
 }
 
+fn finalize_memory_provenance_entry(
+    entry: &mut MemoryProvenanceReportEntry,
+    signing_material: Option<&ProvenanceSigningMaterial>,
+    legacy_signing_key: Option<&str>,
+) {
+    entry.signature_valid = match (&entry.signature, entry.signature_scheme.as_deref()) {
+        (Some(signature), Some(scheme)) if scheme == provenance_signature_scheme_ed25519() => {
+            signing_material.is_some_and(|material| {
+                entry.entry_hash.as_deref().is_some_and(|hash| {
+                    verify_provenance_signature_ed25519(material, hash, signature)
+                })
+            })
+        }
+        (Some(signature), None) => legacy_signing_key.is_some_and(|key| {
+            entry
+                .entry_hash
+                .as_deref()
+                .is_some_and(|hash| *signature == sign_provenance_hash(key, hash))
+        }),
+        (Some(_), Some(_)) => false,
+        (None, _) => entry.entry_hash.is_none(),
+    };
+    if entry.entry_hash.is_some() && (!entry.hash_valid || !entry.signature_valid) {
+        entry.status = "invalid".to_string();
+        entry.confidence = entry.confidence.min(0.1);
+    }
+}
+
 impl HistoryStore {
     /// Verify the hash-chain integrity of all WORM telemetry ledger files.
     pub fn verify_worm_integrity(&self) -> Result<Vec<WormIntegrityResult>> {
@@ -507,26 +535,11 @@ impl HistoryStore {
                 })?;
                 for row in rows {
                     let mut entry = row?;
-                    entry.signature_valid = match (&entry.signature, entry.signature_scheme.as_deref()) {
-                        (Some(signature), Some(scheme)) if scheme == provenance_signature_scheme_ed25519() => {
-                            signing_material.as_ref().is_some_and(|material| {
-                                entry.entry_hash.as_deref().is_some_and(|hash| {
-                                    verify_provenance_signature_ed25519(material, hash, signature)
-                                })
-                            })
-                        }
-                        (Some(signature), None) => legacy_signing_key.as_deref().is_some_and(|key| {
-                            entry.entry_hash.as_deref().is_some_and(|hash| {
-                                *signature == sign_provenance_hash(key, hash)
-                            })
-                        }),
-                        (Some(_), Some(_)) => false,
-                        (None, _) => entry.entry_hash.is_none(),
-                    };
-                    if entry.entry_hash.is_some() && (!entry.hash_valid || !entry.signature_valid) {
-                        entry.status = "invalid".to_string();
-                        entry.confidence = entry.confidence.min(0.1);
-                    }
+                    finalize_memory_provenance_entry(
+                        &mut entry,
+                        signing_material.as_ref(),
+                        legacy_signing_key.as_deref(),
+                    );
                     entry.relationships = relationship_rows_for_entry(conn, &entry.id)?;
                     *summary_by_target.entry(entry.target.clone()).or_insert(0) += 1;
                     *summary_by_source
@@ -546,26 +559,11 @@ impl HistoryStore {
                 })?;
                 for row in rows {
                     let mut entry = row?;
-                    entry.signature_valid = match (&entry.signature, entry.signature_scheme.as_deref()) {
-                        (Some(signature), Some(scheme)) if scheme == provenance_signature_scheme_ed25519() => {
-                            signing_material.as_ref().is_some_and(|material| {
-                                entry.entry_hash.as_deref().is_some_and(|hash| {
-                                    verify_provenance_signature_ed25519(material, hash, signature)
-                                })
-                            })
-                        }
-                        (Some(signature), None) => legacy_signing_key.as_deref().is_some_and(|key| {
-                            entry.entry_hash.as_deref().is_some_and(|hash| {
-                                *signature == sign_provenance_hash(key, hash)
-                            })
-                        }),
-                        (Some(_), Some(_)) => false,
-                        (None, _) => entry.entry_hash.is_none(),
-                    };
-                    if entry.entry_hash.is_some() && (!entry.hash_valid || !entry.signature_valid) {
-                        entry.status = "invalid".to_string();
-                        entry.confidence = entry.confidence.min(0.1);
-                    }
+                    finalize_memory_provenance_entry(
+                        &mut entry,
+                        signing_material.as_ref(),
+                        legacy_signing_key.as_deref(),
+                    );
                     entry.relationships = relationship_rows_for_entry(conn, &entry.id)?;
                     *summary_by_target.entry(entry.target.clone()).or_insert(0) += 1;
                     *summary_by_source
@@ -586,6 +584,177 @@ impl HistoryStore {
             entries,
         })
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_active_memory_provenance_conventions(
+        &self,
+        tokens: &[String],
+        limit: usize,
+    ) -> Result<Vec<MemoryProvenanceReportEntry>> {
+        let tokens = tokens
+            .iter()
+            .map(|token| token.trim().to_ascii_lowercase())
+            .filter(|token| !token.is_empty())
+            .collect::<Vec<_>>();
+        let limit = limit.clamp(1, 200) as i64;
+        let signing_material = self.stored_provenance_signing_material();
+        let legacy_signing_key = self.legacy_provenance_signing_key();
+        self.read_conn
+            .call(move |conn| {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let haystack = "lower(COALESCE(target, '') || ' ' || COALESCE(source_kind, '') || ' ' || COALESCE(content, '') || ' ' || COALESCE(fact_keys_json, ''))";
+                let mut sql = String::from(
+                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at \
+                     FROM memory_provenance \
+                     WHERE mode != 'remove' AND retracted_at IS NULL",
+                );
+                let mut values = Vec::<rusqlite::types::Value>::new();
+                if tokens.is_empty() {
+                    sql.push_str(" AND target IN ('MEMORY.md', 'USER.md')");
+                } else {
+                    let all_terms = std::iter::repeat(format!("{haystack} LIKE ?"))
+                        .take(tokens.len())
+                        .collect::<Vec<_>>()
+                        .join(" AND ");
+                    let any_fact_terms = std::iter::repeat("lower(COALESCE(fact_keys_json, '')) LIKE ?")
+                        .take(tokens.len())
+                        .collect::<Vec<_>>()
+                        .join(" OR ");
+                    sql.push_str(" AND ((");
+                    sql.push_str(&all_terms);
+                    sql.push_str(") OR (");
+                    sql.push_str(&any_fact_terms);
+                    sql.push_str("))");
+                    values.extend(
+                        tokens
+                            .iter()
+                            .map(|token| rusqlite::types::Value::Text(format!("%{token}%"))),
+                    );
+                    values.extend(
+                        tokens
+                            .iter()
+                            .map(|token| rusqlite::types::Value::Text(format!("%{token}%"))),
+                    );
+                }
+                sql.push_str(
+                    " ORDER BY CASE WHEN confirmed_at IS NOT NULL THEN 3 WHEN mode = 'conflict' THEN 1 ELSE 2 END DESC, created_at DESC LIMIT ?",
+                );
+                values.push(rusqlite::types::Value::Integer(limit));
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok(memory_provenance_entry_from_row(row, now_ms))
+                })?;
+                let mut entries = Vec::new();
+                for row in rows {
+                    let mut entry = row?;
+                    finalize_memory_provenance_entry(
+                        &mut entry,
+                        signing_material.as_ref(),
+                        legacy_signing_key.as_deref(),
+                    );
+                    entry.relationships = relationship_rows_for_entry(conn, &entry.id)?;
+                    entries.push(entry);
+                }
+                Ok(entries)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_active_memory_provenance_for_target(
+        &self,
+        target: &str,
+        limit: usize,
+    ) -> Result<Vec<MemoryProvenanceReportEntry>> {
+        let target = target.trim().to_string();
+        if target.is_empty() {
+            return Ok(Vec::new());
+        }
+        let limit = limit.clamp(1, 200) as i64;
+        let signing_material = self.stored_provenance_signing_material();
+        let legacy_signing_key = self.legacy_provenance_signing_key();
+        self.read_conn
+            .call(move |conn| {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let mut stmt = conn.prepare(
+                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at \
+                     FROM memory_provenance \
+                     WHERE target = ?1 AND mode != 'remove' AND retracted_at IS NULL \
+                     ORDER BY created_at DESC LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(params![target, limit], |row| {
+                    Ok(memory_provenance_entry_from_row(row, now_ms))
+                })?;
+                let mut entries = Vec::new();
+                for row in rows {
+                    let mut entry = row?;
+                    finalize_memory_provenance_entry(
+                        &mut entry,
+                        signing_material.as_ref(),
+                        legacy_signing_key.as_deref(),
+                    );
+                    entry.relationships = relationship_rows_for_entry(conn, &entry.id)?;
+                    entries.push(entry);
+                }
+                Ok(entries)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn latest_memory_provenance_created_at_by_fact_keys(
+        &self,
+        target: &str,
+        fact_keys: &[String],
+    ) -> Result<BTreeMap<String, u64>> {
+        let target = target.to_string();
+        let fact_keys = fact_keys
+            .iter()
+            .map(|key| key.trim())
+            .filter(|key| !key.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        if fact_keys.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(fact_keys.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT json_each.value, MAX(memory_provenance.created_at) \
+                     FROM memory_provenance, json_each(memory_provenance.fact_keys_json) \
+                     WHERE memory_provenance.target = ? \
+                       AND json_valid(memory_provenance.fact_keys_json) \
+                       AND json_each.value IN ({placeholders}) \
+                     GROUP BY json_each.value",
+                );
+                let mut values = Vec::<rusqlite::types::Value>::new();
+                values.push(rusqlite::types::Value::Text(target));
+                values.extend(fact_keys.into_iter().map(rusqlite::types::Value::Text));
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })?;
+                let mut timestamps = BTreeMap::new();
+                for row in rows {
+                    let (fact_key, created_at) = row?;
+                    if created_at >= 0 {
+                        timestamps.insert(fact_key, created_at as u64);
+                    }
+                }
+                Ok(timestamps)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn record_provenance_event(&self, record: &ProvenanceEventRecord<'_>) -> Result<()> {

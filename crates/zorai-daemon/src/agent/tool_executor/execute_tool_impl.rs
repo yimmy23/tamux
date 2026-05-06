@@ -1073,11 +1073,7 @@ async fn prepare_tool_execution(
     let critique_classification =
         crate::agent::weles_governance::classify_tool_call(tool_call.function.name.as_str(), &args);
     let current_task = if let Some(task_id) = task_id {
-        agent
-            .list_tasks()
-            .await
-            .into_iter()
-            .find(|task| task.id == task_id)
+        task_by_id_for_tool_scope(agent, task_id).await
     } else {
         None
     };
@@ -1710,7 +1706,7 @@ async fn dispatch_tool_execution(
         tool_names::ENQUEUE_TASK => execute_enqueue_task(args, agent).await,
         tool_names::LIST_TASKS => execute_list_tasks(args, agent).await,
         tool_names::START_GOAL_RUN => execute_start_goal_run(args, agent, thread_id, session_id).await,
-        tool_names::LIST_GOAL_RUNS => execute_list_goal_runs(agent).await,
+        tool_names::LIST_GOAL_RUNS => execute_list_goal_runs(&prepared.args, agent).await,
         tool_names::SUBMIT_GOAL_STEP_VERDICT => {
             execute_submit_goal_step_verdict(args, agent, task_id).await
         }

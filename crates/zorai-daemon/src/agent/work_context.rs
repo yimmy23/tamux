@@ -258,20 +258,45 @@ impl AgentEngine {
             return (None, None, None);
         };
 
-        let task = {
-            let tasks = self.tasks.lock().await;
-            tasks.iter().find(|item| item.id == task_id).cloned()
+        let task = match self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                goal_run_id: None,
+                parent_task_id: None,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+        {
+            Some(task) => Some(task),
+            None => {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find(|item| item.id == task_id).cloned()
+            }
         };
         let Some(task) = task else {
             return (None, None, None);
         };
 
         let goal_run = if let Some(goal_run_id) = task.goal_run_id.as_deref() {
-            let goal_runs = self.goal_runs.lock().await;
-            goal_runs
-                .iter()
-                .find(|item| item.id == goal_run_id)
-                .cloned()
+            let memory_goal_run = {
+                let goal_runs = self.goal_runs.lock().await;
+                goal_runs
+                    .iter()
+                    .find(|item| item.id == goal_run_id)
+                    .cloned()
+            };
+            match memory_goal_run {
+                Some(goal_run) => Some(goal_run),
+                None => self.history.get_goal_run(goal_run_id).await.ok().flatten(),
+            }
         } else {
             None
         };
@@ -289,17 +314,40 @@ impl AgentEngine {
         &self,
         task_id: &str,
     ) -> Option<GoalTodoContext> {
-        let task = {
-            let tasks = self.tasks.lock().await;
-            tasks.iter().find(|task| task.id == task_id).cloned()
+        let task = match self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                goal_run_id: None,
+                parent_task_id: None,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+        {
+            Some(task) => Some(task),
+            None => {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find(|task| task.id == task_id).cloned()
+            }
         }?;
         let goal_run_id = task.goal_run_id.clone()?;
-        let goal_run = {
+        let memory_goal_run = {
             let goal_runs = self.goal_runs.lock().await;
             goal_runs
                 .iter()
                 .find(|goal_run| goal_run.id == goal_run_id)
                 .cloned()
+        };
+        let goal_run = match memory_goal_run {
+            Some(goal_run) => Some(goal_run),
+            None => self.history.get_goal_run(&goal_run_id).await.ok().flatten(),
         }?;
         let task_goal_step_id = task.goal_step_id.clone();
         let step_index = task_goal_step_id
@@ -326,23 +374,36 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<(String, Option<String>, Option<String>, Option<usize>)> {
-        let goal_runs = self.goal_runs.lock().await;
-        let run = goal_runs
-            .iter()
-            .filter(|run| run.thread_id.as_deref() == Some(thread_id))
-            .max_by_key(|run| run.updated_at)
-            .cloned();
-        drop(goal_runs);
+        let run = match self.history.latest_goal_run_for_thread(thread_id).await {
+            Ok(Some(run)) => Some(run),
+            Ok(None) | Err(_) => {
+                let goal_runs = self.goal_runs.lock().await;
+                goal_runs
+                    .iter()
+                    .filter(|run| run.thread_id.as_deref() == Some(thread_id))
+                    .max_by_key(|run| run.updated_at)
+                    .cloned()
+            }
+        };
 
         let session_id =
             if let Some(run_session_id) = run.as_ref().and_then(|item| item.session_id.clone()) {
                 Some(run_session_id)
             } else {
-                let tasks = self.tasks.lock().await;
-                tasks
-                    .iter()
-                    .filter(|task| task.thread_id.as_deref() == Some(thread_id))
-                    .find_map(|task| task.session_id.clone())
+                match self
+                    .history
+                    .latest_agent_task_session_for_thread(thread_id)
+                    .await
+                {
+                    Ok(Some(session_id)) => Some(session_id),
+                    Ok(None) | Err(_) => {
+                        let tasks = self.tasks.lock().await;
+                        tasks
+                            .iter()
+                            .filter(|task| task.thread_id.as_deref() == Some(thread_id))
+                            .find_map(|task| task.session_id.clone())
+                    }
+                }
             };
 
         if let Some(session_id) = session_id.as_deref() {
@@ -435,13 +496,10 @@ impl AgentEngine {
         let mut already_recorded = HashSet::new();
         for signal in self
             .history
-            .list_implicit_signals(thread_id, 50)
+            .list_implicit_signals_by_type(thread_id, "rapid_revert", 50)
             .await
             .unwrap_or_default()
         {
-            if signal.signal_type != "rapid_revert" {
-                continue;
-            }
             let Some(snapshot) = signal.context_snapshot_json.as_deref() else {
                 continue;
             };

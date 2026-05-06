@@ -26,8 +26,8 @@ fn selection_point_from_snapshot(
                 .saturating_sub(snapshot.padding)
                 .min(visible_count.saturating_sub(1))
     };
-    let row = nearest_content_row(&snapshot.all_lines, row)?;
-    let rendered = snapshot.all_lines.get(row)?;
+    let row = nearest_content_row(snapshot, row)?;
+    let rendered = snapshot_line_at(snapshot, row)?;
     let (_, content_start, content_end) = rendered_line_content_bounds(rendered);
     let content_width = content_end.saturating_sub(content_start);
     let content_col = rel_col.saturating_sub(content_start).min(content_width);
@@ -53,6 +53,24 @@ pub fn hit_test(
     mouse: Position,
 ) -> Option<ChatHitTarget> {
     let snapshot = selection_snapshot(area, chat, theme, current_tick, false)?;
+    hit_test_snapshot(&snapshot, chat, current_tick, mouse)
+}
+
+pub fn hit_test_from_cached_snapshot(
+    snapshot: &CachedSelectionSnapshot,
+    chat: &ChatState,
+    current_tick: u64,
+    mouse: Position,
+) -> Option<ChatHitTarget> {
+    hit_test_snapshot(&snapshot.0, chat, current_tick, mouse)
+}
+
+fn hit_test_snapshot(
+    snapshot: &SelectionSnapshot,
+    chat: &ChatState,
+    current_tick: u64,
+    mouse: Position,
+) -> Option<ChatHitTarget> {
     let inner = snapshot.inner;
 
     if mouse.x < inner.x
@@ -71,12 +89,12 @@ pub fn hit_test(
         + rel_row
             .saturating_sub(snapshot.padding)
             .min(visible_count.saturating_sub(1));
-    let resolved_row = match snapshot.all_lines.get(absolute_row) {
+    let resolved_row = match snapshot_line_at(snapshot, absolute_row) {
         Some(line) if !matches!(line.kind, RenderedLineKind::Padding) => absolute_row,
-        Some(_) => nearest_message_content_row(&snapshot.all_lines, absolute_row)?,
+        Some(_) => nearest_message_content_row(snapshot, absolute_row)?,
         None => return None,
     };
-    let hit = snapshot.all_lines.get(resolved_row)?;
+    let hit = snapshot_line_at(snapshot, resolved_row)?;
 
     if matches!(
         hit.kind,

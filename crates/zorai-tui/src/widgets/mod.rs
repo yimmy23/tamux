@@ -8,6 +8,7 @@ pub mod collaboration_view;
 pub mod command_palette;
 pub mod concierge;
 pub mod concierge_loading;
+pub mod duration_format;
 pub mod file_preview;
 pub mod footer;
 pub mod goal_mission_control;
