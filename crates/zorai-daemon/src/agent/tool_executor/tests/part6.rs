@@ -1415,6 +1415,132 @@ async fn tui_bash_command_wait_true_detaches_long_running_headless_command() {
 }
 
 #[tokio::test]
+async fn tui_python_execute_wait_for_response_detaches_long_running_command() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let marker = root.path().join("tui-python-execute-wait-true-detached.txt");
+    let thread_id = "thread-tui-python-execute-wait-true-detach";
+    engine
+        .set_thread_client_surface(thread_id, zorai_protocol::ClientSurface::Tui)
+        .await;
+
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-tui-python-execute-wait-true-detach".to_string(),
+        ToolFunction {
+            name: "python_execute".to_string(),
+            arguments: serde_json::json!({
+                "code": format!(
+                    "import pathlib\nimport time\ntime.sleep(2)\npathlib.Path(r'{}').write_text('done')\nprint('finished')",
+                    marker.display()
+                ),
+                "wait_for_response": true,
+                "timeout_seconds": 30,
+            })
+            .to_string(),
+        },
+    );
+
+    let result = timeout(
+        Duration::from_millis(1500),
+        execute_tool(
+            &tool_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        ),
+    )
+    .await
+    .expect("long-running TUI python_execute should detach within the foreground grace window");
+
+    assert!(
+        !result.is_error,
+        "long-running TUI wait=true python_execute should detach cleanly: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("operation_id: "),
+        "detached TUI wait=true python_execute should return an operation handle: {}",
+        result.content
+    );
+    assert!(
+        !marker.exists(),
+        "detached TUI wait=true python_execute should return before the subprocess finishes"
+    );
+
+    let operation_id = result
+        .content
+        .lines()
+        .find_map(|line| line.strip_prefix("operation_id: "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .expect("detached TUI wait=true python_execute should expose an operation_id");
+
+    let status_call = ToolCall::with_default_weles_review(
+        "tool-tui-python-execute-wait-true-detach-status".to_string(),
+        ToolFunction {
+            name: "get_operation_status".to_string(),
+            arguments: serde_json::json!({
+                "operation_id": operation_id,
+            })
+            .to_string(),
+        },
+    );
+
+    let mut payload = serde_json::Value::Null;
+    let mut completed = false;
+    for _ in 0..30 {
+        let status = execute_tool(
+            &status_call,
+            &engine,
+            thread_id,
+            None,
+            &manager,
+            None,
+            &event_tx,
+            root.path(),
+            &engine.http_client,
+            None,
+        )
+        .await;
+
+        assert!(
+            !status.is_error,
+            "python_execute operation status lookup should succeed: {}",
+            status.content
+        );
+
+        payload = serde_json::from_str(&status.content)
+            .expect("python_execute operation status payload should be valid JSON");
+        if payload["state"] == "completed" {
+            completed = true;
+            break;
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+
+    assert!(
+        completed,
+        "detached TUI wait=true python_execute should complete within the polling window: {}",
+        payload
+    );
+    assert_eq!(payload["operation_id"], operation_id);
+    assert_eq!(payload["state"], "completed");
+    assert!(
+        marker.exists(),
+        "detached TUI wait=true python_execute should eventually finish"
+    );
+}
+
+#[tokio::test]
 async fn bash_command_wait_true_backgrounds_non_quick_headless_command() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;

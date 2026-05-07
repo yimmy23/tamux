@@ -1,8 +1,16 @@
-include!("conversion_parts/convert_thread_to_convert_todo_with_fallback_step.rs");
-include!("conversion_parts/convert_work_context_to_copy_to_clipboard.rs");
+#[path = "conversion_parts/convert_thread_to_convert_todo_with_fallback_step.rs"]
+mod convert_thread_to_convert_todo_with_fallback_step;
+
+#[path = "conversion_parts/convert_work_context_to_copy_to_clipboard.rs"]
+mod convert_work_context_to_copy_to_clipboard;
+
+pub(crate) use convert_thread_to_convert_todo_with_fallback_step::*;
+pub(crate) use convert_work_context_to_copy_to_clipboard::*;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::chat;
 
     #[test]
     fn convert_thread_preserves_operator_question_metadata() {

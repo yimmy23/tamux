@@ -1059,7 +1059,7 @@ async fn supervise_stalled_turns_escalates_after_third_retry_window() {
                 agent_name: None,
                 title: "Escalation thread".to_string(),
                 messages: vec![
-                    AgentMessage::user("Do the work", now.saturating_sub(301_000)),
+                    AgentMessage::user("Do the work", now.saturating_sub(121_000)),
                     AgentMessage {
                         id: "assistant-escalate".to_string(),
                         role: MessageRole::Assistant,
@@ -1090,7 +1090,7 @@ async fn supervise_stalled_turns_escalates_after_third_retry_window() {
                         tool_output_preview_path: None,
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
-                        timestamp: now.saturating_sub(300_000),
+                        timestamp: now.saturating_sub(120_000),
                     },
                 ],
                 pinned: false,
@@ -1112,11 +1112,11 @@ async fn supervise_stalled_turns_escalates_after_third_retry_window() {
             id: task_id.to_string(),
             title: "Escalation task".to_string(),
             description: "Escalation task".to_string(),
-            status: TaskStatus::Blocked,
+            status: TaskStatus::InProgress,
             priority: TaskPriority::Normal,
             progress: 0,
-            created_at: now,
-            started_at: Some(now),
+            created_at: now.saturating_sub(180_000),
+            started_at: Some(now.saturating_sub(180_000)),
             completed_at: None,
             error: None,
             result: None,
@@ -1162,6 +1162,7 @@ async fn supervise_stalled_turns_escalates_after_third_retry_window() {
             sub_agent_def_id: None,
         });
     }
+    engine.persist_tasks().await;
     {
         let mut candidates = engine.stalled_turn_candidates.lock().await;
         let mut candidate =
@@ -1187,6 +1188,76 @@ async fn supervise_stalled_turns_escalates_after_third_retry_window() {
         .find(|task| task.id == task_id)
         .expect("task should remain present");
     assert_eq!(task.blocked_reason.as_deref(), Some("stuck_needs_recovery"));
+}
+
+#[tokio::test]
+async fn stalled_turn_escalation_updates_persisted_task_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine =
+        crate::agent::AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let now = super::now_millis();
+    let thread_id = "thread-persisted-escalation";
+    let task = engine
+        .enqueue_task(
+            "Persisted escalation task".to_string(),
+            "Mark the persisted row as needing recovery.".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "goal_run",
+            None,
+            None,
+            Some(thread_id.to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine.tasks.lock().await.clear();
+
+    let mut candidate =
+        StalledTurnCandidate::new(thread_id, StalledTurnClass::PromiseWithoutAction, now);
+    candidate.last_message_excerpt = "Working. Let me finish this now.".to_string();
+    candidate.task_id = Some(task.id.clone());
+    candidate.retries_sent = 3;
+
+    engine.perform_stalled_turn_escalation(&candidate).await;
+
+    let updated = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task.id.clone()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
+        .expect("persisted task should remain queryable");
+
+    assert_eq!(
+        updated.blocked_reason.as_deref(),
+        Some("stuck_needs_recovery")
+    );
+    assert!(
+        updated.logs.iter().any(|entry| {
+            entry.phase == "stalled-turn-recovery"
+                && entry
+                    .message
+                    .contains("automatic stalled-turn recovery exhausted")
+        }),
+        "persisted task should record the escalation log"
+    );
 }
 
 #[tokio::test]

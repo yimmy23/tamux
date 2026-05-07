@@ -1,4 +1,6 @@
-fn join_normalized(base: &Path, raw_path: &str) -> PathBuf {
+use std::path::{Path, PathBuf};
+
+pub(super) fn join_normalized(base: &Path, raw_path: &str) -> PathBuf {
     let mut path = base.to_path_buf();
     for component in raw_path.split(['/', '\\']) {
         if component.is_empty() || component == "." {
@@ -13,11 +15,11 @@ fn join_normalized(base: &Path, raw_path: &str) -> PathBuf {
     path
 }
 
-fn last_separator_index(raw_path: &str) -> Option<usize> {
+pub(super) fn last_separator_index(raw_path: &str) -> Option<usize> {
     raw_path.rfind(|ch| matches!(ch, '/' | '\\'))
 }
 
-fn common_prefix(values: &[String]) -> String {
+pub(super) fn common_prefix(values: &[String]) -> String {
     let Some(first) = values.first() else {
         return String::new();
     };

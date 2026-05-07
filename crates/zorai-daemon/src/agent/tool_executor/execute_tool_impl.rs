@@ -1809,13 +1809,23 @@ async fn dispatch_tool_execution(
             }
         }
         tool_names::PYTHON_EXECUTE => {
-            execute_python_execute(
+            match execute_python_execute(
                 dispatch_args,
+                agent,
+                task_id,
+                thread_id,
                 session_manager,
                 session_id,
                 cancel_token.clone(),
             )
             .await
+            {
+                Ok((content, approval)) => {
+                    pending_approval = approval;
+                    Ok(content)
+                }
+                Err(error) => Err(error),
+            }
         }
         tool_names::ANALYZE_IMAGE => execute_analyze_image(args, agent, http_client).await,
         tool_names::GENERATE_IMAGE => execute_generate_image(args, agent, http_client, Some(thread_id)).await,

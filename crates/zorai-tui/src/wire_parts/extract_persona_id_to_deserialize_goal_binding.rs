@@ -1,6 +1,7 @@
-
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
+
+use super::goal_proof_check_record_to_output_line::{GoalRunDossier, GoalRunEvent, GoalRunStep};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct WelesReviewMetaVm {
@@ -369,7 +370,7 @@ pub struct GoalRunModelUsage {
     pub duration_ms: Option<u64>,
 }
 
-fn deserialize_goal_binding<'de, D>(deserializer: D) -> Result<String, D::Error>
+pub(super) fn deserialize_goal_binding<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -486,4 +487,3 @@ pub struct GoalEvidenceRecord {
     #[serde(default)]
     pub captured_at: Option<u64>,
 }
-

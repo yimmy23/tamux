@@ -1,7 +1,10 @@
-include!(
-    "input_ops_parts/preferred_voice_capture_backend_from_env_to_stop_voice_capture_process.rs"
-);
-include!("input_ops_parts/input_wrap_width_to_infer_attachment_mime.rs");
+#[path = "input_ops_parts/preferred_voice_capture_backend_from_env_to_stop_voice_capture_process.rs"]
+mod preferred_voice_capture_backend_from_env_to_stop_voice_capture_process;
+
+#[path = "input_ops_parts/input_wrap_width_to_infer_attachment_mime.rs"]
+mod input_wrap_width_to_infer_attachment_mime;
+
+pub(crate) use preferred_voice_capture_backend_from_env_to_stop_voice_capture_process::*;
 #[cfg(test)]
 mod tests {
     use super::*;

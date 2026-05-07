@@ -103,9 +103,7 @@ async fn execute_managed_command(
     let wait_for_completion = if auto_background {
         false
     } else {
-        args.get("wait_for_completion")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(true)
+        tool_waits_for_completion(args)
     };
     let mut wait_rx = if wait_for_completion {
         Some(session_manager.subscribe(resolved_session_id).await?.0)

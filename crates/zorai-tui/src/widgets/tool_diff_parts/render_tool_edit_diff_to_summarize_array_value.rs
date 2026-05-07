@@ -6,6 +6,8 @@ use zorai_protocol::tool_names;
 
 use crate::theme::ThemeTokens;
 
+use super::empty_key_to_wrap_preserving_whitespace::{empty_key, wrap_preserving_whitespace};
+
 const MAX_STRUCTURED_FIELDS: usize = 24;
 
 #[derive(Clone, Copy)]
@@ -464,7 +466,7 @@ fn summarize_string_value(
     value.to_string()
 }
 
-fn summarize_array_value(items: &[Value]) -> String {
+pub(super) fn summarize_array_value(items: &[Value]) -> String {
     if items.is_empty() {
         return "[]".to_string();
     }
@@ -498,4 +500,3 @@ fn summarize_array_value(items: &[Value]) -> String {
 
     format!("{} items", items.len())
 }
-

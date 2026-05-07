@@ -6,6 +6,10 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use crate::state::{NotificationsHeaderAction, NotificationsState};
 use crate::theme::ThemeTokens;
 
+use super::wrap_text_to_relative_time::{
+    relative_time, severity_style, truncate_display, wrap_text,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotificationsHitTarget {
     MarkAllRead,
@@ -23,35 +27,35 @@ pub enum NotificationsHitTarget {
 }
 
 #[derive(Debug, Clone)]
-struct RowLayout {
-    index: usize,
-    top: u16,
-    bottom: u16,
-    action_y: u16,
-    action_regions: Vec<ActionRegion>,
+pub(super) struct RowLayout {
+    pub(super) index: usize,
+    pub(super) top: u16,
+    pub(super) bottom: u16,
+    pub(super) action_y: u16,
+    pub(super) action_regions: Vec<ActionRegion>,
 }
 
 #[derive(Debug, Clone)]
-struct ActionRegion {
-    target: NotificationsHitTarget,
-    x: u16,
-    width: u16,
-    y: u16,
+pub(super) struct ActionRegion {
+    pub(super) target: NotificationsHitTarget,
+    pub(super) x: u16,
+    pub(super) width: u16,
+    pub(super) y: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct HeaderButton {
-    action: NotificationsHeaderAction,
-    label: &'static str,
-    enabled: bool,
-    selected: bool,
+pub(super) struct HeaderButton {
+    pub(super) action: NotificationsHeaderAction,
+    pub(super) label: &'static str,
+    pub(super) enabled: bool,
+    pub(super) selected: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RowActionButton {
-    label: String,
-    enabled: bool,
-    selected: bool,
+pub(super) struct RowActionButton {
+    pub(super) label: String,
+    pub(super) enabled: bool,
+    pub(super) selected: bool,
 }
 
 pub fn render(frame: &mut Frame, area: Rect, state: &NotificationsState, theme: &ThemeTokens) {
@@ -220,7 +224,7 @@ fn header_hit_test(
     None
 }
 
-fn header_buttons(state: &NotificationsState) -> Vec<HeaderButton> {
+pub(super) fn header_buttons(state: &NotificationsState) -> Vec<HeaderButton> {
     [
         (NotificationsHeaderAction::MarkAllRead, "[Read all]"),
         (NotificationsHeaderAction::ArchiveRead, "[Archive read]"),
@@ -236,7 +240,7 @@ fn header_buttons(state: &NotificationsState) -> Vec<HeaderButton> {
     .collect()
 }
 
-fn header_button_style(button: &HeaderButton, theme: &ThemeTokens) -> Style {
+pub(super) fn header_button_style(button: &HeaderButton, theme: &ThemeTokens) -> Style {
     if button.selected {
         theme.fg_active.bg(Color::Indexed(236))
     } else if button.enabled {
@@ -340,7 +344,7 @@ fn render_row(
     }
 }
 
-fn visible_layouts(area: Rect, state: &NotificationsState) -> Vec<RowLayout> {
+pub(super) fn visible_layouts(area: Rect, state: &NotificationsState) -> Vec<RowLayout> {
     let active_items = state.active_items();
     if active_items.is_empty() || area.height == 0 {
         return Vec::new();
@@ -398,7 +402,7 @@ fn visible_layouts(area: Rect, state: &NotificationsState) -> Vec<RowLayout> {
     layouts
 }
 
-fn row_action_buttons(
+pub(super) fn row_action_buttons(
     notification: &zorai_protocol::InboxNotification,
     expanded: bool,
     focused_row_action: Option<usize>,
@@ -439,7 +443,7 @@ fn row_action_buttons(
     labels
 }
 
-fn row_action_button_style(button: &RowActionButton, theme: &ThemeTokens) -> Style {
+pub(super) fn row_action_button_style(button: &RowActionButton, theme: &ThemeTokens) -> Style {
     if button.selected {
         theme
             .fg_active
@@ -474,4 +478,3 @@ fn body_lines(
         vec![wrapped.first().cloned().unwrap_or_default()]
     }
 }
-

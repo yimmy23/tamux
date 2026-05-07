@@ -2,6 +2,17 @@ use super::runtime::StalledTurnCandidate;
 use super::types::StalledTurnClass;
 use super::*;
 
+fn mark_task_stuck_needs_recovery(task: &mut AgentTask, message: &str) {
+    task.blocked_reason = Some("stuck_needs_recovery".to_string());
+    task.logs.push(make_task_log_entry(
+        task.retry_count,
+        TaskLogLevel::Warn,
+        "stalled-turn-recovery",
+        "automatic stalled-turn recovery exhausted",
+        Some(message.to_string()),
+    ));
+}
+
 impl AgentEngine {
     pub(super) async fn perform_stalled_turn_retry(
         &self,
@@ -141,24 +152,55 @@ impl AgentEngine {
         );
 
         if let Some(task_id) = candidate.task_id.as_deref() {
-            let updated = {
+            let mut updated_live_task = false;
+            let mut updated = {
                 let mut tasks = self.tasks.lock().await;
-                if let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) {
-                    task.blocked_reason = Some("stuck_needs_recovery".to_string());
-                    task.logs.push(make_task_log_entry(
-                        task.retry_count,
-                        TaskLogLevel::Warn,
-                        "stalled-turn-recovery",
-                        "automatic stalled-turn recovery exhausted",
-                        Some(message.clone()),
-                    ));
-                    Some(task.clone())
-                } else {
-                    None
-                }
+                tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .map(|task| {
+                        mark_task_stuck_needs_recovery(task, &message);
+                        updated_live_task = true;
+                        task.clone()
+                    })
             };
+            if updated.is_none() {
+                let Some(mut task) = self
+                    .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: Some(task_id.to_string()),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                    })
+                    .await
+                    .into_iter()
+                    .next()
+                else {
+                    return;
+                };
+                mark_task_stuck_needs_recovery(&mut task, &message);
+                if let Err(error) = self.history.upsert_agent_task(&task).await {
+                    tracing::warn!(
+                        task_id,
+                        "failed to persist stalled-turn escalation task update: {error}"
+                    );
+                    return;
+                }
+                updated = Some(task);
+            }
             if let Some(task) = updated {
-                self.persist_tasks().await;
+                if updated_live_task {
+                    self.persist_tasks().await;
+                }
                 self.emit_task_update(
                     &task,
                     Some("Automatic stalled-turn recovery exhausted".into()),

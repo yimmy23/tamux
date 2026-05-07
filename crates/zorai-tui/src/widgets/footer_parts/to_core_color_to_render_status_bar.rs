@@ -495,4 +495,3 @@ pub fn render_status_bar(
     let line = Line::from(spans);
     frame.render_widget(Paragraph::new(vec![line]), area);
 }
-

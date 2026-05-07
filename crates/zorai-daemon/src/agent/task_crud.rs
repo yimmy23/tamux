@@ -70,6 +70,29 @@ fn declared_goal_thread_ids(goal_run: &GoalRun) -> Vec<String> {
     thread_ids
 }
 
+fn release_task_after_supervised_acknowledgment(
+    task: &mut AgentTask,
+    ack_id: Option<String>,
+) -> bool {
+    if task.status != TaskStatus::AwaitingApproval {
+        return false;
+    }
+
+    task.status = TaskStatus::Queued;
+    task.started_at = None;
+    task.awaiting_approval_id = None;
+    task.blocked_reason = None;
+    task.logs.push(make_task_log_entry(
+        task.retry_count,
+        TaskLogLevel::Info,
+        "autonomy_acknowledgment",
+        "supervised acknowledgment received; task released to queue",
+        ack_id,
+    ));
+    task.progress = task.progress.max(5);
+    true
+}
+
 #[derive(Debug, Clone, Copy)]
 struct GoalRunDetailWindow {
     loaded_step_start: usize,
@@ -1600,33 +1623,66 @@ impl AgentEngine {
         }
 
         if let Some((task_id, ack_id)) = task_to_release {
-            let released_task = {
+            let mut released_live_task = false;
+            let mut released_task = {
                 let mut tasks = self.tasks.lock().await;
-                if let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) {
-                    if task.status == TaskStatus::AwaitingApproval {
-                        task.status = TaskStatus::Queued;
-                        task.started_at = None;
-                        task.awaiting_approval_id = None;
-                        task.blocked_reason = None;
-                        task.logs.push(make_task_log_entry(
-                            task.retry_count,
-                            TaskLogLevel::Info,
-                            "autonomy_acknowledgment",
-                            "supervised acknowledgment received; task released to queue",
-                            ack_id,
-                        ));
-                        task.progress = task.progress.max(5);
-                        Some(task.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+                tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .and_then(|task| {
+                        if release_task_after_supervised_acknowledgment(task, ack_id.clone()) {
+                            released_live_task = true;
+                            Some(task.clone())
+                        } else {
+                            None
+                        }
+                    })
             };
 
+            if released_task.is_none() {
+                let persisted_task = self
+                    .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: Some(task_id.clone()),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                    })
+                    .await
+                    .into_iter()
+                    .next();
+                if let Some(mut task) = persisted_task {
+                    if release_task_after_supervised_acknowledgment(&mut task, ack_id) {
+                        if let Err(error) = self.history.upsert_agent_task(&task).await {
+                            tracing::warn!(
+                                task_id = %task.id,
+                                "failed to persist supervised acknowledgment task release: {error}"
+                            );
+                        } else {
+                            {
+                                let mut tasks = self.tasks.lock().await;
+                                if !tasks.iter().any(|entry| entry.id == task.id) {
+                                    tasks.push_back(task.clone());
+                                }
+                            }
+                            released_task = Some(task);
+                        }
+                    }
+                }
+            }
+
             if let Some(task) = released_task {
-                self.persist_tasks().await;
+                if released_live_task {
+                    self.persist_tasks().await;
+                }
                 self.emit_task_update(&task, Some(status_message(&task).into()));
             }
         }

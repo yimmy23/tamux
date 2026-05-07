@@ -3059,6 +3059,174 @@ async fn handle_goal_run_step_completion_blocks_when_completion_marker_is_missin
 }
 
 #[tokio::test]
+async fn missing_completion_marker_requeue_updates_persisted_review_task_after_live_queue_clear() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-step-marker-persisted-review";
+
+    let mut goal_run = sample_goal_run_with_kind(
+        goal_run_id,
+        GoalRunStepKind::Command,
+        "Run the build and continue",
+    );
+    goal_run.steps[0].status = GoalRunStepStatus::InProgress;
+    goal_run.steps[0].task_id = Some("task-step-marker-persisted-review".to_string());
+    goal_run.steps.push(GoalRunStep {
+        id: "step-2".to_string(),
+        position: 1,
+        title: "step-2".to_string(),
+        instructions: "verify artifacts".to_string(),
+        kind: GoalRunStepKind::Research,
+        success_criteria: "artifacts verified".to_string(),
+        session_id: None,
+        status: GoalRunStepStatus::Pending,
+        task_id: None,
+        summary: None,
+        error: None,
+        started_at: None,
+        completed_at: None,
+    });
+    engine.goal_runs.lock().await.push_back(goal_run);
+
+    let completed_task = AgentTask {
+        id: "task-step-marker-persisted-review".to_string(),
+        title: "complete step".to_string(),
+        description: "complete step".to_string(),
+        status: TaskStatus::Completed,
+        priority: TaskPriority::Normal,
+        progress: 100,
+        created_at: now_millis(),
+        started_at: Some(now_millis().saturating_sub(1_000)),
+        completed_at: Some(now_millis()),
+        error: None,
+        result: Some("ok".to_string()),
+        thread_id: Some("thread-goal-custom".to_string()),
+        source: "goal_run".to_string(),
+        notify_on_complete: false,
+        notify_channels: Vec::new(),
+        dependencies: Vec::new(),
+        command: None,
+        session_id: None,
+        goal_run_id: Some(goal_run_id.to_string()),
+        goal_run_title: Some("goal with custom step".to_string()),
+        goal_step_id: Some("step-1".to_string()),
+        goal_step_title: Some("step-1".to_string()),
+        parent_task_id: None,
+        parent_thread_id: None,
+        runtime: "daemon".to_string(),
+        retry_count: 0,
+        max_retries: 0,
+        next_retry_at: None,
+        scheduled_at: None,
+        blocked_reason: None,
+        awaiting_approval_id: None,
+        policy_fingerprint: None,
+        approval_expires_at: None,
+        containment_scope: None,
+        compensation_status: None,
+        compensation_summary: None,
+        lane_id: None,
+        last_error: None,
+        logs: Vec::new(),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_overflow_action: None,
+        termination_conditions: None,
+        success_criteria: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        override_provider: None,
+        override_model: None,
+        override_system_prompt: None,
+        sub_agent_def_id: None,
+    };
+    engine.tasks.lock().await.push_back(completed_task.clone());
+
+    engine
+        .replace_thread_todos(
+            "thread-goal-custom",
+            vec![TodoItem {
+                id: "todo-1".to_string(),
+                content: "done".to_string(),
+                status: TodoStatus::Completed,
+                position: 0,
+                step_index: Some(0),
+                created_at: 0,
+                updated_at: 0,
+            }],
+            Some(completed_task.id.as_str()),
+        )
+        .await;
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_task)
+        .await
+        .expect("implementation completion should queue review");
+
+    let review_task = engine
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.source == "goal_verification")
+        .cloned()
+        .expect("review task should exist");
+    let mut completed_review = review_task.clone();
+    completed_review.status = TaskStatus::Completed;
+    completed_review.result = Some("review passed".to_string());
+    write_goal_step_review_record(
+        &engine,
+        &completed_review,
+        GoalStepReviewVerdict::Pass,
+        "review passed",
+    )
+    .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    engine
+        .handle_goal_run_step_completion(goal_run_id, &completed_review)
+        .await
+        .expect("persisted review task should be requeued when marker is missing");
+
+    let marker_path = crate::agent::goal_dossier::goal_step_completion_marker_path(
+        &engine.data_dir,
+        goal_run_id,
+        0,
+    );
+    let stored_task = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(review_task.id.clone()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
+        .expect("persisted review task should remain queryable");
+
+    assert_eq!(stored_task.status, TaskStatus::Queued);
+    assert!(
+        stored_task
+            .description
+            .contains(&marker_path.display().to_string()),
+        "queued retry should instruct the agent to create the marker file"
+    );
+}
+
+#[tokio::test]
 async fn exhausted_completion_marker_retries_require_human_approval() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;

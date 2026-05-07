@@ -1,5 +1,13 @@
     use super::*;
-    use crate::state::{NotificationsAction, NotificationsHeaderAction};
+    use super::render_to_body_lines::{
+        header_button_style, header_buttons, row_action_button_style, row_action_buttons,
+        visible_layouts,
+    };
+    use crate::state::{NotificationsAction, NotificationsHeaderAction, NotificationsState};
+    use crate::theme::ThemeTokens;
+    use ratatui::layout::{Position, Rect};
+    use ratatui::style::{Color, Modifier, Style};
+    use ratatui::widgets::{Block, Borders};
 
     fn state_with_notification() -> NotificationsState {
         let mut state = NotificationsState::new();

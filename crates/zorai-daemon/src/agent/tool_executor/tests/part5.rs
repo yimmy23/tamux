@@ -307,6 +307,10 @@
         assert!(properties.get("code").is_some(), "schema should include code");
         assert!(properties.get("cwd").is_some(), "schema should include cwd");
         assert!(
+            properties.get("wait_for_completion").is_some(),
+            "schema should include wait_for_completion"
+        );
+        assert!(
             properties.get("timeout_seconds").is_some(),
             "schema should include timeout_seconds"
         );

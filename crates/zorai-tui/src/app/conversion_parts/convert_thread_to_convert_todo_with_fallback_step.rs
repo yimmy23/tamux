@@ -1,12 +1,13 @@
 use super::*;
+use crate::state::{chat, task};
 
 #[cfg(not(test))]
 thread_local! {
-    static SYSTEM_CLIPBOARD: std::cell::RefCell<Option<arboard::Clipboard>> =
+    pub(super) static SYSTEM_CLIPBOARD: std::cell::RefCell<Option<arboard::Clipboard>> =
         const { std::cell::RefCell::new(None) };
 }
 
-pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
+pub(crate) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
     let window = chat::chat_window::MessageWindow::from_parts(
         t.total_message_count,
         t.loaded_message_start,
@@ -102,7 +103,7 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
     }
 }
 
-pub(super) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessage {
+pub(crate) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessage {
     chat::AgentMessage {
         id: m.id,
         role: match m.role {
@@ -175,7 +176,7 @@ pub(super) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessag
     }
 }
 
-pub(super) fn convert_task(t: crate::wire::AgentTask) -> task::AgentTask {
+pub(crate) fn convert_task(t: crate::wire::AgentTask) -> task::AgentTask {
     task::AgentTask {
         id: t.id,
         title: t.title,
@@ -445,7 +446,7 @@ fn convert_goal_run_dossier(record: crate::wire::GoalRunDossier) -> task::GoalRu
     }
 }
 
-pub(super) fn convert_checkpoint_summary(
+pub(crate) fn convert_checkpoint_summary(
     checkpoint: crate::wire::CheckpointSummary,
 ) -> task::GoalRunCheckpointSummary {
     task::GoalRunCheckpointSummary {
@@ -458,11 +459,11 @@ pub(super) fn convert_checkpoint_summary(
     }
 }
 
-pub(super) fn convert_todo(t: crate::wire::TodoItem) -> task::TodoItem {
+pub(crate) fn convert_todo(t: crate::wire::TodoItem) -> task::TodoItem {
     convert_todo_with_fallback_step(t, None)
 }
 
-pub(super) fn convert_todo_with_fallback_step(
+pub(crate) fn convert_todo_with_fallback_step(
     t: crate::wire::TodoItem,
     fallback_step_index: Option<usize>,
 ) -> task::TodoItem {

@@ -331,6 +331,85 @@ fn background_delta_isolated_to_origin_thread_until_switch() {
 }
 
 #[test]
+fn pumping_daemon_events_stops_after_first_active_streaming_delta() {
+    let (daemon_tx, daemon_rx) = std::sync::mpsc::channel();
+    let (cmd_tx, _cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    seed_two_visible_threads(&mut model);
+
+    daemon_tx
+        .send(ClientEvent::Delta {
+            thread_id: "thread-user".to_string(),
+            content: "Hel".to_string(),
+        })
+        .expect("delta should enqueue");
+    daemon_tx
+        .send(ClientEvent::Delta {
+            thread_id: "thread-user".to_string(),
+            content: "lo".to_string(),
+        })
+        .expect("second delta should enqueue");
+    daemon_tx
+        .send(ClientEvent::Done {
+            thread_id: "thread-user".to_string(),
+            input_tokens: 1,
+            output_tokens: 1,
+            cost: None,
+            provider: None,
+            model: None,
+            tps: None,
+            generation_ms: None,
+            reasoning: None,
+            provider_final_result_json: None,
+        })
+        .expect("done should enqueue");
+
+    let processed = model.pump_daemon_events_budgeted(32);
+
+    assert_eq!(processed, 1, "streaming frames should flush after the first delta");
+    assert_eq!(model.chat.streaming_content(), "Hel");
+
+    let processed_after = model.pump_daemon_events_budgeted(32);
+    assert_eq!(processed_after, 1, "next frame should advance the stream incrementally");
+    assert_eq!(model.chat.streaming_content(), "Hello");
+}
+
+#[test]
+fn pumping_daemon_events_does_not_pause_on_background_event_during_active_stream() {
+    let (daemon_tx, daemon_rx) = std::sync::mpsc::channel();
+    let (cmd_tx, _cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    seed_two_visible_threads(&mut model);
+
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-user".to_string(),
+        content: "Hel".to_string(),
+    });
+
+    daemon_tx
+        .send(ClientEvent::Delta {
+            thread_id: "thread-other".to_string(),
+            content: "background".to_string(),
+        })
+        .expect("background delta should enqueue");
+    daemon_tx
+        .send(ClientEvent::Delta {
+            thread_id: "thread-user".to_string(),
+            content: "lo".to_string(),
+        })
+        .expect("foreground delta should enqueue");
+
+    let processed = model.pump_daemon_events_budgeted(32);
+
+    assert_eq!(
+        processed, 2,
+        "background traffic should not prevent the next visible delta from being rendered"
+    );
+    assert_eq!(model.chat.streaming_content(), "Hello");
+    assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
+}
+
+#[test]
 fn background_reasoning_isolated_to_origin_thread_until_switch() {
     let mut model = build_model();
     seed_two_visible_threads(&mut model);

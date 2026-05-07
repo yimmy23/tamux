@@ -1,4 +1,8 @@
-fn wrap_text(text: &str, width: usize, max_lines: usize) -> Vec<String> {
+use ratatui::style::Style;
+
+use crate::theme::ThemeTokens;
+
+pub(super) fn wrap_text(text: &str, width: usize, max_lines: usize) -> Vec<String> {
     if width == 0 {
         return vec![String::new()];
     }
@@ -34,7 +38,7 @@ fn wrap_text(text: &str, width: usize, max_lines: usize) -> Vec<String> {
     lines
 }
 
-fn truncate_display(text: &str, width: usize) -> String {
+pub(super) fn truncate_display(text: &str, width: usize) -> String {
     if text.chars().count() <= width {
         return text.to_string();
     }
@@ -44,7 +48,7 @@ fn truncate_display(text: &str, width: usize) -> String {
         + "…"
 }
 
-fn severity_style(severity: &str, theme: &ThemeTokens) -> Style {
+pub(super) fn severity_style(severity: &str, theme: &ThemeTokens) -> Style {
     match severity {
         "error" => theme.accent_danger,
         "warning" | "alert" => theme.accent_secondary,
@@ -53,7 +57,7 @@ fn severity_style(severity: &str, theme: &ThemeTokens) -> Style {
     }
 }
 
-fn relative_time(timestamp_ms: i64) -> String {
+pub(super) fn relative_time(timestamp_ms: i64) -> String {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis() as i64)
@@ -70,4 +74,3 @@ fn relative_time(timestamp_ms: i64) -> String {
         format!("{}d", elapsed_secs / 86_400)
     }
 }
-

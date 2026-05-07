@@ -1,3 +1,5 @@
+use super::visible_for_provider_to_normalize_role_preset_id::SubAgentEditorState;
+
 /// TUI-side sub-agent entry mirroring the daemon's SubAgentDefinition.
 #[derive(Debug, Clone)]
 pub struct SubAgentEntry {

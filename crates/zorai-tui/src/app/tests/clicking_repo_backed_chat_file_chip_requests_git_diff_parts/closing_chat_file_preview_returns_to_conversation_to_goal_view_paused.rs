@@ -16,6 +16,39 @@ fn closing_chat_file_preview_returns_to_conversation() {
 }
 
 #[test]
+fn closing_same_thread_file_preview_does_not_reload_thread() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.focus = FocusArea::Chat;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.open_file_preview_path("/tmp/demo.txt".to_string());
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::RequestFilePreview { path, .. }) => {
+            assert_eq!(path, "/tmp/demo.txt");
+        }
+        other => panic!("expected file preview request, got {:?}", other),
+    }
+
+    let handled = model.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.chat.active_thread_id(), Some("thread-1"));
+    assert!(
+        cmd_rx.try_recv().is_err(),
+        "returning from a same-thread file preview should not re-request thread data"
+    );
+}
+
+#[test]
 fn goal_view_renders_goal_run_dossier_sections() {
     fn render_task_view(model: &mut TuiModel) -> String {
         let backend = TestBackend::new(model.width, model.height);

@@ -1,7 +1,85 @@
 use super::*;
 use crate::history::{EventLogRow, EventTriggerRow};
 
+fn apply_event_trigger_task_target(
+    task: &mut AgentTask,
+    thread_id: Option<&str>,
+    target_agent_id: &str,
+) {
+    task.sub_agent_def_id = Some(target_agent_id.to_string());
+    if let Some(thread_id) = thread_id {
+        task.thread_id = Some(thread_id.to_string());
+    }
+}
+
+fn apply_event_trigger_task_thread(task: &mut AgentTask, thread_id: &str) {
+    task.thread_id = Some(thread_id.to_string());
+}
+
 impl AgentEngine {
+    async fn update_event_trigger_task<F>(&self, task_id: &str, mut apply: F) -> Option<AgentTask>
+    where
+        F: FnMut(&mut AgentTask),
+    {
+        let mut updated_live_task = false;
+        let mut updated = {
+            let mut tasks = self.tasks.lock().await;
+            tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .map(|task| {
+                    apply(task);
+                    updated_live_task = true;
+                    task.clone()
+                })
+        };
+
+        if updated.is_none() {
+            let Some(mut task) = self
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
+                .await
+                .into_iter()
+                .next()
+            else {
+                return None;
+            };
+            apply(&mut task);
+            if let Err(error) = self.history.upsert_agent_task(&task).await {
+                tracing::warn!(
+                    task_id,
+                    "failed to persist event trigger task update: {error}"
+                );
+                return None;
+            }
+            {
+                let mut tasks = self.tasks.lock().await;
+                if !tasks.iter().any(|entry| entry.id == task.id) {
+                    tasks.push_back(task.clone());
+                }
+            }
+            updated = Some(task);
+        }
+
+        if updated_live_task {
+            self.persist_tasks().await;
+        }
+        updated
+    }
+
     pub(crate) async fn ensure_default_event_triggers(&self) -> Result<usize> {
         let now = now_millis();
         let defaults = vec![
@@ -685,17 +763,10 @@ impl AgentEngine {
             return Some(updated);
         }
 
-        let updated = {
-            let mut tasks = self.tasks.lock().await;
-            let task = tasks.iter_mut().find(|task| task.id == task_id)?;
-            task.sub_agent_def_id = Some(target_agent_id.to_string());
-            if let Some(thread_id) = thread_id {
-                task.thread_id = Some(thread_id.to_string());
-            }
-            task.clone()
-        };
-        self.persist_tasks().await;
-        Some(updated)
+        self.update_event_trigger_task(task_id, |task| {
+            apply_event_trigger_task_target(task, thread_id, target_agent_id);
+        })
+        .await
     }
 
     async fn set_event_trigger_task_thread(
@@ -703,14 +774,10 @@ impl AgentEngine {
         task_id: &str,
         thread_id: &str,
     ) -> Option<AgentTask> {
-        let updated = {
-            let mut tasks = self.tasks.lock().await;
-            let task = tasks.iter_mut().find(|task| task.id == task_id)?;
-            task.thread_id = Some(thread_id.to_string());
-            task.clone()
-        };
-        self.persist_tasks().await;
-        Some(updated)
+        self.update_event_trigger_task(task_id, |task| {
+            apply_event_trigger_task_thread(task, thread_id);
+        })
+        .await
     }
 
     async fn maybe_execute_event_trigger_tool(
@@ -863,5 +930,82 @@ fn normalize_event_trigger_target_agent(agent_id: Option<&str>) -> Option<String
         Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID.to_string())
     } else {
         Some(normalized)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session_manager::SessionManager;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn event_trigger_target_assignment_updates_persisted_task_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let task = engine
+            .enqueue_task(
+                "Event task".to_string(),
+                "Assign target after persistence".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "event_trigger",
+                None,
+                None,
+                None,
+                Some("daemon".to_string()),
+            )
+            .await;
+        engine.tasks.lock().await.clear();
+
+        let updated = engine
+            .assign_event_trigger_task_target(
+                &task.id,
+                Some("thread-event-persisted-target"),
+                "custom-reviewer",
+            )
+            .await
+            .expect("persisted event task should be targetable");
+
+        assert_eq!(updated.sub_agent_def_id.as_deref(), Some("custom-reviewer"));
+        assert_eq!(
+            updated.thread_id.as_deref(),
+            Some("thread-event-persisted-target")
+        );
+
+        let persisted = engine
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task.id.clone()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+            .expect("persisted task should remain queryable");
+
+        assert_eq!(
+            persisted.thread_id.as_deref(),
+            Some("thread-event-persisted-target")
+        );
+        assert_eq!(
+            persisted.sub_agent_def_id.as_deref(),
+            Some("custom-reviewer")
+        );
     }
 }

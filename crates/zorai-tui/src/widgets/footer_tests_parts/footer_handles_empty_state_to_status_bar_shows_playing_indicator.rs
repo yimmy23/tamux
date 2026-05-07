@@ -1,6 +1,9 @@
     use super::*;
+    use crate::state::input::InputState;
     use crate::state::InputMode;
+    use crate::theme::ThemeTokens;
     use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
     use ratatui::Terminal;
 
     #[test]

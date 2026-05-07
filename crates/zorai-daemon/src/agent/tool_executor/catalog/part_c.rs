@@ -159,7 +159,8 @@ fn add_available_tools_part_c(
             "properties": {
                 "code": { "type": "string", "description": "Python source code to execute" },
                 "cwd": { "type": "string", "description": "Optional working directory" },
-                "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 30, max: 600)" }
+                "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true). On the TUI surface, long-running executions detach after a short foreground grace and continue as a background operation." },
+                "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the execution auto-backgrounds, returns an `operation_id`, and will auto-notify the thread on completion." }
             },
             "required": ["code"]
         }),

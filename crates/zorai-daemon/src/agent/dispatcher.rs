@@ -111,6 +111,34 @@ fn terminal_task_notification_excerpt(value: Option<&str>) -> Option<String> {
     Some(excerpt)
 }
 
+fn append_subagent_outcome_log_to_parent(
+    parent: &mut AgentTask,
+    child_task: &AgentTask,
+    level: TaskLogLevel,
+    message: &str,
+    details: Option<&str>,
+) {
+    let detail_suffix = details
+        .map(|value| format!("; {value}"))
+        .unwrap_or_default();
+    parent.logs.push(make_task_log_entry(
+        child_task.retry_count,
+        level,
+        "subagent",
+        &format!(
+            "{}: {} ({}){}",
+            message, child_task.title, child_task.id, detail_suffix
+        ),
+        Some(format!(
+            "runtime={} status={} thread_id={} session_id={}",
+            child_task.runtime,
+            serde_json::to_string(&child_task.status).unwrap_or_else(|_| "unknown".to_string()),
+            child_task.thread_id.as_deref().unwrap_or("-"),
+            child_task.session_id.as_deref().unwrap_or("-"),
+        )),
+    ));
+}
+
 impl AgentEngine {
     async fn task_by_id_for_dispatcher(&self, task_id: &str) -> Option<AgentTask> {
         match self
@@ -993,37 +1021,51 @@ impl AgentEngine {
             return;
         };
 
-        let updated_parent = {
+        let mut updated_live_parent = false;
+        let mut updated_parent = {
             let mut tasks = self.tasks.lock().await;
-            let Some(parent) = tasks.iter_mut().find(|entry| entry.id == parent_task_id) else {
-                return;
-            };
-            let detail_suffix = details
-                .as_deref()
-                .map(|value| format!("; {value}"))
-                .unwrap_or_default();
-            parent.logs.push(make_task_log_entry(
-                child_task.retry_count,
-                level,
-                "subagent",
-                &format!(
-                    "{}: {} ({}){}",
-                    message, child_task.title, child_task.id, detail_suffix
-                ),
-                Some(format!(
-                    "runtime={} status={} thread_id={} session_id={}",
-                    child_task.runtime,
-                    serde_json::to_string(&child_task.status)
-                        .unwrap_or_else(|_| "unknown".to_string()),
-                    child_task.thread_id.as_deref().unwrap_or("-"),
-                    child_task.session_id.as_deref().unwrap_or("-"),
-                )),
-            ));
-            Some(parent.clone())
+            tasks
+                .iter_mut()
+                .find(|entry| entry.id == parent_task_id)
+                .map(|parent| {
+                    append_subagent_outcome_log_to_parent(
+                        parent,
+                        child_task,
+                        level,
+                        message,
+                        details.as_deref(),
+                    );
+                    updated_live_parent = true;
+                    parent.clone()
+                })
         };
 
+        if updated_parent.is_none() {
+            let Some(mut parent) = self.task_by_id_for_dispatcher(parent_task_id).await else {
+                return;
+            };
+            append_subagent_outcome_log_to_parent(
+                &mut parent,
+                child_task,
+                level,
+                message,
+                details.as_deref(),
+            );
+            if let Err(error) = self.history.upsert_agent_task(&parent).await {
+                tracing::warn!(
+                    parent_task_id,
+                    child_task_id = %child_task.id,
+                    "failed to persist subagent outcome on parent task: {error}"
+                );
+                return;
+            }
+            updated_parent = Some(parent);
+        }
+
         if let Some(parent) = updated_parent {
-            self.persist_tasks().await;
+            if updated_live_parent {
+                self.persist_tasks().await;
+            }
             self.emit_task_update(&parent, Some("Subagent update received".into()));
             if child_task.status == TaskStatus::BudgetExceeded {
                 let parent_thread_id = parent
@@ -1562,6 +1604,98 @@ mod tests {
                     .content
                     .contains("respawn from the last completed point")
         }));
+    }
+
+    #[tokio::test]
+    async fn record_subagent_outcome_updates_persisted_parent_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let parent = engine
+            .enqueue_task(
+                "Parent task".to_string(),
+                "Wait for subagent outcome".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "user",
+                None,
+                None,
+                Some("thread-parent-persisted-outcome".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        let mut child = engine
+            .enqueue_task(
+                "Child task".to_string(),
+                "Report failure to parent".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                Some(parent.id.clone()),
+                Some("thread-parent-persisted-outcome".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        child.status = TaskStatus::Failed;
+        child.completed_at = Some(now_millis());
+        child.last_error = Some("child failed".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            let persisted = tasks
+                .iter_mut()
+                .find(|entry| entry.id == child.id)
+                .expect("child task should exist");
+            *persisted = child.clone();
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        engine
+            .record_subagent_outcome_on_parent(
+                &child,
+                TaskLogLevel::Error,
+                "subagent failed",
+                child.last_error.clone(),
+            )
+            .await;
+
+        let updated_parent = engine
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(parent.id.clone()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+            .expect("persisted parent should remain queryable");
+
+        assert!(
+            updated_parent.logs.iter().any(|entry| {
+                entry.phase == "subagent"
+                    && entry.message.contains("subagent failed")
+                    && entry.message.contains(&child.id)
+            }),
+            "persisted parent task should record subagent outcome"
+        );
     }
 
     fn terminal_notification_test_task(

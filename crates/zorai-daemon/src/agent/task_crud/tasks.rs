@@ -4,6 +4,17 @@ use super::*;
 
 const TASK_APPROVAL_REASON_PREFIX: &str = "waiting for operator approval: ";
 
+fn apply_weles_task_target(task: &mut AgentTask, persona_prompt: &str) {
+    task.sub_agent_def_id =
+        Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID.to_string());
+    task.override_system_prompt = Some(match task.override_system_prompt.take() {
+        Some(existing) if !existing.trim().is_empty() => {
+            format!("{persona_prompt}\n\n{existing}")
+        }
+        _ => persona_prompt.to_string(),
+    });
+}
+
 fn task_matches_list_query(task: &AgentTask, query: &crate::history::AgentTaskListQuery) -> bool {
     if let Some(id) = query.id.as_deref().filter(|value| !value.is_empty()) {
         if task.id != id {
@@ -503,25 +514,65 @@ impl AgentEngine {
         let persona_prompt = crate::agent::agent_identity::build_weles_persona_prompt(
             crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE,
         );
-        let updated = {
+        let mut updated_live_task = false;
+        let mut updated = {
             let mut tasks = self.tasks.lock().await;
-            let task = tasks.iter_mut().find(|task| task.id == task_id)?;
-            task.sub_agent_def_id =
-                Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID.to_string());
-            task.override_system_prompt = Some(match task.override_system_prompt.take() {
-                Some(existing) if !existing.trim().is_empty() => {
-                    format!("{persona_prompt}\n\n{existing}")
-                }
-                _ => persona_prompt.clone(),
-            });
-            task.clone()
+            tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .map(|task| {
+                    apply_weles_task_target(task, &persona_prompt);
+                    updated_live_task = true;
+                    task.clone()
+                })
         };
+        if updated.is_none() {
+            let Some(mut task) = self
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
+                .await
+                .into_iter()
+                .next()
+            else {
+                return None;
+            };
+            apply_weles_task_target(&mut task, &persona_prompt);
+            if let Err(error) = self.history.upsert_agent_task(&task).await {
+                tracing::warn!(
+                    task_id,
+                    "failed to persist Weles task retarget update: {error}"
+                );
+                return None;
+            }
+            {
+                let mut tasks = self.tasks.lock().await;
+                if !tasks.iter().any(|entry| entry.id == task.id) {
+                    tasks.push_back(task.clone());
+                }
+            }
+            updated = Some(task);
+        }
         self.trusted_weles_tasks
             .write()
             .await
             .insert(task_id.to_string());
-        self.persist_tasks().await;
-        Some(updated)
+        if updated_live_task {
+            self.persist_tasks().await;
+        }
+        updated
     }
 
     pub async fn cancel_task(&self, task_id: &str) -> bool {

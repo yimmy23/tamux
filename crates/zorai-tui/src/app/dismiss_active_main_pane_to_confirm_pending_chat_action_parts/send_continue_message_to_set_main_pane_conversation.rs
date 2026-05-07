@@ -473,6 +473,18 @@ impl TuiModel {
         self.sync_contextual_approval_overlay();
     }
 
+    fn restore_current_conversation_view(&mut self, focus: FocusArea) {
+        self.cleanup_concierge_on_navigate();
+        self.clear_chat_drag_selection();
+        self.clear_work_context_drag_selection();
+        self.clear_task_view_drag_selection();
+        self.pending_new_thread_target_agent = None;
+        self.main_pane_view = MainPaneView::Conversation;
+        self.task_view_scroll = 0;
+        self.focus = focus;
+        self.sync_contextual_approval_overlay();
+    }
+
     fn start_new_thread_view(&mut self) {
         self.start_new_thread_view_for_agent(None);
     }

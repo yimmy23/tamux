@@ -81,5 +81,8 @@ pub(super) fn flatten_config_value(
     }
 }
 
-include!("config_io_helpers_parts/provider_field_str_to_refresh_snapshot_stats.rs");
-include!("config_io_helpers_parts/build_config_patch_value.rs");
+#[path = "config_io_helpers_parts/provider_field_str_to_refresh_snapshot_stats.rs"]
+mod provider_field_str_to_refresh_snapshot_stats;
+
+#[path = "config_io_helpers_parts/build_config_patch_value.rs"]
+mod build_config_patch_value;

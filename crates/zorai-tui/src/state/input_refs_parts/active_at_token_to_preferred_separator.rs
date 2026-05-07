@@ -4,6 +4,10 @@ use std::fs;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
+use super::join_normalized_to_common_prefix::{
+    common_prefix, join_normalized, last_separator_index,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveToken {
     pub range: Range<usize>,
@@ -493,4 +497,3 @@ fn preferred_separator(raw_path: &str) -> char {
         (None, None) => std::path::MAIN_SEPARATOR,
     }
 }
-

@@ -424,4 +424,3 @@ fn normalize_role_preset_id(id: &str) -> String {
         normalized => normalized.to_string(),
     }
 }
-

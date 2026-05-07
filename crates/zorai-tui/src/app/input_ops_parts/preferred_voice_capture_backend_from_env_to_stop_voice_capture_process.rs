@@ -8,12 +8,14 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum VoiceCaptureBackend {
+pub(crate) enum VoiceCaptureBackend {
     Pulse,
     Alsa,
 }
 
-fn preferred_voice_capture_backend_from_env(has_pulse_server: bool) -> VoiceCaptureBackend {
+pub(crate) fn preferred_voice_capture_backend_from_env(
+    has_pulse_server: bool,
+) -> VoiceCaptureBackend {
     if has_pulse_server {
         VoiceCaptureBackend::Pulse
     } else {
@@ -21,11 +23,14 @@ fn preferred_voice_capture_backend_from_env(has_pulse_server: bool) -> VoiceCapt
     }
 }
 
-fn preferred_voice_capture_backend() -> VoiceCaptureBackend {
+pub(super) fn preferred_voice_capture_backend() -> VoiceCaptureBackend {
     preferred_voice_capture_backend_from_env(std::env::var_os("PULSE_SERVER").is_some())
 }
 
-fn ffmpeg_voice_capture_args(capture_path: &str, backend: VoiceCaptureBackend) -> Vec<String> {
+pub(crate) fn ffmpeg_voice_capture_args(
+    capture_path: &str,
+    backend: VoiceCaptureBackend,
+) -> Vec<String> {
     let input_format = match backend {
         VoiceCaptureBackend::Pulse => "pulse",
         VoiceCaptureBackend::Alsa => "alsa",
@@ -47,14 +52,14 @@ fn ffmpeg_voice_capture_args(capture_path: &str, backend: VoiceCaptureBackend) -
     ]
 }
 
-fn voice_capture_backend_label(backend: VoiceCaptureBackend) -> &'static str {
+pub(super) fn voice_capture_backend_label(backend: VoiceCaptureBackend) -> &'static str {
     match backend {
         VoiceCaptureBackend::Pulse => "ffmpeg/pulse",
         VoiceCaptureBackend::Alsa => "ffmpeg/alsa",
     }
 }
 
-fn read_voice_capture_error_summary(stderr_path: Option<&str>) -> Option<String> {
+pub(super) fn read_voice_capture_error_summary(stderr_path: Option<&str>) -> Option<String> {
     let path = stderr_path?;
     let content = std::fs::read_to_string(path).ok()?;
     content
@@ -64,7 +69,7 @@ fn read_voice_capture_error_summary(stderr_path: Option<&str>) -> Option<String>
         .map(|line| line.chars().take(240).collect::<String>())
 }
 
-fn spawn_ffmpeg_voice_capture(
+pub(super) fn spawn_ffmpeg_voice_capture(
     capture_path: &str,
     stderr_path: &Path,
     backend: VoiceCaptureBackend,
@@ -78,7 +83,7 @@ fn spawn_ffmpeg_voice_capture(
         .spawn()
 }
 
-fn spawn_arecord_voice_capture(
+pub(super) fn spawn_arecord_voice_capture(
     capture_path: &str,
     stderr_path: &Path,
 ) -> std::io::Result<std::process::Child> {
@@ -91,7 +96,7 @@ fn spawn_arecord_voice_capture(
         .spawn()
 }
 
-fn stop_voice_capture_process(child: &mut Child) -> Option<ExitStatus> {
+pub(super) fn stop_voice_capture_process(child: &mut Child) -> Option<ExitStatus> {
     #[cfg(unix)]
     {
         let interrupt_result = unsafe { libc::kill(child.id() as i32, libc::SIGINT) };
@@ -110,4 +115,3 @@ fn stop_voice_capture_process(child: &mut Child) -> Option<ExitStatus> {
     let _ = child.kill();
     child.wait().ok()
 }
-

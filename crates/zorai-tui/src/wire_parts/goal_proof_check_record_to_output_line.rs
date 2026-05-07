@@ -1,3 +1,9 @@
+use serde::{Deserialize, Serialize};
+
+use super::extract_persona_id_to_deserialize_goal_binding::{
+    deserialize_goal_binding, GoalEvidenceRecord,
+};
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GoalProofCheckRecord {
     #[serde(default)]

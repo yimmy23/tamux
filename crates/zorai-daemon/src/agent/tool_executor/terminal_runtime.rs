@@ -166,11 +166,18 @@ async fn execute_bash_command(
 
 const TUI_HEADLESS_FOREGROUND_GRACE_SECS: u64 = 1;
 
-fn bash_command_should_force_background(args: &serde_json::Value) -> bool {
-    let wait_for_completion = args
-        .get("wait_for_completion")
+fn tool_waits_for_completion(args: &serde_json::Value) -> bool {
+    args.get("wait_for_completion")
         .and_then(|value| value.as_bool())
-        .unwrap_or(true);
+        .or_else(|| {
+            args.get("wait_for_response")
+                .and_then(|value| value.as_bool())
+        })
+        .unwrap_or(true)
+}
+
+fn bash_command_should_force_background(args: &serde_json::Value) -> bool {
+    let wait_for_completion = tool_waits_for_completion(args);
     if !wait_for_completion {
         return false;
     }
@@ -198,11 +205,7 @@ fn bash_command_args_with_wait_false(args: &serde_json::Value) -> serde_json::Va
 }
 
 fn bash_command_can_wait_for_completion(args: &serde_json::Value) -> bool {
-    if args
-        .get("wait_for_completion")
-        .and_then(|value| value.as_bool())
-        == Some(false)
-    {
+    if !tool_waits_for_completion(args) {
         return false;
     }
 
@@ -694,9 +697,7 @@ async fn execute_headless_shell_command(
     let wait_for_completion = if auto_background {
         false
     } else {
-        args.get("wait_for_completion")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(true)
+        tool_waits_for_completion(args)
     };
     let timeout_secs = requested_timeout.min(600);
     let cwd = resolve_tool_cwd(args, session_manager, session_id).await?;

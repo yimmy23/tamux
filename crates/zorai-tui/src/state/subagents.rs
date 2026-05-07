@@ -1,6 +1,14 @@
 #![allow(dead_code)]
 
-include!("subagents_parts/visible_for_provider_to_normalize_role_preset_id.rs");
+#[path = "subagents_parts/visible_for_provider_to_normalize_role_preset_id.rs"]
+mod visible_for_provider_to_normalize_role_preset_id;
+
+#[path = "subagents_parts/new_to_reduce.rs"]
+mod new_to_reduce;
+
+pub use new_to_reduce::*;
+pub use visible_for_provider_to_normalize_role_preset_id::*;
+
 #[cfg(test)]
 mod tests {
     use super::{find_role_preset, role_picker_index_for_id, SUBAGENT_ROLE_PRESETS};
@@ -38,5 +46,3 @@ mod tests {
         assert!(role_picker_index_for_id("product_strategy").is_some());
     }
 }
-
-include!("subagents_parts/new_to_reduce.rs");

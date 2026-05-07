@@ -40,6 +40,70 @@ async fn compaction_scope_snapshot_resolves_persisted_task_by_id() {
     assert_eq!(scope.thread_id, "thread-compaction-scope");
 }
 
+#[tokio::test]
+async fn retarget_task_to_weles_updates_persisted_task_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let task = engine
+        .enqueue_task(
+            "Route to Weles".to_string(),
+            "Apply Weles identity to this persisted task".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "event_trigger",
+            None,
+            None,
+            Some("thread-retarget-weles".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine.tasks.lock().await.clear();
+
+    let updated = engine
+        .retarget_task_to_weles(&task.id)
+        .await
+        .expect("persisted task should be retargeted");
+
+    assert_eq!(
+        updated.sub_agent_def_id.as_deref(),
+        Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+    );
+    assert!(updated
+        .override_system_prompt
+        .as_deref()
+        .is_some_and(|prompt| prompt.contains(crate::agent::agent_identity::WELES_AGENT_ID)));
+
+    let persisted = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task.id.clone()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
+        .expect("persisted task should remain queryable");
+    assert_eq!(
+        persisted.sub_agent_def_id.as_deref(),
+        Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+    );
+}
+
 fn sample_supervised_goal_run(goal_run_id: &str, task_id: &str, approval_id: &str) -> GoalRun {
     GoalRun {
         id: goal_run_id.to_string(),
@@ -599,6 +663,65 @@ async fn explicit_acknowledgment_unblocks_goal_and_current_step_task() {
         .expect("task should exist");
     assert_eq!(task.status, TaskStatus::Queued);
     assert!(task.awaiting_approval_id.is_none());
+}
+
+#[tokio::test]
+async fn explicit_acknowledgment_unblocks_persisted_current_step_task_after_live_queue_clear() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-supervised-persisted";
+    let task_id = "task-supervised-persisted";
+    let approval_id = "autonomy-ack-persisted";
+
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(sample_supervised_goal_run(
+            goal_run_id,
+            task_id,
+            approval_id,
+        ));
+    sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let changed = engine
+        .control_goal_run(goal_run_id, "acknowledge", None)
+        .await;
+    assert!(changed, "acknowledge should clear supervised gate");
+
+    let task = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
+        .expect("persisted task should remain queryable");
+
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.awaiting_approval_id.is_none());
+    assert!(
+        task.logs.iter().any(|entry| {
+            entry.phase == "autonomy_acknowledgment"
+                && entry.message.contains("task released to queue")
+        }),
+        "persisted task should record acknowledgment release"
+    );
 }
 
 #[tokio::test]

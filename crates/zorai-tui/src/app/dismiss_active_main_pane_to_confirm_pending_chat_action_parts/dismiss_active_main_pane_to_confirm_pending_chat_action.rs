@@ -34,6 +34,12 @@ impl TuiModel {
             | MainPaneView::FilePreview(_) => {
                 if let Some(thread_id) = self.mission_control_return_to_thread_id() {
                     self.set_mission_control_return_to_thread_id(None);
+                    if matches!(self.main_pane_view, MainPaneView::FilePreview(_))
+                        && self.chat.active_thread_id() == Some(thread_id.as_str())
+                    {
+                        self.restore_current_conversation_view(focus);
+                        return true;
+                    }
                     self.restore_conversation_thread(thread_id, focus);
                     return true;
                 }

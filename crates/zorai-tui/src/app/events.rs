@@ -45,8 +45,16 @@ impl TuiModel {
         while processed < limit {
             match self.daemon_events_rx.try_recv() {
                 Ok(event) => {
+                    let streaming_content_len_before = self.chat.streaming_content().len();
+                    let streaming_reasoning_len_before = self.chat.streaming_reasoning().len();
                     self.handle_client_event(event);
                     processed += 1;
+                    let streaming_grew = self.chat.streaming_content().len()
+                        > streaming_content_len_before
+                        || self.chat.streaming_reasoning().len() > streaming_reasoning_len_before;
+                    if streaming_grew {
+                        break;
+                    }
                 }
                 Err(_) => break,
             }
