@@ -1,4 +1,16 @@
-fn selection_point_from_snapshot(
+use super::*;
+use super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
+use super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode};
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+pub(crate) fn selection_point_from_snapshot(
     snapshot: &SelectionSnapshot,
     mouse: Position,
 ) -> Option<SelectionPoint> {
@@ -38,7 +50,7 @@ fn selection_point_from_snapshot(
     })
 }
 
-fn toggle_button_hit(hit: &RenderedChatLine, inner: Rect, mouse: Position) -> bool {
+pub(crate) fn toggle_button_hit(hit: &RenderedChatLine, inner: Rect, mouse: Position) -> bool {
     let content_col = mouse.x.saturating_sub(inner.x) as usize;
     let (_, content_start, _) = rendered_line_content_bounds(hit);
     content_col >= content_start
@@ -65,7 +77,7 @@ pub fn hit_test_from_cached_snapshot(
     hit_test_snapshot(&snapshot.0, chat, current_tick, mouse)
 }
 
-fn hit_test_snapshot(
+pub(crate) fn hit_test_snapshot(
     snapshot: &SelectionSnapshot,
     chat: &ChatState,
     current_tick: u64,
@@ -219,7 +231,7 @@ pub fn render(
 
     if chat.active_thread().is_none() && chat.streaming_content().is_empty() {
         // Render splash
-        super::splash::render(frame, inner, theme);
+        crate::widgets::splash::render(frame, inner, theme);
         return;
     }
     let Some(snapshot) =

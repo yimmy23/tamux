@@ -104,6 +104,69 @@ async fn retarget_task_to_weles_updates_persisted_task_after_live_queue_clear() 
     );
 }
 
+#[tokio::test]
+async fn start_goal_run_reuses_matching_persisted_active_goal_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let first = engine
+        .start_goal_run(
+            "Build a persisted duplicate guard".to_string(),
+            Some("Persisted duplicate guard".to_string()),
+            Some("thread-persisted-duplicate-guard".to_string()),
+            Some("session-persisted-duplicate-guard".to_string()),
+            Some("normal"),
+            Some("client-request-persisted-duplicate-guard".to_string()),
+            None,
+            None,
+        )
+        .await;
+    engine.goal_runs.lock().await.clear();
+
+    let persisted_candidates = engine
+        .history
+        .list_active_goal_runs_for_start_request(
+            Some("thread-persisted-duplicate-guard".to_string()),
+            Some("session-persisted-duplicate-guard".to_string()),
+            Some("client-request-persisted-duplicate-guard".to_string()),
+        )
+        .await
+        .expect("persisted active goal run query should succeed");
+    assert_eq!(
+        persisted_candidates
+            .iter()
+            .map(|goal_run| goal_run.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![first.id.as_str()]
+    );
+
+    let second = engine
+        .start_goal_run(
+            "Build a persisted duplicate guard".to_string(),
+            Some("Persisted duplicate guard".to_string()),
+            Some("thread-persisted-duplicate-guard".to_string()),
+            Some("session-persisted-duplicate-guard".to_string()),
+            Some("normal"),
+            Some("client-request-persisted-duplicate-guard".to_string()),
+            None,
+            None,
+        )
+        .await;
+
+    assert_eq!(
+        second.id, first.id,
+        "matching active goal run should be selected from SQLite when the live queue is empty"
+    );
+    let (persisted_ids, persisted_total) = engine
+        .history
+        .list_goal_run_ids_page(10, 0)
+        .await
+        .expect("persisted goal runs should be listed");
+    assert_eq!(persisted_total, 1);
+    assert_eq!(persisted_ids, vec![first.id]);
+}
+
 fn sample_supervised_goal_run(goal_run_id: &str, task_id: &str, approval_id: &str) -> GoalRun {
     GoalRun {
         id: goal_run_id.to_string(),
@@ -684,6 +747,8 @@ async fn explicit_acknowledgment_unblocks_persisted_current_step_task_after_live
             approval_id,
         ));
     sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
     engine.persist_tasks().await;
     engine.tasks.lock().await.clear();
 
@@ -743,6 +808,8 @@ async fn task_approval_resolution_syncs_parent_goal_run_state() {
             approval_id,
         ));
     sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
     engine.persist_tasks().await;
     engine.tasks.lock().await.clear();
 
@@ -2021,6 +2088,51 @@ async fn list_goal_runs_pagination_obeys_newest_first_limit_and_offset() {
 }
 
 #[tokio::test]
+async fn list_goal_runs_pagination_uses_persisted_goal_runs_after_live_queue_clear() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    {
+        let mut goals = engine.goal_runs.lock().await;
+        for (id, updated_at) in [
+            ("goal-db-one", 30),
+            ("goal-db-two", 20),
+            ("goal-db-three", 10),
+        ] {
+            let mut goal =
+                sample_supervised_goal_run(id, &format!("task-{id}"), &format!("approval-{id}"));
+            goal.updated_at = updated_at;
+            goals.push_back(goal);
+        }
+    }
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    let (first_page, _) = engine
+        .list_goal_runs_paginated_capped_for_ipc(Some(2), Some(0))
+        .await;
+    let (second_page, _) = engine
+        .list_goal_runs_paginated_capped_for_ipc(Some(2), Some(2))
+        .await;
+
+    assert_eq!(
+        first_page
+            .iter()
+            .map(|goal| goal.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["goal-db-one", "goal-db-two"]
+    );
+    assert_eq!(
+        second_page
+            .iter()
+            .map(|goal| goal.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["goal-db-three"]
+    );
+}
+
+#[tokio::test]
 async fn list_tasks_capped_for_ipc_truncates_oversized_task_logs() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -2667,6 +2779,7 @@ async fn delete_goal_run_removes_goal_and_related_tasks() {
         })
         .await
         .expect("persist child task");
+    engine.goal_runs.lock().await.clear();
     engine.tasks.lock().await.clear();
 
     let deleted = engine.delete_goal_run("goal-delete").await;

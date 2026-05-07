@@ -845,6 +845,53 @@ async fn collect_stalled_turn_observations_skips_idle_stream_for_cancelled_goal_
 }
 
 #[tokio::test]
+async fn collect_stalled_turn_observations_skips_idle_stream_for_persisted_cancelled_goal_thread_after_live_queue_clear(
+) {
+    let engine = build_test_engine("Acknowledged.").await;
+    let now = super::now_millis();
+    let thread_id = "thread-persisted-cancelled-goal-stream";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(thread_id.to_string(), promise_thread(thread_id, now));
+    }
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(terminal_goal_run_for_thread(
+            "goal-persisted-cancelled-stream",
+            thread_id,
+            now,
+        ));
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    let (generation, _, _) = engine.begin_stream_cancellation(thread_id).await;
+    engine
+        .note_stream_progress(
+            thread_id,
+            generation,
+            StreamProgressKind::Reasoning,
+            "still thinking after persisted operator stop",
+        )
+        .await;
+    {
+        let mut streams = engine.stream_cancellations.lock().await;
+        let entry = streams
+            .get_mut(thread_id)
+            .expect("active stream entry should exist");
+        entry.last_progress_at = now.saturating_sub(31_000);
+    }
+
+    let observations = engine.collect_stalled_turn_observations().await;
+    assert!(
+        observations.is_empty(),
+        "persisted cancelled goal threads must not be recovered by stalled-turn supervision"
+    );
+}
+
+#[tokio::test]
 async fn collect_stalled_turn_observations_skips_stream_awaiting_operator_question() {
     let engine = build_test_engine("Acknowledged.").await;
     let now = super::now_millis();

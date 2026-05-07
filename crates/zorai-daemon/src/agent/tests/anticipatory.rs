@@ -253,6 +253,40 @@ async fn session_start_prewarm_hydrates_active_attention_thread() {
 }
 
 #[tokio::test]
+async fn session_start_prewarm_resolves_persisted_attention_goal_thread_after_live_queue_clear() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut goal = sample_goal_run("goal-attention", Some("thread-attention-goal"));
+    goal.status = GoalRunStatus::Completed;
+    goal.updated_at = now_millis();
+    engine.goal_runs.lock().await.push_back(goal);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    engine
+        .record_operator_attention("conversation:chat", None, Some("goal-attention"))
+        .await
+        .unwrap();
+    engine.mark_operator_present("test").await;
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .hydration_by_thread
+            .contains_key("thread-attention-goal"),
+        "session-start prewarm should resolve active attention goal ids through persisted goal rows"
+    );
+}
+
+#[tokio::test]
 async fn session_start_prewarm_hydrates_persisted_active_task_thread_after_live_queue_clear() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
@@ -279,6 +313,36 @@ async fn session_start_prewarm_hydrates_persisted_active_task_thread_after_live_
             .hydration_by_thread
             .contains_key("thread-task-prewarm"),
         "session-start prewarm should hydrate active task threads from persisted task rows"
+    );
+}
+
+#[tokio::test]
+async fn session_start_prewarm_hydrates_persisted_active_goal_thread_after_live_queue_clear() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut goal = sample_goal_run("goal-prewarm", Some("thread-goal-prewarm"));
+    goal.status = GoalRunStatus::Running;
+    goal.updated_at = now_millis();
+    engine.goal_runs.lock().await.push_back(goal);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    engine.mark_operator_present("test").await;
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .hydration_by_thread
+            .contains_key("thread-goal-prewarm"),
+        "session-start prewarm should hydrate active goal threads from persisted goal rows"
     );
 }
 
@@ -392,6 +456,43 @@ async fn morning_brief_inherits_route_from_top_goal_surface() {
         .find(|candidate| candidate.kind == "morning_brief")
         .expect("expected a morning brief");
     assert_eq!(item.preferred_client_surface.as_deref(), Some("tui"));
+}
+
+#[tokio::test]
+async fn morning_brief_uses_persisted_active_goal_after_live_queue_clear() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let now = now_millis();
+    let mut goal = sample_goal_run("goal-persisted-brief", Some("thread-persisted-brief"));
+    goal.title = "Resume persisted release work".to_string();
+    goal.status = GoalRunStatus::Running;
+    goal.updated_at = now;
+    goal.current_step_title = Some("publish persisted package".to_string());
+    engine.goal_runs.lock().await.push_back(goal);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+    engine.mark_operator_present("test").await;
+
+    engine.run_anticipatory_tick().await;
+
+    let items = engine.anticipatory.read().await.items.clone();
+    let item = items
+        .into_iter()
+        .find(|candidate| candidate.kind == "morning_brief")
+        .expect("expected a morning brief from persisted active goal rows");
+    assert_eq!(item.goal_run_id.as_deref(), Some("goal-persisted-brief"));
+    assert_eq!(item.thread_id.as_deref(), Some("thread-persisted-brief"));
+    assert!(
+        item.bullets
+            .iter()
+            .any(|bullet| bullet.contains("Resume persisted release work")),
+        "morning brief should summarize persisted active goals"
+    );
 }
 
 #[tokio::test]
@@ -1039,6 +1140,55 @@ async fn awaiting_approval_thread_overrides_tightened_predictive_hydration_targe
 }
 
 #[tokio::test]
+async fn awaiting_approval_persisted_goal_overrides_tightened_predictive_hydration_target_after_live_queue_clear(
+) {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.predictive_hydration = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-focus"), None)
+        .await
+        .unwrap();
+
+    let now = now_millis();
+    let mut focus_goal = sample_goal_run("goal-focus-persisted-gate", Some("thread-focus"));
+    focus_goal.status = GoalRunStatus::Running;
+    focus_goal.updated_at = now;
+    engine.goal_runs.lock().await.push_back(focus_goal);
+
+    let mut approval_goal =
+        sample_goal_run("goal-approval-persisted-gate", Some("thread-approval"));
+    approval_goal.status = GoalRunStatus::AwaitingApproval;
+    approval_goal.updated_at = now.saturating_sub(1_000);
+    engine.goal_runs.lock().await.push_back(approval_goal);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    {
+        let mut model = engine.operator_model.write().await;
+        model.cognitive_style.message_count = 1;
+        model.implicit_feedback.tool_hesitation_count = 1;
+        refresh_operator_satisfaction(&mut model);
+    }
+
+    engine.run_anticipatory_tick().await;
+
+    let hydration = engine.anticipatory.read().await.hydration_by_thread.clone();
+    assert!(
+        hydration.contains_key("thread-approval"),
+        "persisted awaiting-approval goal thread should override tightened active attention"
+    );
+    assert!(
+        !hydration.contains_key("thread-focus"),
+        "approval-gated persisted goal thread should override ordinary attention-target tightening"
+    );
+}
+
+#[tokio::test]
 async fn predictive_hydration_populates_prewarm_cache_for_hydrated_thread() {
     let root = tempdir().unwrap();
     let repo_root = root.path().join("repo-predictive-cache");
@@ -1093,6 +1243,35 @@ async fn predictive_hydration_populates_prewarm_cache_for_hydrated_thread() {
         .expect("prewarm cache snapshot for hydrated thread");
     assert!(snapshot.summary.contains("branch"));
     assert!(snapshot.summary.contains("context entries 1"));
+}
+
+#[tokio::test]
+async fn predictive_hydration_uses_persisted_active_goal_thread_after_live_queue_clear() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.predictive_hydration = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut goal = sample_goal_run("goal-predictive-persisted", Some("thread-predictive-goal"));
+    goal.status = GoalRunStatus::Running;
+    goal.updated_at = now_millis();
+    engine.goal_runs.lock().await.push_back(goal);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .hydration_by_thread
+            .contains_key("thread-predictive-goal"),
+        "predictive hydration should target active goal threads from persisted goal rows"
+    );
 }
 
 #[tokio::test]

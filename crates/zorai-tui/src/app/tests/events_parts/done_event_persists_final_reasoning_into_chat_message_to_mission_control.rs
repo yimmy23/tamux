@@ -1,3 +1,9 @@
+use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
+use tokio::sync::mpsc::unbounded_channel;
+use std::sync::mpsc;
+use zorai_shared::providers::*;
+use crate::state::*;
+use crate::app::*;
 #[test]
 fn done_event_persists_final_reasoning_into_chat_message() {
     let mut model = make_model();
@@ -255,7 +261,7 @@ fn header_uses_rarog_daemon_runtime_metadata_after_first_reply() {
     assert_eq!(profile.reasoning_effort.as_deref(), Some("low"));
 }
 
-fn make_goal_owner_profile(
+pub(super) fn make_goal_owner_profile(
     agent_label: &str,
     provider: &str,
     model: &str,
@@ -269,7 +275,7 @@ fn make_goal_owner_profile(
     }
 }
 
-fn make_goal_run_for_header_tests(
+pub(super) fn make_goal_run_for_header_tests(
     goal_run_id: &str,
     thread_id: Option<&str>,
     planner_owner_profile: Option<task::GoalRuntimeOwnerProfile>,
@@ -285,7 +291,7 @@ fn make_goal_run_for_header_tests(
     }
 }
 
-fn make_goal_assignment(
+pub(super) fn make_goal_assignment(
     role_id: &str,
     provider: &str,
     model: &str,

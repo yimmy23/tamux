@@ -1,7 +1,17 @@
+use crate::client::{DaemonClient, ClientEvent};
+use serde_json::Value;
+use zorai_protocol::ClientMessage;
+use tokio::sync::mpsc;
+use zorai_protocol::DaemonMessage;
+use crate::wire::*;
+use super::*;
+use crate::client::ThreadDetailChunkBuffer;
+use tracing::{debug, info, warn};
+
 // Sends a ClientEvent and logs (rather than panics or silently drops) if the
 // receiver has been closed — typically during shutdown or after the TUI's event
 // channel overflows.
-async fn dispatch_client_event(
+pub(crate) async fn dispatch_client_event(
     event_tx: &mpsc::Sender<ClientEvent>,
     event: ClientEvent,
     context: &'static str,
@@ -12,7 +22,7 @@ async fn dispatch_client_event(
 }
 
 impl DaemonClient {
-    async fn handle_activity_profile_gateway_daemon_messages(
+    pub(crate) async fn handle_activity_profile_gateway_daemon_messages(
         message: DaemonMessage,
         event_tx: &mpsc::Sender<ClientEvent>,
     ) {

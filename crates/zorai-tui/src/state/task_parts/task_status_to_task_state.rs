@@ -1,3 +1,7 @@
+use super::*;
+use super::new_to_reduce::*;
+use super::goal_step_todo_thread_ids_to_merge_usize_field::*;
+use super::merge_goal_run_dossier::*;
 pub const GOAL_RUN_HISTORY_FETCH_DEBOUNCE_TICKS: u64 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -344,19 +348,19 @@ pub enum TaskAction {
 // ── TaskState ─────────────────────────────────────────────────────────────────
 
 pub struct TaskState {
-    tasks: Vec<AgentTask>,
-    tasks_revision: u64,
-    preview_revision: u64,
-    goal_runs: Vec<GoalRun>,
-    goal_run_checkpoints: std::collections::HashMap<String, Vec<GoalRunCheckpointSummary>>,
-    thread_todos: std::collections::HashMap<String, Vec<TodoItem>>,
-    goal_step_live_todos: std::collections::HashMap<String, Vec<TodoItem>>,
-    goal_thread_ids: std::collections::HashMap<String, Vec<String>>,
-    work_contexts: std::collections::HashMap<String, ThreadWorkContext>,
-    selected_work_paths: std::collections::HashMap<String, String>,
-    git_diffs: std::collections::HashMap<String, String>,
-    file_previews: std::collections::HashMap<String, FilePreview>,
-    heartbeat_items: Vec<HeartbeatItem>,
-    last_digest: Option<HeartbeatDigestVm>,
+    pub(crate) tasks: Vec<AgentTask>,
+    pub(crate) tasks_revision: u64,
+    pub(crate) preview_revision: u64,
+    pub(crate) goal_runs: Vec<GoalRun>,
+    pub(crate) goal_run_checkpoints: std::collections::HashMap<String, Vec<GoalRunCheckpointSummary>>,
+    pub(crate) thread_todos: std::collections::HashMap<String, Vec<TodoItem>>,
+    pub(crate) goal_step_live_todos: std::collections::HashMap<String, Vec<TodoItem>>,
+    pub(crate) goal_thread_ids: std::collections::HashMap<String, Vec<String>>,
+    pub(crate) work_contexts: std::collections::HashMap<String, ThreadWorkContext>,
+    pub(crate) selected_work_paths: std::collections::HashMap<String, String>,
+    pub(crate) git_diffs: std::collections::HashMap<String, String>,
+    pub(crate) file_previews: std::collections::HashMap<String, FilePreview>,
+    pub(crate) heartbeat_items: Vec<HeartbeatItem>,
+    pub(crate) last_digest: Option<HeartbeatDigestVm>,
 }
 

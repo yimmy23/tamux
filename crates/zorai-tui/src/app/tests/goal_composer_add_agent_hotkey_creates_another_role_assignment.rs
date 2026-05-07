@@ -1,3 +1,5 @@
+use super::*;
+
 #[test]
 fn goal_composer_add_agent_hotkey_creates_another_role_assignment() {
     let mut model = build_model();

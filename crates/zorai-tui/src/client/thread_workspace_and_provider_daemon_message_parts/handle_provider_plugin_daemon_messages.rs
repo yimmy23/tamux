@@ -1,5 +1,25 @@
+use crate::client::{DaemonClient, ClientEvent};
+use crate::client::OpenAICodexAuthStatusVm;
+use crate::client::ThreadDetailChunkBuffer;
+use super::*;
+use anyhow::Result;
+use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
+use serde_json::Value;
+use std::sync::Mutex;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio::time::{Instant, MissedTickBehavior};
+use tokio_util::codec::Framed;
+use tracing::{debug, error, info, warn};
+use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
+use crate::wire::{
+    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
+    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
+    ThreadWorkContext,
+};
 impl DaemonClient {
-    async fn handle_provider_plugin_daemon_messages(
+    pub(crate) async fn handle_provider_plugin_daemon_messages(
         message: DaemonMessage,
         event_tx: &mpsc::Sender<ClientEvent>,
     ) {

@@ -1,3 +1,9 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
     #[test]
     fn migrate_preview_slash_command_sends_daemon_migration_preview() {
         let (_daemon_tx, daemon_rx) = mpsc::channel();
@@ -433,4 +439,3 @@
             "replayed concierge welcome should not reopen the concierge thread"
         );
     }
-

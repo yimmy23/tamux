@@ -1,5 +1,11 @@
+use super::*;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crate::widgets;
+use crate::providers;
+use ratatui::prelude::*;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn set_embedding_dimensions_config(&mut self, dimensions: u32) {
+    pub(crate) fn set_embedding_dimensions_config(&mut self, dimensions: u32) {
         self.send_daemon_command(DaemonCommand::SetConfigItem {
             key_path: "/semantic/embedding/dimensions".to_string(),
             value_json: dimensions.to_string(),

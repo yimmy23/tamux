@@ -139,6 +139,130 @@ fn append_subagent_outcome_log_to_parent(
     ));
 }
 
+fn apply_dispatched_task_success_update(
+    task: &mut AgentTask,
+    outcome: &SendMessageOutcome,
+    active_child_ids: &[String],
+    now: u64,
+) {
+    let waiting_for_subagents = !active_child_ids.is_empty();
+    let budget_exceeded_reason = "execution budget exceeded for this thread".to_string();
+    task.status = if outcome.terminated_for_budget {
+        TaskStatus::BudgetExceeded
+    } else if waiting_for_subagents {
+        TaskStatus::Blocked
+    } else {
+        TaskStatus::Completed
+    };
+    task.progress = if waiting_for_subagents {
+        task.progress.max(90)
+    } else {
+        100
+    };
+    task.completed_at = if waiting_for_subagents {
+        None
+    } else {
+        Some(now)
+    };
+    task.thread_id = Some(outcome.thread_id.clone());
+    task.lane_id = None;
+    task.blocked_reason = if outcome.terminated_for_budget {
+        Some(budget_exceeded_reason.clone())
+    } else if waiting_for_subagents {
+        Some(format!(
+            "waiting for subagents: {}",
+            active_child_ids.join(", ")
+        ))
+    } else {
+        None
+    };
+    task.awaiting_approval_id = None;
+    task.error = if outcome.terminated_for_budget {
+        Some(budget_exceeded_reason.clone())
+    } else {
+        None
+    };
+    task.last_error = if outcome.terminated_for_budget {
+        Some(budget_exceeded_reason.clone())
+    } else {
+        None
+    };
+    task.next_retry_at = None;
+    task.logs.push(make_task_log_entry(
+        task.retry_count,
+        TaskLogLevel::Info,
+        if waiting_for_subagents {
+            "subagent"
+        } else {
+            "execution"
+        },
+        if waiting_for_subagents {
+            "task waiting for spawned subagents to finish"
+        } else if outcome.terminated_for_budget {
+            "task stopped after exhausting execution budget"
+        } else if task.retry_count > 0 {
+            "task self-healed and completed"
+        } else {
+            "task completed"
+        },
+        if waiting_for_subagents {
+            task.blocked_reason.clone()
+        } else {
+            None
+        },
+    ));
+}
+
+fn apply_dispatched_task_failure_update(
+    task: &mut AgentTask,
+    error_text: &str,
+    retry_delay_ms: u64,
+) {
+    task.retry_count = task.retry_count.saturating_add(1);
+    task.error = Some(error_text.to_string());
+    task.last_error = Some(error_text.to_string());
+    task.progress = 0;
+    task.lane_id = None;
+    task.logs.push(make_task_log_entry(
+        task.retry_count,
+        TaskLogLevel::Error,
+        "execution",
+        "task execution failed",
+        Some(error_text.to_string()),
+    ));
+
+    if task.retry_count <= task.max_retries {
+        task.status = TaskStatus::FailedAnalyzing;
+        task.completed_at = None;
+        task.next_retry_at = Some(now_millis().saturating_add(retry_delay_ms));
+        task.blocked_reason = Some(format!(
+            "retry {} of {} scheduled in {}s",
+            task.retry_count,
+            task.max_retries,
+            retry_delay_ms.div_ceil(1000).max(1),
+        ));
+        task.logs.push(make_task_log_entry(
+            task.retry_count,
+            TaskLogLevel::Warn,
+            "analysis",
+            "agent queued self-healing retry",
+            task.blocked_reason.clone(),
+        ));
+    } else {
+        task.status = TaskStatus::Failed;
+        task.completed_at = Some(now_millis());
+        task.next_retry_at = None;
+        task.blocked_reason = Some("retry budget exhausted".into());
+        task.logs.push(make_task_log_entry(
+            task.retry_count,
+            TaskLogLevel::Error,
+            "analysis",
+            "task failed permanently after exhausting retry budget",
+            Some(error_text.to_string()),
+        ));
+    }
+}
+
 impl AgentEngine {
     async fn task_by_id_for_dispatcher(&self, task_id: &str) -> Option<AgentTask> {
         match self
@@ -167,6 +291,40 @@ impl AgentEngine {
                 tasks.iter().find(|task| task.id == task_id).cloned()
             }
         }
+    }
+
+    async fn active_subagent_children_for_dispatcher(&self, task_id: &str) -> Vec<AgentTask> {
+        let mut active_children = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: Some("subagent".to_string()),
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: Some(task_id.to_string()),
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: true,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await
+            .into_iter()
+            .collect::<Vec<_>>();
+
+        let tasks = self.tasks.lock().await;
+        for task in tasks.iter().filter(|entry| {
+            entry.source == "subagent"
+                && entry.parent_task_id.as_deref() == Some(task_id)
+                && !is_task_terminal_status(entry.status)
+        }) {
+            if !active_children.iter().any(|child| child.id == task.id) {
+                active_children.push(task.clone());
+            }
+        }
+        active_children
     }
 
     pub(crate) async fn notify_task_terminal_state(&self, task: &AgentTask) {
@@ -569,15 +727,62 @@ impl AgentEngine {
 
     pub(super) async fn dispatch_ready_tasks(self: Arc<Self>) -> Result<()> {
         let now = now_millis();
+        let persisted_active_tasks = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: true,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await;
+        {
+            let mut tasks = self.tasks.lock().await;
+            for task in persisted_active_tasks {
+                if !tasks.iter().any(|entry| entry.id == task.id) {
+                    tasks.push_back(task);
+                }
+            }
+        }
         let sessions = self.session_manager.list().await;
         let config = self.config.read().await.clone();
-        let goal_run_statuses = {
-            let goal_runs = self.goal_runs.lock().await;
-            goal_runs
-                .iter()
-                .map(|goal_run| (goal_run.id.clone(), goal_run.status))
-                .collect::<HashMap<_, _>>()
+        let active_goal_statuses = [
+            GoalRunStatus::Queued,
+            GoalRunStatus::Planning,
+            GoalRunStatus::Running,
+            GoalRunStatus::AwaitingApproval,
+            GoalRunStatus::Paused,
+        ];
+        let mut goal_run_statuses = match self
+            .history
+            .list_goal_runs_for_statuses(&active_goal_statuses)
+            .await
+        {
+            Ok(goal_runs) => goal_runs
+                .into_iter()
+                .map(|goal_run| (goal_run.id, goal_run.status))
+                .collect::<HashMap<_, _>>(),
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted active goal runs for dispatcher selection: {error}"
+                );
+                HashMap::new()
+            }
         };
+        {
+            let goal_runs = self.goal_runs.lock().await;
+            for goal_run in goal_runs.iter() {
+                goal_run_statuses.insert(goal_run.id.clone(), goal_run.status);
+            }
+        }
         let (changed_before_start, dispatched_tasks) = {
             let mut tasks = self.tasks.lock().await;
             let changed_before_start =
@@ -709,91 +914,60 @@ impl AgentEngine {
             Ok(outcome) if outcome.interrupted_for_approval => Ok(()),
             Ok(outcome) => {
                 let now = now_millis();
-                let updated = {
+                let active_children = self.active_subagent_children_for_dispatcher(&task.id).await;
+                let active_child_ids = active_children
+                    .iter()
+                    .map(|child| child.id.clone())
+                    .collect::<Vec<_>>();
+                let updated_live_task = {
                     let mut tasks = self.tasks.lock().await;
-                    let active_child_ids = tasks
-                        .iter()
-                        .filter(|entry| {
-                            entry.source == "subagent"
-                                && entry.parent_task_id.as_deref() == Some(task.id.as_str())
-                                && !is_task_terminal_status(entry.status)
-                        })
-                        .map(|entry| entry.id.clone())
-                        .collect::<Vec<_>>();
                     if let Some(current) = tasks.iter_mut().find(|entry| entry.id == task.id) {
-                        let waiting_for_subagents = !active_child_ids.is_empty();
-                        let budget_exceeded_reason =
-                            "execution budget exceeded for this thread".to_string();
-                        current.status = if outcome.terminated_for_budget {
-                            TaskStatus::BudgetExceeded
-                        } else if waiting_for_subagents {
-                            TaskStatus::Blocked
-                        } else {
-                            TaskStatus::Completed
-                        };
-                        current.progress = if waiting_for_subagents {
-                            current.progress.max(90)
-                        } else {
-                            100
-                        };
-                        current.completed_at = if waiting_for_subagents {
-                            None
-                        } else {
-                            Some(now)
-                        };
-                        current.thread_id = Some(outcome.thread_id);
-                        current.lane_id = None;
-                        current.blocked_reason = if outcome.terminated_for_budget {
-                            Some(budget_exceeded_reason.clone())
-                        } else if waiting_for_subagents {
-                            Some(format!(
-                                "waiting for subagents: {}",
-                                active_child_ids.join(", ")
-                            ))
-                        } else {
-                            None
-                        };
-                        current.awaiting_approval_id = None;
-                        current.error = if outcome.terminated_for_budget {
-                            Some(budget_exceeded_reason.clone())
-                        } else {
-                            None
-                        };
-                        current.last_error = if outcome.terminated_for_budget {
-                            Some(budget_exceeded_reason.clone())
-                        } else {
-                            None
-                        };
-                        current.next_retry_at = None;
-                        current.logs.push(make_task_log_entry(
-                            current.retry_count,
-                            TaskLogLevel::Info,
-                            if waiting_for_subagents {
-                                "subagent"
-                            } else {
-                                "execution"
-                            },
-                            if waiting_for_subagents {
-                                "task waiting for spawned subagents to finish"
-                            } else if outcome.terminated_for_budget {
-                                "task stopped after exhausting execution budget"
-                            } else if current.retry_count > 0 {
-                                "task self-healed and completed"
-                            } else {
-                                "task completed"
-                            },
-                            if waiting_for_subagents {
-                                current.blocked_reason.clone()
-                            } else {
-                                None
-                            },
-                        ));
-                        current.clone()
+                        apply_dispatched_task_success_update(
+                            current,
+                            &outcome,
+                            &active_child_ids,
+                            now,
+                        );
+                        Some(current.clone())
                     } else {
-                        return Ok(());
+                        None
                     }
                 };
-                self.persist_tasks().await;
+                let (updated, updated_live_task) = match updated_live_task {
+                    Some(updated) => (updated, true),
+                    None => {
+                        let Some(mut persisted_task) =
+                            self.task_by_id_for_dispatcher(&task.id).await
+                        else {
+                            return Ok(());
+                        };
+                        apply_dispatched_task_success_update(
+                            &mut persisted_task,
+                            &outcome,
+                            &active_child_ids,
+                            now,
+                        );
+                        if let Err(error) = self.history.upsert_agent_task(&persisted_task).await {
+                            tracing::warn!(
+                                task_id = %persisted_task.id,
+                                "failed to persist dispatched task success update: {error}"
+                            );
+                        }
+                        let mut tasks = self.tasks.lock().await;
+                        for active_child in active_children {
+                            if !tasks.iter().any(|entry| entry.id == active_child.id) {
+                                tasks.push_back(active_child);
+                            }
+                        }
+                        if !tasks.iter().any(|entry| entry.id == persisted_task.id) {
+                            tasks.push_back(persisted_task.clone());
+                        }
+                        (persisted_task, false)
+                    }
+                };
+                if updated_live_task {
+                    self.persist_tasks().await;
+                }
                 self.emit_task_update(
                     &updated,
                     Some(if updated.status == TaskStatus::Blocked {
@@ -887,60 +1061,52 @@ impl AgentEngine {
                     self.config.read().await.retry_delay_ms,
                     task.retry_count.saturating_add(1),
                 );
-                let updated = {
+                let mut updated_live_task = false;
+                let mut updated = {
                     let mut tasks = self.tasks.lock().await;
-                    if let Some(current) = tasks.iter_mut().find(|entry| entry.id == task.id) {
-                        current.retry_count = current.retry_count.saturating_add(1);
-                        current.error = Some(error_text.clone());
-                        current.last_error = Some(error_text.clone());
-                        current.progress = 0;
-                        current.lane_id = None;
-                        current.logs.push(make_task_log_entry(
-                            current.retry_count,
-                            TaskLogLevel::Error,
-                            "execution",
-                            "task execution failed",
-                            Some(error_text.clone()),
-                        ));
-
-                        if current.retry_count <= current.max_retries {
-                            current.status = TaskStatus::FailedAnalyzing;
-                            current.completed_at = None;
-                            current.next_retry_at =
-                                Some(now_millis().saturating_add(retry_delay_ms));
-                            current.blocked_reason = Some(format!(
-                                "retry {} of {} scheduled in {}s",
-                                current.retry_count,
-                                current.max_retries,
-                                retry_delay_ms.div_ceil(1000).max(1),
-                            ));
-                            current.logs.push(make_task_log_entry(
-                                current.retry_count,
-                                TaskLogLevel::Warn,
-                                "analysis",
-                                "agent queued self-healing retry",
-                                current.blocked_reason.clone(),
-                            ));
-                        } else {
-                            current.status = TaskStatus::Failed;
-                            current.completed_at = Some(now_millis());
-                            current.next_retry_at = None;
-                            current.blocked_reason = Some("retry budget exhausted".into());
-                            current.logs.push(make_task_log_entry(
-                                current.retry_count,
-                                TaskLogLevel::Error,
-                                "analysis",
-                                "task failed permanently after exhausting retry budget",
-                                Some(error_text.clone()),
-                            ));
-                        }
-                        current.clone()
-                    } else {
+                    tasks
+                        .iter_mut()
+                        .find(|entry| entry.id == task.id)
+                        .map(|current| {
+                            apply_dispatched_task_failure_update(
+                                current,
+                                &error_text,
+                                retry_delay_ms,
+                            );
+                            updated_live_task = true;
+                            current.clone()
+                        })
+                };
+                if updated.is_none() {
+                    let Some(mut persisted_task) = self.task_by_id_for_dispatcher(&task.id).await
+                    else {
+                        return Ok(());
+                    };
+                    apply_dispatched_task_failure_update(
+                        &mut persisted_task,
+                        &error_text,
+                        retry_delay_ms,
+                    );
+                    if let Err(error) = self.history.upsert_agent_task(&persisted_task).await {
+                        tracing::warn!(
+                            task_id = %persisted_task.id,
+                            "failed to persist dispatched task failure update: {error}"
+                        );
                         return Ok(());
                     }
-                };
+                    {
+                        let mut tasks = self.tasks.lock().await;
+                        if !tasks.iter().any(|entry| entry.id == persisted_task.id) {
+                            tasks.push_back(persisted_task.clone());
+                        }
+                    }
+                    updated = Some(persisted_task);
+                }
+                let updated = updated.expect("dispatched task failure update should exist");
 
-                self.persist_tasks().await;
+                if updated_live_task {
+                    self.persist_tasks().await;
+                }
                 self.emit_task_update(
                     &updated,
                     Some(match updated.status {
@@ -1163,7 +1329,50 @@ impl AgentEngine {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
     use tokio::time::{timeout, Duration};
+
+    async fn spawn_dispatcher_stub_assistant_server(response_text: &str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind stub assistant server");
+        let addr = listener.local_addr().expect("stub assistant local addr");
+        let response_json =
+            serde_json::to_string(response_text).expect("assistant response should serialize");
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let response_json = response_json.clone();
+                tokio::spawn(async move {
+                    let mut buffer = vec![0u8; 65536];
+                    let _ = socket.read(&mut buffer).await;
+                    let response = format!(
+                        concat!(
+                            "HTTP/1.1 200 OK\r\n",
+                            "content-type: text/event-stream\r\n",
+                            "cache-control: no-cache\r\n",
+                            "connection: close\r\n",
+                            "\r\n",
+                            "data: {{\"choices\":[{{\"delta\":{{\"content\":{}}}}}]}}\n\n",
+                            "data: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}],\"usage\":{{\"prompt_tokens\":7,\"completion_tokens\":3}}}}\n\n",
+                            "data: [DONE]\n\n"
+                        ),
+                        response_json
+                    );
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write stub assistant response");
+                });
+            }
+        });
+
+        format!("http://{addr}/v1")
+    }
 
     #[tokio::test]
     async fn advance_goal_run_uses_persisted_step_task_before_requeueing() {
@@ -1696,6 +1905,428 @@ mod tests {
             }),
             "persisted parent task should record subagent outcome"
         );
+    }
+
+    #[tokio::test]
+    async fn dispatch_ready_tasks_uses_persisted_queued_tasks_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread-dispatch-persisted-ready";
+
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: None,
+                title: "Dispatch persisted ready task".to_string(),
+                messages: Vec::new(),
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+
+        let mut task = engine
+            .enqueue_task(
+                "Persisted ready dispatch".to_string(),
+                "Dispatcher should select this from SQLite after live queue clear".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "user",
+                None,
+                None,
+                Some(thread_id.to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        task.thread_id = Some(thread_id.to_string());
+        task.override_provider = Some("missing-provider-for-ready-dispatch-test".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            let persisted = tasks
+                .iter_mut()
+                .find(|entry| entry.id == task.id)
+                .expect("task should exist");
+            *persisted = task.clone();
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        Arc::clone(&engine)
+            .dispatch_ready_tasks()
+            .await
+            .expect("dispatch should not fail");
+
+        timeout(Duration::from_millis(500), async {
+            loop {
+                let persisted = engine
+                    .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: Some(task.id.clone()),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                    })
+                    .await
+                    .into_iter()
+                    .next()
+                    .expect("persisted task should remain queryable");
+                if persisted.status == TaskStatus::FailedAnalyzing {
+                    assert_eq!(persisted.retry_count, 1);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("persisted queued task should be dispatched and record local failure");
+    }
+
+    #[tokio::test]
+    async fn dispatch_ready_tasks_uses_persisted_goal_statuses_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread-dispatch-persisted-goal-ready";
+
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: None,
+                title: "Dispatch persisted goal task".to_string(),
+                messages: Vec::new(),
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+
+        let goal_run = engine
+            .start_goal_run(
+                "Dispatch persisted goal task".to_string(),
+                Some("Dispatch persisted goal task".to_string()),
+                Some(thread_id.to_string()),
+                None,
+                Some("normal"),
+                None,
+                None,
+                None,
+            )
+            .await;
+        {
+            let mut goal_runs = engine.goal_runs.lock().await;
+            let goal = goal_runs
+                .iter_mut()
+                .find(|entry| entry.id == goal_run.id)
+                .expect("goal should exist");
+            goal.status = GoalRunStatus::Running;
+            goal.started_at = Some(now_millis());
+        }
+
+        let mut task = engine
+            .enqueue_task(
+                "Persisted ready goal dispatch".to_string(),
+                "Dispatcher should select this goal task from persisted state".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "goal_run",
+                Some(goal_run.id.clone()),
+                None,
+                Some(thread_id.to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        task.thread_id = Some(thread_id.to_string());
+        task.override_provider = Some("missing-provider-for-ready-goal-dispatch-test".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            let persisted = tasks
+                .iter_mut()
+                .find(|entry| entry.id == task.id)
+                .expect("task should exist");
+            *persisted = task.clone();
+        }
+        engine.persist_goal_runs().await;
+        engine.persist_tasks().await;
+        engine.goal_runs.lock().await.clear();
+        engine.tasks.lock().await.clear();
+
+        Arc::clone(&engine)
+            .dispatch_ready_tasks()
+            .await
+            .expect("dispatch should not fail");
+
+        timeout(Duration::from_millis(500), async {
+            loop {
+                let persisted = engine
+                    .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: Some(task.id.clone()),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                    })
+                    .await
+                    .into_iter()
+                    .next()
+                    .expect("persisted task should remain queryable");
+                if persisted.status == TaskStatus::FailedAnalyzing {
+                    assert_eq!(persisted.retry_count, 1);
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("persisted goal-linked task should be dispatched using persisted goal status");
+    }
+
+    #[tokio::test]
+    async fn dispatched_task_failure_updates_persisted_task_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let thread_id = "thread-dispatch-persisted-failure";
+
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: None,
+                title: "Dispatch failure".to_string(),
+                messages: Vec::new(),
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+
+        let mut task = engine
+            .enqueue_task(
+                "Persisted dispatch failure".to_string(),
+                "Missing provider should fail before network IO".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "user",
+                None,
+                None,
+                Some(thread_id.to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        task.thread_id = Some(thread_id.to_string());
+        task.override_provider = Some("missing-provider-for-dispatch-test".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            let persisted = tasks
+                .iter_mut()
+                .find(|entry| entry.id == task.id)
+                .expect("task should exist");
+            *persisted = task.clone();
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        engine
+            .execute_dispatched_task(task.clone())
+            .await
+            .expect("dispatcher should record the send failure");
+
+        let persisted = engine
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task.id.clone()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+            .expect("persisted task should remain queryable");
+
+        assert_eq!(persisted.status, TaskStatus::FailedAnalyzing);
+        assert_eq!(persisted.retry_count, 1);
+        assert!(persisted
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error.contains("missing-provider-for-dispatch-test")));
+    }
+
+    #[tokio::test]
+    async fn dispatched_task_success_blocks_persisted_task_on_persisted_active_child_after_live_queue_clear(
+    ) {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.provider = zorai_shared::providers::PROVIDER_ID_OPENAI.to_string();
+        config.base_url = spawn_dispatcher_stub_assistant_server("Parent turn completed.").await;
+        config.model = "gpt-4o-mini".to_string();
+        config.api_key = "test-key".to_string();
+        config.api_transport = ApiTransport::ChatCompletions;
+        config.auto_retry = false;
+        config.max_retries = 0;
+        config.max_tool_loops = 1;
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+        let thread_id = "thread-dispatch-persisted-success";
+
+        engine.threads.write().await.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: None,
+                title: "Dispatch success".to_string(),
+                messages: Vec::new(),
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+
+        let mut parent = engine
+            .enqueue_task(
+                "Persisted dispatch success".to_string(),
+                "Successful dispatcher sends should persist the parent status".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "user",
+                None,
+                None,
+                Some(thread_id.to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        parent.thread_id = Some(thread_id.to_string());
+        let child = engine
+            .enqueue_task(
+                "Active persisted child".to_string(),
+                "Keep the parent blocked after the parent turn completes".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                Some(parent.id.clone()),
+                Some(thread_id.to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        {
+            let mut tasks = engine.tasks.lock().await;
+            let persisted = tasks
+                .iter_mut()
+                .find(|entry| entry.id == parent.id)
+                .expect("parent task should exist");
+            *persisted = parent.clone();
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        engine
+            .execute_dispatched_task(parent.clone())
+            .await
+            .expect("dispatcher should record the successful send");
+
+        let persisted = engine
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(parent.id.clone()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+            .expect("persisted parent should remain queryable");
+
+        assert_eq!(persisted.status, TaskStatus::Blocked);
+        assert_eq!(persisted.progress, 90);
+        assert_eq!(persisted.completed_at, None);
+        assert!(persisted
+            .blocked_reason
+            .as_deref()
+            .is_some_and(|reason| reason.contains(&child.id)));
+        assert!(persisted.logs.iter().any(|entry| {
+            entry.phase == "subagent"
+                && entry.message == "task waiting for spawned subagents to finish"
+        }));
     }
 
     fn terminal_notification_test_task(

@@ -1,3 +1,14 @@
+use super::super::*;
+use super::sidebar_handles_empty_state_to_spawned_sidebar_tabs_include_spawned::*;
+use crate::state::chat::{AgentMessage, ChatAction, ChatState, MessageRole};
+use crate::state::sidebar::SidebarState;
+use crate::state::task::{TaskAction, TaskState, TodoItem, TodoStatus};
+use crate::state::sidebar::SidebarTab;
+use crate::theme::ThemeTokens;
+use ratatui::backend::TestBackend;
+use ratatui::layout::{Position, Rect};
+use ratatui::Terminal;
+
 #[test]
 fn spawned_sidebar_renders_nested_rows_under_active_thread() {
     let mut sidebar = SidebarState::new();

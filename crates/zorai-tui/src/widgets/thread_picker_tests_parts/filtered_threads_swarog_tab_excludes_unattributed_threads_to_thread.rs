@@ -1,3 +1,16 @@
+    use super::super::*;
+    use super::super::from_tasks_to_is_weles_thread::*;
+    use super::super::hit_test_for_workspace_to_now_millis::*;
+    use super::super::is_svarog_agent_name_to_hit_test::*;
+    use super::format_time_ago_zero_returns_empty_to_filtered_threads_swarog_tab::*;
+    use crate::state::chat::{AgentThread, ChatState};
+    use crate::state::modal::{ModalState, ThreadPickerTab};
+    use crate::state::task::TaskState;
+    use crate::state::workspace::WorkspaceState;
+    use crate::state::ModalAction;
+    use crate::state::{SubAgentEntry, SubAgentsState};
+    use zorai_protocol::AGENT_NAME_RAROG;
+
     #[test]
     fn filtered_threads_swarog_tab_excludes_unattributed_threads() {
         let chat = make_chat(vec![

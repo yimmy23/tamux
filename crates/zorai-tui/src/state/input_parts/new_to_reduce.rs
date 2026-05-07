@@ -1,3 +1,8 @@
+use ratatui_textarea::{CursorMove, TextArea};
+
+use super::{InputAction, InputMode, InputState, PasteBlock};
+use crate::state::input_refs;
+
 impl InputState {
     pub fn new() -> Self {
         let textarea = TextArea::default();
@@ -171,11 +176,11 @@ impl InputState {
         self.buffer_cache.len() // past end
     }
 
-    fn sync_buffer_cache(&mut self) {
+    pub(super) fn sync_buffer_cache(&mut self) {
         self.buffer_cache = self.textarea.lines().join("\n");
     }
 
-    fn set_buffer_and_cursor(&mut self, buffer: &str, cursor: usize) {
+    pub(super) fn set_buffer_and_cursor(&mut self, buffer: &str, cursor: usize) {
         self.textarea = TextArea::from(buffer.split('\n'));
         self.sync_buffer_cache();
         self.jump_to_offset(cursor.min(self.buffer_cache.len()));
@@ -341,7 +346,7 @@ impl InputState {
         self.jump_to_line_col(last_row, last_col);
     }
 
-    fn clear_text(&mut self) {
+    pub(super) fn clear_text(&mut self) {
         if !self.buffer_cache.is_empty() {
             self.textarea.select_all();
             self.textarea.cut();

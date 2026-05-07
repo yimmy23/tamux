@@ -1,3 +1,10 @@
+use super::super::*;
+use super::super::chat_with_messages;
+use crate::state::chat::{AgentMessage, AgentThread, ChatAction, ChatState, MessageRole, RetryPhase, RetryStatusVm};
+use crate::theme::ThemeTokens;
+use ratatui::backend::TestBackend;
+use ratatui::Terminal;
+use ratatui::layout::Rect;
 #[test]
 fn chat_handles_empty_state() {
     let chat = ChatState::new();
@@ -486,4 +493,3 @@ fn all_file_mutation_tool_rows_use_filename_chip() {
         );
     }
 }
-

@@ -681,7 +681,22 @@ impl AgentEngine {
             .next()
             .and_then(|task| task.goal_run_id)?;
 
+        let needs_persisted_goal = {
+            let goal_runs = self.goal_runs.lock().await;
+            !goal_runs.iter().any(|goal_run| goal_run.id == goal_run_id)
+        };
+        let persisted_goal = if needs_persisted_goal {
+            self.history.get_goal_run(&goal_run_id).await.ok().flatten()
+        } else {
+            None
+        };
+
         let mut goal_runs = self.goal_runs.lock().await;
+        if !goal_runs.iter().any(|goal_run| goal_run.id == goal_run_id) {
+            if let Some(goal_run) = persisted_goal {
+                goal_runs.push_back(goal_run);
+            }
+        }
         let goal_run = goal_runs
             .iter_mut()
             .find(|goal_run| goal_run.id == goal_run_id)?;
@@ -775,6 +790,89 @@ pub(crate) struct GoalTodoContext {
     pub(crate) current_step_index: usize,
     pub(crate) step_status: Option<GoalRunStepStatus>,
     pub(crate) authoritative: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session_manager::SessionManager;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn replace_thread_todos_records_goal_snapshot_for_persisted_goal_after_live_queue_clear()
+    {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let goal_run = engine
+            .start_goal_run(
+                "Persisted todo snapshot goal".to_string(),
+                Some("Persisted todo snapshot goal".to_string()),
+                Some("thread-persisted-todo-snapshot".to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        let task = engine
+            .enqueue_task(
+                "Persisted todo snapshot task".to_string(),
+                "Task owns authoritative goal todos.".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "goal_run",
+                Some(goal_run.id.clone()),
+                None,
+                goal_run.thread_id.clone(),
+                Some("daemon".to_string()),
+            )
+            .await;
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+        engine.goal_runs.lock().await.clear();
+
+        engine
+            .replace_thread_todos(
+                "thread-persisted-todo-snapshot",
+                vec![TodoItem {
+                    id: "todo-persisted-goal".to_string(),
+                    content: "Keep persisted goal todos authoritative".to_string(),
+                    status: TodoStatus::InProgress,
+                    position: 0,
+                    step_index: None,
+                    created_at: 0,
+                    updated_at: 0,
+                }],
+                Some(&task.id),
+            )
+            .await;
+
+        let persisted = engine
+            .history
+            .get_goal_run(&goal_run.id)
+            .await
+            .expect("goal query should succeed")
+            .expect("goal should remain persisted");
+        let todo_event = persisted
+            .events
+            .iter()
+            .find(|event| event.phase == "todo")
+            .expect("persisted goal should record a todo snapshot event");
+        assert_eq!(todo_event.step_index, Some(goal_run.current_step_index));
+        assert!(
+            todo_event
+                .todo_snapshot
+                .iter()
+                .any(|item| item.id == "todo-persisted-goal"
+                    && item.step_index == Some(goal_run.current_step_index)),
+            "todo snapshot should be bound to the active goal step"
+        );
+    }
 }
 
 fn bind_goal_todo_items_to_step(items: &mut [TodoItem], current_step_index: usize) {

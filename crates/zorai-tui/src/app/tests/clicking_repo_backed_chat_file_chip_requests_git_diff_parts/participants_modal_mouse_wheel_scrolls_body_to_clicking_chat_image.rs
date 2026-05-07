@@ -1,3 +1,13 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use std::fs;
+use std::path::PathBuf;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
+    use base64::Engine as _;
 #[test]
 fn participants_modal_mouse_wheel_scrolls_body() {
     let mut model = build_model();
@@ -366,7 +376,6 @@ fn clicking_chat_file_chip_requests_file_preview() {
 
 #[test]
 fn clicking_chat_image_attachment_requests_file_preview() {
-    use base64::Engine as _;
 
     let (_daemon_tx, daemon_rx) = mpsc::channel();
     let (cmd_tx, mut cmd_rx) = unbounded_channel();

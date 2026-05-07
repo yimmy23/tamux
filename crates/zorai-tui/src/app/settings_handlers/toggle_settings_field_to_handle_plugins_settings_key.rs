@@ -1,5 +1,11 @@
+use super::*;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crate::widgets;
+use crate::providers;
+use ratatui::prelude::*;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn toggle_settings_field(&mut self) {
+    pub(crate) fn toggle_settings_field(&mut self) {
         let field = self.current_settings_field_name().to_string();
         match field.as_str() {
             "managed_sandbox_enabled" => {
@@ -280,7 +286,7 @@ impl TuiModel {
 
     // ── Plugin settings handlers (Plan 16-03) ────────────────────────────────
 
-    pub(super) fn handle_plugins_settings_key(&mut self, code: KeyCode) -> bool {
+    pub(crate) fn handle_plugins_settings_key(&mut self, code: KeyCode) -> bool {
         if self.plugin_settings.list_mode {
             // List mode navigation
             match code {

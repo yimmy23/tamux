@@ -22,20 +22,42 @@ impl AgentEngine {
                 limit: Some(4),
             })
             .await;
-        let active_goals = {
-            let goal_runs = self.goal_runs.lock().await;
-            goal_runs
-                .iter()
-                .filter(|goal| {
-                    !matches!(
-                        goal.status,
-                        GoalRunStatus::Completed | GoalRunStatus::Failed | GoalRunStatus::Cancelled
-                    )
-                })
-                .take(3)
-                .cloned()
-                .collect::<Vec<_>>()
+        let active_goal_statuses = [
+            GoalRunStatus::Queued,
+            GoalRunStatus::Planning,
+            GoalRunStatus::Running,
+            GoalRunStatus::AwaitingApproval,
+            GoalRunStatus::Paused,
+        ];
+        let mut active_goals = match self
+            .history
+            .list_goal_runs_for_statuses(&active_goal_statuses)
+            .await
+        {
+            Ok(goal_runs) => goal_runs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted active goal runs for operational context: {error}"
+                );
+                Vec::new()
+            }
         };
+        let mut seen_goal_ids = active_goals
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        {
+            let goal_runs = self.goal_runs.lock().await;
+            for goal_run in goal_runs
+                .iter()
+                .filter(|goal| active_goal_statuses.contains(&goal.status))
+            {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    active_goals.push(goal_run.clone());
+                }
+            }
+        }
+        active_goals.truncate(3);
 
         let topology_summary = self
             .session_manager
@@ -173,5 +195,34 @@ mod tests {
 
         assert!(summary.contains("- Active tasks: 1"));
         assert!(summary.contains("- Task [queued] Persisted visible task"));
+    }
+
+    #[tokio::test]
+    async fn operational_context_includes_persisted_active_goals_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine
+            .start_goal_run(
+                "goal should appear in operational context".to_string(),
+                Some("Persisted visible goal".to_string()),
+                None,
+                None,
+                Some("normal"),
+                None,
+                None,
+                None,
+            )
+            .await;
+        engine.goal_runs.lock().await.clear();
+
+        let summary = engine
+            .build_operational_context_summary()
+            .await
+            .expect("active persisted goal should produce operational context");
+
+        assert!(summary.contains("- Active goal runs: 1"));
+        assert!(summary.contains("- Goal [queued] Persisted visible goal"));
     }
 }

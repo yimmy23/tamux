@@ -1,19 +1,21 @@
-#[cfg(test)]
+use crate::state::*;
+use crate::app::*;
 use super::*;
-#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-#[cfg(unix)]
 use std::sync::{LazyLock, Mutex};
 use tokio::sync::mpsc::unbounded_channel;
 use zorai_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
+#[cfg(test)]
+#[cfg(unix)]
+#[cfg(unix)]
 
-fn make_model() -> TuiModel {
+pub(super) fn make_model() -> TuiModel {
     let (_event_tx, event_rx) = std::sync::mpsc::channel();
     let (daemon_tx, _daemon_rx) = unbounded_channel();
     TuiModel::new(event_rx, daemon_tx)
 }
 
-fn make_model_with_daemon_rx() -> (
+pub(super) fn make_model_with_daemon_rx() -> (
     TuiModel,
     tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) {
@@ -22,7 +24,7 @@ fn make_model_with_daemon_rx() -> (
     (TuiModel::new(event_rx, daemon_tx), daemon_rx)
 }
 
-fn next_thread_request(
+pub(super) fn next_thread_request(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> Option<(String, Option<usize>, Option<usize>)> {
     while let Ok(command) = daemon_rx.try_recv() {
@@ -39,7 +41,7 @@ fn next_thread_request(
 }
 
 #[test]
-fn idle_tick_does_not_request_redraw() {
+pub(super) fn idle_tick_does_not_request_redraw() {
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.agent_config_loaded = true;
@@ -66,7 +68,7 @@ fn idle_tick_does_not_request_redraw() {
 }
 
 #[test]
-fn activity_tick_redraws_only_when_spinner_frame_changes() {
+pub(super) fn activity_tick_redraws_only_when_spinner_frame_changes() {
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.agent_config_loaded = true;
@@ -91,7 +93,7 @@ fn activity_tick_redraws_only_when_spinner_frame_changes() {
 }
 
 #[test]
-fn image_preview_cache_revision_redraws_once_per_cache_change() {
+pub(super) fn image_preview_cache_revision_redraws_once_per_cache_change() {
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.agent_config_loaded = true;
@@ -138,7 +140,7 @@ fn image_preview_cache_revision_redraws_once_per_cache_change() {
 }
 
 #[test]
-fn streaming_chat_wants_fast_tick_even_without_footer_activity() {
+pub(super) fn streaming_chat_wants_fast_tick_even_without_footer_activity() {
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.agent_config_loaded = true;
@@ -170,7 +172,7 @@ fn streaming_chat_wants_fast_tick_even_without_footer_activity() {
 }
 
 #[test]
-fn live_goal_view_redraws_on_animation_tick() {
+pub(super) fn live_goal_view_redraws_on_animation_tick() {
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.agent_config_loaded = true;
@@ -213,7 +215,7 @@ fn live_goal_view_redraws_on_animation_tick() {
 }
 
 #[test]
-fn queued_prompt_copy_expiry_requests_one_redraw() {
+pub(super) fn queued_prompt_copy_expiry_requests_one_redraw() {
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.agent_config_loaded = true;
@@ -236,7 +238,7 @@ fn queued_prompt_copy_expiry_requests_one_redraw() {
     );
 }
 
-fn saw_list_tasks_command(
+pub(super) fn saw_list_tasks_command(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> bool {
     while let Ok(command) = daemon_rx.try_recv() {
@@ -247,7 +249,7 @@ fn saw_list_tasks_command(
     false
 }
 
-fn saw_workspace_task_list_command(
+pub(super) fn saw_workspace_task_list_command(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
     expected_workspace_id: &str,
 ) -> bool {
@@ -261,7 +263,7 @@ fn saw_workspace_task_list_command(
     false
 }
 
-fn workspace_task(
+pub(super) fn workspace_task(
     id: &str,
     status: zorai_protocol::WorkspaceTaskStatus,
 ) -> zorai_protocol::WorkspaceTask {
@@ -291,7 +293,7 @@ fn workspace_task(
 }
 
 #[cfg(unix)]
-fn with_fake_mpv_in_path<F: FnOnce()>(test: F) {
+pub(super) fn with_fake_mpv_in_path<F: FnOnce()>(test: F) {
     static PATH_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
     let _guard = PATH_LOCK.lock().expect("path lock should not be poisoned");
@@ -325,7 +327,7 @@ fn with_fake_mpv_in_path<F: FnOnce()>(test: F) {
     }
 }
 
-fn next_goal_run_page_request(
+pub(super) fn next_goal_run_page_request(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> Option<(
     String,
@@ -355,7 +357,7 @@ fn next_goal_run_page_request(
     None
 }
 
-fn next_goal_run_detail_request(
+pub(super) fn next_goal_run_detail_request(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> Option<String> {
     while let Ok(command) = daemon_rx.try_recv() {
@@ -366,7 +368,7 @@ fn next_goal_run_detail_request(
     None
 }
 
-fn next_goal_run_checkpoints_request(
+pub(super) fn next_goal_run_checkpoints_request(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> Option<String> {
     while let Ok(command) = daemon_rx.try_recv() {
@@ -377,7 +379,7 @@ fn next_goal_run_checkpoints_request(
     None
 }
 
-fn next_goal_hydration_schedule(
+pub(super) fn next_goal_hydration_schedule(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> Option<String> {
     while let Ok(command) = daemon_rx.try_recv() {
@@ -388,7 +390,7 @@ fn next_goal_hydration_schedule(
     None
 }
 
-fn active_goal_run_sidebar_model() -> TuiModel {
+pub(super) fn active_goal_run_sidebar_model() -> TuiModel {
     let mut model = make_model();
     model.chat.reduce(chat::ChatAction::ThreadCreated {
         thread_id: "thread-1".to_string(),
@@ -494,7 +496,7 @@ fn active_goal_run_sidebar_model() -> TuiModel {
 }
 
 #[test]
-fn connected_event_defers_concierge_welcome_until_config_loads() {
+pub(super) fn connected_event_defers_concierge_welcome_until_config_loads() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
 
     model.handle_connected_event();
@@ -530,7 +532,7 @@ fn connected_event_defers_concierge_welcome_until_config_loads() {
 }
 
 #[test]
-fn first_raw_config_load_triggers_concierge_welcome_request() {
+pub(super) fn first_raw_config_load_triggers_concierge_welcome_request() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.agent_config_loaded = false;

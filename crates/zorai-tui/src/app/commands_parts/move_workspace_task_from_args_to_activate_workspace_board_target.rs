@@ -1,5 +1,18 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn move_workspace_task_from_args(&mut self, args: &str) {
+    pub(crate) fn move_workspace_task_from_args(&mut self, args: &str) {
         let mut parts = args.split_whitespace();
         let Some(raw_task_id) = parts.next() else {
             self.status_line =
@@ -25,7 +38,7 @@ impl TuiModel {
         self.status_line = "Moving workspace task...".to_string();
     }
 
-    pub(super) fn assign_workspace_task_from_args(&mut self, args: &str) {
+    pub(crate) fn assign_workspace_task_from_args(&mut self, args: &str) {
         let mut parts = args.split_whitespace();
         let Some(raw_task_id) = parts.next() else {
             self.status_line =
@@ -82,7 +95,7 @@ impl TuiModel {
         self.status_line = format!("Select {}", mode.title().to_ascii_lowercase());
     }
 
-    pub(super) fn workspace_actor_picker_body(&self) -> String {
+    pub(crate) fn workspace_actor_picker_body(&self) -> String {
         let Some(pending) = self.pending_workspace_actor_picker.as_ref() else {
             return "No workspace task selected".to_string();
         };
@@ -98,7 +111,7 @@ impl TuiModel {
         )
     }
 
-    pub(super) fn workspace_actor_picker_scroll(&self) -> usize {
+    pub(crate) fn workspace_actor_picker_scroll(&self) -> usize {
         let Some(pending) = self.pending_workspace_actor_picker.as_ref() else {
             return 0;
         };
@@ -119,7 +132,7 @@ impl TuiModel {
             .min(total_lines.saturating_sub(viewport_lines))
     }
 
-    pub(super) fn submit_workspace_actor_picker(&mut self) {
+    pub(crate) fn submit_workspace_actor_picker(&mut self) {
         let Some(pending) = self.pending_workspace_actor_picker.clone() else {
             self.close_top_modal();
             return;
@@ -156,7 +169,7 @@ impl TuiModel {
         (!self.builtin_persona_configured(agent_id)).then(|| agent_id.clone())
     }
 
-    pub(super) fn apply_workspace_actor_selection(
+    pub(crate) fn apply_workspace_actor_selection(
         &mut self,
         pending: PendingWorkspaceActorPicker,
         actor: Option<zorai_protocol::WorkspaceActor>,
@@ -224,7 +237,7 @@ impl TuiModel {
         };
     }
 
-    pub(super) fn update_workspace_task_from_args(&mut self, args: &str) {
+    pub(crate) fn update_workspace_task_from_args(&mut self, args: &str) {
         let draft = match crate::app::workspace_update::parse_workspace_update_args(args) {
             Ok(draft) => draft,
             Err(err) => {
@@ -243,7 +256,7 @@ impl TuiModel {
         self.status_line = "Updating workspace task...".to_string();
     }
 
-    pub(super) fn set_workspace_reviewer_from_args(&mut self, args: &str) {
+    pub(crate) fn set_workspace_reviewer_from_args(&mut self, args: &str) {
         let mut parts = args.split_whitespace();
         let Some(raw_task_id) = parts.next() else {
             self.status_line =
@@ -274,7 +287,7 @@ impl TuiModel {
         self.status_line = "Updating workspace reviewer...".to_string();
     }
 
-    pub(super) fn review_workspace_task_from_args(&mut self, args: &str) {
+    pub(crate) fn review_workspace_task_from_args(&mut self, args: &str) {
         let mut parts = args.trim().splitn(3, char::is_whitespace);
         let Some(raw_task_id) = parts.next().filter(|value| !value.is_empty()) else {
             self.status_line =
@@ -319,7 +332,7 @@ impl TuiModel {
         self.status_line = "Submitting workspace review...".to_string();
     }
 
-    pub(super) fn open_workspace_task_runtime(&mut self, task_id: String) {
+    pub(crate) fn open_workspace_task_runtime(&mut self, task_id: String) {
         let Some(task) = self.workspace.task_by_id(&task_id).cloned() else {
             self.status_line = "Workspace task not found".to_string();
             return;
@@ -396,7 +409,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn step_workspace_board_selection(&mut self, delta: i32) {
+    pub(crate) fn step_workspace_board_selection(&mut self, delta: i32) {
         self.workspace_board_selection = widgets::workspace_board::step_selection(
             &self.workspace,
             &self.workspace_expanded_task_ids,
@@ -420,7 +433,7 @@ impl TuiModel {
         );
     }
 
-    pub(super) fn step_workspace_board_scroll_at(&mut self, position: Position, delta: i32) {
+    pub(crate) fn step_workspace_board_scroll_at(&mut self, position: Position, delta: i32) {
         let chat_area = self.pane_layout().chat;
         let Some(status) = widgets::workspace_board::column_status_at_position(
             chat_area,
@@ -437,7 +450,7 @@ impl TuiModel {
         );
     }
 
-    pub(super) fn activate_workspace_board_selection(&mut self) {
+    pub(crate) fn activate_workspace_board_selection(&mut self) {
         let target = self.workspace_board_selection.clone().or_else(|| {
             widgets::workspace_board::selectable_targets(
                 &self.workspace,

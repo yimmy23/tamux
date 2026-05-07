@@ -117,6 +117,10 @@ async fn delete_thread_removes_persisted_thread_after_hydrate() {
         ),
     );
     engine.persist_thread_by_id(thread_id).await;
+    engine.threads.write().await.clear();
+    engine
+        .clear_thread_message_hydration_pending(thread_id)
+        .await;
 
     assert!(engine.delete_thread(thread_id).await);
     assert!(
@@ -177,6 +181,75 @@ async fn delete_thread_cancels_active_stream() {
     assert!(
         token.is_cancelled(),
         "deleting a thread should stop its active stream"
+    );
+}
+
+#[tokio::test]
+async fn planner_required_for_thread_uses_persisted_latest_user_without_hydrating_messages() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-planner-persisted-latest-user";
+    let planning_request =
+        "Please review this branch, identify the riskiest daemon startup paths, write the tests, \
+         implement the fixes, and then verify the narrow daemon targets before summarizing.";
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Planner Required",
+            false,
+            10,
+            40,
+            vec![
+                AgentMessage::user("quick question", 10),
+                assistant_message("short answer", 20),
+                AgentMessage::user(planning_request, 30),
+                assistant_message("ack", 40),
+            ],
+        ),
+    );
+    engine.persist_thread_by_id(thread_id).await;
+
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some(crate::agent::agent_identity::MAIN_AGENT_NAME),
+            "Planner Required",
+            false,
+            10,
+            40,
+            Vec::new(),
+        ),
+    );
+    engine
+        .thread_message_hydration_pending
+        .write()
+        .await
+        .insert(thread_id.to_string());
+
+    assert!(engine.planner_required_for_thread(thread_id).await);
+    assert!(
+        engine
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(thread_id),
+        "planner routing should not force full thread message hydration"
+    );
+    assert!(
+        engine
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .expect("thread shell should remain live")
+            .messages
+            .is_empty(),
+        "planner routing should keep the live thread shell unhydrated"
     );
 }
 

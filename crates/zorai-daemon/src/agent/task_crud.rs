@@ -977,6 +977,34 @@ impl AgentEngine {
                 return self.project_goal_run(existing).await;
             }
         }
+        match self
+            .history
+            .list_active_goal_runs_for_start_request(
+                thread_id.clone(),
+                session_id.clone(),
+                normalized_request_id.clone(),
+            )
+            .await
+        {
+            Ok(candidates) => {
+                for existing in candidates {
+                    if normalize_goal_key(&existing.goal) == normalized_goal_key {
+                        {
+                            let mut goal_runs = self.goal_runs.lock().await;
+                            if !goal_runs.iter().any(|goal_run| goal_run.id == existing.id) {
+                                goal_runs.push_back(existing.clone());
+                            }
+                        }
+                        return self.project_goal_run(existing).await;
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted active goal runs for de-duplication: {error}"
+                );
+            }
+        }
 
         let normalized_title = title
             .as_deref()
@@ -1171,17 +1199,50 @@ impl AgentEngine {
         limit: Option<usize>,
         offset: Option<usize>,
     ) -> (Vec<GoalRun>, bool) {
-        let goal_runs = self.goal_runs.lock().await;
-        let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
-        drop(goal_runs);
-        let mut projected = Vec::with_capacity(items.len());
-        for goal_run in items.drain(..) {
-            projected.push(self.project_goal_run(goal_run).await);
-        }
-        projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         let offset = offset.unwrap_or(0);
-        let limit = limit.unwrap_or(usize::MAX);
-        let projected: Vec<GoalRun> = projected.into_iter().skip(offset).take(limit).collect();
+        let limit = limit.unwrap_or(i64::MAX as usize);
+        let projected = match self.history.list_goal_run_ids_page(limit, offset).await {
+            Ok((goal_run_ids, total)) if total > 0 => {
+                let mut projected = Vec::with_capacity(goal_run_ids.len());
+                for goal_run_id in goal_run_ids {
+                    match self.history.get_goal_run(&goal_run_id).await {
+                        Ok(Some(goal_run)) => projected.push(self.project_goal_run(goal_run).await),
+                        Ok(None) => {}
+                        Err(error) => {
+                            tracing::warn!(
+                                goal_run_id = %goal_run_id,
+                                error = %error,
+                                "failed to load paged IPC goal run"
+                            );
+                        }
+                    }
+                }
+                projected
+            }
+            Ok(_) => {
+                let goal_runs = self.goal_runs.lock().await;
+                let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
+                drop(goal_runs);
+                let mut projected = Vec::with_capacity(items.len());
+                for goal_run in items.drain(..) {
+                    projected.push(self.project_goal_run(goal_run).await);
+                }
+                projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                projected.into_iter().skip(offset).take(limit).collect()
+            }
+            Err(error) => {
+                tracing::warn!("failed to list paged persisted goal runs for IPC: {error}");
+                let goal_runs = self.goal_runs.lock().await;
+                let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
+                drop(goal_runs);
+                let mut projected = Vec::with_capacity(items.len());
+                for goal_run in items.drain(..) {
+                    projected.push(self.project_goal_run(goal_run).await);
+                }
+                projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                projected.into_iter().skip(offset).take(limit).collect()
+            }
+        };
 
         if goal_run_list_frame_fits_ipc(&projected) {
             return (projected, false);
@@ -1219,8 +1280,18 @@ impl AgentEngine {
             .await
             .iter()
             .find(|goal_run| goal_run.id == goal_run_id)
-            .cloned()?;
-        Some(self.project_goal_run(goal_run).await)
+            .cloned();
+        if let Some(goal_run) = goal_run {
+            return Some(self.project_goal_run(goal_run).await);
+        }
+        match self.history.get_goal_run(goal_run_id).await {
+            Ok(Some(goal_run)) => Some(self.project_goal_run(goal_run).await),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(goal_run_id, "failed to load persisted goal run: {error}");
+                None
+            }
+        }
     }
 
     pub(crate) async fn get_goal_run_capped_for_ipc(
@@ -1457,14 +1528,22 @@ impl AgentEngine {
         action: &str,
         step_index: Option<usize>,
     ) -> bool {
+        let persisted_goal_run = self.get_goal_run(goal_run_id).await;
         let mut changed_goal: Option<GoalRun> = None;
         let mut tasks_to_cancel: Vec<String> = Vec::new();
         let mut task_to_release: Option<(String, Option<String>)> = None;
         {
             let mut goal_runs = self.goal_runs.lock().await;
-            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
-                return false;
-            };
+            if !goal_runs.iter().any(|item| item.id == goal_run_id) {
+                let Some(goal_run) = persisted_goal_run.clone() else {
+                    return false;
+                };
+                goal_runs.push_back(goal_run);
+            }
+            let goal_run = goal_runs
+                .iter_mut()
+                .find(|item| item.id == goal_run_id)
+                .expect("goal run should exist after live rehydration");
 
             match action {
                 "pause" => {
@@ -1715,17 +1794,31 @@ impl AgentEngine {
     }
 
     pub async fn delete_goal_run(&self, goal_run_id: &str) -> bool {
-        let removed_goal = {
+        let live_removed_goal = {
             let mut goal_runs = self.goal_runs.lock().await;
-            let Some(index) = goal_runs
+            goal_runs
                 .iter()
                 .position(|goal_run| goal_run.id == goal_run_id)
-            else {
-                return false;
-            };
-            goal_runs
-                .remove(index)
-                .expect("validated goal run index should remove item")
+                .map(|index| {
+                    goal_runs
+                        .remove(index)
+                        .expect("validated goal run index should remove item")
+                })
+        };
+        let removed_goal = match live_removed_goal {
+            Some(goal_run) => goal_run,
+            None => match self.history.get_goal_run(goal_run_id).await {
+                Ok(Some(goal_run)) => goal_run,
+                Ok(None) => return false,
+                Err(error) => {
+                    tracing::warn!(
+                        goal_run_id = %goal_run_id,
+                        %error,
+                        "failed to load goal run for deletion"
+                    );
+                    return false;
+                }
+            },
         };
 
         let mut related_task_ids = {

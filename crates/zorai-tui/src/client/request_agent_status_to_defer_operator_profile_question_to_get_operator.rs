@@ -1,2 +1,7 @@
-include!("get_operator_profile_summary_to_resolve_task_approval_parts/request_agent_status_to_defer_operator_profile_question.rs");
-include!("get_operator_profile_summary_to_resolve_task_approval_parts/get_operator_profile_summary_to_resolve_task_approval.rs");
+#[path = "get_operator_profile_summary_to_resolve_task_approval_parts/request_agent_status_to_defer_operator_profile_question.rs"]
+mod request_agent_status_to_defer_operator_profile_question;
+#[path = "get_operator_profile_summary_to_resolve_task_approval_parts/get_operator_profile_summary_to_resolve_task_approval.rs"]
+mod get_operator_profile_summary_to_resolve_task_approval;
+
+pub(crate) use get_operator_profile_summary_to_resolve_task_approval::*;
+pub(crate) use request_agent_status_to_defer_operator_profile_question::*;

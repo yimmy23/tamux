@@ -1,3 +1,7 @@
+use super::super::*;
+use super::markdown_renders_bold_to_apply_patch_tool_message_expanded_renders_diff::*;
+use crate::state::chat::{AgentMessage, MessageRole, TranscriptMode};
+use crate::theme::ThemeTokens;
 #[test]
 fn tool_message_expanded_formats_json_arguments_and_result_as_key_values() {
     let msg = AgentMessage {
@@ -444,4 +448,3 @@ fn reasoning_before_content() {
         first_text
     );
 }
-

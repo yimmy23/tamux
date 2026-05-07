@@ -1,7 +1,8 @@
+use super::*;
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct PendingWorkspaceActorPicker {
-    target: PendingWorkspaceActorPickerTarget,
-    task_id: String,
-    mode: workspace_actor_picker::WorkspaceActorPickerMode,
+pub(crate) struct PendingWorkspaceActorPicker {
+    pub(crate) target: PendingWorkspaceActorPickerTarget,
+    pub(crate) task_id: String,
+    pub(crate) mode: workspace_actor_picker::WorkspaceActorPickerMode,
 }
 

@@ -1,3 +1,20 @@
+use super::*;
+use super::super::advanced_single_line_edit_layout_to_subagent_row_action_offsets::*;
+use super::super::render_edit_buffer_with_cursor_to_editing_cursor_hit_test_to_content::*;
+use super::super::wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render::*;
+use super::super::render_advanced_value_to_render_advanced_tab::*;
+use crate::providers;
+use crate::state::concierge::ConciergeState;
+use crate::state::config::ConfigState;
+use crate::state::modal::{ModalState, WhatsAppLinkPhase};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use zorai_protocol::has_whatsapp_allowed_contacts;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsHitTarget {
     Tab(SettingsTab),
@@ -33,20 +50,20 @@ pub enum SubAgentTabAction {
     Toggle,
 }
 
-const TAB_LABELS: [&str; 12] = [
+pub(crate) const TAB_LABELS: [&str; 12] = [
     "Auth", "Svar", "Rar", "Tools", "Search", "Chat", "GW", "Sub", "Feat", "Adv", "Plug", "About",
 ];
-const TAB_DIVIDER: &str = " | ";
+pub(crate) const TAB_DIVIDER: &str = " | ";
 
 #[derive(Debug, Clone, Copy)]
-struct VisibleTab {
-    tab: SettingsTab,
-    index: usize,
-    start_x: u16,
-    end_x: u16,
+pub(crate) struct VisibleTab {
+    pub(crate) tab: SettingsTab,
+    pub(crate) index: usize,
+    pub(crate) start_x: u16,
+    pub(crate) end_x: u16,
 }
 
-fn render_edit_buffer_with_cursor(text: &str, cursor: usize) -> String {
+pub(crate) fn render_edit_buffer_with_cursor(text: &str, cursor: usize) -> String {
     let cursor = cursor.min(text.chars().count());
     let mut out = String::with_capacity(text.len() + 3);
     let byte_cursor = text
@@ -60,7 +77,7 @@ fn render_edit_buffer_with_cursor(text: &str, cursor: usize) -> String {
     out
 }
 
-fn render_edit_line_with_cursor(text: &str, cursor_col: usize) -> String {
+pub(crate) fn render_edit_line_with_cursor(text: &str, cursor_col: usize) -> String {
     let mut out = String::with_capacity(text.len() + 3);
     let mut inserted = false;
     for (col, ch) in text.chars().enumerate() {
@@ -76,7 +93,7 @@ fn render_edit_line_with_cursor(text: &str, cursor_col: usize) -> String {
     out
 }
 
-fn clip_inline_text(text: &str, max_chars: usize) -> String {
+pub(crate) fn clip_inline_text(text: &str, max_chars: usize) -> String {
     let chars: Vec<char> = text.chars().collect();
     if chars.len() <= max_chars {
         return text.to_string();
@@ -87,7 +104,7 @@ fn clip_inline_text(text: &str, max_chars: usize) -> String {
     format!("…{}", tail)
 }
 
-pub fn render(
+pub(crate) fn render(
     frame: &mut Frame,
     area: Rect,
     settings: &SettingsState,
@@ -191,7 +208,7 @@ pub fn render(
     frame.render_widget(Paragraph::new(hints), chunks[3]);
 }
 
-fn settings_field_can_activate(settings: &SettingsState, config: &ConfigState) -> bool {
+pub(crate) fn settings_field_can_activate(settings: &SettingsState, config: &ConfigState) -> bool {
     let field = settings.current_field_name_with_config(config);
     if field.is_empty() || matches!(field, "snapshot_stats") {
         return false;
@@ -243,7 +260,7 @@ fn settings_field_can_activate(settings: &SettingsState, config: &ConfigState) -
     ) && !field.starts_with("tool_")
 }
 
-fn settings_field_can_toggle(settings: &SettingsState, config: &ConfigState) -> bool {
+pub(crate) fn settings_field_can_toggle(settings: &SettingsState, config: &ConfigState) -> bool {
     let field = settings.current_field_name_with_config(config);
     matches!(
         field,
@@ -294,7 +311,7 @@ fn settings_field_can_toggle(settings: &SettingsState, config: &ConfigState) -> 
     ) || field.starts_with("tool_")
 }
 
-pub fn hit_test(
+pub(crate) fn hit_test(
     area: Rect,
     settings: &SettingsState,
     config: &ConfigState,
@@ -360,14 +377,14 @@ pub fn hit_test(
     }
 }
 
-fn tab_hit_test(tab_area: Rect, active_tab: SettingsTab, mouse_x: u16) -> Option<SettingsTab> {
+pub(crate) fn tab_hit_test(tab_area: Rect, active_tab: SettingsTab, mouse_x: u16) -> Option<SettingsTab> {
     visible_tabs(tab_area, active_tab_index(active_tab))
         .into_iter()
         .find(|tab| mouse_x >= tab.start_x && mouse_x < tab.end_x)
         .map(|tab| tab.tab)
 }
 
-fn active_tab_index(tab: SettingsTab) -> usize {
+pub(crate) fn active_tab_index(tab: SettingsTab) -> usize {
     match tab {
         SettingsTab::Auth => 0,
         SettingsTab::Provider | SettingsTab::Agent => 1,
@@ -384,7 +401,7 @@ fn active_tab_index(tab: SettingsTab) -> usize {
     }
 }
 
-fn visible_tabs(tab_area: Rect, active_index: usize) -> Vec<VisibleTab> {
+pub(crate) fn visible_tabs(tab_area: Rect, active_index: usize) -> Vec<VisibleTab> {
     let all = SettingsTab::all();
     let divider_width = TAB_DIVIDER.chars().count() as u16;
     let total_width = |start: usize, end: usize| -> u16 {
@@ -432,7 +449,7 @@ fn visible_tabs(tab_area: Rect, active_index: usize) -> Vec<VisibleTab> {
     visible
 }
 
-fn render_tabs_line(
+pub(crate) fn render_tabs_line(
     tabs: &[VisibleTab],
     settings: &SettingsState,
     theme: &ThemeTokens,
@@ -462,7 +479,7 @@ fn render_tabs_line(
     Line::from(spans)
 }
 
-fn editing_cursor_hit_test(
+pub(crate) fn editing_cursor_hit_test(
     content_area: Rect,
     settings: &SettingsState,
     config: &ConfigState,
@@ -491,4 +508,3 @@ fn editing_cursor_hit_test(
     }
     None
 }
-

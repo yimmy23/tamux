@@ -1,5 +1,19 @@
+use super::super::*;
+use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
+use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::super::selection_point_from_snapshot_to_render::*;
+use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode};
+use crate::theme::ThemeTokens;
+use crate::widgets::message;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 #[cfg(test)]
-fn build_rendered_lines(
+pub(crate) fn build_rendered_lines(
     chat: &ChatState,
     theme: &ThemeTokens,
     inner_width: usize,
@@ -24,7 +38,7 @@ fn build_rendered_lines(
         let responder_labels = assistant_responder_labels(thread);
         for (idx, msg) in thread.messages.iter().enumerate() {
             let start = all_lines.len();
-            let mut msg_lines = super::message::message_to_lines(
+            let mut msg_lines = crate::widgets::message::message_to_lines(
                 msg,
                 idx,
                 mode,
@@ -263,13 +277,13 @@ fn build_rendered_lines(
     (all_lines, message_line_ranges)
 }
 
-struct TranscriptMetrics {
-    total_lines: usize,
-    message_line_ranges: Vec<(usize, usize)>,
-    responder_labels: Vec<Option<String>>,
+pub(crate) struct TranscriptMetrics {
+    pub(crate) total_lines: usize,
+    pub(crate) message_line_ranges: Vec<(usize, usize)>,
+    pub(crate) responder_labels: Vec<Option<String>>,
 }
 
-fn build_transcript_metrics(
+pub(crate) fn build_transcript_metrics(
     chat: &ChatState,
     theme: &ThemeTokens,
     inner_width: usize,
@@ -327,7 +341,7 @@ fn build_transcript_metrics(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn estimated_message_block_line_count(
+pub(crate) fn estimated_message_block_line_count(
     chat: &ChatState,
     msg: &AgentMessage,
     msg_index: usize,
@@ -360,7 +374,7 @@ fn estimated_message_block_line_count(
         .saturating_add(selected_inline_action_line_count(chat, msg, msg_index))
 }
 
-fn selected_message_shows_inline_actions(
+pub(crate) fn selected_message_shows_inline_actions(
     chat: &ChatState,
     msg: &AgentMessage,
     msg_index: usize,
@@ -368,13 +382,13 @@ fn selected_message_shows_inline_actions(
     chat.selected_message() == Some(msg_index) && !selected_message_is_last_actionable(chat, msg)
 }
 
-fn selected_message_is_last_actionable(chat: &ChatState, msg: &AgentMessage) -> bool {
+pub(crate) fn selected_message_is_last_actionable(chat: &ChatState, msg: &AgentMessage) -> bool {
     !msg.actions.is_empty()
         && chat.active_actions().first().map(|action| &action.label)
             == msg.actions.first().map(|action| &action.label)
 }
 
-fn selected_inline_action_line_count(
+pub(crate) fn selected_inline_action_line_count(
     chat: &ChatState,
     msg: &AgentMessage,
     msg_index: usize,
@@ -386,13 +400,13 @@ fn selected_inline_action_line_count(
     }
 }
 
-fn selected_inline_action_message_index(chat: &ChatState) -> Option<usize> {
+pub(crate) fn selected_inline_action_message_index(chat: &ChatState) -> Option<usize> {
     let msg_index = chat.selected_message()?;
     let msg = chat.active_thread()?.messages.get(msg_index)?;
     selected_message_shows_inline_actions(chat, msg, msg_index).then_some(msg_index)
 }
 
-fn estimated_message_content_line_count(
+pub(crate) fn estimated_message_content_line_count(
     msg: &AgentMessage,
     msg_index: usize,
     mode: TranscriptMode,
@@ -417,7 +431,7 @@ fn estimated_message_content_line_count(
                     return 0;
                 }
                 if tools_expanded {
-                    return super::message::message_to_lines(
+                    return crate::widgets::message::message_to_lines(
                         msg,
                         msg_index,
                         mode,
@@ -431,12 +445,12 @@ fn estimated_message_content_line_count(
                 return 1;
             }
 
-            if super::message::is_collapsible_system_notice_message(msg) {
+            if crate::widgets::message::is_collapsible_system_notice_message(msg) {
                 let mut count = 1usize;
                 if reasoning_expanded {
                     let detail_width = content_width.saturating_sub(2).max(1);
                     let detail =
-                        super::message::collapsible_system_notice_detail(msg).unwrap_or_default();
+                        crate::widgets::message::collapsible_system_notice_detail(msg).unwrap_or_default();
                     count = count.saturating_add(wrap_text(&detail, detail_width).len().max(1));
                 }
                 return count;
@@ -471,7 +485,7 @@ fn estimated_message_content_line_count(
             let content_lines = if msg.content.is_empty() {
                 0
             } else if msg.role == MessageRole::Assistant && exact_message_metrics {
-                super::message::render_markdown_pub(&msg.content, content_width).len()
+                crate::widgets::message::render_markdown_pub(&msg.content, content_width).len()
             } else {
                 wrap_text(&msg.content, content_width).len()
             };
@@ -483,7 +497,7 @@ fn estimated_message_content_line_count(
     }
 }
 
-fn estimated_streaming_and_retry_line_count(
+pub(crate) fn estimated_streaming_and_retry_line_count(
     chat: &ChatState,
     content_width: usize,
     _current_tick: u64,
@@ -539,7 +553,7 @@ fn estimated_streaming_and_retry_line_count(
     count
 }
 
-fn build_rendered_line_window(
+pub(crate) fn build_rendered_line_window(
     chat: &ChatState,
     theme: &ThemeTokens,
     inner_width: usize,
@@ -633,7 +647,7 @@ fn build_rendered_line_window(
     lines
 }
 
-fn intersecting_message_range(
+pub(crate) fn intersecting_message_range(
     message_line_ranges: &[(usize, usize)],
     window_start: usize,
     window_end: usize,
@@ -647,11 +661,11 @@ fn intersecting_message_range(
     start..end.max(start)
 }
 
-fn older_history_loading_line_count(chat: &ChatState) -> usize {
+pub(crate) fn older_history_loading_line_count(chat: &ChatState) -> usize {
     usize::from(chat.active_thread_older_page_pending())
 }
 
-fn older_history_loading_line(
+pub(crate) fn older_history_loading_line(
     theme: &ThemeTokens,
     inner_width: usize,
     current_tick: u64,
@@ -674,7 +688,7 @@ fn older_history_loading_line(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_message_block_lines(
+pub(crate) fn render_message_block_lines(
     chat: &ChatState,
     msg: &AgentMessage,
     msg_index: usize,
@@ -688,7 +702,7 @@ fn render_message_block_lines(
     current_tick: u64,
 ) -> Vec<RenderedChatLine> {
     let mut block = Vec::new();
-    let mut msg_lines = super::message::message_to_lines(
+    let mut msg_lines = crate::widgets::message::message_to_lines(
         msg,
         msg_index,
         mode,
@@ -785,7 +799,7 @@ fn render_message_block_lines(
     block
 }
 
-fn overlay_intersecting_lines(
+pub(crate) fn overlay_intersecting_lines(
     output: &mut [RenderedChatLine],
     block: &[RenderedChatLine],
     block_start: usize,
@@ -817,7 +831,7 @@ fn overlay_intersecting_lines(
     }
 }
 
-fn actual_row_for_estimated_row(
+pub(crate) fn actual_row_for_estimated_row(
     local_estimated: usize,
     estimated_len: usize,
     actual_len: usize,
@@ -836,7 +850,7 @@ fn actual_row_for_estimated_row(
         .min(actual_len - 1)
 }
 
-fn nearest_non_padding_line(block: &[RenderedChatLine], from: usize) -> Option<usize> {
+pub(crate) fn nearest_non_padding_line(block: &[RenderedChatLine], from: usize) -> Option<usize> {
     if !matches!(block.get(from)?.kind, RenderedLineKind::Padding) {
         return Some(from);
     }
@@ -856,7 +870,7 @@ fn nearest_non_padding_line(block: &[RenderedChatLine], from: usize) -> Option<u
     None
 }
 
-fn render_streaming_retry_lines(
+pub(crate) fn render_streaming_retry_lines(
     chat: &ChatState,
     theme: &ThemeTokens,
     inner_width: usize,
@@ -1004,17 +1018,17 @@ fn render_streaming_retry_lines(
     all_lines
 }
 
-const THREAD_HANDOFF_SYSTEM_MARKER: &str = "[[handoff_event]]";
+pub(crate) const THREAD_HANDOFF_SYSTEM_MARKER: &str = "[[handoff_event]]";
 
 #[derive(serde::Deserialize)]
-struct HandoffResponderEvent {
+pub(crate) struct HandoffResponderEvent {
     #[serde(default)]
-    from_agent_name: Option<String>,
+    pub(crate) from_agent_name: Option<String>,
     #[serde(default)]
-    to_agent_name: Option<String>,
+    pub(crate) to_agent_name: Option<String>,
 }
 
-fn assistant_responder_labels(thread: &crate::state::chat::AgentThread) -> Vec<Option<String>> {
+pub(crate) fn assistant_responder_labels(thread: &crate::state::chat::AgentThread) -> Vec<Option<String>> {
     #[cfg(test)]
     ASSISTANT_RESPONDER_LABELS_CALLS.with(|calls| calls.set(calls.get() + 1));
 
@@ -1041,7 +1055,7 @@ fn assistant_responder_labels(thread: &crate::state::chat::AgentThread) -> Vec<O
     labels
 }
 
-fn responder_label_line(label: &str, theme: &ThemeTokens) -> Line<'static> {
+pub(crate) fn responder_label_line(label: &str, theme: &ThemeTokens) -> Line<'static> {
     Line::from(vec![
         Span::styled("● ", responder_accent_style(label, theme)),
         Span::styled("Responder: ", theme.fg_dim),
@@ -1049,7 +1063,7 @@ fn responder_label_line(label: &str, theme: &ThemeTokens) -> Line<'static> {
     ])
 }
 
-fn responder_accent_style(label: &str, theme: &ThemeTokens) -> Style {
+pub(crate) fn responder_accent_style(label: &str, theme: &ThemeTokens) -> Style {
     if !label.starts_with('@') {
         return theme.accent_assistant;
     }
@@ -1067,7 +1081,7 @@ fn responder_accent_style(label: &str, theme: &ThemeTokens) -> Style {
     palette[(hash as usize) % palette.len()]
 }
 
-fn message_responder_label(
+pub(crate) fn message_responder_label(
     msg: &AgentMessage,
     participant_ids: &std::collections::HashSet<String>,
 ) -> Option<String> {
@@ -1092,7 +1106,7 @@ fn message_responder_label(
     }
 }
 
-fn initial_responder_name(thread: &crate::state::chat::AgentThread) -> Option<String> {
+pub(crate) fn initial_responder_name(thread: &crate::state::chat::AgentThread) -> Option<String> {
     thread
         .agent_name
         .clone()
@@ -1104,20 +1118,20 @@ fn initial_responder_name(thread: &crate::state::chat::AgentThread) -> Option<St
         .or_else(|| Some(zorai_protocol::AGENT_NAME_SWAROG.to_string()))
 }
 
-fn handoff_responder_event_for_message(msg: &AgentMessage) -> Option<HandoffResponderEvent> {
+pub(crate) fn handoff_responder_event_for_message(msg: &AgentMessage) -> Option<HandoffResponderEvent> {
     if msg.role != MessageRole::System {
         return None;
     }
     parse_handoff_responder_event(&msg.content)
 }
 
-fn parse_handoff_responder_event(content: &str) -> Option<HandoffResponderEvent> {
+pub(crate) fn parse_handoff_responder_event(content: &str) -> Option<HandoffResponderEvent> {
     let payload = content.strip_prefix(THREAD_HANDOFF_SYSTEM_MARKER)?;
     let json = payload.lines().next()?.trim();
     serde_json::from_str(json).ok()
 }
 
-pub struct CachedSelectionSnapshot(SelectionSnapshot);
+pub struct CachedSelectionSnapshot(pub(crate) SelectionSnapshot);
 
 pub fn build_selection_snapshot(
     area: Rect,
@@ -1156,7 +1170,7 @@ pub fn cached_snapshot_matches_render_key(
     snapshot.0.metrics_key == transcript_metrics_cache_key(area, chat)
 }
 
-fn snapshot_covers_visible_window(snapshot: &SelectionSnapshot, chat: &ChatState) -> bool {
+pub(crate) fn snapshot_covers_visible_window(snapshot: &SelectionSnapshot, chat: &ChatState) -> bool {
     let scroll = resolved_scroll(
         chat,
         snapshot.total_lines,
@@ -1172,7 +1186,7 @@ fn snapshot_covers_visible_window(snapshot: &SelectionSnapshot, chat: &ChatState
     start_idx >= snapshot.rendered_start_idx && end_idx <= snapshot_rendered_end_idx(snapshot)
 }
 
-fn cached_transcript_metrics(
+pub(crate) fn cached_transcript_metrics(
     snapshot: &SelectionSnapshot,
     chat: &ChatState,
     content_width: usize,
@@ -1324,7 +1338,7 @@ pub fn selected_text_from_cached_snapshot(
     }
 }
 
-fn apply_selected_message_highlight(
+pub(crate) fn apply_selected_message_highlight(
     all_lines: &mut [RenderedChatLine],
     selected_msg: Option<usize>,
 ) {
@@ -1343,7 +1357,7 @@ fn apply_selected_message_highlight(
     }
 }
 
-fn build_visible_window_from_snapshot(
+pub(crate) fn build_visible_window_from_snapshot(
     snapshot: &SelectionSnapshot,
     chat: &ChatState,
 ) -> (Vec<RenderedChatLine>, usize, usize, usize) {

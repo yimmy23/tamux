@@ -1,3 +1,18 @@
+use super::*;
+use crate::widgets::duration_format::format_duration_ms;
+use crate::widgets::chat::SelectionPoint;
+use super::selection::*;
+use super::sections::*;
+use crate::state::task::*;
+use super::sections;
+use super::selection;
+use crate::state::sidebar::{SidebarItemTarget, SidebarTab};
+use crate::theme::ThemeTokens;
+use ratatui::layout::{Position, Rect};
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
 use sections::{
     render_checkpoints, render_delivery_units, render_dossier, render_live_activity,
     render_live_todos, render_proof_coverage, render_reports, render_resume_decision,
@@ -5,20 +20,13 @@ use sections::{
 };
 use selection::{display_slice, highlight_line_range, line_display_width, line_plain_text};
 
-use crate::state::sidebar::SidebarItemTarget;
-use crate::state::task::{
-    AgentTask, GoalAgentAssignment, GoalRun, GoalRunModelUsage, GoalRunStatus, GoalRunStep,
-    GoalRuntimeOwnerProfile, TaskState, TaskStatus, TodoItem, TodoStatus, WorkContextEntryKind,
-};
-use crate::theme::ThemeTokens;
-use crate::widgets::chat::SelectionPoint;
 use crate::widgets::message::{render_markdown_pub, wrap_text};
 
-fn content_inner(area: Rect) -> Rect {
+pub(crate) fn content_inner(area: Rect) -> Rect {
     area
 }
 
-const SCROLLBAR_WIDTH: u16 = 1;
+pub(crate) const SCROLLBAR_WIDTH: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TaskViewScrollbarLayout {
@@ -30,20 +38,20 @@ pub struct TaskViewScrollbarLayout {
 }
 
 #[derive(Clone)]
-struct RenderRow {
-    line: Line<'static>,
-    work_path: Option<String>,
-    goal_step_id: Option<String>,
-    close_preview: bool,
+pub(crate) struct RenderRow {
+    pub(crate) line: Line<'static>,
+    pub(crate) work_path: Option<String>,
+    pub(crate) goal_step_id: Option<String>,
+    pub(crate) close_preview: bool,
 }
 
-const ACTIVITY_SPINNER_FRAMES: [&str; 8] = ["⠁", "⠃", "⠇", "⠧", "⠷", "⠿", "⠷", "⠧"];
+pub(crate) const ACTIVITY_SPINNER_FRAMES: [&str; 8] = ["⠁", "⠃", "⠇", "⠧", "⠷", "⠿", "⠷", "⠧"];
 
-fn activity_spinner_frame(tick: u64) -> &'static str {
+pub(crate) fn activity_spinner_frame(tick: u64) -> &'static str {
     ACTIVITY_SPINNER_FRAMES[((tick / 4) as usize) % ACTIVITY_SPINNER_FRAMES.len()]
 }
 
-fn is_goal_run_live(status: Option<GoalRunStatus>) -> bool {
+pub(crate) fn is_goal_run_live(status: Option<GoalRunStatus>) -> bool {
     matches!(
         status,
         Some(GoalRunStatus::Planning)
@@ -52,7 +60,7 @@ fn is_goal_run_live(status: Option<GoalRunStatus>) -> bool {
     )
 }
 
-fn goal_status_badge(
+pub(crate) fn goal_status_badge(
     status: Option<GoalRunStatus>,
     theme: &ThemeTokens,
     _tick: Option<u64>,
@@ -70,7 +78,7 @@ fn goal_status_badge(
     }
 }
 
-fn goal_step_glyph(
+pub(crate) fn goal_step_glyph(
     step_status: Option<GoalRunStatus>,
     active: bool,
     run_status: Option<GoalRunStatus>,
@@ -107,7 +115,7 @@ fn goal_step_glyph(
     }
 }
 
-fn activity_phase_style(phase: &str, theme: &ThemeTokens) -> Style {
+pub(crate) fn activity_phase_style(phase: &str, theme: &ThemeTokens) -> Style {
     match phase {
         "tool" | "tool_call" => theme.accent_primary,
         "todo" => theme.accent_secondary,
@@ -117,7 +125,7 @@ fn activity_phase_style(phase: &str, theme: &ThemeTokens) -> Style {
     }
 }
 
-fn activity_phase_label(phase: &str) -> String {
+pub(crate) fn activity_phase_label(phase: &str) -> String {
     if phase.trim().is_empty() {
         "event".to_string()
     } else {
@@ -125,10 +133,10 @@ fn activity_phase_label(phase: &str) -> String {
     }
 }
 
-struct SelectionSnapshot {
-    rows: Vec<RenderRow>,
-    scroll: usize,
-    area: Rect,
+pub(crate) struct SelectionSnapshot {
+    pub(crate) rows: Vec<RenderRow>,
+    pub(crate) scroll: usize,
+    pub(crate) area: Rect,
 }
 
 pub enum TaskViewHitTarget {
@@ -138,9 +146,9 @@ pub enum TaskViewHitTarget {
     ClosePreview,
 }
 
-const BACK_TO_GOAL_HIT_PATH: &str = "__zorai_task_view_back_to_goal__";
+pub(crate) const BACK_TO_GOAL_HIT_PATH: &str = "__zorai_task_view_back_to_goal__";
 
-fn task_status_label(status: Option<TaskStatus>) -> &'static str {
+pub(crate) fn task_status_label(status: Option<TaskStatus>) -> &'static str {
     match status {
         Some(TaskStatus::InProgress) => "running",
         Some(TaskStatus::Completed) => "done",
@@ -154,7 +162,7 @@ fn task_status_label(status: Option<TaskStatus>) -> &'static str {
     }
 }
 
-fn task_status_chip(status: Option<TaskStatus>) -> &'static str {
+pub(crate) fn task_status_chip(status: Option<TaskStatus>) -> &'static str {
     match status {
         Some(TaskStatus::InProgress) => "[~]",
         Some(TaskStatus::Completed) => "[x]",
@@ -166,7 +174,7 @@ fn task_status_chip(status: Option<TaskStatus>) -> &'static str {
     }
 }
 
-fn todo_status_chip(status: Option<TodoStatus>) -> &'static str {
+pub(crate) fn todo_status_chip(status: Option<TodoStatus>) -> &'static str {
     match status {
         Some(TodoStatus::InProgress) => "[~]",
         Some(TodoStatus::Completed) => "[x]",
@@ -175,7 +183,7 @@ fn todo_status_chip(status: Option<TodoStatus>) -> &'static str {
     }
 }
 
-fn work_kind_label(kind: Option<WorkContextEntryKind>) -> &'static str {
+pub(crate) fn work_kind_label(kind: Option<WorkContextEntryKind>) -> &'static str {
     match kind {
         Some(WorkContextEntryKind::GeneratedSkill) => "skill",
         Some(WorkContextEntryKind::Artifact) => "file",
@@ -183,7 +191,7 @@ fn work_kind_label(kind: Option<WorkContextEntryKind>) -> &'static str {
     }
 }
 
-fn truncate_tail(text: &str, max_len: usize) -> String {
+pub(crate) fn truncate_tail(text: &str, max_len: usize) -> String {
     if text.chars().count() <= max_len {
         return text.to_string();
     }
@@ -201,7 +209,7 @@ fn truncate_tail(text: &str, max_len: usize) -> String {
     format!("…{tail}")
 }
 
-fn push_wrapped_text(
+pub(crate) fn push_wrapped_text(
     rows: &mut Vec<RenderRow>,
     text: &str,
     style: Style,
@@ -222,7 +230,7 @@ fn push_wrapped_text(
     }
 }
 
-fn push_blank(rows: &mut Vec<RenderRow>) {
+pub(crate) fn push_blank(rows: &mut Vec<RenderRow>) {
     rows.push(RenderRow {
         line: Line::raw(""),
         work_path: None,
@@ -231,7 +239,7 @@ fn push_blank(rows: &mut Vec<RenderRow>) {
     });
 }
 
-fn push_section_title(rows: &mut Vec<RenderRow>, title: &str, style: Style) {
+pub(crate) fn push_section_title(rows: &mut Vec<RenderRow>, title: &str, style: Style) {
     if !rows.is_empty() {
         push_blank(rows);
     }
@@ -243,12 +251,12 @@ fn push_section_title(rows: &mut Vec<RenderRow>, title: &str, style: Style) {
     });
 }
 
-fn is_markdown_path(path: &str) -> bool {
+pub(crate) fn is_markdown_path(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     lower.ends_with(".md") || lower.ends_with(".markdown") || lower.ends_with(".mdx")
 }
 
-fn push_preview_text(
+pub(crate) fn push_preview_text(
     rows: &mut Vec<RenderRow>,
     path: &str,
     content: &str,
@@ -269,7 +277,7 @@ fn push_preview_text(
     }
 }
 
-fn related_tasks_for_step<'a>(
+pub(crate) fn related_tasks_for_step<'a>(
     tasks: &'a TaskState,
     run: &GoalRun,
     step: &GoalRunStep,
@@ -288,7 +296,7 @@ fn related_tasks_for_step<'a>(
         .collect()
 }
 
-fn push_todo_items(
+pub(crate) fn push_todo_items(
     rows: &mut Vec<RenderRow>,
     items: &[TodoItem],
     theme: &ThemeTokens,
@@ -325,7 +333,7 @@ fn push_todo_items(
     }
 }
 
-fn render_goal_summary(
+pub(crate) fn render_goal_summary(
     rows: &mut Vec<RenderRow>,
     run: &GoalRun,
     theme: &ThemeTokens,
@@ -446,4 +454,3 @@ fn render_goal_summary(
         push_wrapped_text(rows, last_error, theme.accent_danger, width, 0);
     }
 }
-

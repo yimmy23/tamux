@@ -1,3 +1,9 @@
+use super::*;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crate::widgets;
+use crate::providers;
+use ratatui::prelude::*;
+use zorai_shared::providers::*;
 impl TuiModel {
     pub(super) fn activate_advanced_settings_field(&mut self, field: &str) -> bool {
         match field {

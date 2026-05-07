@@ -1,7 +1,8 @@
 use super::*;
 use crate::state::spawned_tree::derive_spawned_agent_tree;
+use crate::state::task::*;
 
-fn make_task(
+pub(super) fn make_task(
     id: &str,
     title: &str,
     created_at: u64,
@@ -22,7 +23,7 @@ fn make_task(
     }
 }
 
-fn make_goal_run(id: &str, title: &str) -> GoalRun {
+pub(super) fn make_goal_run(id: &str, title: &str) -> GoalRun {
     GoalRun {
         id: id.into(),
         title: title.into(),
@@ -30,7 +31,7 @@ fn make_goal_run(id: &str, title: &str) -> GoalRun {
     }
 }
 
-fn make_owner_profile(
+pub(super) fn make_owner_profile(
     agent_label: &str,
     provider: &str,
     model: &str,
@@ -44,7 +45,7 @@ fn make_owner_profile(
     }
 }
 
-fn make_wire_owner_profile(
+pub(super) fn make_wire_owner_profile(
     agent_label: &str,
     provider: &str,
     model: &str,
@@ -58,7 +59,7 @@ fn make_wire_owner_profile(
     }
 }
 
-fn make_assignment(
+pub(super) fn make_assignment(
     role_id: &str,
     enabled: bool,
     provider: &str,
@@ -76,7 +77,7 @@ fn make_assignment(
     }
 }
 
-fn make_wire_assignment(
+pub(super) fn make_wire_assignment(
     role_id: &str,
     enabled: bool,
     provider: &str,
@@ -455,4 +456,3 @@ fn goal_step_todos_use_latest_event_snapshot_without_resurrecting_removed_items(
     assert_eq!(todos[0].content, "current item");
     assert_eq!(todos[0].status, Some(TodoStatus::InProgress));
 }
-

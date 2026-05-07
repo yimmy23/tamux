@@ -1,4 +1,9 @@
 use super::*;
+use crate::state::*;
+use crate::app::*;
+use crate::app::config_io::helpers::{normalize_compliance_mode, normalize_provider_auth_source, normalize_provider_transport};
+use crate::app::TuiModel;
+use crate::state::DaemonCommand;
 use crate::test_support::{env_var_lock, EnvVarGuard, ZORAI_DATA_DIR_ENV};
 use rusqlite::Connection;
 use std::sync::mpsc;
@@ -10,13 +15,13 @@ use zorai_shared::providers::{
     PROVIDER_ID_OPENROUTER,
 };
 
-fn make_model() -> TuiModel {
+pub(super) fn make_model() -> TuiModel {
     let (_client_tx, client_rx) = mpsc::channel();
     let (daemon_tx, _daemon_rx) = unbounded_channel();
     TuiModel::new(client_rx, daemon_tx)
 }
 
-fn make_model_with_daemon_rx() -> (
+pub(super) fn make_model_with_daemon_rx() -> (
     TuiModel,
     tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) {

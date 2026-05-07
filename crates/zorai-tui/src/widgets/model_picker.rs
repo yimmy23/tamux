@@ -214,8 +214,11 @@ pub fn render(
 }
 
 #[cfg(test)]
+#[path = "model_picker_tests_parts"]
 mod tests {
-    include!("model_picker_tests_parts/model_picker_filters_visible_rows.rs");
+    use super::*;
+
+    mod model_picker_filters_visible_rows;
 }
 
 fn highlighted_model_details(

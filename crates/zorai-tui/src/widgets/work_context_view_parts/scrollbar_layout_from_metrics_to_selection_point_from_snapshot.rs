@@ -1,21 +1,34 @@
-use selection::{display_slice, highlight_line_range, line_display_width, line_plain_text};
+use super::*;
+use super::selection::*;
+use crate::state::sidebar::SidebarTab;
+use crate::state::task::{TaskState, TodoStatus, WorkContextEntryKind};
+use crate::terminal_graphics::{active_protocol, TerminalImageOverlaySpec, TerminalImageProtocol};
+use crate::theme::ThemeTokens;
+use crate::widgets::chat::SelectionPoint;
+use crate::widgets::image_preview;
+use crate::widgets::message::{render_markdown_pub, wrap_text};
+use crate::widgets::tool_diff::render_unified_diff;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
 
-const SCROLLBAR_WIDTH: u16 = 1;
-const TERMINAL_IMAGE_HEADER_LINES: u16 = 1;
+pub(crate) const SCROLLBAR_WIDTH: u16 = 1;
+pub(crate) const TERMINAL_IMAGE_HEADER_LINES: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct WorkContextScrollbarLayout {
-    content: Rect,
-    scrollbar: Rect,
-    thumb: Rect,
-    scroll: usize,
-    max_scroll: usize,
+pub(crate) struct WorkContextScrollbarLayout {
+    pub(crate) content: Rect,
+    pub(crate) scrollbar: Rect,
+    pub(crate) thumb: Rect,
+    pub(crate) scroll: usize,
+    pub(crate) max_scroll: usize,
 }
 
 #[derive(Clone)]
-struct RenderedWorkLine {
-    line: Line<'static>,
-    close_preview: bool,
+pub(crate) struct RenderedWorkLine {
+    pub(crate) line: Line<'static>,
+    pub(crate) close_preview: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,33 +36,33 @@ pub enum WorkContextHitTarget {
     ClosePreview,
 }
 
-struct SelectionSnapshot {
-    all_lines: Vec<RenderedWorkLine>,
-    scroll: usize,
-    area: Rect,
-    header_area: Option<Rect>,
-    body_area: Option<Rect>,
-    header_len: usize,
+pub(crate) struct SelectionSnapshot {
+    pub(crate) all_lines: Vec<RenderedWorkLine>,
+    pub(crate) scroll: usize,
+    pub(crate) area: Rect,
+    pub(crate) header_area: Option<Rect>,
+    pub(crate) body_area: Option<Rect>,
+    pub(crate) header_len: usize,
 }
 
-struct StickyFilesSnapshot {
-    header_lines: Vec<RenderedWorkLine>,
-    body_lines: Vec<RenderedWorkLine>,
-    scroll: usize,
-    header_area: Rect,
-    body_area: Rect,
-    layout: Option<WorkContextScrollbarLayout>,
-    max_scroll: usize,
+pub(crate) struct StickyFilesSnapshot {
+    pub(crate) header_lines: Vec<RenderedWorkLine>,
+    pub(crate) body_lines: Vec<RenderedWorkLine>,
+    pub(crate) scroll: usize,
+    pub(crate) header_area: Rect,
+    pub(crate) body_area: Rect,
+    pub(crate) layout: Option<WorkContextScrollbarLayout>,
+    pub(crate) max_scroll: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct WorkContextThemeKey {
-    fg_dim: Style,
-    fg_active: Style,
-    accent_primary: Style,
-    accent_secondary: Style,
-    accent_success: Style,
-    accent_danger: Style,
+pub(crate) struct WorkContextThemeKey {
+    pub(crate) fg_dim: Style,
+    pub(crate) fg_active: Style,
+    pub(crate) accent_primary: Style,
+    pub(crate) accent_secondary: Style,
+    pub(crate) accent_success: Style,
+    pub(crate) accent_danger: Style,
 }
 
 impl From<&ThemeTokens> for WorkContextThemeKey {
@@ -66,37 +79,37 @@ impl From<&ThemeTokens> for WorkContextThemeKey {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct FileBodyCacheKey {
-    area: Rect,
-    path: String,
-    repo_root: Option<String>,
-    task_state_id: usize,
-    preview_revision: u64,
-    image_preview_revision: u64,
-    terminal_image: bool,
-    theme: WorkContextThemeKey,
+pub(crate) struct FileBodyCacheKey {
+    pub(crate) area: Rect,
+    pub(crate) path: String,
+    pub(crate) repo_root: Option<String>,
+    pub(crate) task_state_id: usize,
+    pub(crate) preview_revision: u64,
+    pub(crate) image_preview_revision: u64,
+    pub(crate) terminal_image: bool,
+    pub(crate) theme: WorkContextThemeKey,
 }
 
 #[derive(Clone)]
-struct CachedFileBodyLines {
-    key: FileBodyCacheKey,
-    lines: Vec<RenderedWorkLine>,
+pub(crate) struct CachedFileBodyLines {
+    pub(crate) key: FileBodyCacheKey,
+    pub(crate) lines: Vec<RenderedWorkLine>,
 }
 
 #[derive(Default)]
-struct WorkContextRenderCache {
-    file_body_lines: Vec<CachedFileBodyLines>,
+pub(crate) struct WorkContextRenderCache {
+    pub(crate) file_body_lines: Vec<CachedFileBodyLines>,
 }
 
-const WORK_CONTEXT_CACHE_CAPACITY: usize = 16;
+pub(crate) const WORK_CONTEXT_CACHE_CAPACITY: usize = 16;
 
-fn global_work_context_cache() -> &'static std::sync::Mutex<WorkContextRenderCache> {
+pub(crate) fn global_work_context_cache() -> &'static std::sync::Mutex<WorkContextRenderCache> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<WorkContextRenderCache>> =
         std::sync::OnceLock::new();
     CACHE.get_or_init(|| std::sync::Mutex::new(WorkContextRenderCache::default()))
 }
 
-fn lock_work_context_cache() -> std::sync::MutexGuard<'static, WorkContextRenderCache> {
+pub(crate) fn lock_work_context_cache() -> std::sync::MutexGuard<'static, WorkContextRenderCache> {
     global_work_context_cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -111,12 +124,12 @@ static FILE_BODY_LINES_TRACKED_PATH: std::sync::OnceLock<std::sync::Mutex<Option
     std::sync::OnceLock::new();
 
 #[cfg(test)]
-fn tracked_file_body_lines_path_for_tests() -> &'static std::sync::Mutex<Option<String>> {
+pub(crate) fn tracked_file_body_lines_path_for_tests() -> &'static std::sync::Mutex<Option<String>> {
     FILE_BODY_LINES_TRACKED_PATH.get_or_init(|| std::sync::Mutex::new(None))
 }
 
 #[cfg(test)]
-fn reset_file_body_lines_call_count_for_tests(path: &str) {
+pub(crate) fn reset_file_body_lines_call_count_for_tests(path: &str) {
     FILE_BODY_LINES_CALL_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
     *tracked_file_body_lines_path_for_tests()
         .lock()
@@ -125,11 +138,11 @@ fn reset_file_body_lines_call_count_for_tests(path: &str) {
 }
 
 #[cfg(test)]
-fn file_body_lines_call_count_for_tests() -> usize {
+pub(crate) fn file_body_lines_call_count_for_tests() -> usize {
     FILE_BODY_LINES_CALL_COUNT.load(std::sync::atomic::Ordering::SeqCst)
 }
 
-fn scrollbar_layout_from_metrics(
+pub(crate) fn scrollbar_layout_from_metrics(
     area: Rect,
     total_lines: usize,
     scroll: usize,
@@ -178,7 +191,7 @@ fn scrollbar_layout_from_metrics(
     })
 }
 
-fn push_wrapped(
+pub(crate) fn push_wrapped(
     lines: &mut Vec<Line<'static>>,
     text: &str,
     style: Style,
@@ -194,7 +207,7 @@ fn push_wrapped(
     }
 }
 
-fn section(lines: &mut Vec<Line<'static>>, title: &str, theme: &ThemeTokens) {
+pub(crate) fn section(lines: &mut Vec<Line<'static>>, title: &str, theme: &ThemeTokens) {
     if !lines.is_empty() {
         lines.push(Line::raw(""));
     }
@@ -204,12 +217,12 @@ fn section(lines: &mut Vec<Line<'static>>, title: &str, theme: &ThemeTokens) {
     )));
 }
 
-fn is_markdown_path(path: &str) -> bool {
+pub(crate) fn is_markdown_path(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     lower.ends_with(".md") || lower.ends_with(".markdown") || lower.ends_with(".mdx")
 }
 
-fn push_preview_content(
+pub(crate) fn push_preview_content(
     lines: &mut Vec<Line<'static>>,
     path: &str,
     content: &str,
@@ -223,7 +236,7 @@ fn push_preview_content(
     }
 }
 
-fn file_header_lines(entry: &crate::state::task::WorkContextEntry, theme: &ThemeTokens) -> Vec<RenderedWorkLine> {
+pub(crate) fn file_header_lines(entry: &crate::state::task::WorkContextEntry, theme: &ThemeTokens) -> Vec<RenderedWorkLine> {
     let mut lines = Vec::new();
     section(&mut lines, "File", theme);
     lines.push(Line::from(vec![
@@ -269,7 +282,7 @@ fn file_header_lines(entry: &crate::state::task::WorkContextEntry, theme: &Theme
         .collect()
 }
 
-fn file_body_cache_key(
+pub(crate) fn file_body_cache_key(
     area: Rect,
     tasks: &TaskState,
     entry: &crate::state::task::WorkContextEntry,
@@ -301,7 +314,7 @@ fn file_body_cache_key(
     }
 }
 
-fn file_body_lines(
+pub(crate) fn file_body_lines(
     area: Rect,
     tasks: &TaskState,
     entry: &crate::state::task::WorkContextEntry,
@@ -342,7 +355,7 @@ fn file_body_lines(
     lines
 }
 
-fn build_file_body_lines(
+pub(crate) fn build_file_body_lines(
     area: Rect,
     tasks: &TaskState,
     entry: &crate::state::task::WorkContextEntry,
@@ -429,7 +442,7 @@ fn build_file_body_lines(
         .collect()
 }
 
-fn sticky_files_snapshot(
+pub(crate) fn sticky_files_snapshot(
     area: Rect,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -479,7 +492,7 @@ fn sticky_files_snapshot(
     })
 }
 
-fn uses_terminal_graphics(
+pub(crate) fn uses_terminal_graphics(
     entry_path: &str,
     repo_root: Option<&str>,
     active_tab: SidebarTab,
@@ -494,7 +507,7 @@ fn uses_terminal_graphics(
             .is_some_and(image_preview::is_previewable_image_path)
 }
 
-fn push_terminal_graphics_placeholder(
+pub(crate) fn push_terminal_graphics_placeholder(
     lines: &mut Vec<Line<'static>>,
     image_preview_height: usize,
     theme: &ThemeTokens,
@@ -508,7 +521,7 @@ fn push_terminal_graphics_placeholder(
     }
 }
 
-fn build_lines(
+pub(crate) fn build_lines(
     area: Rect,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -791,7 +804,7 @@ fn build_lines(
         .collect()
 }
 
-fn selection_snapshot(
+pub(crate) fn selection_snapshot(
     area: Rect,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -851,7 +864,7 @@ fn selection_snapshot(
     })
 }
 
-fn selection_point_from_snapshot(
+pub(crate) fn selection_point_from_snapshot(
     snapshot: &SelectionSnapshot,
     mouse: Position,
 ) -> Option<SelectionPoint> {

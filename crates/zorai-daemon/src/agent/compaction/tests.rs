@@ -304,6 +304,8 @@ async fn persisted_goal_thread_compaction_derives_scope_from_goal_run_record() {
         .lock()
         .await
         .push_back(sample_goal_run_for_compaction(thread_id));
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
     {
         let mut threads = engine.threads.write().await;
         let mut thread = sample_thread(vec![

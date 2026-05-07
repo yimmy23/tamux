@@ -1,3 +1,23 @@
+use crate::client::{DaemonClient, ClientEvent};
+#[cfg(unix)]
+use tokio::net::UnixStream;
+use super::*;
+use anyhow::Result;
+use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
+use serde_json::Value;
+use std::sync::Mutex;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio::time::{Instant, MissedTickBehavior};
+use tokio_util::codec::Framed;
+use tracing::{debug, error, info, warn};
+use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
+use crate::wire::{
+    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
+    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
+    ThreadWorkContext,
+};
 impl DaemonClient {
     fn daemon_message_kind(message: &DaemonMessage) -> &'static str {
         match message {
@@ -27,7 +47,7 @@ impl DaemonClient {
     }
 
     #[cfg(unix)]
-    fn configure_daemon_bootstrap_command(command: &mut tokio::process::Command) {
+    pub(crate) fn configure_daemon_bootstrap_command(command: &mut tokio::process::Command) {
         // Detach the daemon from the TUI process group so terminal/session hangups
         // do not tear down the daemon silently after bootstrap.
         unsafe {
@@ -41,9 +61,9 @@ impl DaemonClient {
     }
 
     #[cfg(not(unix))]
-    fn configure_daemon_bootstrap_command(_command: &mut tokio::process::Command) {}
+    pub(crate) fn configure_daemon_bootstrap_command(_command: &mut tokio::process::Command) {}
 
-    fn next_bootstrap_attempted(bootstrap_attempted: bool, connected: bool) -> bool {
+    pub(crate) fn next_bootstrap_attempted(bootstrap_attempted: bool, connected: bool) -> bool {
         if connected {
             false
         } else {

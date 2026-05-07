@@ -1,5 +1,11 @@
+use super::*;
+use zorai_shared::providers::{
+    AudioToolKind, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI, PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+};
 impl TuiModel {
-    pub(super) fn current_settings_field_name(&self) -> &str {
+    pub(crate) fn current_settings_field_name(&self) -> &str {
         if self.settings.active_tab() == crate::state::SettingsTab::Concierge {
             return match self.settings.field_cursor() {
                 0 => "concierge_enabled",
@@ -22,7 +28,7 @@ impl TuiModel {
         self.settings.current_field_name_with_config(&self.config)
     }
 
-    pub(super) fn settings_field_count(&self) -> usize {
+    pub(crate) fn settings_field_count(&self) -> usize {
         if self.settings.active_tab() == crate::state::SettingsTab::Concierge {
             return if self.concierge.provider.as_deref() == Some(PROVIDER_ID_OPENROUTER) {
                 8
@@ -33,24 +39,24 @@ impl TuiModel {
         self.settings.field_count_with_config(&self.config)
     }
 
-    pub(super) fn clamp_settings_cursor(&mut self) {
+    pub(crate) fn clamp_settings_cursor(&mut self) {
         self.settings.clamp_field_cursor(self.settings_field_count());
     }
 
-    pub(super) fn open_honcho_editor(&mut self) {
+    pub(crate) fn open_honcho_editor(&mut self) {
         let editor = crate::state::config::HonchoEditorState::from_config(&self.config);
         self.config.honcho_editor = Some(editor);
         self.settings.reduce(SettingsAction::CancelEdit);
         self.status_line = "Editing Honcho memory settings".to_string();
     }
 
-    pub(super) fn close_honcho_editor(&mut self) {
+    pub(crate) fn close_honcho_editor(&mut self) {
         self.config.honcho_editor = None;
         self.settings.reduce(SettingsAction::CancelEdit);
         self.status_line = "Closed Honcho memory editor".to_string();
     }
 
-    pub(super) fn commit_honcho_editor(&mut self) {
+    pub(crate) fn commit_honcho_editor(&mut self) {
         let Some(editor) = self.config.honcho_editor.take() else {
             return;
         };
@@ -67,7 +73,7 @@ impl TuiModel {
         self.status_line = "Updated Honcho memory settings".to_string();
     }
 
-    pub(super) fn cycle_compaction_strategy(&mut self) {
+    pub(crate) fn cycle_compaction_strategy(&mut self) {
         self.config.compaction_strategy = match self.config.compaction_strategy.as_str() {
             "heuristic" => "weles".to_string(),
             "weles" => "custom_model".to_string(),
@@ -77,7 +83,7 @@ impl TuiModel {
         self.sync_config_to_daemon();
     }
 
-    pub(super) fn apply_compaction_custom_provider(&mut self, provider_id: &str) {
+    pub(crate) fn apply_compaction_custom_provider(&mut self, provider_id: &str) {
         self.config.compaction_custom_provider = provider_id.to_string();
         self.config.compaction_custom_base_url = providers::find_by_id(provider_id)
             .map(|provider| provider.default_base_url.to_string())
@@ -98,7 +104,7 @@ impl TuiModel {
         self.config.compaction_custom_assistant_id.clear();
     }
 
-    pub(super) fn normalize_compaction_custom_transport(&mut self) {
+    pub(crate) fn normalize_compaction_custom_transport(&mut self) {
         self.config.compaction_custom_api_transport = self.provider_transport_snapshot(
             &self.config.compaction_custom_provider,
             &self.config.compaction_custom_auth_source,
@@ -107,14 +113,14 @@ impl TuiModel {
         );
     }
 
-    pub(super) fn open_provider_picker(&mut self, target: SettingsPickerTarget) {
+    pub(crate) fn open_provider_picker(&mut self, target: SettingsPickerTarget) {
         self.settings_picker_target = Some(target);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
         self.sync_provider_picker_item_count();
     }
 
-    pub(super) fn open_compaction_weles_model_picker(&mut self) {
+    pub(crate) fn open_compaction_weles_model_picker(&mut self) {
         let provider_id = self.config.compaction_weles_provider.clone();
         let (base_url, api_key, auth_source) = self.provider_auth_snapshot(&provider_id);
         self.open_provider_backed_model_picker(
@@ -126,7 +132,7 @@ impl TuiModel {
         );
     }
 
-    pub(super) fn open_compaction_custom_model_picker(&mut self) {
+    pub(crate) fn open_compaction_custom_model_picker(&mut self) {
         let provider_id = self.config.compaction_custom_provider.clone();
         self.open_provider_backed_model_picker(
             SettingsPickerTarget::CompactionCustomModel,
@@ -137,7 +143,7 @@ impl TuiModel {
         );
     }
 
-    pub(super) fn model_picker_current_selection(&self) -> (String, Option<String>) {
+    pub(crate) fn model_picker_current_selection(&self) -> (String, Option<String>) {
         match self
             .settings_picker_target
             .unwrap_or(SettingsPickerTarget::Model)
@@ -175,7 +181,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn available_model_picker_models(&self) -> Vec<crate::state::config::FetchedModel> {
+    pub(crate) fn available_model_picker_models(&self) -> Vec<crate::state::config::FetchedModel> {
         let (current_model, custom_model_name) = self.model_picker_current_selection();
         match self
             .settings_picker_target
@@ -273,7 +279,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn filtered_model_picker_models(&self) -> Vec<crate::state::config::FetchedModel> {
+    pub(crate) fn filtered_model_picker_models(&self) -> Vec<crate::state::config::FetchedModel> {
         widgets::model_picker::filtered_models_for_selection(
             &self.available_model_picker_models(),
             self.modal.command_query(),
@@ -301,14 +307,14 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn filtered_provider_picker_defs(&self) -> Vec<&'static providers::ProviderDef> {
+    pub(crate) fn filtered_provider_picker_defs(&self) -> Vec<&'static providers::ProviderDef> {
         widgets::provider_picker::filtered_provider_defs(
             self.available_provider_picker_defs(),
             self.modal.command_query(),
         )
     }
 
-    pub(super) fn sync_model_picker_item_count(&mut self) {
+    pub(crate) fn sync_model_picker_item_count(&mut self) {
         let models = if self
             .goal_mission_control
             .pending_runtime_edit
@@ -327,12 +333,12 @@ impl TuiModel {
         self.modal.set_picker_item_count(count);
     }
 
-    pub(super) fn sync_provider_picker_item_count(&mut self) {
+    pub(crate) fn sync_provider_picker_item_count(&mut self) {
         let count = self.filtered_provider_picker_defs().len();
         self.modal.set_picker_item_count(count);
     }
 
-    pub(super) fn filtered_openrouter_endpoint_providers(&self) -> Vec<&str> {
+    pub(crate) fn filtered_openrouter_endpoint_providers(&self) -> Vec<&str> {
         let query = self.modal.command_query().trim().to_ascii_lowercase();
         if query.is_empty() {
             return self
@@ -354,12 +360,12 @@ impl TuiModel {
             .collect()
     }
 
-    pub(super) fn sync_openrouter_provider_picker_item_count(&mut self) {
+    pub(crate) fn sync_openrouter_provider_picker_item_count(&mut self) {
         let count = self.filtered_openrouter_endpoint_providers().len();
         self.modal.set_picker_item_count(count);
     }
 
-    pub(super) fn begin_targeted_custom_model_edit(
+    pub(crate) fn begin_targeted_custom_model_edit(
         &mut self,
         target: Option<SettingsPickerTarget>,
     ) {
@@ -464,7 +470,7 @@ impl TuiModel {
         }
     }
 
-    fn whatsapp_linking_allowed(&self) -> bool {
+    pub(crate) fn whatsapp_linking_allowed(&self) -> bool {
         zorai_protocol::has_whatsapp_allowed_contacts(&self.config.whatsapp_allowed_contacts)
     }
 

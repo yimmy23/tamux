@@ -393,6 +393,7 @@ impl<'a> SendMessageRunner<'a> {
             engine.set_thread_client_surface(&tid, client_surface).await;
         }
         if let Some(task_id) = task_id {
+            let mut persist_task_queue_after_thread_init = false;
             let (current_task, thread_changed) = {
                 let mut tasks = engine.tasks.lock().await;
                 match tasks.iter_mut().find(|task| task.id == task_id) {
@@ -400,10 +401,39 @@ impl<'a> SendMessageRunner<'a> {
                         let thread_changed = task.thread_id.as_deref() != Some(tid.as_str());
                         if thread_changed {
                             task.thread_id = Some(tid.clone());
+                            persist_task_queue_after_thread_init = true;
                         }
                         (Some(task.clone()), thread_changed)
                     }
                     None => (None, false),
+                }
+            };
+            let (current_task, thread_changed) = match current_task {
+                Some(current_task) => (Some(current_task), thread_changed),
+                None => {
+                    if let Some(mut task) =
+                        load_current_task_for_send_message(engine, Some(task_id)).await
+                    {
+                        let thread_changed = task.thread_id.as_deref() != Some(tid.as_str());
+                        if thread_changed {
+                            task.thread_id = Some(tid.clone());
+                            if let Err(error) = engine.history.upsert_agent_task(&task).await {
+                                tracing::warn!(
+                                    task_id,
+                                    "failed to persist task thread initialization: {error}"
+                                );
+                            } else {
+                                let mut tasks = engine.tasks.lock().await;
+                                if !tasks.iter().any(|entry| entry.id == task.id) {
+                                    tasks.push_back(task.clone());
+                                }
+                                persist_task_queue_after_thread_init = true;
+                            }
+                        }
+                        (Some(task), thread_changed)
+                    } else {
+                        (None, false)
+                    }
                 }
             };
             if let Some(current_task) = current_task {
@@ -411,7 +441,7 @@ impl<'a> SendMessageRunner<'a> {
                     .set_thread_identity_from_task(&tid, &current_task)
                     .await;
                 engine.persist_thread_by_id(&tid).await;
-                if thread_changed {
+                if thread_changed && persist_task_queue_after_thread_init {
                     engine.persist_tasks().await;
                     engine.emit_task_update(
                         &current_task,

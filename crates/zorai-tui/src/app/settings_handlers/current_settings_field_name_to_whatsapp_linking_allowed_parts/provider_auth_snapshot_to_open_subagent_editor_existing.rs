@@ -1,5 +1,11 @@
+use super::*;
+use zorai_shared::providers::{
+    AudioToolKind, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI, PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+};
 impl TuiModel {
-    pub(super) fn provider_auth_snapshot(&self, provider_id: &str) -> (String, String, String) {
+    pub(crate) fn provider_auth_snapshot(&self, provider_id: &str) -> (String, String, String) {
         let mut base_url = providers::find_by_id(provider_id)
             .map(|def| def.default_base_url.to_string())
             .unwrap_or_default();
@@ -52,7 +58,7 @@ impl TuiModel {
         (base_url, api_key, auth_source)
     }
 
-    pub(super) fn provider_transport_snapshot(
+    pub(crate) fn provider_transport_snapshot(
         &self,
         provider_id: &str,
         auth_source: &str,
@@ -105,7 +111,7 @@ impl TuiModel {
         })
     }
 
-    pub(super) fn should_fetch_remote_models(&self, provider_id: &str, auth_source: &str) -> bool {
+    pub(crate) fn should_fetch_remote_models(&self, provider_id: &str, auth_source: &str) -> bool {
         providers::supports_model_fetch_for(provider_id)
             && !(provider_id == PROVIDER_ID_OPENAI && auth_source == "chatgpt_subscription")
     }
@@ -145,11 +151,11 @@ impl TuiModel {
         self.config.agent_config_raw = Some(raw);
     }
 
-    fn clear_saved_provider_api_key(&mut self, provider_id: &str) {
+    pub(crate) fn clear_saved_provider_api_key(&mut self, provider_id: &str) {
         self.upsert_saved_provider_api_key(provider_id, "");
     }
 
-    fn apply_provider_selection_internal(&mut self, provider_id: &str, sync: bool) {
+    pub(crate) fn apply_provider_selection_internal(&mut self, provider_id: &str, sync: bool) {
         let Some(def) = providers::find_by_id(provider_id) else {
             let Some(entry) = self
                 .auth
@@ -326,7 +332,7 @@ impl TuiModel {
             .unwrap_or_default()
     }
 
-    fn start_auth_login(&mut self, provider_id: &str, provider_name: &str) {
+    pub(crate) fn start_auth_login(&mut self, provider_id: &str, provider_name: &str) {
         let initial_key = if self.config.provider == provider_id {
             self.config.api_key.clone()
         } else {
@@ -341,7 +347,7 @@ impl TuiModel {
         self.status_line = format!("Enter API key for {provider_name}");
     }
 
-    fn confirm_auth_login(&mut self) {
+    pub(crate) fn confirm_auth_login(&mut self) {
         let Some(provider_id) = self.auth.login_target.clone() else {
             return;
         };
@@ -391,7 +397,7 @@ impl TuiModel {
         self.status_line = format!("Saved credentials for {provider_name}");
     }
 
-    fn open_subagent_editor_new(&mut self) {
+    pub(crate) fn open_subagent_editor_new(&mut self) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -413,7 +419,7 @@ impl TuiModel {
         self.subagents.actions_focused = false;
     }
 
-    fn open_subagent_editor_existing(&mut self) {
+    pub(crate) fn open_subagent_editor_existing(&mut self) {
         let Some(entry) = self.subagents.entries.get(self.subagents.selected).cloned() else {
             return;
         };

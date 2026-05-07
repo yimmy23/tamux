@@ -7055,6 +7055,8 @@ async fn gateway_status_command_reports_goal_run_state_for_thread() {
         steps: Vec::new(),
         events: Vec::new(),
     });
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
 
     let status_msg = super::gateway::IncomingMessage {
         platform: "Discord".to_string(),

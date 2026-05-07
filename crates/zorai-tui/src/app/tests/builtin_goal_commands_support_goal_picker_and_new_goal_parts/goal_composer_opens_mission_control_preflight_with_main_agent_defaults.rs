@@ -1,3 +1,9 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
     #[test]
     fn goal_composer_opens_mission_control_preflight_with_main_agent_defaults() {
         let mut model = build_model();
@@ -455,4 +461,3 @@
             other => panic!("expected retry-now command, got {:?}", other),
         }
     }
-

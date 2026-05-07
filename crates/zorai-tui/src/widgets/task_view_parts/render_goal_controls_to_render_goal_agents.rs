@@ -1,4 +1,19 @@
-fn render_goal_controls(
+use super::*;
+use crate::widgets::duration_format::format_duration_ms;
+use crate::widgets::chat::SelectionPoint;
+use super::selection::*;
+use super::sections::*;
+use crate::state::task::*;
+use super::sections;
+use super::selection;
+use crate::state::sidebar::{SidebarItemTarget, SidebarTab};
+use crate::theme::ThemeTokens;
+use ratatui::layout::{Position, Rect};
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+pub(crate) fn render_goal_controls(
     rows: &mut Vec<RenderRow>,
     run: &GoalRun,
     step_id: Option<&str>,
@@ -78,7 +93,7 @@ fn render_goal_controls(
     }
 }
 
-fn format_count(value: u64) -> String {
+pub(crate) fn format_count(value: u64) -> String {
     let raw = value.to_string();
     let mut grouped = String::new();
     for (index, ch) in raw.chars().rev().enumerate() {
@@ -90,7 +105,7 @@ fn format_count(value: u64) -> String {
     grouped.chars().rev().collect()
 }
 
-fn format_cost(cost: f64) -> String {
+pub(crate) fn format_cost(cost: f64) -> String {
     if cost.abs() >= 1.0 {
         format!("${cost:.2}")
     } else {
@@ -98,14 +113,14 @@ fn format_cost(cost: f64) -> String {
     }
 }
 
-fn has_goal_usage(run: &GoalRun) -> bool {
+pub(crate) fn has_goal_usage(run: &GoalRun) -> bool {
     run.total_prompt_tokens > 0
         || run.total_completion_tokens > 0
         || run.estimated_cost_usd.is_some()
         || !run.model_usage.is_empty()
 }
 
-fn render_goal_usage(rows: &mut Vec<RenderRow>, run: &GoalRun, theme: &ThemeTokens, _width: usize) {
+pub(crate) fn render_goal_usage(rows: &mut Vec<RenderRow>, run: &GoalRun, theme: &ThemeTokens, _width: usize) {
     if !has_goal_usage(run) {
         return;
     }
@@ -137,7 +152,7 @@ fn render_goal_usage(rows: &mut Vec<RenderRow>, run: &GoalRun, theme: &ThemeToke
     }
 }
 
-fn render_goal_model_usage(
+pub(crate) fn render_goal_model_usage(
     rows: &mut Vec<RenderRow>,
     usage: &GoalRunModelUsage,
     theme: &ThemeTokens,
@@ -170,11 +185,11 @@ fn render_goal_model_usage(
     });
 }
 
-fn owner_profile_key(label: &str, provider: &str, model: &str) -> String {
+pub(crate) fn owner_profile_key(label: &str, provider: &str, model: &str) -> String {
     format!("{label}\n{provider}\n{model}")
 }
 
-fn render_owner_profile(
+pub(crate) fn render_owner_profile(
     rows: &mut Vec<RenderRow>,
     label: &str,
     profile: &GoalRuntimeOwnerProfile,
@@ -201,7 +216,7 @@ fn render_owner_profile(
     });
 }
 
-fn render_goal_assignment(
+pub(crate) fn render_goal_assignment(
     rows: &mut Vec<RenderRow>,
     assignment: &GoalAgentAssignment,
     theme: &ThemeTokens,
@@ -234,7 +249,7 @@ fn render_goal_assignment(
     });
 }
 
-fn render_goal_agents(
+pub(crate) fn render_goal_agents(
     rows: &mut Vec<RenderRow>,
     tasks: &TaskState,
     run: &GoalRun,
@@ -315,4 +330,3 @@ fn render_goal_agents(
         });
     }
 }
-

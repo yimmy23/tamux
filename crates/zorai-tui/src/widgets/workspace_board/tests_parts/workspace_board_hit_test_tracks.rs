@@ -1,4 +1,8 @@
-use super::*;
+use super::super::*;
+use crate::state::workspace::WorkspaceState;
+use crate::theme::ThemeTokens;
+use ratatui::layout::{Position, Rect};
+use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use zorai_protocol::{
     WorkspaceActor, WorkspaceNotice, WorkspacePriority, WorkspaceSettings, WorkspaceTask,
@@ -9,7 +13,7 @@ fn render_plain_text(workspace: &WorkspaceState, area: Rect) -> String {
     render_plain_text_with_scroll(workspace, area, &WorkspaceBoardScroll::default())
 }
 
-fn hit_test(
+pub(super) fn hit_test(
     area: Rect,
     workspace: &WorkspaceState,
     expanded_task_ids: &std::collections::HashSet<String>,
@@ -24,7 +28,7 @@ fn hit_test(
     )
 }
 
-fn task_card_rect(
+pub(super) fn task_card_rect(
     body: Rect,
     tasks: &[WorkspaceTask],
     expanded_task_ids: &std::collections::HashSet<String>,
@@ -93,7 +97,7 @@ fn task(id: &str, status: WorkspaceTaskStatus) -> WorkspaceTask {
     }
 }
 
-fn workspace_with_task() -> WorkspaceState {
+pub(super) fn workspace_with_task() -> WorkspaceState {
     let mut state = WorkspaceState::new();
     state.set_settings(WorkspaceSettings {
         workspace_id: "main".to_string(),
@@ -109,7 +113,7 @@ fn workspace_with_task() -> WorkspaceState {
     state
 }
 
-fn workspace_with_assigned_task() -> WorkspaceState {
+pub(super) fn workspace_with_assigned_task() -> WorkspaceState {
     let mut state = WorkspaceState::new();
     state.set_settings(WorkspaceSettings {
         workspace_id: "main".to_string(),

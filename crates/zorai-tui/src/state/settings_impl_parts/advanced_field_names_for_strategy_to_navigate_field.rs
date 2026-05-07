@@ -1,3 +1,7 @@
+use super::*;
+use super::cursor::*;
+use crate::state::config::ConfigState;
+use zorai_shared::providers::PROVIDER_ID_OPENROUTER;
 impl SettingsState {
     fn advanced_field_names_for_strategy(strategy: &str) -> &'static [&'static str] {
         const HEURISTIC_FIELDS: &[&str] = &[

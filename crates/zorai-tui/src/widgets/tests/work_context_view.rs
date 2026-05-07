@@ -1,7 +1,12 @@
 use super::*;
-use crate::state::task::{FilePreview, TaskAction, ThreadWorkContext, WorkContextEntry};
+use crate::state::sidebar::SidebarTab;
+use crate::state::task::{FilePreview, TaskAction, TaskState, ThreadWorkContext, WorkContextEntry};
 use crate::terminal_graphics::TerminalImageProtocol;
+use crate::theme::ThemeTokens;
+use crate::widgets::chat::SelectionPoint;
 use ratatui::backend::TestBackend;
+use ratatui::layout::{Position, Rect};
+use ratatui::Terminal;
 
 fn buffer_line_text(buffer: &ratatui::buffer::Buffer, y: u16, width: u16) -> String {
     (0..width)

@@ -1,3 +1,10 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
+
 #[test]
 fn regenerate_message_requires_confirmation_before_sending() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();

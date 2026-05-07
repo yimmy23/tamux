@@ -1,5 +1,11 @@
+use super::*;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crate::widgets;
+use crate::providers;
+use ratatui::prelude::*;
+use zorai_shared::providers::*;
 impl TuiModel {
-    fn activate_feature_settings_field(&mut self, field: &str) -> bool {
+    pub(crate) fn activate_feature_settings_field(&mut self, field: &str) -> bool {
         match field {
             "feat_tier_override" => {
                 let tiers = ["newcomer", "familiar", "power_user", "expert"];
@@ -196,7 +202,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn settings_field_click_uses_toggle(&self) -> bool {
+    pub(crate) fn settings_field_click_uses_toggle(&self) -> bool {
         matches!(
             self.current_settings_field_name(),
             "managed_sandbox_enabled"

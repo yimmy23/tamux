@@ -1,5 +1,18 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn copy_work_context_content(&mut self) {
+    pub(crate) fn copy_work_context_content(&mut self) {
         let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) else {
             return;
         };
@@ -48,7 +61,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn resend_message(&mut self, index: usize) {
+    pub(crate) fn resend_message(&mut self, index: usize) {
         let content = self
             .chat
             .active_thread()
@@ -59,7 +72,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn pin_message_for_compaction(&mut self, index: usize) {
+    pub(crate) fn pin_message_for_compaction(&mut self, index: usize) {
         let (thread_id, message_id) = {
             let Some(thread) = self.chat.active_thread() else {
                 return;
@@ -80,7 +93,7 @@ impl TuiModel {
         });
     }
 
-    pub(super) fn unpin_message_for_compaction(&mut self, index: usize) {
+    pub(crate) fn unpin_message_for_compaction(&mut self, index: usize) {
         let (thread_id, message_id) = {
             let Some(thread) = self.chat.active_thread() else {
                 return;
@@ -127,7 +140,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn unpin_selected_sidebar_message(&mut self) {
+    pub(crate) fn unpin_selected_sidebar_message(&mut self) {
         let Some(pinned_message) = self.selected_sidebar_pinned_message() else {
             return;
         };
@@ -141,7 +154,7 @@ impl TuiModel {
         );
     }
 
-    pub(super) fn delete_message(&mut self, index: usize) {
+    pub(crate) fn delete_message(&mut self, index: usize) {
         let (thread_id, msg_id, has_persistent_id) = {
             let Some(thread) = self.chat.active_thread() else {
                 return;
@@ -302,7 +315,7 @@ impl TuiModel {
         );
     }
 
-    pub(super) fn regenerate_from_message(&mut self, index: usize) {
+    pub(crate) fn regenerate_from_message(&mut self, index: usize) {
         let prompt = self.chat.active_thread().and_then(|thread| {
             thread
                 .messages

@@ -314,6 +314,9 @@ impl Default for ApprovalState {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[path = "approval_tests_parts"]
 mod tests {
-    include!("approval_tests_parts/approval_required_adds_to_pending_to_from_str_lossy_defaults_to_medium.rs");
+    use super::*;
+
+    mod approval_required_adds_to_pending_to_from_str_lossy_defaults_to_medium;
 }

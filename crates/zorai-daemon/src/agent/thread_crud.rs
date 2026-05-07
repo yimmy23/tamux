@@ -911,41 +911,57 @@ impl AgentEngine {
     }
 
     pub async fn delete_thread(&self, thread_id: &str) -> bool {
-        self.ensure_thread_messages_loaded(thread_id).await;
         let _ = self.stop_stream(thread_id).await;
-        let thread_snapshot = self.threads.read().await.get(thread_id).cloned();
-        let removed = self.threads.write().await.remove(thread_id).is_some();
-        if removed {
-            if let Some(thread) = thread_snapshot.as_ref() {
-                self.maybe_record_session_abandon_on_thread_delete(thread)
-                    .await;
+        let thread_snapshot = self.threads.write().await.remove(thread_id);
+        let thread_exists = if thread_snapshot.is_some() {
+            true
+        } else {
+            match self.history.get_thread(thread_id).await {
+                Ok(Some(_)) => true,
+                Ok(None) => false,
+                Err(error) => {
+                    tracing::warn!(
+                        thread_id = %thread_id,
+                        %error,
+                        "failed to read persisted thread before deletion"
+                    );
+                    false
+                }
             }
-            self.clear_thread_client_surface(thread_id).await;
-            self.clear_thread_skill_discovery_state(thread_id).await;
-            self.clear_thread_memory_injection_state(thread_id).await;
-            self.clear_thread_structural_memory(thread_id).await;
-            self.thread_identity_metadata
-                .write()
-                .await
-                .remove(thread_id);
-            self.thread_handoff_states.write().await.remove(thread_id);
-            self.thread_participants.write().await.remove(thread_id);
-            self.thread_participant_suggestions
-                .write()
-                .await
-                .remove(thread_id);
-            self.clear_thread_message_hydration_pending(thread_id).await;
-            self.remove_repo_watcher(thread_id).await;
-            self.thread_todos.write().await.remove(thread_id);
-            self.thread_work_contexts.write().await.remove(thread_id);
-            if let Err(error) = self.history.delete_thread(thread_id).await {
-                tracing::warn!(thread_id = %thread_id, %error, "failed to delete thread history");
-            }
-            self.persist_threads().await;
-            self.persist_todos().await;
-            self.persist_work_context().await;
+        };
+        if !thread_exists {
+            return false;
         }
-        removed
+
+        if let Some(thread) = thread_snapshot.as_ref() {
+            self.maybe_record_session_abandon_on_thread_delete(thread)
+                .await;
+        }
+        self.clear_thread_client_surface(thread_id).await;
+        self.clear_thread_skill_discovery_state(thread_id).await;
+        self.clear_thread_memory_injection_state(thread_id).await;
+        self.clear_thread_structural_memory(thread_id).await;
+        self.thread_identity_metadata
+            .write()
+            .await
+            .remove(thread_id);
+        self.thread_handoff_states.write().await.remove(thread_id);
+        self.thread_participants.write().await.remove(thread_id);
+        self.thread_participant_suggestions
+            .write()
+            .await
+            .remove(thread_id);
+        self.clear_thread_message_hydration_pending(thread_id).await;
+        self.remove_repo_watcher(thread_id).await;
+        self.thread_todos.write().await.remove(thread_id);
+        self.thread_work_contexts.write().await.remove(thread_id);
+        if let Err(error) = self.history.delete_thread(thread_id).await {
+            tracing::warn!(thread_id = %thread_id, %error, "failed to delete thread history");
+        }
+        self.persist_threads().await;
+        self.persist_todos().await;
+        self.persist_work_context().await;
+        true
     }
 
     async fn maybe_record_session_abandon_on_thread_delete(&self, thread: &AgentThread) {

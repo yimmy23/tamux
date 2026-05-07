@@ -1,4 +1,17 @@
-fn render_markdown_segment(content: &str, width: usize) -> Vec<Line<'static>> {
+use super::*;
+use crate::widgets::message_operator_question::render_operator_question_message;
+use crate::widgets::tool_diff::{render_tool_edit_diff, render_tool_structured_json, ToolStructuredValueSource};
+use crate::widgets::image_preview;
+use super::markdown_table;
+use crate::state::chat::{AgentMessage, MessageRole, TranscriptMode};
+use crate::theme::ThemeTokens;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use zorai_protocol::tool_names;
+pub(crate) fn render_markdown_segment(content: &str, width: usize) -> Vec<Line<'static>> {
     let normalized = normalize_markdown_for_tui(content);
     let md_text = tui_markdown::from_str(&normalized);
     // Convert ratatui_core::Line to ratatui::Line via plain text + styles
@@ -22,7 +35,7 @@ fn render_markdown_segment(content: &str, width: usize) -> Vec<Line<'static>> {
     }
 }
 
-fn convert_style(style: ratatui_core::style::Style) -> Style {
+pub(crate) fn convert_style(style: ratatui_core::style::Style) -> Style {
     let mut result = Style::default();
 
     if let Some(fg) = style.fg {
@@ -45,7 +58,7 @@ fn convert_style(style: ratatui_core::style::Style) -> Style {
     result
 }
 
-fn convert_modifier(modifier: ratatui_core::style::Modifier) -> Modifier {
+pub(crate) fn convert_modifier(modifier: ratatui_core::style::Modifier) -> Modifier {
     let mut result = Modifier::empty();
 
     if modifier.contains(ratatui_core::style::Modifier::BOLD) {
@@ -79,7 +92,7 @@ fn convert_modifier(modifier: ratatui_core::style::Modifier) -> Modifier {
     result
 }
 
-fn convert_color(c: ratatui_core::style::Color) -> Color {
+pub(crate) fn convert_color(c: ratatui_core::style::Color) -> Color {
     match c {
         ratatui_core::style::Color::Reset => Color::Reset,
         ratatui_core::style::Color::Black => Color::Black,
@@ -133,7 +146,7 @@ pub(crate) fn collapsible_system_notice_detail(msg: &AgentMessage) -> Option<Str
     }
 }
 
-fn compaction_artifact_content(msg: &AgentMessage) -> String {
+pub(crate) fn compaction_artifact_content(msg: &AgentMessage) -> String {
     let visible_header = msg.content.trim();
     let payload = msg
         .compaction_payload
@@ -149,13 +162,13 @@ fn compaction_artifact_content(msg: &AgentMessage) -> String {
     }
 }
 
-fn is_meta_cognition_content(content: &str) -> bool {
+pub(crate) fn is_meta_cognition_content(content: &str) -> bool {
     content
         .trim_start()
         .starts_with("Meta-cognitive intervention")
 }
 
-fn background_operation_finished_label(content: &str) -> Option<&'static str> {
+pub(crate) fn background_operation_finished_label(content: &str) -> Option<&'static str> {
     let content = content.trim_start();
     if content.starts_with("Background operations finished.") {
         Some("🖥️ Background operations finished")
@@ -166,7 +179,7 @@ fn background_operation_finished_label(content: &str) -> Option<&'static str> {
     }
 }
 
-fn toggle_glyph(expanded: bool) -> &'static str {
+pub(crate) fn toggle_glyph(expanded: bool) -> &'static str {
     if expanded {
         "\u{25be}"
     } else {
@@ -175,7 +188,7 @@ fn toggle_glyph(expanded: bool) -> &'static str {
 }
 
 /// Convert a message into ratatui Lines (all owned/static)
-pub fn message_to_lines(
+pub(crate) fn message_to_lines(
     msg: &AgentMessage,
     msg_index: usize,
     mode: TranscriptMode,
@@ -211,7 +224,7 @@ pub fn message_to_lines(
     lines
 }
 
-fn render_compact(
+pub(crate) fn render_compact(
     msg: &AgentMessage,
     msg_index: usize,
     theme: &ThemeTokens,
@@ -429,7 +442,7 @@ fn render_compact(
     }
 }
 
-fn inline_image_attachment_lines(
+pub(crate) fn inline_image_attachment_lines(
     msg: &AgentMessage,
     width: usize,
     theme: &ThemeTokens,
@@ -437,10 +450,10 @@ fn inline_image_attachment_lines(
     let Some(path) = crate::widgets::chat::message_image_preview_path(msg) else {
         return Vec::new();
     };
-    image_preview::render_image_preview_lines(&path, width, 12, theme)
+    crate::widgets::image_preview::render_image_preview_lines(&path, width, 12, theme)
 }
 
-fn render_tools_only(
+pub(crate) fn render_tools_only(
     msg: &AgentMessage,
     theme: &ThemeTokens,
     width: usize,
@@ -479,7 +492,7 @@ fn render_tools_only(
     }
 }
 
-fn render_full(
+pub(crate) fn render_full(
     msg: &AgentMessage,
     msg_index: usize,
     theme: &ThemeTokens,
@@ -504,7 +517,7 @@ fn render_full(
     );
 }
 
-fn format_tool_status(status: &str, theme: &ThemeTokens) -> (&'static str, Style) {
+pub(crate) fn format_tool_status(status: &str, theme: &ThemeTokens) -> (&'static str, Style) {
     match status {
         "completed" | "done" | "success" => ("\u{2713} done", theme.accent_success),
         "error" | "failed" => ("\u{2717} error", theme.accent_danger),

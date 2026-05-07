@@ -1,4 +1,4 @@
-    use super::*;
+    use super::super::*;
     use crate::state::config::{ConfigAction, ConfigState, FetchedModel};
     use ratatui::backend::TestBackend;
     use ratatui::layout::Rect;

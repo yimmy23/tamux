@@ -7,6 +7,9 @@ mod queue_hit_test_to_rule_detail_hit_test;
 pub(crate) use queue_hit_test_to_rule_detail_hit_test::*;
 pub use render_to_header_hit_test::*;
 #[cfg(test)]
+#[path = "approval_center_tests_parts"]
 mod tests {
-    include!("approval_center_tests_parts/approval_center_renders_without_panicking_to_approval_center_wraps_long.rs");
+    use super::*;
+
+    mod approval_center_renders_without_panicking_to_approval_center_wraps_long;
 }

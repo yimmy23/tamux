@@ -1,3 +1,16 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_shared::providers::*;
 impl TuiModel {
     fn active_goal_sidebar_item(&self) -> Option<GoalSidebarCommandItem> {
         let goal_run_id = self.active_goal_sidebar_goal_run()?;
@@ -65,7 +78,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn handle_goal_sidebar_enter(&mut self) -> bool {
+    pub(crate) fn handle_goal_sidebar_enter(&mut self) -> bool {
         let Some(item) = self.active_goal_sidebar_item() else {
             return false;
         };
@@ -108,7 +121,7 @@ impl TuiModel {
         false
     }
 
-    pub(super) fn resolve_target_agent_id(&self, agent_alias: &str) -> Option<String> {
+    pub(crate) fn resolve_target_agent_id(&self, agent_alias: &str) -> Option<String> {
         match agent_alias.trim().to_ascii_lowercase().as_str() {
             "" => None,
             "svarog" | "swarog" | "main" => Some(zorai_protocol::AGENT_ID_SWAROG.to_string()),
@@ -138,7 +151,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn active_thread_owner_agent_id(&self) -> Option<String> {
+    pub(crate) fn active_thread_owner_agent_id(&self) -> Option<String> {
         let Some(thread) = self.chat.active_thread() else {
             return self
                 .pending_new_thread_target_agent
@@ -225,7 +238,7 @@ impl TuiModel {
             .map(ToOwned::to_owned)
     }
 
-    pub(super) fn effort_picker_current_value(&self) -> Option<String> {
+    pub(crate) fn effort_picker_current_value(&self) -> Option<String> {
         match self.settings_picker_target {
             Some(SettingsPickerTarget::SubAgentReasoningEffort) => {
                 self.subagents.editor.as_ref().and_then(|editor| {
@@ -260,7 +273,7 @@ impl TuiModel {
         }
     }
 
-    fn sync_effort_picker_cursor_to_current(&mut self) {
+    pub(crate) fn sync_effort_picker_cursor_to_current(&mut self) {
         self.modal.set_picker_item_count(6);
         let current = self.effort_picker_current_value();
         let cursor = Self::effort_picker_index(current.as_deref());
@@ -268,7 +281,7 @@ impl TuiModel {
             .reduce(modal::ModalAction::Navigate(cursor as i32));
     }
 
-    fn open_active_thread_target_provider_picker(&mut self) -> bool {
+    pub(crate) fn open_active_thread_target_provider_picker(&mut self) -> bool {
         let Some(pending) = self.active_thread_target_agent_config() else {
             return false;
         };
@@ -277,7 +290,7 @@ impl TuiModel {
         true
     }
 
-    fn open_active_thread_target_model_picker(&mut self) -> bool {
+    pub(crate) fn open_active_thread_target_model_picker(&mut self) -> bool {
         let Some(pending) = self.active_thread_target_agent_config() else {
             return false;
         };
@@ -294,7 +307,7 @@ impl TuiModel {
         true
     }
 
-    fn open_active_thread_target_effort_picker(&mut self) -> bool {
+    pub(crate) fn open_active_thread_target_effort_picker(&mut self) -> bool {
         let Some(pending) = self.active_thread_target_agent_config() else {
             return false;
         };
@@ -353,7 +366,7 @@ impl TuiModel {
             .unwrap_or(fallback)
     }
 
-    pub(super) fn toggle_voice_capture(&mut self) {
+    pub(crate) fn toggle_voice_capture(&mut self) {
         if self.voice_recording {
             if let Some(path) = self.stop_voice_capture() {
                 let raw = self.config.agent_config_raw.as_ref();
@@ -404,7 +417,7 @@ impl TuiModel {
         self.start_voice_capture();
     }
 
-    pub(super) fn speak_latest_assistant_message(&mut self) {
+    pub(crate) fn speak_latest_assistant_message(&mut self) {
         let Some(thread) = self.chat.active_thread() else {
             self.status_line = "Open a thread first".to_string();
             return;

@@ -1,3 +1,9 @@
+use tokio::sync::mpsc::unbounded_channel;
+use std::sync::mpsc;
+use zorai_shared::providers::*;
+use super::whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings::*;
+use crate::state::*;
+use crate::app::*;
 #[test]
 fn clicking_footer_queue_indicator_opens_queued_prompts_modal() {
     let (mut model, _daemon_rx) = make_model();
@@ -277,7 +283,7 @@ fn subagent_editor_navigation_wraps_between_first_and_last_fields() {
     );
 }
 
-fn sample_notification(read_at: Option<i64>) -> zorai_protocol::InboxNotification {
+pub(super) fn sample_notification(read_at: Option<i64>) -> zorai_protocol::InboxNotification {
     zorai_protocol::InboxNotification {
         id: "n1".to_string(),
         source: "plugin_auth".to_string(),

@@ -1,4 +1,26 @@
-fn render_chat_tab<'a>(
+use super::render_provider_tab_to_render_tools_tab::*;
+use super::render_websearch_tab::*;
+use super::render_gateway_text_field::*;
+use super::render_concierge_tab_to_render_feature_toggle_line::*;
+use super::render_features_tab::*;
+use super::render_auth_tab_to_render_agent_tab::*;
+use super::render_plugins_tab_to_connector_readiness_style::*;
+use super::render_about_tab::*;
+use super::render_advanced_value_to_render_advanced_tab::*;
+use super::*;
+use crate::providers;
+use crate::state::concierge::ConciergeState;
+use crate::state::config::ConfigState;
+use crate::state::modal::{ModalState, WhatsAppLinkPhase};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use zorai_protocol::has_whatsapp_allowed_contacts;
+pub(crate) fn render_chat_tab<'a>(
     settings: &'a SettingsState,
     config: &'a ConfigState,
     theme: &ThemeTokens,
@@ -302,7 +324,7 @@ fn render_chat_tab<'a>(
     lines
 }
 
-fn render_honcho_editor_toggle<'a>(
+pub(crate) fn render_honcho_editor_toggle<'a>(
     editor: &crate::state::config::HonchoEditorState,
     field: crate::state::config::HonchoEditorField,
     label: &'a str,
@@ -345,7 +367,7 @@ fn render_honcho_editor_toggle<'a>(
     Line::from(spans)
 }
 
-fn render_honcho_editor_text_field<'a>(
+pub(crate) fn render_honcho_editor_text_field<'a>(
     settings: &SettingsState,
     editor: &crate::state::config::HonchoEditorState,
     field: crate::state::config::HonchoEditorField,
@@ -393,7 +415,7 @@ fn render_honcho_editor_text_field<'a>(
     Line::from(spans)
 }
 
-fn render_honcho_editor_actions<'a>(
+pub(crate) fn render_honcho_editor_actions<'a>(
     editor: &crate::state::config::HonchoEditorState,
     theme: &ThemeTokens,
 ) -> Line<'a> {

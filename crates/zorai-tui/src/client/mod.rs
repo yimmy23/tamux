@@ -1,19 +1,29 @@
 #![allow(dead_code)]
 
-include!("mod_parts/close_request_queue_for_test.rs");
+#[path = "mod_parts/close_request_queue_for_test.rs"]
+mod close_request_queue_for_test;
+pub(crate) use close_request_queue_for_test::*;
+
 #[derive(Debug, Default)]
-struct ThreadDetailChunkBuffer {
-    thread_id: Option<String>,
-    bytes: Vec<u8>,
+pub(crate) struct ThreadDetailChunkBuffer {
+    pub(crate) thread_id: Option<String>,
+    pub(crate) bytes: Vec<u8>,
 }
 
-include!("daemon_message_kind_to_handle_connection_to_handle_daemon_message.rs");
-include!("handle_thread_workspace_and_provider_daemon_messages.rs");
-include!("handle_activity_profile_gateway_daemon_messages.rs");
-include!("is_internal_agent_thread_to_request_git_diff.rs");
-include!("request_agent_status_to_defer_operator_profile_question_to_get_operator.rs");
+mod daemon_message_kind_to_handle_connection_to_handle_daemon_message;
+mod handle_thread_workspace_and_provider_daemon_messages;
+mod handle_activity_profile_gateway_daemon_messages;
+mod is_internal_agent_thread_to_request_git_diff;
+mod request_agent_status_to_defer_operator_profile_question_to_get_operator;
+pub(crate) use daemon_message_kind_to_handle_connection_to_handle_daemon_message::*;
+pub(crate) use handle_activity_profile_gateway_daemon_messages::*;
+pub(crate) use handle_thread_workspace_and_provider_daemon_messages::*;
+pub(crate) use is_internal_agent_thread_to_request_git_diff::*;
+pub(crate) use request_agent_status_to_defer_operator_profile_question_to_get_operator::*;
 
-include!("mod_parts/get_string_lossy.rs");
+#[path = "mod_parts/get_string_lossy.rs"]
+mod get_string_lossy;
+pub(crate) use get_string_lossy::*;
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -24,9 +34,12 @@ mod tests {
         rx.try_recv().expect("expected queued client message")
     }
 
-    include!("tests/whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task.rs");
-    include!("tests/bootstrap_rearms_after_successful_connection_cycle_to_daemon_bootstrap.rs");
-    include!("tests/daemon_collaboration_sessions_reply_emits_client_event_to_workspace.rs");
+    #[path = "whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task.rs"]
+    mod whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task;
+    #[path = "bootstrap_rearms_after_successful_connection_cycle_to_daemon_bootstrap.rs"]
+    mod bootstrap_rearms_after_successful_connection_cycle_to_daemon_bootstrap;
+    #[path = "daemon_collaboration_sessions_reply_emits_client_event_to_workspace.rs"]
+    mod daemon_collaboration_sessions_reply_emits_client_event_to_workspace;
 
     #[tokio::test]
     async fn dispatch_client_event_does_not_panic_when_receiver_dropped() {

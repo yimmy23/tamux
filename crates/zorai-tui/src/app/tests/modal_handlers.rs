@@ -1,30 +1,34 @@
-include!("modal_handlers_parts/whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings.rs");
-include!(
-    "modal_handlers_parts/settings_modal_mouse_wheel_scrolls_overflowing_content_to_help_viewer.rs"
-);
-include!(
-    "modal_handlers_parts/statistics_modal_keyboard_cycles_tabs_and_filters_to_ctrl_a_toggles.rs"
-);
-include!("modal_handlers_parts/approval_center_keyboard_resolves_selected_approval_to_selecting_custom.rs");
-include!("modal_handlers_parts/selecting_custom_provider_focuses_model_field_for_inline_entry.rs");
-include!("modal_handlers_parts/selecting_compaction_custom_model_updates_compaction_model_to_selecting.rs");
-include!("modal_handlers_parts/selecting_image_generation_model_updates_image_model_to_accepting_audio.rs");
-include!(
-    "modal_handlers_parts/declining_audio_model_stt_reuse_preserves_existing_stt_model_to_audio.rs"
-);
-include!(
-    "modal_handlers_parts/audio_model_picker_render_uses_same_filtered_models_as_selection.rs"
-);
-include!("modal_handlers_parts/concierge_model_picker_uses_rarog_current_model_instead_of_primary_model.rs");
-include!(
-    "modal_handlers_parts/thread_picker_ctrl_s_on_stopped_thread_requires_confirmation_before.rs"
-);
-include!(
-    "modal_handlers_parts/selected_goal_step_r_opens_retry_confirmation_to_goal_run_task_view.rs"
-);
-include!("modal_handlers_parts/thread_picker_playgrounds_new_row_is_browse_only_to_slash_effort_updates.rs");
-include!(
-    "modal_handlers_parts/slash_effort_picker_starts_on_active_thread_owner_effort_to_queued.rs"
-);
-include!("modal_handlers_parts/clicking_footer_queue_indicator_opens_queued_prompts_modal.rs");
-include!("modal_handlers_parts/notifications_modal_row_action_focus_uses_left_right_and_enter_to_goal.rs");
+use super::*;
+
+#[path = "modal_handlers_parts/whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings.rs"]
+mod whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings;
+#[path = "modal_handlers_parts/settings_modal_mouse_wheel_scrolls_overflowing_content_to_help_viewer.rs"]
+mod settings_modal_mouse_wheel_scrolls_overflowing_content_to_help_viewer;
+#[path = "modal_handlers_parts/statistics_modal_keyboard_cycles_tabs_and_filters_to_ctrl_a_toggles.rs"]
+mod statistics_modal_keyboard_cycles_tabs_and_filters_to_ctrl_a_toggles;
+#[path = "modal_handlers_parts/approval_center_keyboard_resolves_selected_approval_to_selecting_custom.rs"]
+mod approval_center_keyboard_resolves_selected_approval_to_selecting_custom;
+#[path = "modal_handlers_parts/selecting_custom_provider_focuses_model_field_for_inline_entry.rs"]
+mod selecting_custom_provider_focuses_model_field_for_inline_entry;
+#[path = "modal_handlers_parts/selecting_compaction_custom_model_updates_compaction_model_to_selecting.rs"]
+mod selecting_compaction_custom_model_updates_compaction_model_to_selecting;
+#[path = "modal_handlers_parts/selecting_image_generation_model_updates_image_model_to_accepting_audio.rs"]
+mod selecting_image_generation_model_updates_image_model_to_accepting_audio;
+#[path = "modal_handlers_parts/declining_audio_model_stt_reuse_preserves_existing_stt_model_to_audio.rs"]
+mod declining_audio_model_stt_reuse_preserves_existing_stt_model_to_audio;
+#[path = "modal_handlers_parts/audio_model_picker_render_uses_same_filtered_models_as_selection.rs"]
+mod audio_model_picker_render_uses_same_filtered_models_as_selection;
+#[path = "modal_handlers_parts/concierge_model_picker_uses_rarog_current_model_instead_of_primary_model.rs"]
+mod concierge_model_picker_uses_rarog_current_model_instead_of_primary_model;
+#[path = "modal_handlers_parts/thread_picker_ctrl_s_on_stopped_thread_requires_confirmation_before.rs"]
+mod thread_picker_ctrl_s_on_stopped_thread_requires_confirmation_before;
+#[path = "modal_handlers_parts/selected_goal_step_r_opens_retry_confirmation_to_goal_run_task_view.rs"]
+mod selected_goal_step_r_opens_retry_confirmation_to_goal_run_task_view;
+#[path = "modal_handlers_parts/thread_picker_playgrounds_new_row_is_browse_only_to_slash_effort_updates.rs"]
+mod thread_picker_playgrounds_new_row_is_browse_only_to_slash_effort_updates;
+#[path = "modal_handlers_parts/slash_effort_picker_starts_on_active_thread_owner_effort_to_queued.rs"]
+mod slash_effort_picker_starts_on_active_thread_owner_effort_to_queued;
+#[path = "modal_handlers_parts/clicking_footer_queue_indicator_opens_queued_prompts_modal.rs"]
+mod clicking_footer_queue_indicator_opens_queued_prompts_modal;
+#[path = "modal_handlers_parts/notifications_modal_row_action_focus_uses_left_right_and_enter_to_goal.rs"]
+mod notifications_modal_row_action_focus_uses_left_right_and_enter_to_goal;

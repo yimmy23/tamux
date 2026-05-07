@@ -1,4 +1,8 @@
 use super::*;
+use crate::state::sidebar::SidebarTab;
+use crate::theme::ThemeTokens;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::text::{Line, Span};
 
 pub(super) fn visible_tabs(show_spawned: bool, show_pinned: bool) -> Vec<SidebarTab> {
     let mut tabs = vec![SidebarTab::Todos, SidebarTab::Files];
@@ -11,7 +15,7 @@ pub(super) fn visible_tabs(show_spawned: bool, show_pinned: bool) -> Vec<Sidebar
     tabs
 }
 
-pub(super) fn tab_hit_test(
+pub(crate) fn tab_hit_test(
     tab_area: Rect,
     mouse_x: u16,
     show_spawned: bool,
@@ -24,7 +28,7 @@ pub(super) fn tab_hit_test(
         })
 }
 
-pub(super) fn tab_cells(
+pub(crate) fn tab_cells(
     tab_area: Rect,
     show_spawned: bool,
     show_pinned: bool,
@@ -45,7 +49,7 @@ pub(super) fn tab_cells(
     tabs.into_iter().zip(chunks.iter().copied()).collect()
 }
 
-pub(super) fn tab_label(tab: SidebarTab) -> &'static str {
+pub(crate) fn tab_label(tab: SidebarTab) -> &'static str {
     match tab {
         SidebarTab::Files => " Files ",
         SidebarTab::Todos => " Todos ",

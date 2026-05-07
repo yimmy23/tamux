@@ -163,6 +163,43 @@ fn partial_config_only_end_set() {
     assert!(!check_quiet_window(3, None, Some(6), false));
 }
 
+#[tokio::test]
+async fn heartbeat_running_goal_targets_use_persisted_running_goals_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let goal_run = engine
+        .start_goal_run(
+            "Persisted heartbeat target goal".to_string(),
+            Some("Persisted heartbeat target goal".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        let goal = goal_runs
+            .iter_mut()
+            .find(|goal| goal.id == goal_run.id)
+            .expect("goal should be live before persistence");
+        goal.status = GoalRunStatus::Running;
+    }
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    let targets = engine.running_goal_trajectory_targets().await;
+
+    assert_eq!(
+        targets,
+        vec![(goal_run.id, "Persisted heartbeat target goal".to_string())]
+    );
+}
+
 // ── resolve_cron_from_config tests ─────────────────────────────────
 
 #[test]

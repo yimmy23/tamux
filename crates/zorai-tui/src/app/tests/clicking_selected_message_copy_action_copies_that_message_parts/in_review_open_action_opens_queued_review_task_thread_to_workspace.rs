@@ -1,3 +1,10 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 #[test]
 fn in_review_open_action_opens_queued_review_task_thread() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
@@ -411,7 +418,7 @@ fn workspace_history_modal_uses_active_runtime_when_history_missing() {
     }
 }
 
-fn workspace_settings_for_operator(
+pub(super) fn workspace_settings_for_operator(
     operator: zorai_protocol::WorkspaceOperator,
 ) -> zorai_protocol::WorkspaceSettings {
     zorai_protocol::WorkspaceSettings {
@@ -423,7 +430,7 @@ fn workspace_settings_for_operator(
     }
 }
 
-fn workspace_task_for_board(
+pub(super) fn workspace_task_for_board(
     id: &str,
     status: zorai_protocol::WorkspaceTaskStatus,
     assignee: Option<zorai_protocol::WorkspaceActor>,
@@ -453,7 +460,7 @@ fn workspace_task_for_board(
     }
 }
 
-fn workspace_hit_position(
+pub(super) fn workspace_hit_position(
     model: &TuiModel,
     matches_target: impl Fn(widgets::workspace_board::WorkspaceBoardHitTarget) -> bool,
 ) -> Position {
@@ -475,4 +482,3 @@ fn workspace_hit_position(
         })
         .expect("workspace board target should be visible")
 }
-

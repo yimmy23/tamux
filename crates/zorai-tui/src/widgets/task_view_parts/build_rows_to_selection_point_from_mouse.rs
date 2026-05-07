@@ -1,4 +1,19 @@
-fn build_rows(
+use super::*;
+use crate::widgets::duration_format::format_duration_ms;
+use crate::widgets::chat::SelectionPoint;
+use super::selection::*;
+use super::sections::*;
+use crate::state::task::*;
+use super::sections;
+use super::selection;
+use crate::state::sidebar::{SidebarItemTarget, SidebarTab};
+use crate::theme::ThemeTokens;
+use ratatui::layout::{Position, Rect};
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+pub(crate) fn build_rows(
     tasks: &TaskState,
     target: &SidebarItemTarget,
     theme: &ThemeTokens,
@@ -207,7 +222,7 @@ fn build_rows(
     }
 }
 
-fn rows_for_width(
+pub(crate) fn rows_for_width(
     tasks: &TaskState,
     target: &SidebarItemTarget,
     theme: &ThemeTokens,
@@ -230,7 +245,7 @@ fn rows_for_width(
     rows
 }
 
-fn scrollbar_layout_from_metrics(
+pub(crate) fn scrollbar_layout_from_metrics(
     area: Rect,
     total_rows: usize,
     scroll: usize,
@@ -279,7 +294,7 @@ fn scrollbar_layout_from_metrics(
     })
 }
 
-pub fn hit_test(
+pub(crate) fn hit_test(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -335,7 +350,7 @@ pub fn hit_test(
     })
 }
 
-fn selection_snapshot(
+pub(crate) fn selection_snapshot(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -379,7 +394,7 @@ fn selection_snapshot(
     })
 }
 
-fn selection_point_from_snapshot(
+pub(crate) fn selection_point_from_snapshot(
     snapshot: &SelectionSnapshot,
     mouse: Position,
 ) -> Option<SelectionPoint> {
@@ -402,7 +417,7 @@ fn selection_point_from_snapshot(
     })
 }
 
-pub fn selection_points_from_mouse(
+pub(crate) fn selection_points_from_mouse(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -430,7 +445,7 @@ pub fn selection_points_from_mouse(
     ))
 }
 
-pub fn selection_point_from_mouse(
+pub(crate) fn selection_point_from_mouse(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -453,4 +468,3 @@ pub fn selection_point_from_mouse(
     )?;
     selection_point_from_snapshot(&snapshot, mouse)
 }
-

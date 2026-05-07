@@ -1,3 +1,13 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use std::fs;
+use std::path::PathBuf;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
+    use base64::Engine as _;
 #[test]
 fn goal_view_scroll_up_moves_off_bottom_after_mouse_overscroll() {
     fn render_task_view(model: &mut TuiModel) -> Vec<String> {
@@ -326,7 +336,6 @@ fn file_preview_scrollbar_thumb_drags_detail_scroll() {
 
 #[test]
 fn file_preview_view_renders_image_preview_instead_of_binary_placeholder() {
-    use base64::Engine as _;
 
     let mut model = build_model();
     model.focus = FocusArea::Chat;

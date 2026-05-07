@@ -1,4 +1,19 @@
-pub fn selected_text(
+use super::*;
+use crate::widgets::duration_format::format_duration_ms;
+use crate::widgets::chat::SelectionPoint;
+use super::selection::*;
+use super::sections::*;
+use crate::state::task::*;
+use super::sections;
+use super::selection;
+use crate::state::sidebar::{SidebarItemTarget, SidebarTab};
+use crate::theme::ThemeTokens;
+use ratatui::layout::{Position, Rect};
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+pub(crate) fn selected_text(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -56,7 +71,7 @@ pub fn selected_text(
     }
 }
 
-pub fn render(
+pub(crate) fn render(
     frame: &mut Frame,
     area: Rect,
     tasks: &TaskState,
@@ -185,7 +200,7 @@ pub fn render(
     frame.render_widget(paragraph, inner);
 }
 
-pub fn max_scroll(
+pub(crate) fn max_scroll(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -225,7 +240,7 @@ pub fn max_scroll(
     })
 }
 
-pub fn scrollbar_layout(
+pub(crate) fn scrollbar_layout(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -267,4 +282,3 @@ pub fn scrollbar_layout(
     );
     scrollbar_layout_from_metrics(inner, rows.len(), scroll)
 }
-

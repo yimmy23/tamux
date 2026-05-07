@@ -4,6 +4,20 @@
 //! compositor that owns the 8 state sub-modules and bridges between
 //! the daemon client events and the UI state.
 
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_protocol::*;
+
+
 mod commands;
 mod config_io;
 pub(crate) mod conversion;
@@ -34,8 +48,10 @@ mod workspace_review_modal;
 mod workspace_review_modal_tests;
 mod workspace_update;
 
-include!("mod_parts/modal_body_to_step.rs");
-include!("mod_parts/pending_workspace_actor_picker.rs");
+#[path = "mod_parts/modal_body_to_step.rs"]
+mod modal_body_to_step;
+#[path = "mod_parts/pending_workspace_actor_picker.rs"]
+mod pending_workspace_actor_picker;
 
 const MESSAGE_DELETE_BACKFILL_THRESHOLD: usize = 5;
 
@@ -254,11 +270,15 @@ pub struct TuiModel {
     pending_workspace_actor_picker: Option<PendingWorkspaceActorPicker>,
 }
 
-include!("new_to_prompt_modal_title_to_clear_pending_prompt_response_thread.rs");
-include!("send_continue_message_to_set_main_pane_conversation_to_mark_all.rs");
-include!("chat_scrollbar_layout_to_publish_attention_surface_if_changed.rs");
+#[path = "new_to_prompt_modal_title_to_clear_pending_prompt_response_thread.rs"]
+mod new_to_prompt_modal_title_to_clear_pending_prompt_response_thread;
+#[path = "send_continue_message_to_set_main_pane_conversation_to_mark_all.rs"]
+mod send_continue_message_to_set_main_pane_conversation_to_mark_all;
+#[path = "chat_scrollbar_layout_to_publish_attention_surface_if_changed.rs"]
+mod chat_scrollbar_layout_to_publish_attention_surface_if_changed;
 
-include!("mod_parts/settings_tab_label_to_target_goal_run_id.rs");
+#[path = "mod_parts/settings_tab_label_to_target_goal_run_id.rs"]
+mod settings_tab_label_to_target_goal_run_id;
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,13 +335,30 @@ mod tests {
         }
     }
 
-    include!("tests/provider_onboarding_requires_loaded_auth_state_to_copy_message_shows.rs");
-    include!("tests/migrate_preview_slash_command_sends_daemon_migration_preview_to_start.rs");
-    include!("tests/clicking_selected_message_copy_action_copies_that_message_to_click.rs");
-    include!("tests/drag_selection_does_not_rebuild_full_transcript_for_every_mouse_event.rs");
-    include!("tests/drag_selection_copies_expected_text_after_autoscroll_to_status_modal.rs");
-    include!("tests/goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows.rs");
-    include!("tests/background_delta_isolated_to_origin_thread_until_switch_to_background.rs");
-    include!("tests/input_history_keyboard.rs");
-    include!("tests/goal_composer_add_agent_hotkey_creates_another_role_assignment.rs");
+    #[path = "provider_onboarding_requires_loaded_auth_state_to_copy_message_shows.rs"]
+mod provider_onboarding_requires_loaded_auth_state_to_copy_message_shows;
+    #[path = "migrate_preview_slash_command_sends_daemon_migration_preview_to_start.rs"]
+mod migrate_preview_slash_command_sends_daemon_migration_preview_to_start;
+    #[path = "clicking_selected_message_copy_action_copies_that_message_to_click.rs"]
+mod clicking_selected_message_copy_action_copies_that_message_to_click;
+    #[path = "drag_selection_does_not_rebuild_full_transcript_for_every_mouse_event.rs"]
+mod drag_selection_does_not_rebuild_full_transcript_for_every_mouse_event;
+    #[path = "drag_selection_copies_expected_text_after_autoscroll_to_status_modal.rs"]
+mod drag_selection_copies_expected_text_after_autoscroll_to_status_modal;
+    #[path = "goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows.rs"]
+pub(super) mod goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows;
+    #[path = "background_delta_isolated_to_origin_thread_until_switch_to_background.rs"]
+mod background_delta_isolated_to_origin_thread_until_switch_to_background;
+    #[path = "input_history_keyboard.rs"]
+mod input_history_keyboard;
+    #[path = "goal_composer_add_agent_hotkey_creates_another_role_assignment.rs"]
+mod goal_composer_add_agent_hotkey_creates_another_role_assignment;
 }
+
+pub(crate) use modal_body_to_step::*;
+pub(crate) use pending_workspace_actor_picker::*;
+pub(crate) use new_to_prompt_modal_title_to_clear_pending_prompt_response_thread::*;
+pub(crate) use send_continue_message_to_set_main_pane_conversation_to_mark_all::*;
+pub(crate) use chat_scrollbar_layout_to_publish_attention_surface_if_changed::*;
+pub(crate) use settings_tab_label_to_target_goal_run_id::*;
+

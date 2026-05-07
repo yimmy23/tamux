@@ -19,8 +19,36 @@ impl AgentEngine {
             .map(|(thread_id, _)| thread_id.clone())
             .collect::<HashSet<_>>();
         let threads = self.threads.read().await.clone();
-        let goal_runs = self.goal_runs.lock().await.clone();
         let task_thread_ids = threads.keys().cloned().collect::<Vec<_>>();
+        let mut goal_runs = match self
+            .history
+            .list_goal_runs_for_thread_ids(&task_thread_ids)
+            .await
+        {
+            Ok(goal_runs) => VecDeque::from(goal_runs),
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted goal runs for stalled-turn scan: {error}"
+                );
+                VecDeque::new()
+            }
+        };
+        let mut seen_goal_ids = goal_runs
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<HashSet<_>>();
+        {
+            let live_goal_runs = self.goal_runs.lock().await;
+            for goal_run in live_goal_runs.iter().filter(|goal_run| {
+                task_thread_ids
+                    .iter()
+                    .any(|thread_id| goal_run_matches_thread(goal_run, thread_id))
+            }) {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    goal_runs.push_back(goal_run.clone());
+                }
+            }
+        }
         let tasks = if task_thread_ids.is_empty() {
             VecDeque::new()
         } else {

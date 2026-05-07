@@ -1,4 +1,5 @@
-fn settings_tab_label(tab: SettingsTab) -> &'static str {
+use super::*;
+pub(crate) fn settings_tab_label(tab: SettingsTab) -> &'static str {
     match tab {
         SettingsTab::Provider => "provider",
         SettingsTab::Tools => "tools",
@@ -16,7 +17,7 @@ fn settings_tab_label(tab: SettingsTab) -> &'static str {
     }
 }
 
-fn sidebar_tab_label(tab: SidebarTab) -> &'static str {
+pub(crate) fn sidebar_tab_label(tab: SidebarTab) -> &'static str {
     match tab {
         SidebarTab::Files => "files",
         SidebarTab::Todos => "todos",
@@ -25,7 +26,7 @@ fn sidebar_tab_label(tab: SidebarTab) -> &'static str {
     }
 }
 
-fn target_goal_run_id(model: &TuiModel, target: &SidebarItemTarget) -> Option<String> {
+pub(crate) fn target_goal_run_id(model: &TuiModel, target: &SidebarItemTarget) -> Option<String> {
     match target {
         SidebarItemTarget::GoalRun { goal_run_id, .. } => Some(goal_run_id.clone()),
         SidebarItemTarget::Task { task_id } => model

@@ -1,3 +1,11 @@
+use super::super::super::*;
+use super::super::events_activity::{
+    auto_compaction_reload_window, normalized_skill_workflow_notice, parse_collaboration_sessions,
+};
+use super::super::events_audio::text_to_speech_result_path;
+use super::super::*;
+use super::handle_operator_model_reset_event_to_handle_divergent_session_event::*;
+
 impl TuiModel {
     fn participant_playground_target(thread_id: &str) -> Option<(&str, &str)> {
         let remainder = thread_id.strip_prefix("playground:")?;
@@ -113,7 +121,7 @@ impl TuiModel {
         }
     }
 
-    fn should_accept_retry_status_event(&self, thread_id: &str) -> bool {
+    pub(super) fn should_accept_retry_status_event(&self, thread_id: &str) -> bool {
         if self.chat.is_streaming()
             || self.chat.retry_status().is_some()
             || self.current_thread_agent_activity().is_some()

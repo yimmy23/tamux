@@ -1,4 +1,4 @@
-    use super::*;
+    use super::super::*;
 
     fn make_approval(approval_id: &str, task_id: &str, command: &str) -> PendingApproval {
         let risk_level = RiskLevel::classify_command(command);

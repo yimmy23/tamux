@@ -1,3 +1,5 @@
+use super::*;
+
 fn make_model_with_daemon_rx_for_multithread_tests() -> (
     TuiModel,
     tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,

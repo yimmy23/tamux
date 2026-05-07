@@ -1,9 +1,21 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
 impl TuiModel {
-    fn clear_pending_prompt_response_thread(&mut self, thread_id: &str) {
+    pub(crate) fn clear_pending_prompt_response_thread(&mut self, thread_id: &str) {
         self.pending_prompt_response_threads.remove(thread_id);
     }
 
-    fn should_preserve_pending_thinking_activity_on_reload(&self, thread_id: &str) -> bool {
+    pub(crate) fn should_preserve_pending_thinking_activity_on_reload(&self, thread_id: &str) -> bool {
         if self
             .thread_agent_activity
             .get(thread_id)
@@ -40,7 +52,7 @@ impl TuiModel {
                 .unwrap_or(false)
     }
 
-    fn done_arrived_before_pending_prompt_output(&self, thread_id: &str) -> bool {
+    pub(crate) fn done_arrived_before_pending_prompt_output(&self, thread_id: &str) -> bool {
         self.pending_prompt_response_threads.contains(thread_id)
             && self
                 .thread_agent_activity
@@ -67,7 +79,7 @@ impl TuiModel {
                 .unwrap_or(false)
     }
 
-    fn clear_agent_activity_for(&mut self, thread_id: Option<&str>) {
+    pub(crate) fn clear_agent_activity_for(&mut self, thread_id: Option<&str>) {
         if let Some(thread_id) = thread_id {
             self.thread_agent_activity.remove(thread_id);
         } else {
@@ -75,7 +87,7 @@ impl TuiModel {
         }
     }
 
-    fn clear_active_thread_activity(&mut self) {
+    pub(crate) fn clear_active_thread_activity(&mut self) {
         let thread_id = self.chat.active_thread_id().map(str::to_string);
         if let Some(thread_id) = thread_id.as_deref() {
             self.clear_pending_prompt_response_thread(thread_id);
@@ -83,13 +95,13 @@ impl TuiModel {
         self.clear_agent_activity_for(thread_id.as_deref());
     }
 
-    fn clear_all_agent_activity(&mut self) {
+    pub(crate) fn clear_all_agent_activity(&mut self) {
         self.agent_activity = None;
         self.thread_agent_activity.clear();
         self.pending_prompt_response_threads.clear();
     }
 
-    fn clear_matching_agent_activity(&mut self, target: &str) {
+    pub(crate) fn clear_matching_agent_activity(&mut self, target: &str) {
         if self.agent_activity.as_deref() == Some(target) {
             self.agent_activity = None;
         }
@@ -97,19 +109,19 @@ impl TuiModel {
             .retain(|_, activity| activity != target);
     }
 
-    fn assistant_busy(&self) -> bool {
+    pub(crate) fn assistant_busy(&self) -> bool {
         self.chat.is_streaming() || self.current_thread_agent_activity().is_some()
     }
 
-    fn queue_barrier_active(&self) -> bool {
+    pub(crate) fn queue_barrier_active(&self) -> bool {
         self.chat.has_running_tool_calls()
     }
 
-    fn should_queue_submitted_prompt(&self) -> bool {
+    pub(crate) fn should_queue_submitted_prompt(&self) -> bool {
         self.chat.is_streaming()
     }
 
-    fn clear_expired_queued_prompt_copy_feedback(&mut self) -> bool {
+    pub(crate) fn clear_expired_queued_prompt_copy_feedback(&mut self) -> bool {
         let mut changed = false;
         for prompt in &mut self.queued_prompts {
             changed |= prompt.clear_expired_copy_feedback(self.tick_counter);
@@ -117,7 +129,7 @@ impl TuiModel {
         changed
     }
 
-    fn sync_queued_prompt_modal_state(&mut self) {
+    pub(crate) fn sync_queued_prompt_modal_state(&mut self) {
         if self.modal.top() != Some(modal::ModalKind::QueuedPrompts) {
             return;
         }
@@ -130,7 +142,7 @@ impl TuiModel {
         self.modal.set_picker_item_count(self.queued_prompts.len());
     }
 
-    fn actions_bar_visible(&self) -> bool {
+    pub(crate) fn actions_bar_visible(&self) -> bool {
         if !matches!(self.main_pane_view, MainPaneView::Conversation) {
             return false;
         }
@@ -146,13 +158,13 @@ impl TuiModel {
             || self.footer_activity_text().is_some()
     }
 
-    fn should_show_daemon_connection_loading(&self) -> bool {
+    pub(crate) fn should_show_daemon_connection_loading(&self) -> bool {
         (!self.connected || !self.agent_config_loaded)
             && matches!(self.main_pane_view, MainPaneView::Conversation)
             && !self.should_show_provider_onboarding()
     }
 
-    fn should_show_local_landing(&self) -> bool {
+    pub(crate) fn should_show_local_landing(&self) -> bool {
         self.connected
             && self.agent_config_loaded
             && matches!(self.main_pane_view, MainPaneView::Conversation)
@@ -163,7 +175,7 @@ impl TuiModel {
             && !self.should_show_provider_onboarding()
     }
 
-    fn should_show_concierge_hero_loading(&self) -> bool {
+    pub(crate) fn should_show_concierge_hero_loading(&self) -> bool {
         self.concierge.loading
             && matches!(self.main_pane_view, MainPaneView::Conversation)
             && self.chat.active_thread().is_none()
@@ -171,7 +183,7 @@ impl TuiModel {
             && !self.concierge.has_active_welcome()
     }
 
-    fn concierge_banner_height(&self) -> u16 {
+    pub(crate) fn concierge_banner_height(&self) -> u16 {
         if self.should_show_concierge_hero_loading() {
             0
         } else if self.actions_bar_visible() {
@@ -181,11 +193,11 @@ impl TuiModel {
         }
     }
 
-    fn anticipatory_banner_height(&self) -> u16 {
+    pub(crate) fn anticipatory_banner_height(&self) -> u16 {
         0
     }
 
-    fn pane_layout_for_area(&self, area: Rect) -> PaneLayout {
+    pub(crate) fn pane_layout_for_area(&self, area: Rect) -> PaneLayout {
         let input_height = self.input_height().min(area.height.saturating_sub(1));
         let remaining_after_input = area.height.saturating_sub(input_height + 1);
         let anticipatory_height = self
@@ -244,7 +256,7 @@ impl TuiModel {
         }
     }
 
-    fn pane_layout(&self) -> PaneLayout {
+    pub(crate) fn pane_layout(&self) -> PaneLayout {
         self.pane_layout_for_area(Rect::new(0, 0, self.width, self.height))
     }
 
@@ -252,7 +264,7 @@ impl TuiModel {
         self.auth.entries.iter().any(|entry| entry.authenticated)
     }
 
-    fn should_show_provider_onboarding(&self) -> bool {
+    pub(crate) fn should_show_provider_onboarding(&self) -> bool {
         self.connected
             && self.auth.loaded
             && !self.has_configured_provider()
@@ -261,7 +273,7 @@ impl TuiModel {
             && self.chat.streaming_content().is_empty()
     }
 
-    fn should_show_operator_profile_onboarding(&self) -> bool {
+    pub(crate) fn should_show_operator_profile_onboarding(&self) -> bool {
         self.operator_profile.visible
             && matches!(self.main_pane_view, MainPaneView::Conversation)
             && self.chat.streaming_content().is_empty()
@@ -274,7 +286,7 @@ impl TuiModel {
         }
     }
 
-    fn normalize_operator_profile_input_kind(input_kind: &str) -> &str {
+    pub(crate) fn normalize_operator_profile_input_kind(input_kind: &str) -> &str {
         match input_kind {
             "boolean" | "bool" => "bool",
             "select" => "select",
@@ -282,7 +294,7 @@ impl TuiModel {
         }
     }
 
-    fn current_operator_profile_select_options(&self) -> Option<&'static [&'static str]> {
+    pub(crate) fn current_operator_profile_select_options(&self) -> Option<&'static [&'static str]> {
         self.operator_profile
             .question
             .as_ref()
@@ -295,7 +307,7 @@ impl TuiModel {
             })
     }
 
-    fn operator_profile_onboarding_view(
+    pub(crate) fn operator_profile_onboarding_view(
         &self,
     ) -> widgets::operator_profile_onboarding::OperatorProfileOnboardingView<'_> {
         let question = self.operator_profile.question.as_ref().map(|question| {
@@ -314,7 +326,7 @@ impl TuiModel {
         widgets::operator_profile_onboarding::OperatorProfileOnboardingView { question, progress }
     }
 
-    fn is_current_operator_profile_bool_question(&self) -> bool {
+    pub(crate) fn is_current_operator_profile_bool_question(&self) -> bool {
         self.operator_profile
             .question
             .as_ref()
@@ -336,7 +348,7 @@ impl TuiModel {
         true
     }
 
-    fn open_operator_profile_onboarding_modal(&mut self) {
+    pub(crate) fn open_operator_profile_onboarding_modal(&mut self) {
         if self.is_current_operator_profile_bool_question() {
             self.input.set_text("");
         }
@@ -353,19 +365,19 @@ impl TuiModel {
         self.sync_operator_profile_onboarding_item_count();
     }
 
-    fn close_operator_profile_onboarding_modal(&mut self) {
+    pub(crate) fn close_operator_profile_onboarding_modal(&mut self) {
         self.modal.reduce(modal::ModalAction::RemoveAll(
             modal::ModalKind::OperatorProfileOnboarding,
         ));
     }
 
-    fn sync_operator_profile_onboarding_item_count(&mut self) {
+    pub(crate) fn sync_operator_profile_onboarding_item_count(&mut self) {
         let view = self.operator_profile_onboarding_view();
         let count = widgets::operator_profile_onboarding::item_count(&view);
         self.modal.set_picker_item_count(count);
     }
 
-    fn execute_operator_profile_onboarding_target(
+    pub(crate) fn execute_operator_profile_onboarding_target(
         &mut self,
         target: widgets::operator_profile_onboarding::OperatorProfileOnboardingHitTarget,
     ) -> bool {
@@ -388,7 +400,7 @@ impl TuiModel {
         }
     }
 
-    fn submit_operator_profile_answer(&mut self) -> bool {
+    pub(crate) fn submit_operator_profile_answer(&mut self) -> bool {
         let Some(question) = self.operator_profile.question.clone() else {
             return false;
         };
@@ -461,7 +473,7 @@ impl TuiModel {
         true
     }
 
-    fn skip_operator_profile_question(&mut self) -> bool {
+    pub(crate) fn skip_operator_profile_question(&mut self) -> bool {
         let Some(question) = self.operator_profile.question.clone() else {
             return false;
         };
@@ -479,7 +491,7 @@ impl TuiModel {
         true
     }
 
-    fn defer_operator_profile_question(&mut self) -> bool {
+    pub(crate) fn defer_operator_profile_question(&mut self) -> bool {
         let Some(question) = self.operator_profile.question.clone() else {
             return false;
         };
@@ -504,7 +516,7 @@ impl TuiModel {
         self.status_line = "Deferring operator profile onboarding for 24h…".to_string();
         true
     }
-    fn open_settings_tab(&mut self, tab: SettingsTab) {
+    pub(crate) fn open_settings_tab(&mut self, tab: SettingsTab) {
         if self.modal.top() != Some(modal::ModalKind::Settings) {
             self.modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
@@ -523,12 +535,12 @@ impl TuiModel {
         }
     }
 
-    fn open_provider_setup(&mut self) {
+    pub(crate) fn open_provider_setup(&mut self) {
         self.open_settings_tab(SettingsTab::Agent);
         self.status_line = "Configure provider credentials to start chatting".to_string();
     }
 
-    fn set_input_text(&mut self, text: &str) {
+    pub(crate) fn set_input_text(&mut self, text: &str) {
         self.input.reduce(input::InputAction::Clear);
         for ch in text.chars() {
             self.input.reduce(input::InputAction::InsertChar(ch));
@@ -537,7 +549,7 @@ impl TuiModel {
         self.sync_goal_mission_control_prompt_from_input();
     }
 
-    fn close_top_modal(&mut self) {
+    pub(crate) fn close_top_modal(&mut self) {
         if self.modal.top() == Some(modal::ModalKind::OpenAIAuth) {
             self.openai_auth_url = None;
             self.openai_auth_status_text = None;

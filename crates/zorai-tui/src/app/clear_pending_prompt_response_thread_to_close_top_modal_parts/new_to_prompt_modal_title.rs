@@ -1,3 +1,15 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
 impl TuiModel {
     pub fn new(
         daemon_events_rx: Receiver<ClientEvent>,
@@ -163,7 +175,7 @@ impl TuiModel {
         }
     }
 
-    fn send_daemon_command(&self, command: DaemonCommand) {
+    pub(crate) fn send_daemon_command(&self, command: DaemonCommand) {
         let _ = self.daemon_cmd_tx.send(command);
     }
 
@@ -401,7 +413,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn open_pinned_budget_exceeded_modal(
+    pub(crate) fn open_pinned_budget_exceeded_modal(
         &mut self,
         payload: PendingPinnedBudgetExceeded,
     ) {
@@ -413,7 +425,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn close_pinned_budget_exceeded_modal(&mut self) {
+    pub(crate) fn close_pinned_budget_exceeded_modal(&mut self) {
         self.pending_pinned_budget_exceeded = None;
         if self.modal.top() == Some(modal::ModalKind::PinnedBudgetExceeded) {
             self.close_top_modal();

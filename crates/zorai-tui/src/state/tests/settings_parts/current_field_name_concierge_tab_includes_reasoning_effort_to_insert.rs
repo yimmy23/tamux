@@ -1,3 +1,5 @@
+use super::super::*;
+
 #[test]
 fn current_field_name_concierge_tab_includes_reasoning_effort() {
     let mut state = SettingsState::new();

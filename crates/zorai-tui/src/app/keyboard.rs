@@ -2,12 +2,17 @@ use super::*;
 
 #[path = "keyboard_enter.rs"]
 mod enter;
-include!("keyboard_actions_global.rs");
-include!("keyboard_actions_navigation.rs");
-include!("keyboard_actions_goal_task.rs");
-include!("keyboard_actions_input.rs");
+#[path = "keyboard_actions_global.rs"]
+mod keyboard_actions_global;
+#[path = "keyboard_actions_navigation.rs"]
+mod keyboard_actions_navigation;
+#[path = "keyboard_actions_goal_task.rs"]
+mod keyboard_actions_goal_task;
+#[path = "keyboard_actions_input.rs"]
+mod keyboard_actions_input;
 
-include!("keyboard_shortcuts.rs");
+#[path = "keyboard_shortcuts.rs"]
+mod keyboard_shortcuts;
 
 impl TuiModel {
     pub(super) fn paste_from_clipboard(&mut self) {

@@ -1,9 +1,10 @@
+use super::*;
 impl TuiModel {
-    fn chat_scrollbar_layout(&self) -> Option<widgets::chat::ChatScrollbarLayout> {
+    pub(crate) fn chat_scrollbar_layout(&self) -> Option<widgets::chat::ChatScrollbarLayout> {
         self.chat_scrollbar_layout_for_area(self.pane_layout().chat)
     }
 
-    fn chat_scrollbar_layout_for_area(
+    pub(crate) fn chat_scrollbar_layout_for_area(
         &self,
         area: Rect,
     ) -> Option<widgets::chat::ChatScrollbarLayout> {
@@ -28,7 +29,7 @@ impl TuiModel {
         )
     }
 
-    fn chat_scrollbar_scroll_offset_for_pointer(
+    pub(crate) fn chat_scrollbar_scroll_offset_for_pointer(
         &self,
         area: Rect,
         pointer_row: u16,
@@ -62,7 +63,7 @@ impl TuiModel {
         )
     }
 
-    fn clamp_chat_scroll_offset_for_area(&mut self, area: Rect) {
+    pub(crate) fn clamp_chat_scroll_offset_for_area(&mut self, area: Rect) {
         let max_scroll = widgets::chat::scrollbar_layout(
             area,
             &self.chat,
@@ -81,7 +82,7 @@ impl TuiModel {
         self.set_chat_scroll_offset(max_scroll);
     }
 
-    fn capture_locked_chat_viewport(&self, thread_id: Option<&str>) -> Option<(usize, usize)> {
+    pub(crate) fn capture_locked_chat_viewport(&self, thread_id: Option<&str>) -> Option<(usize, usize)> {
         let thread_id = thread_id?;
         if self.chat.active_thread_id() != Some(thread_id) || self.chat.scroll_offset() == 0 {
             return None;
@@ -91,7 +92,7 @@ impl TuiModel {
             .map(|layout| (layout.scroll, layout.max_scroll))
     }
 
-    fn restore_locked_chat_viewport(&mut self, anchor: Option<(usize, usize)>) {
+    pub(crate) fn restore_locked_chat_viewport(&mut self, anchor: Option<(usize, usize)>) {
         let Some((before_scroll, before_max_scroll)) = anchor else {
             return;
         };
@@ -109,13 +110,13 @@ impl TuiModel {
         self.set_chat_scroll_offset(target.min(after_max_scroll));
     }
 
-    fn reduce_chat_for_thread(&mut self, thread_id: Option<&str>, action: chat::ChatAction) {
+    pub(crate) fn reduce_chat_for_thread(&mut self, thread_id: Option<&str>, action: chat::ChatAction) {
         let anchor = self.capture_locked_chat_viewport(thread_id);
         self.chat.reduce(action);
         self.restore_locked_chat_viewport(anchor);
     }
 
-    fn sidebar_visible(&self) -> bool {
+    pub(crate) fn sidebar_visible(&self) -> bool {
         if matches!(
             self.main_pane_view,
             MainPaneView::Task(SidebarItemTarget::GoalRun { .. })
@@ -140,7 +141,7 @@ impl TuiModel {
             || crate::widgets::sidebar::has_spawned_tab(&self.tasks, &self.chat, Some(thread_id))
     }
 
-    fn current_attention_target(&self) -> (String, Option<String>, Option<String>) {
+    pub(crate) fn current_attention_target(&self) -> (String, Option<String>, Option<String>) {
         if let Some(modal) = self.modal.top() {
             let surface = match modal {
                 modal::ModalKind::Settings => {
@@ -267,7 +268,7 @@ impl TuiModel {
         }
     }
 
-    fn publish_attention_surface_if_changed(&mut self) {
+    pub(crate) fn publish_attention_surface_if_changed(&mut self) {
         if !self.connected {
             return;
         }

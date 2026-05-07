@@ -1,4 +1,10 @@
     use super::*;
+    use crate::app::ChatFilePreviewTarget;
+    use crate::state::task::TaskState;
+    use crate::theme::ThemeTokens;
+    use crate::widgets::file_preview::*;
+    use crate::terminal_graphics::TerminalImageProtocol;
+    use ratatui::layout::{Position, Rect};
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
     use std::sync::{Mutex, OnceLock};

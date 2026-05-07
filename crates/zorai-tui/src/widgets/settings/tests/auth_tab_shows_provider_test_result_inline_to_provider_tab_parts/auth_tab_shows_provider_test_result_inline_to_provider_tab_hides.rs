@@ -1,3 +1,19 @@
+use super::*;
+use crate::widgets::settings::{render_provider_tab, render_features_tab, render_chat_tab, render_websearch_tab, render_concierge_tab, render_about_tab, render_auth_tab, render_agent_tab, render_tools_tab, render_advanced_tab, render_plugins_tab};
+use crate::widgets::settings::render_tab_content;
+use crate::widgets::settings::{render, render_tabs_line};
+use crate::state::subagents::SubAgentsState;
+use crate::state::modal::ModalState;
+use crate::widgets::settings::{render_gateway_tab, tab_hit_test};
+use crate::widgets::settings::{mask_api_key, visible_tabs, active_tab_index};
+use zorai_shared::providers::*;
+use crate::state::ProviderAuthEntry;
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsAction, SettingsState, SettingsTab};
+use crate::state::config::{ConfigAction, ConfigState, FetchedModel};
+use crate::theme::ThemeTokens;
+use ratatui::backend::TestBackend;
+use ratatui::Terminal;
+use ratatui::layout::Rect;
 #[test]
 fn auth_tab_shows_provider_test_result_inline() {
     let settings = SettingsState::new();
@@ -436,4 +452,3 @@ fn provider_tab_hides_openrouter_rows_for_non_openrouter_provider() {
     assert!(!text.contains("OR Exclude"));
     assert!(!text.contains("OR Fallbacks"));
 }
-

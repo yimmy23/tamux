@@ -181,6 +181,256 @@ impl HistoryStore {
         self.list_goal_runs_filtered(None).await
     }
 
+    pub(crate) async fn list_goal_runs_for_statuses(
+        &self,
+        statuses: &[GoalRunStatus],
+    ) -> Result<Vec<GoalRun>> {
+        if statuses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let status_values = statuses
+            .iter()
+            .map(|status| goal_run_status_to_str(*status).to_string())
+            .collect::<Vec<_>>();
+        let goal_run_ids = self
+            .read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(status_values.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT id FROM goal_runs \
+                     WHERE deleted_at IS NULL AND status IN ({placeholders}) \
+                     ORDER BY updated_at DESC"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt
+                    .query_map(rusqlite::params_from_iter(status_values.iter()), |row| {
+                        row.get::<_, String>(0)
+                    })?;
+                let mut ids = Vec::new();
+                for row in rows {
+                    ids.push(row?);
+                }
+                Ok(ids)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let mut goal_runs = Vec::with_capacity(goal_run_ids.len());
+        for goal_run_id in goal_run_ids {
+            if let Some(goal_run) = self.get_goal_run(&goal_run_id).await? {
+                goal_runs.push(goal_run);
+            }
+        }
+        Ok(goal_runs)
+    }
+
+    pub(crate) async fn list_goal_runs_for_statuses_updated_before(
+        &self,
+        statuses: &[GoalRunStatus],
+        updated_at_lte: u64,
+    ) -> Result<Vec<GoalRun>> {
+        if statuses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let status_values = statuses
+            .iter()
+            .map(|status| goal_run_status_to_str(*status).to_string())
+            .collect::<Vec<_>>();
+        let goal_run_ids = self
+            .read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(status_values.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT id FROM goal_runs \
+                     WHERE deleted_at IS NULL \
+                       AND updated_at <= ? \
+                       AND status IN ({placeholders}) \
+                     ORDER BY updated_at ASC, id ASC"
+                );
+                let mut values = vec![rusqlite::types::Value::Integer(updated_at_lte as i64)];
+                values.extend(status_values.into_iter().map(rusqlite::types::Value::Text));
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    row.get::<_, String>(0)
+                })?;
+                let mut ids = Vec::new();
+                for row in rows {
+                    ids.push(row?);
+                }
+                Ok(ids)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let mut goal_runs = Vec::with_capacity(goal_run_ids.len());
+        for goal_run_id in goal_run_ids {
+            if let Some(goal_run) = self.get_goal_run(&goal_run_id).await? {
+                goal_runs.push(goal_run);
+            }
+        }
+        Ok(goal_runs)
+    }
+
+    pub(crate) async fn list_goal_runs_for_thread_ids(
+        &self,
+        thread_ids: &[String],
+    ) -> Result<Vec<GoalRun>> {
+        let thread_ids = thread_ids
+            .iter()
+            .map(|thread_id| thread_id.trim())
+            .filter(|thread_id| !thread_id.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        if thread_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let goal_run_ids = self
+            .read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(thread_ids.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT id FROM goal_runs \
+                     WHERE deleted_at IS NULL \
+                       AND (thread_id IN ({placeholders}) \
+                         OR root_thread_id IN ({placeholders}) \
+                         OR active_thread_id IN ({placeholders}) \
+                         OR EXISTS ( \
+                            SELECT 1 \
+                              FROM json_each(COALESCE(goal_runs.execution_thread_ids_json, '[]')) \
+                             WHERE json_each.value IN ({placeholders}) \
+                         )) \
+                     ORDER BY updated_at DESC, id DESC"
+                );
+                let mut values = Vec::with_capacity(thread_ids.len() * 4);
+                for _ in 0..4 {
+                    values.extend(thread_ids.iter().cloned().map(rusqlite::types::Value::Text));
+                }
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    row.get::<_, String>(0)
+                })?;
+                let mut ids = Vec::new();
+                for row in rows {
+                    ids.push(row?);
+                }
+                Ok(ids)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let mut goal_runs = Vec::with_capacity(goal_run_ids.len());
+        for goal_run_id in goal_run_ids {
+            if let Some(goal_run) = self.get_goal_run(&goal_run_id).await? {
+                goal_runs.push(goal_run);
+            }
+        }
+        Ok(goal_runs)
+    }
+
+    pub(crate) async fn list_active_goal_runs_for_start_request(
+        &self,
+        thread_id: Option<String>,
+        session_id: Option<String>,
+        client_request_id: Option<String>,
+    ) -> Result<Vec<GoalRun>> {
+        let status_values = [
+            GoalRunStatus::Queued,
+            GoalRunStatus::Planning,
+            GoalRunStatus::Running,
+            GoalRunStatus::AwaitingApproval,
+            GoalRunStatus::Paused,
+        ]
+        .into_iter()
+        .map(|status| goal_run_status_to_str(status).to_string())
+        .collect::<Vec<_>>();
+        let goal_run_ids = self
+            .read_conn
+            .call(move |conn| {
+                let status_placeholders = std::iter::repeat("?")
+                    .take(status_values.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let mut sql = format!(
+                    "SELECT goal_runs.id FROM goal_runs \
+                     LEFT JOIN agent_threads \
+                       ON agent_threads.id = goal_runs.thread_id \
+                      AND agent_threads.deleted_at IS NULL \
+                     WHERE goal_runs.deleted_at IS NULL \
+                       AND ((? IS NULL AND goal_runs.session_id IS NULL) OR goal_runs.session_id = ?) \
+                       AND goal_runs.status IN ({status_placeholders})"
+                );
+                let session_value = session_id
+                    .clone()
+                    .map(rusqlite::types::Value::Text)
+                    .unwrap_or(rusqlite::types::Value::Null);
+                let mut values = vec![session_value.clone(), session_value];
+                values.extend(
+                    status_values
+                        .into_iter()
+                        .map(rusqlite::types::Value::Text),
+                );
+                if let Some(client_request_id) = client_request_id {
+                    sql.push_str(" AND goal_runs.client_request_id = ?");
+                    values.push(rusqlite::types::Value::Text(client_request_id));
+                } else {
+                    let upstream_thread_expr = "\
+                        CASE \
+                            WHEN agent_threads.metadata_json IS NOT NULL \
+                                 AND json_valid(agent_threads.metadata_json) \
+                            THEN COALESCE(\
+                                json_extract(agent_threads.metadata_json, '$.upstream_thread_id'), \
+                                json_extract(agent_threads.metadata_json, '$.upstreamThreadId')\
+                            ) \
+                            ELSE NULL \
+                        END";
+                    sql.push_str(&format!(
+                        " AND (\
+                              (? IS NULL AND (goal_runs.thread_id IS NULL OR {upstream_thread_expr} IS NULL OR {upstream_thread_expr} = '')) \
+                              OR goal_runs.thread_id = ? \
+                              OR {upstream_thread_expr} = ?\
+                          )"
+                    ));
+                    let thread_value = thread_id
+                        .map(rusqlite::types::Value::Text)
+                        .unwrap_or(rusqlite::types::Value::Null);
+                    values.push(thread_value.clone());
+                    values.push(thread_value.clone());
+                    values.push(thread_value);
+                }
+                sql.push_str(" ORDER BY goal_runs.updated_at DESC, goal_runs.id DESC");
+
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    row.get::<_, String>(0)
+                })?;
+                let mut ids = Vec::new();
+                for row in rows {
+                    ids.push(row?);
+                }
+                Ok(ids)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let mut goal_runs = Vec::with_capacity(goal_run_ids.len());
+        for goal_run_id in goal_run_ids {
+            if let Some(goal_run) = self.get_goal_run(&goal_run_id).await? {
+                goal_runs.push(goal_run);
+            }
+        }
+        Ok(goal_runs)
+    }
+
     pub(crate) async fn concierge_goal_context(&self) -> Result<ConciergeGoalContext> {
         let (latest_goal_run_id, running_goal_total, paused_goal_total) = self
             .read_conn

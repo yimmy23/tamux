@@ -309,6 +309,12 @@ impl AgentEngine {
             .get_goal_run(goal_run_id)
             .await
             .context("goal run missing during planning")?;
+        {
+            let mut goal_runs = self.goal_runs.lock().await;
+            if !goal_runs.iter().any(|item| item.id == goal_run_id) {
+                goal_runs.push_back(goal_run.clone());
+            }
+        }
         let planner_owner_profile = self.planner_owner_profile().await;
 
         let queued = {

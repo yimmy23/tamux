@@ -257,7 +257,7 @@ impl AgentEngine {
         };
         let task_goal_run_id = task.as_ref().and_then(|task| task.goal_run_id.clone());
 
-        let goal_run = {
+        let mut goal_run = {
             let goal_runs = self.goal_runs.lock().await;
             goal_runs
                 .iter()
@@ -269,6 +269,23 @@ impl AgentEngine {
                 })
                 .cloned()
         };
+        if goal_run.is_none() {
+            if let Some(goal_run_id) = task_goal_run_id.as_deref() {
+                goal_run = self.history.get_goal_run(goal_run_id).await.ok().flatten();
+            }
+        }
+        if goal_run.is_none() {
+            goal_run = self
+                .history
+                .list_goal_runs_for_thread_ids(&[thread_id.to_string()])
+                .await
+                .ok()
+                .and_then(|goal_runs| {
+                    goal_runs
+                        .into_iter()
+                        .max_by_key(|goal_run| goal_run.updated_at)
+                });
+        }
 
         let goal_run = match goal_run {
             Some(goal_run) => goal_run,

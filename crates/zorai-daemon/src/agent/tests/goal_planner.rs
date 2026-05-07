@@ -4597,6 +4597,8 @@ async fn low_confidence_plan_gate_creates_task_backed_approval_that_can_be_resol
     goal_run.current_step_kind = None;
     goal_run.thread_id = Some("thread-low-confidence-plan".to_string());
     engine.goal_runs.lock().await.push_back(goal_run);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
 
     engine
         .plan_goal_run(goal_run_id)
@@ -4623,6 +4625,10 @@ async fn low_confidence_plan_gate_creates_task_backed_approval_that_can_be_resol
         .expect("low-confidence plan should create a task-backed approval");
     assert_eq!(approval_task.source, "goal_plan_approval");
     assert_eq!(approval_task.status, TaskStatus::AwaitingApproval);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     assert!(
         engine

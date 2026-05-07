@@ -1,5 +1,11 @@
+use super::*;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crate::widgets;
+use crate::providers;
+use ratatui::prelude::*;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn handle_honcho_settings_key(&mut self, code: KeyCode) -> bool {
+    pub(crate) fn handle_honcho_settings_key(&mut self, code: KeyCode) -> bool {
         let Some(editor) = self.config.honcho_editor.as_mut() else {
             return false;
         };
@@ -59,7 +65,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn handle_auth_settings_key(&mut self, code: KeyCode) -> bool {
+    pub(crate) fn handle_auth_settings_key(&mut self, code: KeyCode) -> bool {
         if self.auth.login_target.is_some() {
             match code {
                 KeyCode::Esc => {
@@ -154,7 +160,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn handle_subagent_settings_key(&mut self, code: KeyCode) -> bool {
+    pub(crate) fn handle_subagent_settings_key(&mut self, code: KeyCode) -> bool {
         if self.subagents.editor.is_some() {
             match code {
                 KeyCode::Esc => {

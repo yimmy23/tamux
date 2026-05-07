@@ -1,3 +1,8 @@
+use ratatui_textarea::{CursorMove, TextArea};
+use unicode_width::UnicodeWidthChar;
+
+use super::InputState;
+
 impl InputState {
     /// Replace input buffer with the given text and place cursor at end.
     pub fn set_text(&mut self, text: &str) {

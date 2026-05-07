@@ -54,18 +54,41 @@ impl AgentEngine {
     pub(super) async fn check_stuck_goal_runs(&self, threshold_hours: u64) -> HeartbeatCheckResult {
         let now = now_millis();
         let threshold_ms = threshold_hours * 3600 * 1000;
-        let goal_runs = self.goal_runs.lock().await;
-        let stuck: Vec<CheckDetail> = goal_runs
+        let stuck_statuses = [
+            GoalRunStatus::Running,
+            GoalRunStatus::Planning,
+            GoalRunStatus::AwaitingApproval,
+        ];
+        let cutoff = now.saturating_sub(threshold_ms);
+        let mut goal_runs = match self
+            .history
+            .list_goal_runs_for_statuses_updated_before(&stuck_statuses, cutoff)
+            .await
+        {
+            Ok(goal_runs) => goal_runs,
+            Err(error) => {
+                tracing::warn!("failed to query persisted stuck goal runs: {error}");
+                Vec::new()
+            }
+        };
+        let mut seen_goal_ids = goal_runs
             .iter()
-            .filter(|g| {
-                matches!(
-                    g.status,
-                    GoalRunStatus::Running
-                        | GoalRunStatus::Planning
-                        | GoalRunStatus::AwaitingApproval
-                )
-            })
-            .filter(|g| now.saturating_sub(g.updated_at) >= threshold_ms)
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<HashSet<_>>();
+        {
+            let live_goal_runs = self.goal_runs.lock().await;
+            for goal_run in live_goal_runs.iter().filter(|goal_run| {
+                stuck_statuses.contains(&goal_run.status)
+                    && now.saturating_sub(goal_run.updated_at) >= threshold_ms
+            }) {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    goal_runs.push(goal_run.clone());
+                }
+            }
+        }
+
+        let stuck: Vec<CheckDetail> = goal_runs
+            .into_iter()
             .map(|g| {
                 let age_h = (now.saturating_sub(g.updated_at)) as f64 / 3_600_000.0;
                 CheckDetail {

@@ -132,10 +132,40 @@ impl AgentEngine {
         }
 
         let attention_target = self.current_attention_target().await;
-        let goal_runs = {
-            let goal_runs = self.goal_runs.lock().await;
-            goal_runs.iter().cloned().collect::<Vec<_>>()
+        let active_goal_statuses = [
+            GoalRunStatus::Running,
+            GoalRunStatus::AwaitingApproval,
+            GoalRunStatus::Planning,
+            GoalRunStatus::Paused,
+        ];
+        let mut goal_runs = match self
+            .history
+            .list_goal_runs_for_statuses(&active_goal_statuses)
+            .await
+        {
+            Ok(goal_runs) => goal_runs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted active goal runs for session prewarm: {error}"
+                );
+                Vec::new()
+            }
         };
+        let mut seen_goal_ids = goal_runs
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        {
+            let live_goal_runs = self.goal_runs.lock().await;
+            for goal_run in live_goal_runs
+                .iter()
+                .filter(|goal_run| active_goal_statuses.contains(&goal_run.status))
+            {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    goal_runs.push(goal_run.clone());
+                }
+            }
+        }
         let prewarm_task_statuses = [
             TaskStatus::InProgress,
             TaskStatus::AwaitingApproval,
@@ -194,27 +224,48 @@ impl AgentEngine {
             return;
         }
 
-        let targets = {
-            let goal_runs = self.goal_runs.lock().await;
-            goal_runs
-                .iter()
-                .filter(|goal_run| {
-                    matches!(
-                        goal_run.status,
-                        GoalRunStatus::Planning
-                            | GoalRunStatus::Running
-                            | GoalRunStatus::AwaitingApproval
-                            | GoalRunStatus::Paused
-                    )
-                })
-                .filter_map(|goal_run| {
-                    goal_run
-                        .thread_id
-                        .clone()
-                        .map(|thread_id| (thread_id, goal_run.updated_at))
-                })
-                .collect::<Vec<_>>()
+        let active_goal_statuses = [
+            GoalRunStatus::Planning,
+            GoalRunStatus::Running,
+            GoalRunStatus::AwaitingApproval,
+            GoalRunStatus::Paused,
+        ];
+        let mut active_goal_runs = match self
+            .history
+            .list_goal_runs_for_statuses(&active_goal_statuses)
+            .await
+        {
+            Ok(goal_runs) => goal_runs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted active goal runs for predictive hydration: {error}"
+                );
+                Vec::new()
+            }
         };
+        let mut seen_goal_ids = active_goal_runs
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        {
+            let live_goal_runs = self.goal_runs.lock().await;
+            for goal_run in live_goal_runs
+                .iter()
+                .filter(|goal_run| active_goal_statuses.contains(&goal_run.status))
+            {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    active_goal_runs.push(goal_run.clone());
+                }
+            }
+        }
+        let targets = active_goal_runs
+            .into_iter()
+            .filter_map(|goal_run| {
+                goal_run
+                    .thread_id
+                    .map(|thread_id| (thread_id, goal_run.updated_at))
+            })
+            .collect::<Vec<_>>();
 
         let now = now_millis();
         let attention_target = self.current_attention_target().await;
@@ -309,14 +360,38 @@ impl AgentEngine {
             return Some(thread_id);
         }
 
-        let awaiting_goal_threads = {
+        let mut awaiting_goal_runs = match self
+            .history
+            .list_goal_runs_for_statuses(&[GoalRunStatus::AwaitingApproval])
+            .await
+        {
+            Ok(goal_runs) => goal_runs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted awaiting-approval goal runs for predictive hydration: {error}"
+                );
+                Vec::new()
+            }
+        };
+        let mut seen_goal_ids = awaiting_goal_runs
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        {
             let goal_runs = self.goal_runs.lock().await;
-            goal_runs
+            for goal_run in goal_runs
                 .iter()
                 .filter(|goal_run| goal_run.status == GoalRunStatus::AwaitingApproval)
-                .filter_map(|goal_run| goal_run.thread_id.clone())
-                .collect::<Vec<_>>()
-        };
+            {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    awaiting_goal_runs.push(goal_run.clone());
+                }
+            }
+        }
+        let awaiting_goal_threads = awaiting_goal_runs
+            .into_iter()
+            .filter_map(|goal_run| goal_run.thread_id)
+            .collect::<Vec<_>>();
 
         if let Some(attention_target) = attention_target {
             if awaiting_goal_threads
@@ -433,11 +508,28 @@ impl AgentEngine {
         drop(runtime);
 
         let goal_run_id = goal_run_id?;
-        let goal_runs = self.goal_runs.lock().await;
-        goal_runs
-            .iter()
-            .find(|goal_run| goal_run.id == goal_run_id)
-            .and_then(|goal_run| goal_run.thread_id.clone())
+        {
+            let goal_runs = self.goal_runs.lock().await;
+            if let Some(thread_id) = goal_runs
+                .iter()
+                .find(|goal_run| goal_run.id == goal_run_id)
+                .and_then(|goal_run| goal_run.thread_id.clone())
+            {
+                return Some(thread_id);
+            }
+        }
+
+        match self.history.get_goal_run(&goal_run_id).await {
+            Ok(Some(goal_run)) => goal_run.thread_id,
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(
+                    goal_run_id,
+                    "failed to query persisted attention goal run: {error}"
+                );
+                None
+            }
+        }
     }
 
     async fn current_attention_focus(&self) -> AttentionFocus {
@@ -830,32 +922,49 @@ impl AgentEngine {
         }
 
         let attention = self.current_attention_focus().await;
-        let unfinished_goals = {
-            let goal_runs = self.goal_runs.lock().await;
-            let mut runs = goal_runs
-                .iter()
-                .filter(|goal_run| {
-                    matches!(
-                        goal_run.status,
-                        GoalRunStatus::Queued
-                            | GoalRunStatus::Planning
-                            | GoalRunStatus::Running
-                            | GoalRunStatus::AwaitingApproval
-                            | GoalRunStatus::Paused
-                    )
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            runs.sort_by(|left, right| {
-                let left_priority = goal_attention_priority(left, &attention);
-                let right_priority = goal_attention_priority(right, &attention);
-                right_priority
-                    .cmp(&left_priority)
-                    .then_with(|| right.updated_at.cmp(&left.updated_at))
-            });
-            runs.truncate(2);
-            runs
+        let unfinished_statuses = [
+            GoalRunStatus::Queued,
+            GoalRunStatus::Planning,
+            GoalRunStatus::Running,
+            GoalRunStatus::AwaitingApproval,
+            GoalRunStatus::Paused,
+        ];
+        let mut unfinished_goals = match self
+            .history
+            .list_goal_runs_for_statuses(&unfinished_statuses)
+            .await
+        {
+            Ok(goal_runs) => goal_runs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted unfinished goal runs for morning brief: {error}"
+                );
+                Vec::new()
+            }
         };
+        let mut seen_goal_ids = unfinished_goals
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        {
+            let goal_runs = self.goal_runs.lock().await;
+            for goal_run in goal_runs
+                .iter()
+                .filter(|goal_run| unfinished_statuses.contains(&goal_run.status))
+            {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    unfinished_goals.push(goal_run.clone());
+                }
+            }
+        };
+        unfinished_goals.sort_by(|left, right| {
+            let left_priority = goal_attention_priority(left, &attention);
+            let right_priority = goal_attention_priority(right, &attention);
+            right_priority
+                .cmp(&left_priority)
+                .then_with(|| right.updated_at.cmp(&left.updated_at))
+        });
+        unfinished_goals.truncate(2);
         let primary_goal = unfinished_goals.first().cloned();
         let pending_approvals = self.pending_operator_approvals.read().await.len();
         let recent_health = self

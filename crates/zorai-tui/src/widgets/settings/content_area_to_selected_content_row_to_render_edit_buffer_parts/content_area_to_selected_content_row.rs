@@ -1,4 +1,21 @@
-fn content_area(area: Rect) -> Option<Rect> {
+use super::*;
+use super::super::advanced_single_line_edit_layout_to_subagent_row_action_offsets::*;
+use super::super::render_edit_buffer_with_cursor_to_editing_cursor_hit_test_to_content::*;
+use super::super::wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render::*;
+use super::super::render_advanced_value_to_render_advanced_tab::*;
+use crate::providers;
+use crate::state::concierge::ConciergeState;
+use crate::state::config::ConfigState;
+use crate::state::modal::{ModalState, WhatsAppLinkPhase};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use zorai_protocol::has_whatsapp_allowed_contacts;
+pub(crate) fn content_area(area: Rect) -> Option<Rect> {
     let block = Block::default()
         .title(" SETTINGS ")
         .borders(Borders::ALL)
@@ -20,7 +37,7 @@ fn content_area(area: Rect) -> Option<Rect> {
     Some(chunks[2])
 }
 
-pub fn max_scroll(
+pub(crate) fn max_scroll(
     area: Rect,
     settings: &SettingsState,
     config: &ConfigState,
@@ -51,7 +68,7 @@ pub fn max_scroll(
     line_count.saturating_sub(content_area.height as usize)
 }
 
-pub fn scroll_for_selected_field(
+pub(crate) fn scroll_for_selected_field(
     area: Rect,
     settings: &SettingsState,
     config: &ConfigState,
@@ -95,7 +112,7 @@ pub fn scroll_for_selected_field(
     scroll.min(max_scroll)
 }
 
-fn selected_content_row(lines: &[Line<'_>]) -> Option<usize> {
+pub(crate) fn selected_content_row(lines: &[Line<'_>]) -> Option<usize> {
     lines.iter().position(|line| {
         let text = line.to_string();
         let trimmed = text.trim_start_matches(' ');

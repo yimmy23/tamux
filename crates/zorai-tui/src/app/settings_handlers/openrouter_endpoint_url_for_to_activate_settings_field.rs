@@ -1,9 +1,21 @@
-include!("activate_provider_settings_field.rs");
-include!("activate_gateway_settings_field.rs");
-include!("activate_features_settings_field.rs");
-include!("activate_advanced_settings_field.rs");
-include!("activate_compaction_settings_field.rs");
-include!("activate_concierge_settings_field.rs");
+use super::*;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crate::widgets;
+use crate::providers;
+use ratatui::prelude::*;
+use zorai_shared::providers::*;
+#[path = "activate_provider_settings_field.rs"]
+mod activate_provider_settings_field;
+#[path = "activate_gateway_settings_field.rs"]
+mod activate_gateway_settings_field;
+#[path = "activate_features_settings_field.rs"]
+mod activate_features_settings_field;
+#[path = "activate_advanced_settings_field.rs"]
+mod activate_advanced_settings_field;
+#[path = "activate_compaction_settings_field.rs"]
+mod activate_compaction_settings_field;
+#[path = "activate_concierge_settings_field.rs"]
+mod activate_concierge_settings_field;
 impl TuiModel {
     fn openrouter_endpoint_url_for(model: &str, base_url: &str) -> Option<String> {
         let (author, slug) = model.trim().split_once('/')?;
@@ -78,7 +90,7 @@ impl TuiModel {
         Ok(slugs)
     }
 
-    fn open_openrouter_provider_picker_for(
+    pub(crate) fn open_openrouter_provider_picker_for(
         &mut self,
         target: SettingsPickerTarget,
         model: String,
@@ -120,7 +132,7 @@ impl TuiModel {
         );
     }
 
-    pub(super) fn activate_settings_field(&mut self) {
+    pub(crate) fn activate_settings_field(&mut self) {
         let field = self.current_settings_field_name().to_string();
         let field = field.as_str();
         if self.activate_provider_settings_field(field)

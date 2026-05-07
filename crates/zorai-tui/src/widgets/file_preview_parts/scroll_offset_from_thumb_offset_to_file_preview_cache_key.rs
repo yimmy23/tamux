@@ -1,3 +1,5 @@
+use super::build_cached_lines_to_scrollbar_layout::*;
+use super::syntax_highlighting::*;
 use crate::app::ChatFilePreviewTarget;
 use crate::state::task::TaskState;
 use crate::terminal_graphics::{active_protocol, TerminalImageOverlaySpec, TerminalImageProtocol};
@@ -12,9 +14,9 @@ use ratatui::widgets::Paragraph;
 use std::sync::{Arc, Mutex, OnceLock};
 use unicode_width::UnicodeWidthChar;
 
-const SCROLLBAR_WIDTH: u16 = 1;
-const FILE_PREVIEW_HEADER_LINES: u16 = 5;
-const TERMINAL_IMAGE_HEADER_LINES: u16 = 1;
+pub(super) const SCROLLBAR_WIDTH: u16 = 1;
+pub(super) const FILE_PREVIEW_HEADER_LINES: u16 = 5;
+pub(super) const TERMINAL_IMAGE_HEADER_LINES: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FilePreviewScrollbarLayout {
@@ -30,7 +32,7 @@ pub enum FilePreviewHitTarget {
     ClosePreview,
 }
 
-fn scroll_offset_from_thumb_offset(thumb_offset: u16, track_span: u16, max_scroll: usize) -> usize {
+pub(super) fn scroll_offset_from_thumb_offset(thumb_offset: u16, track_span: u16, max_scroll: usize) -> usize {
     if max_scroll == 0 || track_span == 0 {
         return 0;
     }
@@ -38,7 +40,7 @@ fn scroll_offset_from_thumb_offset(thumb_offset: u16, track_span: u16, max_scrol
     (((thumb_offset as usize) * max_scroll) + (track_span as usize / 2)) / track_span as usize
 }
 
-fn scrollbar_layout_from_metrics(
+pub(super) fn scrollbar_layout_from_metrics(
     area: Rect,
     total_lines: usize,
     scroll: usize,
@@ -87,18 +89,18 @@ fn scrollbar_layout_from_metrics(
     })
 }
 
-fn is_markdown_path(path: &str) -> bool {
+pub(super) fn is_markdown_path(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     lower.ends_with(".md") || lower.ends_with(".markdown") || lower.ends_with(".mdx")
 }
 
-fn push_wrapped(lines: &mut Vec<Line<'static>>, text: &str, style: Style, width: usize) {
+pub(super) fn push_wrapped(lines: &mut Vec<Line<'static>>, text: &str, style: Style, width: usize) {
     for line in wrap_text(text, width.max(1)) {
         lines.push(Line::from(Span::styled(line, style)));
     }
 }
 
-fn push_preview_content(
+pub(super) fn push_preview_content(
     lines: &mut Vec<Line<'static>>,
     path: &str,
     content: &str,
@@ -114,22 +116,22 @@ fn push_preview_content(
     }
 }
 
-struct SelectionSnapshot {
-    header_lines: Arc<Vec<Line<'static>>>,
-    body_lines: Arc<Vec<Line<'static>>>,
-    scroll: usize,
-    header_area: Rect,
-    body_area: Rect,
+pub(super) struct SelectionSnapshot {
+    pub(super) header_lines: Arc<Vec<Line<'static>>>,
+    pub(super) body_lines: Arc<Vec<Line<'static>>>,
+    pub(super) scroll: usize,
+    pub(super) header_area: Rect,
+    pub(super) body_area: Rect,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct FilePreviewThemeKey {
-    fg_dim: Style,
-    fg_active: Style,
-    accent_primary: Style,
-    accent_secondary: Style,
-    accent_success: Style,
-    accent_danger: Style,
+pub(super) struct FilePreviewThemeKey {
+    pub(super) fg_dim: Style,
+    pub(super) fg_active: Style,
+    pub(super) accent_primary: Style,
+    pub(super) accent_secondary: Style,
+    pub(super) accent_success: Style,
+    pub(super) accent_danger: Style,
 }
 
 impl From<&ThemeTokens> for FilePreviewThemeKey {
@@ -146,47 +148,47 @@ impl From<&ThemeTokens> for FilePreviewThemeKey {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct FilePreviewCacheKey {
-    area: Rect,
-    path: String,
-    repo_root: Option<String>,
-    repo_relative_path: Option<String>,
-    task_state_id: usize,
-    preview_revision: u64,
-    image_preview_revision: u64,
-    terminal_graphics: bool,
-    theme: FilePreviewThemeKey,
+pub(super) struct FilePreviewCacheKey {
+    pub(super) area: Rect,
+    pub(super) path: String,
+    pub(super) repo_root: Option<String>,
+    pub(super) repo_relative_path: Option<String>,
+    pub(super) task_state_id: usize,
+    pub(super) preview_revision: u64,
+    pub(super) image_preview_revision: u64,
+    pub(super) terminal_graphics: bool,
+    pub(super) theme: FilePreviewThemeKey,
 }
 
 #[derive(Clone)]
-struct CachedFilePreviewLines {
-    key: FilePreviewCacheKey,
-    header_lines: Arc<Vec<Line<'static>>>,
-    body_lines: Arc<Vec<Line<'static>>>,
-    body_area: Rect,
-    max_scroll: usize,
+pub(super) struct CachedFilePreviewLines {
+    pub(super) key: FilePreviewCacheKey,
+    pub(super) header_lines: Arc<Vec<Line<'static>>>,
+    pub(super) body_lines: Arc<Vec<Line<'static>>>,
+    pub(super) body_area: Rect,
+    pub(super) max_scroll: usize,
 }
 
 #[derive(Default)]
-struct FilePreviewRenderCache {
-    lines: Vec<CachedFilePreviewLines>,
+pub(super) struct FilePreviewRenderCache {
+    pub(super) lines: Vec<CachedFilePreviewLines>,
 }
 
-struct FilePreviewSnapshot {
-    header_lines: Arc<Vec<Line<'static>>>,
-    body_lines: Arc<Vec<Line<'static>>>,
-    scroll: usize,
-    body_area: Rect,
-    layout: Option<FilePreviewScrollbarLayout>,
-    max_scroll: usize,
+pub(super) struct FilePreviewSnapshot {
+    pub(super) header_lines: Arc<Vec<Line<'static>>>,
+    pub(super) body_lines: Arc<Vec<Line<'static>>>,
+    pub(super) scroll: usize,
+    pub(super) body_area: Rect,
+    pub(super) layout: Option<FilePreviewScrollbarLayout>,
+    pub(super) max_scroll: usize,
 }
 
-fn global_file_preview_cache() -> &'static Mutex<FilePreviewRenderCache> {
+pub(super) fn global_file_preview_cache() -> &'static Mutex<FilePreviewRenderCache> {
     static CACHE: OnceLock<Mutex<FilePreviewRenderCache>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(FilePreviewRenderCache::default()))
 }
 
-fn lock_file_preview_cache() -> std::sync::MutexGuard<'static, FilePreviewRenderCache> {
+pub(super) fn lock_file_preview_cache() -> std::sync::MutexGuard<'static, FilePreviewRenderCache> {
     global_file_preview_cache()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -200,12 +202,12 @@ static BUILD_LINES_CALL_COUNT: std::sync::atomic::AtomicUsize =
 static BUILD_LINES_TRACKED_PATH: OnceLock<Mutex<Option<String>>> = OnceLock::new();
 
 #[cfg(test)]
-fn tracked_build_lines_path_for_tests() -> &'static Mutex<Option<String>> {
+pub(super) fn tracked_build_lines_path_for_tests() -> &'static Mutex<Option<String>> {
     BUILD_LINES_TRACKED_PATH.get_or_init(|| Mutex::new(None))
 }
 
 #[cfg(test)]
-fn reset_build_lines_call_count_for_tests(path: &str) {
+pub(super) fn reset_build_lines_call_count_for_tests(path: &str) {
     BUILD_LINES_CALL_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
     *tracked_build_lines_path_for_tests()
         .lock()
@@ -214,25 +216,25 @@ fn reset_build_lines_call_count_for_tests(path: &str) {
 }
 
 #[cfg(test)]
-fn build_lines_call_count_for_tests() -> usize {
+pub(super) fn build_lines_call_count_for_tests() -> usize {
     BUILD_LINES_CALL_COUNT.load(std::sync::atomic::Ordering::SeqCst)
 }
 
-fn line_plain_text(line: &Line<'static>) -> String {
+pub(super) fn line_plain_text(line: &Line<'static>) -> String {
     line.spans
         .iter()
         .map(|span| span.content.as_ref())
         .collect()
 }
 
-fn line_display_width(line: &Line<'static>) -> usize {
+pub(super) fn line_display_width(line: &Line<'static>) -> usize {
     line_plain_text(line)
         .chars()
         .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
         .sum()
 }
 
-fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
+pub(super) fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
     if start_col >= end_col {
         return String::new();
     }
@@ -258,7 +260,7 @@ fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
     result
 }
 
-fn highlight_line_range(
+pub(super) fn highlight_line_range(
     line: &mut Line<'static>,
     start_col: usize,
     end_col: usize,
@@ -312,7 +314,7 @@ fn highlight_line_range(
 }
 
 #[cfg(test)]
-fn build_lines(
+pub(super) fn build_lines(
     area: Rect,
     tasks: &TaskState,
     target: &ChatFilePreviewTarget,
@@ -324,7 +326,7 @@ fn build_lines(
     lines
 }
 
-fn build_header_lines(target: &ChatFilePreviewTarget, theme: &ThemeTokens) -> Vec<Line<'static>> {
+pub(super) fn build_header_lines(target: &ChatFilePreviewTarget, theme: &ThemeTokens) -> Vec<Line<'static>> {
     vec![
         Line::from(vec![
             Span::styled("[x]", theme.accent_danger),
@@ -344,7 +346,7 @@ fn build_header_lines(target: &ChatFilePreviewTarget, theme: &ThemeTokens) -> Ve
     ]
 }
 
-fn build_body_lines(
+pub(super) fn build_body_lines(
     area: Rect,
     tasks: &TaskState,
     target: &ChatFilePreviewTarget,
@@ -443,7 +445,7 @@ fn build_body_lines(
     lines
 }
 
-fn file_preview_body_area(area: Rect) -> Rect {
+pub(super) fn file_preview_body_area(area: Rect) -> Rect {
     let header_height = FILE_PREVIEW_HEADER_LINES.min(area.height);
     Rect::new(
         area.x,
@@ -453,7 +455,7 @@ fn file_preview_body_area(area: Rect) -> Rect {
     )
 }
 
-fn file_preview_cache_key(
+pub(super) fn file_preview_cache_key(
     area: Rect,
     tasks: &TaskState,
     target: &ChatFilePreviewTarget,

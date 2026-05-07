@@ -355,8 +355,26 @@ impl AgentEngine {
             Err(e) => tracing::warn!("failed to load agent threads from sqlite: {e}"),
         }
 
-        // Load AJQ tasks from SQLite first; fall back to legacy JSON migration.
-        match self.history.list_agent_tasks().await {
+        // Load active AJQ tasks from SQLite first; historical terminal rows stay queryable in SQLite.
+        match self
+            .history
+            .list_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: true,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await
+        {
             Ok(mut tasks) if !tasks.is_empty() => {
                 for task in &mut tasks {
                     sanitize_task_for_external_view(task);
@@ -378,8 +396,28 @@ impl AgentEngine {
                 self.persist_tasks().await;
             }
             Ok(_) => {
+                let has_sqlite_tasks = self
+                    .history
+                    .list_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: None,
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                    })
+                    .await
+                    .map(|tasks| !tasks.is_empty())
+                    .unwrap_or(false);
                 let tasks_path = self.data_dir.join("tasks.json");
-                if tasks_path.exists() {
+                if !has_sqlite_tasks && tasks_path.exists() {
                     match tokio::fs::read_to_string(&tasks_path).await {
                         Ok(raw) => {
                             if let Ok(mut tasks) = serde_json::from_str::<VecDeque<AgentTask>>(&raw)
@@ -404,7 +442,17 @@ impl AgentEngine {
             Err(e) => tracing::warn!("failed to load agent tasks from sqlite: {e}"),
         }
 
-        match self.history.list_goal_runs().await {
+        match self
+            .history
+            .list_goal_runs_for_statuses(&[
+                GoalRunStatus::Queued,
+                GoalRunStatus::Planning,
+                GoalRunStatus::Running,
+                GoalRunStatus::AwaitingApproval,
+                GoalRunStatus::Paused,
+            ])
+            .await
+        {
             Ok(goal_runs) if !goal_runs.is_empty() => {
                 let mut runs: VecDeque<GoalRun> = goal_runs.into_iter().collect();
                 let mut paused_count = 0;
@@ -442,8 +490,14 @@ impl AgentEngine {
                 self.persist_goal_runs_in_background();
             }
             Ok(_) => {
+                let has_sqlite_goal_runs = self
+                    .history
+                    .list_goal_run_ids_page(1, 0)
+                    .await
+                    .map(|(_, total)| total > 0)
+                    .unwrap_or(false);
                 let goal_runs_path = self.data_dir.join("goal-runs.json");
-                if goal_runs_path.exists() {
+                if !has_sqlite_goal_runs && goal_runs_path.exists() {
                     match tokio::fs::read_to_string(&goal_runs_path).await {
                         Ok(raw) => {
                             if let Ok(goal_runs) = serde_json::from_str::<VecDeque<GoalRun>>(&raw) {

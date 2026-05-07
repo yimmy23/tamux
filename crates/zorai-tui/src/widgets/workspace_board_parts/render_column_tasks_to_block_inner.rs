@@ -1,4 +1,13 @@
-fn render_column_tasks(
+use super::*;
+use crate::state::workspace::WorkspaceState;
+use crate::theme::ThemeTokens;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use std::collections::HashSet;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use zorai_protocol::WorkspaceTaskStatus;
+pub(crate) fn render_column_tasks(
     frame: &mut Frame,
     area: Rect,
     column: &crate::state::workspace::WorkspaceColumn,
@@ -50,7 +59,7 @@ fn render_column_tasks(
     }
 }
 
-fn task_card_border_style(
+pub(crate) fn task_card_border_style(
     task: &zorai_protocol::WorkspaceTask,
     notice_summary: Option<&String>,
     selected: bool,
@@ -68,14 +77,14 @@ fn task_card_border_style(
     theme.fg_dim
 }
 
-fn task_notice_is_failed(summary: &str) -> bool {
+pub(crate) fn task_notice_is_failed(summary: &str) -> bool {
     summary.starts_with("runtime_failed:")
         || summary.starts_with("run_failed:")
         || summary.starts_with("review_failed:")
 }
 
 #[cfg(test)]
-fn task_lines(
+pub(crate) fn task_lines(
     task: &zorai_protocol::WorkspaceTask,
     notice_summaries: &std::collections::HashMap<String, String>,
     selected: Option<&WorkspaceBoardHitTarget>,
@@ -84,7 +93,7 @@ fn task_lines(
     task_lines_with_actions(task, notice_summaries, selected, theme, None, false)
 }
 
-fn task_lines_with_actions(
+pub(crate) fn task_lines_with_actions(
     task: &zorai_protocol::WorkspaceTask,
     notice_summaries: &std::collections::HashMap<String, String>,
     selected: Option<&WorkspaceBoardHitTarget>,
@@ -189,7 +198,7 @@ fn task_lines_with_actions(
     lines
 }
 
-fn action_line(
+pub(crate) fn action_line(
     task: &zorai_protocol::WorkspaceTask,
     selected: Option<&WorkspaceBoardHitTarget>,
     theme: &ThemeTokens,
@@ -222,7 +231,7 @@ fn action_line(
     Line::from(spans)
 }
 
-fn title_lines(
+pub(crate) fn title_lines(
     title: &str,
     card_body_width: Option<u16>,
     theme: &ThemeTokens,
@@ -233,20 +242,20 @@ fn title_lines(
         .collect()
 }
 
-fn wrapped_title_text(title: &str, card_body_width: Option<u16>) -> Vec<String> {
+pub(crate) fn wrapped_title_text(title: &str, card_body_width: Option<u16>) -> Vec<String> {
     let Some(width) = card_body_width.map(usize::from).filter(|width| *width > 0) else {
         return vec![title.to_string()];
     };
     wrap_text_to_width(title, width, TASK_TITLE_MAX_LINES)
 }
 
-fn title_row_count(title: &str, card_body_width: u16) -> u16 {
+pub(crate) fn title_row_count(title: &str, card_body_width: u16) -> u16 {
     wrapped_title_text(title, Some(card_body_width))
         .len()
         .max(1) as u16
 }
 
-fn wrap_text_to_width(text: &str, width: usize, max_lines: usize) -> Vec<String> {
+pub(crate) fn wrap_text_to_width(text: &str, width: usize, max_lines: usize) -> Vec<String> {
     if max_lines == 0 {
         return Vec::new();
     }
@@ -298,7 +307,7 @@ fn wrap_text_to_width(text: &str, width: usize, max_lines: usize) -> Vec<String>
     lines
 }
 
-fn split_word_to_width(word: &str, width: usize) -> Vec<String> {
+pub(crate) fn split_word_to_width(word: &str, width: usize) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut current = String::new();
     let mut current_width = 0;
@@ -318,25 +327,25 @@ fn split_word_to_width(word: &str, width: usize) -> Vec<String> {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct TaskActionRows {
-    primary: u16,
-    secondary: u16,
-    assign: u16,
-    delete: u16,
-    footer: u16,
+pub(crate) struct TaskActionRows {
+    pub(crate) primary: u16,
+    pub(crate) secondary: u16,
+    pub(crate) assign: u16,
+    pub(crate) delete: u16,
+    pub(crate) footer: u16,
 }
 
 impl TaskActionRows {
-    fn action_rows(self) -> [u16; 4] {
+    pub(crate) fn action_rows(self) -> [u16; 4] {
         [self.primary, self.secondary, self.assign, self.delete]
     }
 
-    fn base_row(self, row: u16) -> u16 {
+    pub(crate) fn base_row(self, row: u16) -> u16 {
         row.saturating_sub(self.primary.saturating_sub(TASK_PRIMARY_ACTION_ROW))
     }
 }
 
-fn task_action_rows(task: &zorai_protocol::WorkspaceTask, card_body_width: u16) -> TaskActionRows {
+pub(crate) fn task_action_rows(task: &zorai_protocol::WorkspaceTask, card_body_width: u16) -> TaskActionRows {
     let offset = title_row_count(&task.title, card_body_width).saturating_sub(1);
     TaskActionRows {
         primary: TASK_PRIMARY_ACTION_ROW.saturating_add(offset),
@@ -349,11 +358,11 @@ fn task_action_rows(task: &zorai_protocol::WorkspaceTask, card_body_width: u16) 
     }
 }
 
-fn short_task_id(task_id: &str) -> String {
+pub(crate) fn short_task_id(task_id: &str) -> String {
     task_id.chars().take(12).collect()
 }
 
-fn workspace_column_areas(inner: Rect) -> std::rc::Rc<[Rect]> {
+pub(crate) fn workspace_column_areas(inner: Rect) -> std::rc::Rc<[Rect]> {
     Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -365,7 +374,7 @@ fn workspace_column_areas(inner: Rect) -> std::rc::Rc<[Rect]> {
         .split(inner)
 }
 
-fn task_card_height(
+pub(crate) fn task_card_height(
     task: &zorai_protocol::WorkspaceTask,
     card_body_width: u16,
     expanded_task_ids: &HashSet<String>,
@@ -378,7 +387,7 @@ fn task_card_height(
     }
 }
 
-fn task_card_rect_with_scroll(
+pub(crate) fn task_card_rect_with_scroll(
     body: Rect,
     tasks: &[zorai_protocol::WorkspaceTask],
     expanded_task_ids: &HashSet<String>,
@@ -409,7 +418,7 @@ fn task_card_rect_with_scroll(
     )
 }
 
-fn scroll_offset_for_task(
+pub(crate) fn scroll_offset_for_task(
     body: Rect,
     tasks: &[zorai_protocol::WorkspaceTask],
     expanded_task_ids: &HashSet<String>,
@@ -435,7 +444,7 @@ fn scroll_offset_for_task(
     scroll.min(max_scroll)
 }
 
-fn task_offset_from_scroll(
+pub(crate) fn task_offset_from_scroll(
     body: Rect,
     tasks: &[zorai_protocol::WorkspaceTask],
     expanded_task_ids: &HashSet<String>,
@@ -452,7 +461,7 @@ fn task_offset_from_scroll(
         })
 }
 
-fn task_card_at_position_with_scroll(
+pub(crate) fn task_card_at_position_with_scroll(
     body: Rect,
     tasks: &[zorai_protocol::WorkspaceTask],
     expanded_task_ids: &HashSet<String>,
@@ -475,7 +484,7 @@ fn task_card_at_position_with_scroll(
     None
 }
 
-fn board_area(inner: Rect) -> Rect {
+pub(crate) fn board_area(inner: Rect) -> Rect {
     Rect::new(
         inner.x,
         inner.y.saturating_add(1),
@@ -484,7 +493,7 @@ fn board_area(inner: Rect) -> Rect {
     )
 }
 
-fn block_inner(area: Rect) -> Rect {
+pub(crate) fn block_inner(area: Rect) -> Rect {
     Rect::new(
         area.x.saturating_add(1),
         area.y.saturating_add(1),
@@ -492,4 +501,3 @@ fn block_inner(area: Rect) -> Rect {
         area.height.saturating_sub(2),
     )
 }
-

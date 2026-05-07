@@ -1,3 +1,6 @@
+use super::super::*;
+use super::super::super::*;
+
 impl TuiModel {
     pub(in crate::app) fn is_placeholder_goal_run_detail(
         &self,
@@ -59,7 +62,7 @@ impl TuiModel {
             .map(|thread| thread.title.clone())
     }
 
-    fn upsert_task_backed_approval(&mut self, task: &task::AgentTask) {
+    pub(super) fn upsert_task_backed_approval(&mut self, task: &task::AgentTask) {
         let Some(approval_id) = task.awaiting_approval_id.as_deref() else {
             return;
         };
@@ -121,7 +124,7 @@ impl TuiModel {
             ));
     }
 
-    fn upsert_goal_run_backed_approval(&mut self, run: &task::GoalRun) {
+    pub(super) fn upsert_goal_run_backed_approval(&mut self, run: &task::GoalRun) {
         let Some(approval_id) = run.awaiting_approval_id.as_deref() else {
             return;
         };
@@ -194,7 +197,7 @@ impl TuiModel {
             ));
     }
 
-    fn sync_pending_approvals_from_tasks(&mut self) {
+    pub(super) fn sync_pending_approvals_from_tasks(&mut self) {
         let tasks = self.tasks.tasks().to_vec();
         for task in &tasks {
             // Task snapshots hydrate approval details, but absence is not authoritative because
@@ -205,7 +208,7 @@ impl TuiModel {
         }
     }
 
-    fn sync_pending_approvals_from_goal_runs(&mut self) {
+    pub(super) fn sync_pending_approvals_from_goal_runs(&mut self) {
         let goal_runs = self.tasks.goal_runs().to_vec();
         for goal_run in &goal_runs {
             if goal_run.awaiting_approval_id.is_some() {
@@ -214,7 +217,7 @@ impl TuiModel {
         }
     }
 
-    fn clear_replaced_task_approvals(
+    pub(super) fn clear_replaced_task_approvals(
         &mut self,
         previous_tasks: &[task::AgentTask],
         next_tasks: &[task::AgentTask],
@@ -235,7 +238,7 @@ impl TuiModel {
         }
     }
 
-    fn clear_replaced_goal_run_approvals(
+    pub(super) fn clear_replaced_goal_run_approvals(
         &mut self,
         previous_runs: &[task::GoalRun],
         next_runs: &[task::GoalRun],

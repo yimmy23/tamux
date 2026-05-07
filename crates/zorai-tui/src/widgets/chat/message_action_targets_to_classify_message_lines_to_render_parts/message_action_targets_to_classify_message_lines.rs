@@ -1,3 +1,18 @@
+use super::super::*;
+use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
+use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::super::selection_point_from_snapshot_to_render::*;
+use super::render_streaming_markdown_to_message_block_style::*;
+use unicode_width::UnicodeWidthStr;
+use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode};
+use crate::theme::ThemeTokens;
+use crate::widgets::message;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
 pub(crate) fn message_action_targets(
     chat: &ChatState,
     msg_index: usize,
@@ -33,7 +48,7 @@ pub(crate) fn message_action_targets(
             .reasoning
             .as_deref()
             .is_some_and(|reasoning| !reasoning.is_empty()))
-        || super::message::is_collapsible_system_notice_message(msg))
+        || crate::widgets::message::is_collapsible_system_notice_message(msg))
         && matches!(chat.transcript_mode(), TranscriptMode::Compact)
     {
         let toggle_label = if chat.expanded_reasoning().contains(&msg_index) {
@@ -111,7 +126,7 @@ pub(crate) fn message_action_targets(
     actions
 }
 
-fn message_action_line(
+pub(crate) fn message_action_line(
     chat: &ChatState,
     msg_index: usize,
     msg: &AgentMessage,
@@ -137,7 +152,7 @@ fn message_action_line(
     Some(Line::from(spans))
 }
 
-fn action_hit_target(
+pub(crate) fn action_hit_target(
     chat: &ChatState,
     msg_index: usize,
     msg: &AgentMessage,
@@ -156,7 +171,7 @@ fn action_hit_target(
     None
 }
 
-fn retry_wait_remaining_secs(status: &crate::state::chat::RetryStatusVm, current_tick: u64) -> u64 {
+pub(crate) fn retry_wait_remaining_secs(status: &crate::state::chat::RetryStatusVm, current_tick: u64) -> u64 {
     let elapsed_ticks = current_tick.saturating_sub(status.received_at_tick);
     let elapsed_ms = elapsed_ticks.saturating_mul(crate::app::TUI_TICK_RATE_MS);
     status
@@ -166,7 +181,7 @@ fn retry_wait_remaining_secs(status: &crate::state::chat::RetryStatusVm, current
         .max(1)
 }
 
-fn retry_action_line(
+pub(crate) fn retry_action_line(
     status: &crate::state::chat::RetryStatusVm,
     theme: &ThemeTokens,
     current_tick: u64,
@@ -195,7 +210,7 @@ fn retry_action_line(
     }
 }
 
-fn classify_message_lines(
+pub(crate) fn classify_message_lines(
     msg: &AgentMessage,
     msg_index: usize,
     mode: TranscriptMode,
@@ -266,12 +281,12 @@ fn classify_message_lines(
                 return kinds;
             }
 
-            if super::message::is_collapsible_system_notice_message(msg) {
+            if crate::widgets::message::is_collapsible_system_notice_message(msg) {
                 let mut kinds = vec![reasoning_toggle_kind];
                 if reasoning_expanded {
                     let detail_width = content_width.saturating_sub(2).max(1);
                     let detail =
-                        super::message::collapsible_system_notice_detail(msg).unwrap_or_default();
+                        crate::widgets::message::collapsible_system_notice_detail(msg).unwrap_or_default();
                     let detail_line_count = wrap_text(&detail, detail_width).len();
                     kinds.extend(std::iter::repeat_n(
                         RenderedLineKind::ReasoningContent,

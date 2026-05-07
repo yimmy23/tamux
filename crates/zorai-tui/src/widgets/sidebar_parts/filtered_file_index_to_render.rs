@@ -1,4 +1,18 @@
-pub fn filtered_file_index(
+use super::*;
+use super::spawned_agents;
+use super::tab_layout::*;
+use crate::app::RecentActionVm;
+use crate::state::chat::{ChatState, GatewayStatusVm, MessageRole};
+use crate::state::sidebar::{SidebarState, SidebarTab};
+use crate::state::task::TaskState;
+use crate::state::tier::TierState;
+use crate::theme::ThemeTokens;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use std::hash::{Hash, Hasher};
+pub(crate) fn filtered_file_index(
     tasks: &TaskState,
     sidebar: &SidebarState,
     thread_id: Option<&str>,
@@ -14,7 +28,7 @@ pub fn filtered_file_index(
     .filtered_file_index(path)
 }
 
-pub fn selected_pinned_message(
+pub(crate) fn selected_pinned_message(
     chat: &ChatState,
     sidebar: &SidebarState,
 ) -> Option<crate::state::chat::PinnedThreadMessage> {
@@ -28,11 +42,11 @@ pub fn selected_pinned_message(
     .selected_pinned_message(chat, sidebar.selected_item())
 }
 
-fn pinned_message_chars(message: &crate::state::chat::PinnedThreadMessage) -> usize {
+pub(crate) fn pinned_message_chars(message: &crate::state::chat::PinnedThreadMessage) -> usize {
     message.content.chars().count()
 }
 
-fn pinned_message_role_label(role: MessageRole) -> &'static str {
+pub(crate) fn pinned_message_role_label(role: MessageRole) -> &'static str {
     match role {
         MessageRole::User => "user",
         MessageRole::Assistant => "assistant",
@@ -42,7 +56,7 @@ fn pinned_message_role_label(role: MessageRole) -> &'static str {
     }
 }
 
-fn pinned_message_snippet(content: &str, width: usize) -> String {
+pub(crate) fn pinned_message_snippet(content: &str, width: usize) -> String {
     let compact = content.split_whitespace().collect::<Vec<_>>().join(" ");
     let max_len = width.saturating_sub(18).max(8);
     if compact.chars().count() > max_len {
@@ -58,11 +72,11 @@ fn pinned_message_snippet(content: &str, width: usize) -> String {
     }
 }
 
-fn active_thread_pinned_rows(chat: &ChatState) -> PinnedSidebarRows {
+pub(crate) fn active_thread_pinned_rows(chat: &ChatState) -> PinnedSidebarRows {
     chat.active_thread_pinned_messages()
 }
 
-fn pinned_footer_line(theme: &ThemeTokens) -> Line<'static> {
+pub(crate) fn pinned_footer_line(theme: &ThemeTokens) -> Line<'static> {
     Line::from(vec![
         Span::styled(" Ctrl+K J", theme.fg_active),
         Span::styled(" jump  ", theme.fg_dim),
@@ -73,7 +87,7 @@ fn pinned_footer_line(theme: &ThemeTokens) -> Line<'static> {
     ])
 }
 
-fn spawned_footer_line(theme: &ThemeTokens) -> Line<'static> {
+pub(crate) fn spawned_footer_line(theme: &ThemeTokens) -> Line<'static> {
     Line::from(vec![
         Span::styled(" Enter", theme.fg_active),
         Span::styled(" open child  ", theme.fg_dim),
@@ -82,7 +96,7 @@ fn spawned_footer_line(theme: &ThemeTokens) -> Line<'static> {
     ])
 }
 
-fn thread_history_footer_line(theme: &ThemeTokens, depth: usize) -> Line<'static> {
+pub(crate) fn thread_history_footer_line(theme: &ThemeTokens, depth: usize) -> Line<'static> {
     Line::from(vec![
         Span::styled(" Backspace", theme.fg_active),
         Span::styled(" previous thread", theme.fg_dim),
@@ -90,7 +104,7 @@ fn thread_history_footer_line(theme: &ThemeTokens, depth: usize) -> Line<'static
     ])
 }
 
-fn row_from_snapshot(
+pub(crate) fn row_from_snapshot(
     snapshot: &CachedSidebarSnapshot,
     index: usize,
     selected: usize,
@@ -204,7 +218,7 @@ fn row_from_snapshot(
     Some(row)
 }
 
-fn visible_rows(
+pub(crate) fn visible_rows(
     snapshot: &CachedSidebarSnapshot,
     sidebar: &SidebarState,
     theme: &ThemeTokens,
@@ -222,11 +236,11 @@ fn visible_rows(
         .collect()
 }
 
-pub fn has_spawned_tab(tasks: &TaskState, chat: &ChatState, thread_id: Option<&str>) -> bool {
+pub(crate) fn has_spawned_tab(tasks: &TaskState, chat: &ChatState, thread_id: Option<&str>) -> bool {
     spawned_agents::has_content(tasks, thread_id) || chat.can_go_back_thread()
 }
 
-pub fn visible_tabs(
+pub(crate) fn visible_tabs(
     tasks: &TaskState,
     chat: &ChatState,
     thread_id: Option<&str>,
@@ -237,7 +251,7 @@ pub fn visible_tabs(
     )
 }
 
-pub fn selected_spawned_thread_id(
+pub(crate) fn selected_spawned_thread_id(
     tasks: &TaskState,
     sidebar: &SidebarState,
     thread_id: Option<&str>,
@@ -245,11 +259,11 @@ pub fn selected_spawned_thread_id(
     spawned_agents::selected_thread_id(tasks, sidebar.selected_item(), thread_id)
 }
 
-pub fn first_openable_spawned_index(tasks: &TaskState, thread_id: Option<&str>) -> Option<usize> {
+pub(crate) fn first_openable_spawned_index(tasks: &TaskState, thread_id: Option<&str>) -> Option<usize> {
     spawned_agents::first_openable_index(tasks, thread_id)
 }
 
-fn resolved_scroll(item_count: usize, sidebar: &SidebarState, body_height: usize) -> usize {
+pub(crate) fn resolved_scroll(item_count: usize, sidebar: &SidebarState, body_height: usize) -> usize {
     let max_scroll = item_count.saturating_sub(body_height);
     let mut scroll = sidebar.scroll_offset().min(max_scroll);
     let selected = sidebar.selected_item().min(item_count.saturating_sub(1));
@@ -261,7 +275,7 @@ fn resolved_scroll(item_count: usize, sidebar: &SidebarState, body_height: usize
     scroll.min(max_scroll)
 }
 
-fn gateway_status_lines(statuses: &[GatewayStatusVm], theme: &ThemeTokens) -> Vec<Line<'static>> {
+pub(crate) fn gateway_status_lines(statuses: &[GatewayStatusVm], theme: &ThemeTokens) -> Vec<Line<'static>> {
     // Only show gateway section if at least one platform is not disconnected
     let active: Vec<&GatewayStatusVm> = statuses
         .iter()
@@ -311,7 +325,7 @@ fn gateway_status_lines(statuses: &[GatewayStatusVm], theme: &ThemeTokens) -> Ve
     lines
 }
 
-fn recent_actions_lines(actions: &[RecentActionVm], theme: &ThemeTokens) -> Vec<Line<'static>> {
+pub(crate) fn recent_actions_lines(actions: &[RecentActionVm], theme: &ThemeTokens) -> Vec<Line<'static>> {
     if actions.is_empty() {
         return Vec::new();
     }
@@ -344,7 +358,7 @@ fn recent_actions_lines(actions: &[RecentActionVm], theme: &ThemeTokens) -> Vec<
 }
 
 /// Render a dimmed one-line placeholder for a tier-locked sidebar section (D-05).
-fn tier_placeholder_line(label: &str, required_tier: &str) -> Line<'static> {
+pub(crate) fn tier_placeholder_line(label: &str, required_tier: &str) -> Line<'static> {
     let dim = Style::default().fg(Color::DarkGray);
     Line::from(vec![
         Span::styled("  \u{25B6} ", dim),
@@ -354,7 +368,7 @@ fn tier_placeholder_line(label: &str, required_tier: &str) -> Line<'static> {
 }
 
 /// Collect tier-gated placeholder lines for hidden sidebar sections.
-fn tier_gated_lines(tier: &TierState) -> Vec<Line<'static>> {
+pub(crate) fn tier_gated_lines(tier: &TierState) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     if !tier.show_goal_runs {
         lines.push(tier_placeholder_line("Goal Runs", "familiar"));
@@ -375,7 +389,7 @@ fn tier_gated_lines(tier: &TierState) -> Vec<Line<'static>> {
 }
 
 #[cfg(test)]
-fn agent_status_line(
+pub(crate) fn agent_status_line(
     activity: Option<&str>,
     tier: &str,
     weles_health: Option<&crate::client::WelesHealthVm>,
@@ -426,7 +440,7 @@ fn agent_status_line(
 }
 
 #[cfg(test)]
-pub fn render(
+pub(crate) fn render(
     frame: &mut Frame,
     area: Rect,
     chat: &ChatState,
@@ -455,4 +469,3 @@ pub fn render(
         &snapshot,
     );
 }
-

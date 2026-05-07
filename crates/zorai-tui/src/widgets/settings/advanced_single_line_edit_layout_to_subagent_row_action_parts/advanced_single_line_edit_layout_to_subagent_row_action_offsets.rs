@@ -1,4 +1,21 @@
-fn advanced_single_line_edit_layout(config: &ConfigState, field: &str) -> Option<(usize, usize)> {
+use super::*;
+use super::super::advanced_single_line_edit_layout_to_subagent_row_action_offsets::*;
+use super::super::render_edit_buffer_with_cursor_to_editing_cursor_hit_test_to_content::*;
+use super::super::wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render::*;
+use super::super::render_advanced_value_to_render_advanced_tab::*;
+use crate::providers;
+use crate::state::concierge::ConciergeState;
+use crate::state::config::ConfigState;
+use crate::state::modal::{ModalState, WhatsAppLinkPhase};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use zorai_protocol::has_whatsapp_allowed_contacts;
+pub(crate) fn advanced_single_line_edit_layout(config: &ConfigState, field: &str) -> Option<(usize, usize)> {
     let row = match config.compaction_strategy.as_str() {
         "weles" => match field {
             "max_context_messages" => 10,
@@ -62,7 +79,7 @@ fn advanced_single_line_edit_layout(config: &ConfigState, field: &str) -> Option
     Some((row, 20))
 }
 
-fn single_line_edit_layout(
+pub(crate) fn single_line_edit_layout(
     settings: &SettingsState,
     config: &ConfigState,
     field: &str,
@@ -134,7 +151,7 @@ fn single_line_edit_layout(
     }
 }
 
-fn textarea_edit_layout(settings: &SettingsState, field: &str) -> Option<(usize, usize)> {
+pub(crate) fn textarea_edit_layout(settings: &SettingsState, field: &str) -> Option<(usize, usize)> {
     match settings.active_tab() {
         SettingsTab::Agent if field == "system_prompt" => Some((17, 4)),
         SettingsTab::Gateway if field == "whatsapp_allowed_contacts" => Some((23, 4)),
@@ -142,7 +159,7 @@ fn textarea_edit_layout(settings: &SettingsState, field: &str) -> Option<(usize,
     }
 }
 
-fn advanced_settings_row_hit(config: &ConfigState, row: usize) -> Option<(usize, Option<usize>)> {
+pub(crate) fn advanced_settings_row_hit(config: &ConfigState, row: usize) -> Option<(usize, Option<usize>)> {
     match config.compaction_strategy.as_str() {
         "weles" => match row {
             4 => Some((0, None)),
@@ -235,7 +252,7 @@ fn advanced_settings_row_hit(config: &ConfigState, row: usize) -> Option<(usize,
     }
 }
 
-fn settings_row_hit(
+pub(crate) fn settings_row_hit(
     settings: &SettingsState,
     config: &ConfigState,
     subagents: &SubAgentsState,
@@ -361,7 +378,7 @@ fn settings_row_hit(
     }
 }
 
-fn auth_row_action_offsets(
+pub(crate) fn auth_row_action_offsets(
     content_area: Rect,
     entry: &crate::state::auth::ProviderAuthEntry,
 ) -> (u16, u16, u16) {
@@ -379,7 +396,7 @@ fn auth_row_action_offsets(
 
 use zorai_shared::providers::{PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI};
 
-fn auth_primary_label(entry: &crate::state::auth::ProviderAuthEntry) -> &'static str {
+pub(crate) fn auth_primary_label(entry: &crate::state::auth::ProviderAuthEntry) -> &'static str {
     match (
         entry.provider_id.as_str(),
         entry.authenticated,
@@ -391,7 +408,7 @@ fn auth_primary_label(entry: &crate::state::auth::ProviderAuthEntry) -> &'static
     }
 }
 
-fn auth_secondary_label(entry: &crate::state::auth::ProviderAuthEntry) -> &'static str {
+pub(crate) fn auth_secondary_label(entry: &crate::state::auth::ProviderAuthEntry) -> &'static str {
     match (
         entry.provider_id.as_str(),
         entry.authenticated,
@@ -403,7 +420,7 @@ fn auth_secondary_label(entry: &crate::state::auth::ProviderAuthEntry) -> &'stat
     }
 }
 
-fn auth_hit_test(
+pub(crate) fn auth_hit_test(
     content_area: Rect,
     auth: &crate::state::auth::AuthState,
     scroll: usize,
@@ -440,7 +457,7 @@ fn auth_hit_test(
     None
 }
 
-fn subagent_row_action_offsets(
+pub(crate) fn subagent_row_action_offsets(
     content_area: Rect,
     entry: &crate::state::subagents::SubAgentEntry,
 ) -> (u16, u16, u16, u16, u16) {

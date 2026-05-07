@@ -1,3 +1,16 @@
+use crossterm::event::{KeyCode, KeyModifiers};
+use crate::widgets;
+use super::*;
+use super::opening_weles_editor_hides_inherited_main_system_prompt_to_feat_skill::focus_settings_field;
+use zorai_shared::providers::*;
+use super::super::{make_model, auth_env_lock, unique_test_db_path};
+use crate::app::TuiModel;
+use crate::state::*;
+use crate::state::settings::SettingsTab;
+use rusqlite::{params, Connection};
+use std::ffi::OsString;
+use std::path::PathBuf;
+use tokio::sync::mpsc::unbounded_channel;
 use zorai_shared::providers::{
     PROVIDER_ID_ANTHROPIC, PROVIDER_ID_CHUTES, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
     PROVIDER_ID_DEEPSEEK, PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN,
@@ -438,4 +451,3 @@ fn activating_audio_tts_model_fetches_remote_models_for_audio_provider() {
         other => panic!("expected FetchModels for audio TTS picker, got {other:?}"),
     }
 }
-

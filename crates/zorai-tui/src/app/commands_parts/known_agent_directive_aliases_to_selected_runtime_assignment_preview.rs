@@ -1,5 +1,18 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn known_agent_directive_aliases(&self) -> Vec<String> {
+    pub(crate) fn known_agent_directive_aliases(&self) -> Vec<String> {
         let mut aliases = vec![
             "main".to_string(),
             "svarog".to_string(),
@@ -24,7 +37,7 @@ impl TuiModel {
         aliases
     }
 
-    pub(super) fn participant_display_name(&self, agent_alias: &str) -> String {
+    pub(crate) fn participant_display_name(&self, agent_alias: &str) -> String {
         if let Some(display_name) = builtin_participant_display_name(agent_alias) {
             return display_name;
         }
@@ -37,7 +50,7 @@ impl TuiModel {
         agent_alias.to_string()
     }
 
-    fn builtin_persona_configured(&self, agent_alias: &str) -> bool {
+    pub(crate) fn builtin_persona_configured(&self, agent_alias: &str) -> bool {
         let Some(raw) = self.config.agent_config_raw.as_ref() else {
             return false;
         };
@@ -104,14 +117,14 @@ impl TuiModel {
         self.status_line = format!("Configure {} provider", target_agent_name);
     }
 
-    fn open_builtin_persona_prompt_setup_flow(&mut self, agent_alias: &str, prompt: String) {
+    pub(crate) fn open_builtin_persona_prompt_setup_flow(&mut self, agent_alias: &str, prompt: String) {
         self.open_builtin_persona_setup_flow(
             agent_alias,
             PendingBuiltinPersonaSetupContinuation::SubmitPrompt(prompt),
         );
     }
 
-    fn open_builtin_persona_workspace_actor_setup_flow(
+    pub(crate) fn open_builtin_persona_workspace_actor_setup_flow(
         &mut self,
         agent_alias: &str,
         pending: PendingWorkspaceActorPicker,
@@ -123,7 +136,7 @@ impl TuiModel {
         );
     }
 
-    pub(super) fn restore_builtin_persona_setup_config_snapshot(&mut self) {
+    pub(crate) fn restore_builtin_persona_setup_config_snapshot(&mut self) {
         let Some(setup) = self.pending_builtin_persona_setup.as_ref() else {
             return;
         };
@@ -165,7 +178,7 @@ impl TuiModel {
         None
     }
 
-    pub(super) fn open_chat_tool_file_preview(&mut self, message_index: usize) {
+    pub(crate) fn open_chat_tool_file_preview(&mut self, message_index: usize) {
         let Some(message) = self
             .chat
             .active_thread()
@@ -231,7 +244,7 @@ impl TuiModel {
         self.focus = FocusArea::Chat;
     }
 
-    pub(super) fn open_chat_message_image_preview(&mut self, message_index: usize) {
+    pub(crate) fn open_chat_message_image_preview(&mut self, message_index: usize) {
         let Some(message) = self
             .chat
             .active_thread()
@@ -267,7 +280,7 @@ impl TuiModel {
         self.focus = FocusArea::Chat;
     }
 
-    pub(super) fn open_file_preview_path(&mut self, path: String) {
+    pub(crate) fn open_file_preview_path(&mut self, path: String) {
         let target = ChatFilePreviewTarget {
             path,
             repo_root: None,
@@ -292,7 +305,7 @@ impl TuiModel {
         self.focus = FocusArea::Chat;
     }
 
-    pub(super) fn filtered_goal_runs(&self) -> Vec<&task::GoalRun> {
+    pub(crate) fn filtered_goal_runs(&self) -> Vec<&task::GoalRun> {
         let query = self.modal.command_query().to_lowercase();
         self.tasks
             .goal_runs()
@@ -305,7 +318,7 @@ impl TuiModel {
             .collect()
     }
 
-    pub(super) fn selected_thread_picker_thread(&self) -> Option<&chat::AgentThread> {
+    pub(crate) fn selected_thread_picker_thread(&self) -> Option<&chat::AgentThread> {
         let cursor = self.modal.picker_cursor();
         if cursor == 0 {
             return None;
@@ -321,7 +334,7 @@ impl TuiModel {
         .copied()
     }
 
-    pub(super) fn selected_goal_picker_run(&self) -> Option<&task::GoalRun> {
+    pub(crate) fn selected_goal_picker_run(&self) -> Option<&task::GoalRun> {
         let cursor = self.modal.picker_cursor();
         if cursor == 0 {
             return None;
@@ -346,7 +359,7 @@ impl TuiModel {
         })
     }
 
-    pub(super) fn selected_thread_picker_confirm_action(&self) -> Option<PendingConfirmAction> {
+    pub(crate) fn selected_thread_picker_confirm_action(&self) -> Option<PendingConfirmAction> {
         let thread = self.selected_thread_picker_thread()?;
         let title = widgets::thread_picker::thread_display_title_for_workspace(
             thread,
@@ -368,7 +381,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn selected_goal_picker_toggle_action(&self) -> Option<PendingConfirmAction> {
+    pub(crate) fn selected_goal_picker_toggle_action(&self) -> Option<PendingConfirmAction> {
         let run = self.selected_goal_picker_run()?;
         let title = run.title.clone();
         match run.status {
@@ -389,7 +402,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn selected_goal_run(&self) -> Option<&task::GoalRun> {
+    pub(crate) fn selected_goal_run(&self) -> Option<&task::GoalRun> {
         let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
             &self.main_pane_view
         else {
@@ -398,13 +411,13 @@ impl TuiModel {
         self.tasks.goal_run_by_id(goal_run_id)
     }
 
-    fn selected_goal_run_id(&self) -> Option<String> {
+    pub(crate) fn selected_goal_run_id(&self) -> Option<String> {
         self.selected_goal_run()
             .map(|run| run.id.clone())
             .or_else(|| self.goal_mission_control.runtime_goal_run_id.clone())
     }
 
-    pub(super) fn open_mission_control_runtime_editor(&mut self) -> bool {
+    pub(crate) fn open_mission_control_runtime_editor(&mut self) -> bool {
         if matches!(self.main_pane_view, MainPaneView::GoalComposer)
             && self.goal_mission_control.runtime_mode()
         {
@@ -424,7 +437,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn cancel_goal_mission_control(&mut self) -> bool {
+    pub(crate) fn cancel_goal_mission_control(&mut self) -> bool {
         if !matches!(self.main_pane_view, MainPaneView::GoalComposer) {
             return false;
         }
@@ -452,7 +465,7 @@ impl TuiModel {
         true
     }
 
-    fn selected_runtime_assignment_preview(&self) -> Option<(usize, task::GoalAgentAssignment)> {
+    pub(crate) fn selected_runtime_assignment_preview(&self) -> Option<(usize, task::GoalAgentAssignment)> {
         let index = self.goal_mission_control.selected_runtime_assignment_index;
         self.goal_mission_control
             .selected_runtime_assignment()

@@ -22,10 +22,15 @@ thread_local! {
     static ASSISTANT_RESPONDER_LABELS_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-include!("render_streaming_markdown_to_message_block_style_to_message_action.rs");
-include!("build_rendered_lines_to_build_visible_window_from_snapshot_to_apply.rs");
-include!("resolved_scroll_to_highlight_line_range_to_selected_text_to_selection.rs");
-include!("selection_point_from_snapshot_to_render.rs");
+mod render_streaming_markdown_to_message_block_style_to_message_action;
+mod build_rendered_lines_to_build_visible_window_from_snapshot_to_apply;
+mod resolved_scroll_to_highlight_line_range_to_selected_text_to_selection;
+mod selection_point_from_snapshot_to_render;
+
+pub(crate) use build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+pub(crate) use render_streaming_markdown_to_message_block_style_to_message_action::*;
+pub(crate) use resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
+pub(crate) use selection_point_from_snapshot_to_render::*;
 
 #[cfg(test)]
 mod tests {
@@ -49,8 +54,10 @@ mod tests {
         chat
     }
 
-    include!("tests/chat_handles_empty_state_to_all_file_mutation_tool_rows_use_filename.rs");
-    include!("tests/compaction_artifact_lines_use_standard_message_left_padding_to_concierge.rs");
+    #[path = "chat_handles_empty_state_to_all_file_mutation_tool_rows_use_filename.rs"]
+    mod chat_handles_empty_state_to_all_file_mutation_tool_rows_use_filename;
+    #[path = "compaction_artifact_lines_use_standard_message_left_padding_to_concierge.rs"]
+    mod compaction_artifact_lines_use_standard_message_left_padding_to_concierge;
 
     #[test]
     fn assistant_markdown_is_not_rendered_twice_for_line_classification() {

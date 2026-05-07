@@ -1,12 +1,23 @@
-include!("sidebar_parts/sidebar.rs");
 #[path = "sidebar/spawned_agents.rs"]
 mod spawned_agents;
 #[path = "sidebar/tab_layout.rs"]
 mod tab_layout;
 
-include!("sidebar_parts/show_spawned_to_selected_file_path.rs");
-include!("sidebar_parts/filtered_file_index_to_render.rs");
-include!("sidebar_parts/render_cached_to_spawned_sidebar_flatten_call_count.rs");
+#[path = "sidebar_parts/sidebar.rs"]
+mod sidebar;
+#[path = "sidebar_parts/show_spawned_to_selected_file_path.rs"]
+mod show_spawned_to_selected_file_path;
+#[path = "sidebar_parts/filtered_file_index_to_render.rs"]
+mod filtered_file_index_to_render;
+#[path = "sidebar_parts/render_cached_to_spawned_sidebar_flatten_call_count.rs"]
+mod render_cached_to_spawned_sidebar_flatten_call_count;
+
+pub(crate) use filtered_file_index_to_render::*;
+pub(crate) use render_cached_to_spawned_sidebar_flatten_call_count::*;
+pub(crate) use show_spawned_to_selected_file_path::*;
+pub(crate) use sidebar::*;
+pub(crate) use tab_layout::{tab_cells, tab_hit_test, tab_label};
+
 #[cfg(test)]
 #[path = "tests/sidebar.rs"]
 mod tests;

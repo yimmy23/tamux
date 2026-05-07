@@ -1,5 +1,17 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
 impl TuiModel {
-    fn send_continue_message(&mut self, thread_id: String) {
+    pub(crate) fn send_continue_message(&mut self, thread_id: String) {
         self.send_daemon_command(DaemonCommand::SendMessage {
             thread_id: Some(thread_id),
             content: "continue".to_string(),
@@ -9,7 +21,7 @@ impl TuiModel {
         });
     }
 
-    fn capture_pending_reconnect_restore(&mut self) {
+    pub(crate) fn capture_pending_reconnect_restore(&mut self) {
         if self.pending_reconnect_restore.is_some() {
             return;
         }
@@ -30,7 +42,7 @@ impl TuiModel {
         });
     }
 
-    fn begin_pending_reconnect_restore(&mut self) -> bool {
+    pub(crate) fn begin_pending_reconnect_restore(&mut self) -> bool {
         let Some(pending) = self.pending_reconnect_restore.clone() else {
             return false;
         };
@@ -52,7 +64,7 @@ impl TuiModel {
         true
     }
 
-    fn fallback_pending_reconnect_restore(&mut self) -> bool {
+    pub(crate) fn fallback_pending_reconnect_restore(&mut self) -> bool {
         let Some(pending) = self.pending_reconnect_restore.as_ref() else {
             return false;
         };
@@ -72,7 +84,7 @@ impl TuiModel {
         true
     }
 
-    fn finish_pending_reconnect_restore(&mut self, thread_id: &str) {
+    pub(crate) fn finish_pending_reconnect_restore(&mut self, thread_id: &str) {
         let Some(pending) = self.pending_reconnect_restore.clone() else {
             return;
         };
@@ -163,19 +175,19 @@ impl TuiModel {
         items.get(self.goal_sidebar.selected_row()).cloned()
     }
 
-    fn sync_goal_sidebar_selection_anchor(&mut self) {
+    pub(crate) fn sync_goal_sidebar_selection_anchor(&mut self) {
         self.goal_sidebar_selection_anchor = self.current_goal_sidebar_selection_anchor();
     }
 
-    fn chat_history_page_size(&self) -> usize {
+    pub(crate) fn chat_history_page_size(&self) -> usize {
         self.config.tui_chat_history_page_size.max(20) as usize
     }
 
-    fn chat_history_delete_backfill_target_size(&self) -> usize {
+    pub(crate) fn chat_history_delete_backfill_target_size(&self) -> usize {
         self.chat_history_page_size().saturating_mul(11) / 10
     }
 
-    fn request_thread_page(
+    pub(crate) fn request_thread_page(
         &mut self,
         thread_id: String,
         message_limit: usize,
@@ -212,7 +224,7 @@ impl TuiModel {
         });
     }
 
-    fn request_latest_thread_page(&mut self, thread_id: String, show_loading: bool) {
+    pub(crate) fn request_latest_thread_page(&mut self, thread_id: String, show_loading: bool) {
         self.request_thread_page(
             thread_id,
             self.chat_history_delete_backfill_target_size(),
@@ -256,17 +268,17 @@ impl TuiModel {
         (message_limit, message_offset)
     }
 
-    fn request_authoritative_thread_refresh(&mut self, thread_id: String, show_loading: bool) {
+    pub(crate) fn request_authoritative_thread_refresh(&mut self, thread_id: String, show_loading: bool) {
         let (message_limit, message_offset) = self.authoritative_thread_refresh_page(&thread_id);
         self.request_thread_page(thread_id, message_limit, message_offset, show_loading);
     }
 
-    fn request_authoritative_goal_run_refresh(&mut self, goal_run_id: String) {
+    pub(crate) fn request_authoritative_goal_run_refresh(&mut self, goal_run_id: String) {
         self.send_daemon_command(DaemonCommand::RequestGoalRunDetail(goal_run_id.clone()));
         self.send_daemon_command(DaemonCommand::RequestGoalRunCheckpoints(goal_run_id));
     }
 
-    fn request_full_goal_view_refresh(&mut self, goal_run_id: String) {
+    pub(crate) fn request_full_goal_view_refresh(&mut self, goal_run_id: String) {
         self.request_authoritative_goal_run_refresh(goal_run_id);
         self.send_daemon_command(DaemonCommand::Refresh);
         self.send_daemon_command(DaemonCommand::RefreshServices);
@@ -285,11 +297,11 @@ impl TuiModel {
         self.pending_goal_hydration_refreshes.remove(goal_run_id);
     }
 
-    fn goal_sidebar_item_count_for_tab(&self, goal_run_id: &str, tab: GoalSidebarTab) -> usize {
+    pub(crate) fn goal_sidebar_item_count_for_tab(&self, goal_run_id: &str, tab: GoalSidebarTab) -> usize {
         self.goal_sidebar_items_for_tab(goal_run_id, tab).len()
     }
 
-    pub(super) fn reconcile_goal_sidebar_selection_for_active_goal_pane(&mut self) {
+    pub(crate) fn reconcile_goal_sidebar_selection_for_active_goal_pane(&mut self) {
         let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
             goal_run_id,
             step_id,
@@ -319,7 +331,7 @@ impl TuiModel {
         };
     }
 
-    fn maybe_request_older_chat_history(&mut self) {
+    pub(crate) fn maybe_request_older_chat_history(&mut self) {
         let Some(thread_id) = self.chat.active_thread_id().map(str::to_string) else {
             return;
         };
@@ -368,7 +380,7 @@ impl TuiModel {
         );
     }
 
-    fn maybe_request_older_goal_run_history(&mut self) {
+    pub(crate) fn maybe_request_older_goal_run_history(&mut self) {
         let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
             &self.main_pane_view
         else {
@@ -400,7 +412,7 @@ impl TuiModel {
         });
     }
 
-    fn maybe_schedule_chat_history_collapse(&mut self) {
+    pub(crate) fn maybe_schedule_chat_history_collapse(&mut self) {
         if !self.chat.is_following_bottom() {
             return;
         }
@@ -414,11 +426,11 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn thread_picker_target_agent_id(tab: modal::ThreadPickerTab) -> Option<String> {
+    pub(crate) fn thread_picker_target_agent_id(tab: modal::ThreadPickerTab) -> Option<String> {
         tab.agent_id().map(str::to_string)
     }
 
-    fn cleanup_concierge_on_navigate(&mut self) {
+    pub(crate) fn cleanup_concierge_on_navigate(&mut self) {
         if !self.concierge.auto_cleanup_on_navigate {
             return;
         }
@@ -443,7 +455,7 @@ impl TuiModel {
         self.clear_pending_stop();
     }
 
-    fn open_thread_conversation(&mut self, thread_id: String) {
+    pub(crate) fn open_thread_conversation(&mut self, thread_id: String) {
         self.set_mission_control_return_targets(self.current_goal_return_target(), None);
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
@@ -458,7 +470,7 @@ impl TuiModel {
         self.sync_contextual_approval_overlay();
     }
 
-    fn restore_conversation_thread(&mut self, thread_id: String, focus: FocusArea) {
+    pub(crate) fn restore_conversation_thread(&mut self, thread_id: String, focus: FocusArea) {
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
@@ -473,7 +485,7 @@ impl TuiModel {
         self.sync_contextual_approval_overlay();
     }
 
-    fn restore_current_conversation_view(&mut self, focus: FocusArea) {
+    pub(crate) fn restore_current_conversation_view(&mut self, focus: FocusArea) {
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
         self.clear_work_context_drag_selection();
@@ -485,11 +497,11 @@ impl TuiModel {
         self.sync_contextual_approval_overlay();
     }
 
-    fn start_new_thread_view(&mut self) {
+    pub(crate) fn start_new_thread_view(&mut self) {
         self.start_new_thread_view_for_agent(None);
     }
 
-    fn start_new_thread_view_for_agent(&mut self, target_agent_id: Option<&str>) {
+    pub(crate) fn start_new_thread_view_for_agent(&mut self, target_agent_id: Option<&str>) {
         self.clear_mission_control_return_context();
         self.cleanup_concierge_on_navigate();
         self.clear_chat_drag_selection();
@@ -532,7 +544,7 @@ impl TuiModel {
         self.send_daemon_command(DaemonCommand::RetryOperatorProfile);
     }
 
-    fn set_main_pane_conversation(&mut self, focus: FocusArea) {
+    pub(crate) fn set_main_pane_conversation(&mut self, focus: FocusArea) {
         self.main_pane_view = MainPaneView::Conversation;
         self.task_view_scroll = 0;
         self.focus = focus;

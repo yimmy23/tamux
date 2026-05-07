@@ -1,3 +1,10 @@
+use super::super::*;
+use super::super::chat_with_messages;
+use crate::state::chat::{AgentMessage, AgentThread, ChatAction, ChatState, MessageRole, RetryPhase, RetryStatusVm};
+use crate::theme::ThemeTokens;
+use ratatui::backend::TestBackend;
+use ratatui::Terminal;
+use ratatui::layout::Rect;
 #[test]
 fn create_file_tool_row_uses_filename_when_path_is_missing() {
     let chat = chat_with_messages(vec![AgentMessage {
@@ -445,4 +452,3 @@ fn waiting_retry_row_shows_yes_countdown_and_no_action() {
     );
     assert_eq!(yes_hit, Some(ChatHitTarget::RetryStartNow));
 }
-

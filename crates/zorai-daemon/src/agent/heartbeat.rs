@@ -11,6 +11,7 @@
 
 use super::*;
 use chrono::Timelike;
+use std::collections::HashSet;
 
 mod helpers;
 mod legacy;
@@ -42,6 +43,42 @@ impl AgentEngine {
     pub(super) async fn resolve_heartbeat_cron(&self) -> String {
         let config = self.config.read().await;
         resolve_cron_from_config(&config)
+    }
+
+    pub(super) async fn running_goal_trajectory_targets(&self) -> Vec<(String, String)> {
+        let mut running_goal_runs = match self
+            .history
+            .list_goal_runs_for_statuses(&[GoalRunStatus::Running])
+            .await
+        {
+            Ok(goal_runs) => goal_runs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted running goal runs for heartbeat trajectories: {error}"
+                );
+                Vec::new()
+            }
+        };
+        let mut seen_goal_ids = running_goal_runs
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<HashSet<_>>();
+        {
+            let live_goal_runs = self.goal_runs.lock().await;
+            for goal_run in live_goal_runs
+                .iter()
+                .filter(|goal_run| goal_run.status == GoalRunStatus::Running)
+            {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    running_goal_runs.push(goal_run.clone());
+                }
+            }
+        }
+
+        running_goal_runs
+            .iter()
+            .map(|goal_run| (goal_run.id.clone(), goal_run.goal.clone()))
+            .collect()
     }
 
     /// Run the structured heartbeat (backward-compatible wrapper).
@@ -164,13 +201,7 @@ impl AgentEngine {
 
         // --- Phase 1.5: Emit trajectory updates for active goal runs (AWAR-04) ---
         {
-            let goal_runs = self.goal_runs.lock().await;
-            let running: Vec<_> = goal_runs
-                .iter()
-                .filter(|g| g.status == GoalRunStatus::Running)
-                .map(|g| (g.id.clone(), g.goal.clone()))
-                .collect();
-            drop(goal_runs);
+            let running = self.running_goal_trajectory_targets().await;
 
             for (gr_id, gr_goal) in &running {
                 if let Some(traj) = self.get_awareness_trajectory(gr_id).await {

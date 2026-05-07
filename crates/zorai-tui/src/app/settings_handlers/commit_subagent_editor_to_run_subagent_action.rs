@@ -1,5 +1,11 @@
+use super::*;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crate::widgets;
+use crate::providers;
+use ratatui::prelude::*;
+use zorai_shared::providers::*;
 impl TuiModel {
-    fn commit_subagent_editor(&mut self) {
+    pub(crate) fn commit_subagent_editor(&mut self) {
         let Some(editor) = self.subagents.editor.clone() else {
             return;
         };
@@ -210,14 +216,14 @@ impl TuiModel {
         self.settings.reduce(SettingsAction::CancelEdit);
     }
 
-    fn open_subagent_provider_picker(&mut self) {
+    pub(crate) fn open_subagent_provider_picker(&mut self) {
         self.settings_picker_target = Some(SettingsPickerTarget::SubAgentProvider);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::ProviderPicker));
         self.sync_provider_picker_item_count();
     }
 
-    fn open_subagent_model_picker(&mut self) {
+    pub(crate) fn open_subagent_model_picker(&mut self) {
         let Some(editor) = self.subagents.editor.as_ref() else {
             return;
         };
@@ -232,7 +238,7 @@ impl TuiModel {
         );
     }
 
-    fn open_subagent_role_picker(&mut self) {
+    pub(crate) fn open_subagent_role_picker(&mut self) {
         self.settings_picker_target = Some(SettingsPickerTarget::SubAgentRole);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::RolePicker));
@@ -240,14 +246,14 @@ impl TuiModel {
             .set_picker_item_count(crate::state::subagents::role_picker_item_count());
     }
 
-    fn open_subagent_effort_picker(&mut self) {
+    pub(crate) fn open_subagent_effort_picker(&mut self) {
         self.settings_picker_target = Some(SettingsPickerTarget::SubAgentReasoningEffort);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker));
         self.modal.set_picker_item_count(6);
     }
 
-    fn open_subagent_openrouter_provider_picker(&mut self, target: SettingsPickerTarget) {
+    pub(crate) fn open_subagent_openrouter_provider_picker(&mut self, target: SettingsPickerTarget) {
         let Some(editor) = self.subagents.editor.as_ref() else {
             return;
         };
@@ -262,7 +268,7 @@ impl TuiModel {
         self.open_openrouter_provider_picker_for(target, model, base_url, api_key);
     }
 
-    pub(super) fn send_concierge_config(&mut self) {
+    pub(crate) fn send_concierge_config(&mut self) {
         let mut config = serde_json::json!({
             "enabled": self.concierge.enabled,
             "detail_level": self.concierge.detail_level,
@@ -288,7 +294,7 @@ impl TuiModel {
         self.send_daemon_command(DaemonCommand::GetConciergeConfig);
     }
 
-    fn open_concierge_openrouter_provider_picker(&mut self, target: SettingsPickerTarget) {
+    pub(crate) fn open_concierge_openrouter_provider_picker(&mut self, target: SettingsPickerTarget) {
         if self.concierge.provider.as_deref()
             != Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER)
         {
@@ -323,15 +329,15 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn apply_provider_selection(&mut self, provider_id: &str) {
+    pub(crate) fn apply_provider_selection(&mut self, provider_id: &str) {
         self.apply_provider_selection_internal(provider_id, true);
     }
 
-    pub(super) fn apply_provider_selection_without_sync(&mut self, provider_id: &str) {
+    pub(crate) fn apply_provider_selection_without_sync(&mut self, provider_id: &str) {
         self.apply_provider_selection_internal(provider_id, false);
     }
 
-    pub(super) fn run_auth_tab_action(&mut self) {
+    pub(crate) fn run_auth_tab_action(&mut self) {
         let Some(entry) = self.auth.entries.get(self.auth.selected).cloned() else {
             return;
         };
@@ -448,7 +454,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn run_subagent_action(&mut self) {
+    pub(crate) fn run_subagent_action(&mut self) {
         match self.subagents.action_cursor {
             0 => {
                 self.open_subagent_editor_new();

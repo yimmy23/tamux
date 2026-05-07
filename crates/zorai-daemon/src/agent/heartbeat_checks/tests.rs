@@ -1,6 +1,8 @@
 use super::*;
+use crate::session_manager::SessionManager;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use tempfile::tempdir;
 
 fn make_todo(id: &str, content: &str, status: TodoStatus, updated_at: u64) -> TodoItem {
     TodoItem {
@@ -95,17 +97,17 @@ async fn make_test_engine(
         circuit_breakers.clone(),
     ));
 
-    // Create a minimal HistoryStore using a temp path
-    let data_dir = std::env::temp_dir().join("zorai-test-heartbeat-checks");
+    let data_dir =
+        std::env::temp_dir().join(format!("zorai-test-heartbeat-checks-{}", Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&data_dir);
     let (skill_discovery_result_tx, _skill_discovery_result_rx) = mpsc::unbounded_channel();
 
-    let history = crate::history::HistoryStore::new()
+    let history = crate::history::HistoryStore::new_test_store(&data_dir)
         .await
         .expect("test history store");
     let sm = crate::session_manager::SessionManager::new_with_history(
         Arc::new(
-            crate::history::HistoryStore::new()
+            crate::history::HistoryStore::new_test_store(&data_dir)
                 .await
                 .expect("test history store for session manager"),
         ),
@@ -290,6 +292,30 @@ async fn heartbeat_checks_stuck_goals_detects_old_running() {
     assert_eq!(result.check_type, HeartbeatCheckType::StuckGoalRuns);
     assert_eq!(result.items_found, 1);
     assert_eq!(result.details[0].id, "goal-1");
+}
+
+#[tokio::test]
+async fn heartbeat_checks_stuck_goals_use_persisted_goal_runs_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let now = now_millis();
+    let old = now - (3 * 3600 * 1000);
+
+    engine.goal_runs.lock().await.push_back(make_goal_run(
+        "goal-persisted-stuck",
+        "Persisted stuck goal",
+        GoalRunStatus::Running,
+        old,
+    ));
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    let result = engine.check_stuck_goal_runs(2).await;
+
+    assert_eq!(result.check_type, HeartbeatCheckType::StuckGoalRuns);
+    assert_eq!(result.items_found, 1);
+    assert_eq!(result.details[0].id, "goal-persisted-stuck");
 }
 
 #[tokio::test]

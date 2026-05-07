@@ -1,4 +1,18 @@
-fn resolved_scroll(
+use super::super::*;
+use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
+use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::super::selection_point_from_snapshot_to_render::*;
+use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode};
+use crate::theme::ThemeTokens;
+use crate::widgets::message;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+pub(crate) fn resolved_scroll(
     chat: &ChatState,
     total_lines: usize,
     inner_height: usize,
@@ -23,11 +37,11 @@ fn resolved_scroll(
     scroll
 }
 
-fn content_inner(area: Rect) -> Rect {
+pub(crate) fn content_inner(area: Rect) -> Rect {
     area
 }
 
-fn scrollbar_layout_from_metrics(
+pub(crate) fn scrollbar_layout_from_metrics(
     area: Rect,
     total_lines: usize,
     scroll: usize,
@@ -82,7 +96,7 @@ fn scrollbar_layout_from_metrics(
     })
 }
 
-fn scroll_offset_from_thumb_offset(thumb_offset: u16, track_span: u16, max_scroll: usize) -> usize {
+pub(crate) fn scroll_offset_from_thumb_offset(thumb_offset: u16, track_span: u16, max_scroll: usize) -> usize {
     if max_scroll == 0 || track_span == 0 {
         return 0;
     }
@@ -194,7 +208,7 @@ pub(crate) fn scrollbar_scroll_offset_for_pointer_from_cached_snapshot(
 
 #[cfg(test)]
 #[allow(dead_code)]
-fn visible_lines(
+pub(crate) fn visible_lines(
     all_lines: &[RenderedChatLine],
     inner_height: usize,
     scroll: usize,
@@ -219,7 +233,7 @@ fn visible_lines(
     all_lines[start..end].to_vec()
 }
 
-fn visible_window_bounds(
+pub(crate) fn visible_window_bounds(
     total: usize,
     inner_height: usize,
     scroll: usize,
@@ -239,7 +253,7 @@ fn visible_window_bounds(
 }
 
 #[cfg(test)]
-fn visible_rendered_lines(
+pub(crate) fn visible_rendered_lines(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
@@ -288,7 +302,7 @@ fn visible_rendered_lines(
     Some((inner, visible))
 }
 
-fn selection_snapshot(
+pub(crate) fn selection_snapshot(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
@@ -349,18 +363,18 @@ fn selection_snapshot(
     })
 }
 
-fn snapshot_line_at(snapshot: &SelectionSnapshot, row: usize) -> Option<&RenderedChatLine> {
+pub(crate) fn snapshot_line_at(snapshot: &SelectionSnapshot, row: usize) -> Option<&RenderedChatLine> {
     let local = row.checked_sub(snapshot.rendered_start_idx)?;
     snapshot.all_lines.get(local)
 }
 
-fn snapshot_rendered_end_idx(snapshot: &SelectionSnapshot) -> usize {
+pub(crate) fn snapshot_rendered_end_idx(snapshot: &SelectionSnapshot) -> usize {
     snapshot
         .rendered_start_idx
         .saturating_add(snapshot.all_lines.len())
 }
 
-fn nearest_content_row(snapshot: &SelectionSnapshot, row: usize) -> Option<usize> {
+pub(crate) fn nearest_content_row(snapshot: &SelectionSnapshot, row: usize) -> Option<usize> {
     let current = snapshot_line_at(snapshot, row)?;
     let current_has_content = !matches!(current.kind, RenderedLineKind::Padding)
         && rendered_line_content_bounds(current).2 > rendered_line_content_bounds(current).1;
@@ -420,7 +434,7 @@ fn nearest_content_row(snapshot: &SelectionSnapshot, row: usize) -> Option<usize
     None
 }
 
-fn nearest_message_content_row(snapshot: &SelectionSnapshot, row: usize) -> Option<usize> {
+pub(crate) fn nearest_message_content_row(snapshot: &SelectionSnapshot, row: usize) -> Option<usize> {
     let current = snapshot_line_at(snapshot, row)?;
     let message_index = current.message_index?;
     if !matches!(current.kind, RenderedLineKind::Padding) {
@@ -453,7 +467,7 @@ fn nearest_message_content_row(snapshot: &SelectionSnapshot, row: usize) -> Opti
     None
 }
 
-fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
+pub(crate) fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
     if start_col >= end_col {
         return String::new();
     }
@@ -481,7 +495,7 @@ fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
     result
 }
 
-fn highlight_line_range(
+pub(crate) fn highlight_line_range(
     line: &mut Line<'static>,
     start_col: usize,
     end_col: usize,

@@ -25,7 +25,8 @@ pub enum SettingsTab {
     About,
 }
 
-include!("settings_impl_parts/all.rs");
+#[path = "settings_impl_parts/all.rs"]
+mod all;
 
 // ── SettingsAction ────────────────────────────────────────────────────────────
 
@@ -77,10 +78,13 @@ fn field_uses_textarea(field: &str) -> bool {
     )
 }
 
-include!("settings_impl_parts/advanced_field_names_for_strategy_to_navigate_field.rs");
-include!("settings_impl_parts/reduce.rs");
+#[path = "settings_impl_parts/advanced_field_names_for_strategy_to_navigate_field.rs"]
+mod advanced_field_names_for_strategy_to_navigate_field;
+#[path = "settings_impl_parts/reduce.rs"]
+mod reduce;
 
-include!("settings_impl_parts/default.rs");
+#[path = "settings_impl_parts/default.rs"]
+mod default;
 
 // ── PluginSettingsState ──────────────────────────────────────────────────────
 
@@ -139,12 +143,21 @@ pub struct PluginSchemaField {
     pub description: Option<String>,
 }
 
-include!("settings_impl_parts/new_to_is_key_secret.rs");
+#[path = "settings_impl_parts/new_to_is_key_secret.rs"]
+mod new_to_is_key_secret;
 
-include!("settings_impl_parts/default_02.rs");
+#[path = "settings_impl_parts/default_02.rs"]
+mod default_02;
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 #[path = "tests/settings.rs"]
 mod tests;
+
+pub use all::*;
+pub use advanced_field_names_for_strategy_to_navigate_field::*;
+pub use reduce::*;
+pub use default::*;
+pub use new_to_is_key_secret::*;
+pub use default_02::*;

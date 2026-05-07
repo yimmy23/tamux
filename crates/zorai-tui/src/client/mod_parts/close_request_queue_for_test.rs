@@ -1,3 +1,5 @@
+use super::*;
+
 use anyhow::Result;
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -453,9 +455,9 @@ pub struct AgentPromptInspectionVm {
 }
 
 pub struct DaemonClient {
-    event_tx: mpsc::Sender<ClientEvent>,
-    request_tx: mpsc::UnboundedSender<ClientMessage>,
-    request_rx: Mutex<Option<mpsc::UnboundedReceiver<ClientMessage>>>,
+    pub(crate) event_tx: mpsc::Sender<ClientEvent>,
+    pub(crate) request_tx: mpsc::UnboundedSender<ClientMessage>,
+    pub(crate) request_rx: Mutex<Option<mpsc::UnboundedReceiver<ClientMessage>>>,
 }
 
 #[cfg(test)]

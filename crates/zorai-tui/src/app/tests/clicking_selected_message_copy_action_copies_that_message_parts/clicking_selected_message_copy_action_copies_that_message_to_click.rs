@@ -1,3 +1,10 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 #[test]
 fn clicking_selected_message_copy_action_copies_that_message() {
     let mut model = build_model();
@@ -434,4 +441,3 @@ fn click_without_drag_uses_press_location_for_message_selection() {
 
     assert_eq!(model.chat.selected_message(), Some(1));
 }
-

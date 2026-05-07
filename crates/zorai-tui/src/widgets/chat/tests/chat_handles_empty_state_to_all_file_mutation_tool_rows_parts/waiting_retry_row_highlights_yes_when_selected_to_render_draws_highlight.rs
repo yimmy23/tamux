@@ -1,3 +1,10 @@
+use super::super::*;
+use super::super::chat_with_messages;
+use crate::state::chat::{AgentMessage, AgentThread, ChatAction, ChatState, MessageRole, RetryPhase, RetryStatusVm};
+use crate::theme::ThemeTokens;
+use ratatui::backend::TestBackend;
+use ratatui::Terminal;
+use ratatui::layout::Rect;
 #[test]
 fn waiting_retry_row_highlights_yes_when_selected() {
     let mut chat = ChatState::new();

@@ -1,3 +1,9 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
     #[test]
     fn builtin_goal_commands_support_goal_picker_and_new_goal_composer() {
         let mut model = build_model();

@@ -1,4 +1,18 @@
-pub fn selection_points_from_mouse(
+use super::*;
+use super::selection::*;
+use crate::state::sidebar::SidebarTab;
+use crate::state::task::{TaskState, TodoStatus, WorkContextEntryKind};
+use crate::terminal_graphics::{active_protocol, TerminalImageOverlaySpec, TerminalImageProtocol};
+use crate::theme::ThemeTokens;
+use crate::widgets::chat::SelectionPoint;
+use crate::widgets::image_preview;
+use crate::widgets::message::{render_markdown_pub, wrap_text};
+use crate::widgets::tool_diff::render_unified_diff;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+pub(crate) fn selection_points_from_mouse(
     area: Rect,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -24,7 +38,7 @@ pub fn selection_points_from_mouse(
     ))
 }
 
-pub fn selection_point_from_mouse(
+pub(crate) fn selection_point_from_mouse(
     area: Rect,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -46,7 +60,7 @@ pub fn selection_point_from_mouse(
     selection_point_from_snapshot(&snapshot, mouse)
 }
 
-pub fn selected_text(
+pub(crate) fn selected_text(
     area: Rect,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -102,7 +116,7 @@ pub fn selected_text(
     }
 }
 
-pub fn hit_test(
+pub(crate) fn hit_test(
     area: Rect,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -168,7 +182,7 @@ pub fn hit_test(
     })
 }
 
-pub fn render(
+pub(crate) fn render(
     frame: &mut Frame,
     area: Rect,
     tasks: &TaskState,
@@ -340,7 +354,7 @@ pub fn render(
     }
 }
 
-pub fn max_scroll(
+pub(crate) fn max_scroll(
     area: Rect,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -367,7 +381,7 @@ pub fn max_scroll(
         })
 }
 
-fn scrollbar_layout(
+pub(crate) fn scrollbar_layout(
     area: Rect,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -416,7 +430,7 @@ fn scrollbar_layout(
     scrollbar_layout_from_metrics(area, all_lines.len(), scroll)
 }
 
-pub fn terminal_image_overlay_spec(
+pub(crate) fn terminal_image_overlay_spec(
     area: Rect,
     tasks: &TaskState,
     thread_id: Option<&str>,

@@ -1,3 +1,10 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use super::super::{build_model, rendered_chat_area, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
+
 #[test]
 fn sidebar_mouse_click_reuses_cached_snapshot_for_spawned_history() {
     let mut model = build_model();

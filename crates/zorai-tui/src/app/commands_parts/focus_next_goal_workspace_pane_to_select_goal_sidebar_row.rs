@@ -1,3 +1,16 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_shared::providers::*;
 impl TuiModel {
     pub(super) fn focus_next_goal_workspace_pane(&mut self) -> bool {
         if !matches!(
@@ -61,7 +74,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn set_goal_workspace_mode(
+    pub(crate) fn set_goal_workspace_mode(
         &mut self,
         mode: crate::state::goal_workspace::GoalWorkspaceMode,
     ) -> bool {
@@ -80,7 +93,7 @@ impl TuiModel {
         changed
     }
 
-    pub(super) fn cycle_goal_workspace_mode(&mut self, delta: i32) -> bool {
+    pub(crate) fn cycle_goal_workspace_mode(&mut self, delta: i32) -> bool {
         let modes = [
             crate::state::goal_workspace::GoalWorkspaceMode::Goal,
             crate::state::goal_workspace::GoalWorkspaceMode::Files,
@@ -102,7 +115,7 @@ impl TuiModel {
         self.set_goal_workspace_mode(modes[next])
     }
 
-    pub(super) fn activate_goal_workspace_command_bar(&mut self) -> bool {
+    pub(crate) fn activate_goal_workspace_command_bar(&mut self) -> bool {
         if self.goal_workspace.focused_pane()
             != crate::state::goal_workspace::GoalWorkspacePane::CommandBar
         {
@@ -113,7 +126,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn step_goal_workspace_timeline_selection(&mut self, delta: i32) -> bool {
+    pub(crate) fn step_goal_workspace_timeline_selection(&mut self, delta: i32) -> bool {
         let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
             &self.main_pane_view
         else {
@@ -162,7 +175,7 @@ impl TuiModel {
         })
     }
 
-    pub(super) fn activate_goal_workspace_timeline_target(&mut self) -> bool {
+    pub(crate) fn activate_goal_workspace_timeline_target(&mut self) -> bool {
         let Some(target) = self.selected_goal_workspace_timeline_target() else {
             return false;
         };
@@ -180,7 +193,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn step_goal_workspace_detail_selection(&mut self, delta: i32) -> bool {
+    pub(crate) fn step_goal_workspace_detail_selection(&mut self, delta: i32) -> bool {
         let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
             &self.main_pane_view
         else {
@@ -352,7 +365,7 @@ impl TuiModel {
         })
     }
 
-    pub(super) fn activate_goal_workspace_detail_target(&mut self) -> bool {
+    pub(crate) fn activate_goal_workspace_detail_target(&mut self) -> bool {
         let Some(target) = self.selected_goal_workspace_detail_target() else {
             return false;
         };
@@ -417,7 +430,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn activate_goal_workspace_action(
+    pub(crate) fn activate_goal_workspace_action(
         &mut self,
         action: crate::widgets::goal_workspace::GoalWorkspaceAction,
     ) -> bool {
@@ -447,7 +460,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn step_goal_sidebar_tab(&mut self, delta: i32) {
+    pub(crate) fn step_goal_sidebar_tab(&mut self, delta: i32) {
         if delta < 0 {
             self.goal_sidebar.cycle_tab_left();
         } else if delta > 0 {
@@ -456,7 +469,7 @@ impl TuiModel {
         self.reconcile_goal_sidebar_selection_for_active_goal_pane();
     }
 
-    pub(super) fn activate_goal_sidebar_tab(&mut self, tab: GoalSidebarTab) {
+    pub(crate) fn activate_goal_sidebar_tab(&mut self, tab: GoalSidebarTab) {
         while self.goal_sidebar.active_tab() != tab {
             match (self.goal_sidebar.active_tab(), tab) {
                 (GoalSidebarTab::Steps, GoalSidebarTab::Checkpoints)
@@ -470,13 +483,13 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn navigate_goal_sidebar(&mut self, delta: i32) {
+    pub(crate) fn navigate_goal_sidebar(&mut self, delta: i32) {
         self.goal_sidebar
             .navigate(delta, self.goal_sidebar_item_count());
         self.sync_goal_sidebar_selection_anchor();
     }
 
-    pub(super) fn select_goal_sidebar_row(&mut self, index: usize) {
+    pub(crate) fn select_goal_sidebar_row(&mut self, index: usize) {
         self.goal_sidebar
             .select_row(index, self.goal_sidebar_item_count());
         self.sync_goal_sidebar_selection_anchor();

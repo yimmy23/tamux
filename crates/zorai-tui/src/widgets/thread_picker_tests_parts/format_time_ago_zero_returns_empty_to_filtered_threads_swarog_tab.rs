@@ -1,9 +1,15 @@
-    use super::*;
-    use crate::state::chat::{AgentThread, ChatAction};
+    use super::super::*;
+    use super::super::from_tasks_to_is_weles_thread::*;
+    use super::super::hit_test_for_workspace_to_now_millis::*;
+    use super::super::is_svarog_agent_name_to_hit_test::*;
+    use crate::state::chat::{AgentThread, ChatAction, ChatState};
+    use crate::state::modal::{ModalState, ThreadPickerTab};
     use crate::state::task::{AgentTask, GoalRun, GoalRunStatus, TaskAction, TaskState, TaskStatus};
     use crate::state::workspace::WorkspaceState;
     use crate::state::ModalAction;
     use crate::state::{SubAgentEntry, SubAgentsState};
+    use ratatui::layout::{Position, Rect};
+    use ratatui::widgets::{Block, BorderType, Borders};
     use zorai_protocol::{
         WorkspaceActor, WorkspacePriority, WorkspaceSettings, WorkspaceTask, WorkspaceTaskStatus,
         WorkspaceTaskType,
@@ -36,19 +42,19 @@
         assert_eq!(s, "500 tok");
     }
 
-    fn make_chat(threads: Vec<AgentThread>) -> ChatState {
+    pub(super) fn make_chat(threads: Vec<AgentThread>) -> ChatState {
         let mut chat = ChatState::new();
         chat.reduce(ChatAction::ThreadListReceived(threads));
         chat
     }
 
-    fn make_subagents(entries: Vec<SubAgentEntry>) -> SubAgentsState {
+    pub(super) fn make_subagents(entries: Vec<SubAgentEntry>) -> SubAgentsState {
         let mut state = SubAgentsState::new();
         state.entries = entries;
         state
     }
 
-    fn make_tasks_with_goal_thread(thread_id: &str) -> TaskState {
+    pub(super) fn make_tasks_with_goal_thread(thread_id: &str) -> TaskState {
         let mut tasks = TaskState::new();
         tasks.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
             id: "goal-1".into(),
@@ -287,7 +293,7 @@
         assert_eq!(workspace_threads[0].id, "thread-existing-workspace-goal");
     }
 
-    fn sample_subagent(id: &str, name: &str, builtin: bool) -> SubAgentEntry {
+    pub(super) fn sample_subagent(id: &str, name: &str, builtin: bool) -> SubAgentEntry {
         SubAgentEntry {
             id: id.to_string(),
             name: name.to_string(),

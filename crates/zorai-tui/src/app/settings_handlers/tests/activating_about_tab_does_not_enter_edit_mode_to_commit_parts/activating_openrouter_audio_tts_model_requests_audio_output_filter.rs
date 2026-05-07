@@ -1,3 +1,16 @@
+use crossterm::event::{KeyCode, KeyModifiers};
+use crate::widgets;
+use super::*;
+use super::opening_weles_editor_hides_inherited_main_system_prompt_to_feat_skill::focus_settings_field;
+use zorai_shared::providers::*;
+use super::super::{make_model, auth_env_lock, unique_test_db_path};
+use crate::app::TuiModel;
+use crate::state::*;
+use crate::state::settings::SettingsTab;
+use rusqlite::{params, Connection};
+use std::ffi::OsString;
+use std::path::PathBuf;
+use tokio::sync::mpsc::unbounded_channel;
 #[test]
 fn activating_openrouter_audio_tts_model_requests_audio_output_filter() {
     let (mut model, mut daemon_rx) = make_model();
@@ -440,4 +453,3 @@ fn settings_enter_toggles_embedding_enabled() {
         } if key_path == "/semantic/embedding/enabled" && value_json == "true"
     ));
 }
-

@@ -1,3 +1,7 @@
+use super::super::*;
+use super::markdown_renders_bold_to_apply_patch_tool_message_expanded_renders_diff::*;
+use crate::state::chat::{AgentMessage, MessageRole, TranscriptMode};
+use crate::theme::ThemeTokens;
 #[test]
 fn reasoning_renders_before_multiline_content() {
     let msg = AgentMessage {

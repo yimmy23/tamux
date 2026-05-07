@@ -189,6 +189,73 @@ async fn send_task_message_inherits_goal_surface_from_persisted_task_after_live_
     );
 }
 
+#[tokio::test]
+async fn send_task_message_initializes_persisted_task_thread_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let task = engine
+        .enqueue_task(
+            "Persisted task thread".to_string(),
+            "task message should persist the created thread id".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            None,
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let result = engine
+        .send_task_message(
+            &task.id,
+            None,
+            None,
+            Some("missing-provider-for-thread-init-test"),
+            "thread initialization probe",
+        )
+        .await;
+
+    assert!(
+        result.is_err(),
+        "invalid provider should stop before any network request"
+    );
+
+    let persisted = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task.id.clone()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
+        .expect("persisted task should remain queryable");
+
+    assert!(
+        persisted.thread_id.is_some(),
+        "send setup should persist the generated task thread id"
+    );
+}
+
 #[test]
 fn tool_execution_hot_path_boxes_large_futures() {
     let finalize_source = fs::read_to_string(

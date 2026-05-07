@@ -1,3 +1,15 @@
+use crate::test_support::{env_var_lock, EnvVarGuard, ZORAI_DATA_DIR_ENV};
+use crate::state::*;
+use crate::app::*;
+use rusqlite::Connection;
+use std::sync::mpsc;
+use tempfile::tempdir;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
+use crate::app::TuiModel;
+use crate::state::DaemonCommand;
+use crate::app::config_io::helpers::{normalize_compliance_mode, normalize_provider_auth_source, normalize_provider_transport};
+use super::normalize_provider_auth_source_falls_back_for_invalid_values_to_apply::*;
 #[test]
 fn apply_config_json_loads_nested_compaction_settings() {
     let mut model = make_model();

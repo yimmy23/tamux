@@ -1,4 +1,4 @@
-    use super::*;
+    use super::super::*;
 
     fn plain_lines(lines: &[Line<'_>]) -> Vec<String> {
         lines
