@@ -31,14 +31,28 @@ impl ConciergeEngine {
         {
             let mut investigations = self.recovery_investigations.lock().await;
             if let Some(existing_task_id) = investigations.get(&key).cloned() {
-                let tasks = agent.tasks.lock().await;
-                let still_running = tasks
-                    .iter()
-                    .find(|task| task.id == existing_task_id)
+                let still_running = agent
+                    .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: Some(existing_task_id),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                    })
+                    .await
+                    .into_iter()
+                    .next()
                     .is_some_and(|task| {
                         !super::super::task_scheduler::is_task_terminal_status(task.status)
                     });
-                drop(tasks);
                 if still_running {
                     return None;
                 }

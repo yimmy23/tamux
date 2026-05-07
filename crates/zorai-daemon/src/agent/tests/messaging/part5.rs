@@ -1757,6 +1757,8 @@ async fn internal_delegate_rejects_budget_exceeded_thread() {
         supervisor_config: None,
         sub_agent_def_id: None,
     });
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     let error = engine
         .send_internal_delegate_message(

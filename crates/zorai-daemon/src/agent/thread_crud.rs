@@ -8,6 +8,49 @@ use serde::{Deserialize, Serialize};
 const SESSION_ABANDON_WINDOW_MS: u64 = 30_000;
 const LAZY_CAPPED_IPC_MESSAGE_WINDOW: usize = 64;
 
+enum ThreadMetadataPatch {
+    ClientSurface(Option<zorai_protocol::ClientSurface>),
+    LatestSkillDiscoveryState(Option<LatestSkillDiscoveryState>),
+    PromptMemoryInjectionState(Option<PromptMemoryInjectionState>),
+}
+
+impl ThreadMetadataPatch {
+    fn apply(self, metadata: &mut serde_json::Map<String, serde_json::Value>) {
+        match self {
+            ThreadMetadataPatch::ClientSurface(Some(client_surface)) => {
+                if let Ok(value) = serde_json::to_value(client_surface) {
+                    metadata.insert("client_surface".to_string(), value.clone());
+                    metadata.insert("clientSurface".to_string(), value);
+                }
+            }
+            ThreadMetadataPatch::ClientSurface(None) => {
+                metadata.remove("client_surface");
+                metadata.remove("clientSurface");
+            }
+            ThreadMetadataPatch::LatestSkillDiscoveryState(Some(state)) => {
+                if let Ok(value) = serde_json::to_value(state) {
+                    metadata.insert("latest_skill_discovery_state".to_string(), value);
+                    metadata.remove("latestSkillDiscoveryState");
+                }
+            }
+            ThreadMetadataPatch::LatestSkillDiscoveryState(None) => {
+                metadata.remove("latest_skill_discovery_state");
+                metadata.remove("latestSkillDiscoveryState");
+            }
+            ThreadMetadataPatch::PromptMemoryInjectionState(Some(state)) => {
+                if let Ok(value) = serde_json::to_value(state) {
+                    metadata.insert("prompt_memory_injection_state".to_string(), value);
+                    metadata.remove("promptMemoryInjectionState");
+                }
+            }
+            ThreadMetadataPatch::PromptMemoryInjectionState(None) => {
+                metadata.remove("prompt_memory_injection_state");
+                metadata.remove("promptMemoryInjectionState");
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ThreadListFilter {
     pub created_after: Option<u64>,
@@ -137,6 +180,62 @@ fn cap_thread_detail_for_ipc(detail: ThreadDetailResult) -> ThreadDetailResult {
 }
 
 impl AgentEngine {
+    async fn persist_thread_metadata_patch(&self, thread_id: &str, patch: ThreadMetadataPatch) {
+        let thread_exists = self.threads.read().await.contains_key(thread_id);
+        if thread_exists {
+            self.persist_thread_by_id(thread_id).await;
+            return;
+        }
+
+        let persisted_thread = match self.history.get_thread(thread_id).await {
+            Ok(Some(thread)) => thread,
+            Ok(None) => return,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "failed to read persisted thread metadata"
+                );
+                return;
+            }
+        };
+
+        let mut metadata = persisted_thread
+            .metadata_json
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .and_then(|value| match value {
+                serde_json::Value::Object(metadata) => Some(metadata),
+                _ => None,
+            })
+            .unwrap_or_default();
+        patch.apply(&mut metadata);
+
+        let metadata_json = match serde_json::to_string(&serde_json::Value::Object(metadata)) {
+            Ok(metadata_json) => Some(metadata_json),
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "failed to serialize persisted thread metadata"
+                );
+                return;
+            }
+        };
+
+        if let Err(error) = self
+            .history
+            .update_thread_metadata_json(thread_id, metadata_json)
+            .await
+        {
+            tracing::warn!(
+                thread_id = %thread_id,
+                %error,
+                "failed to update persisted thread metadata"
+            );
+        }
+    }
+
     pub(super) async fn append_system_thread_message(
         &self,
         thread_id: &str,
@@ -307,10 +406,11 @@ impl AgentEngine {
             .write()
             .await
             .insert(thread_id.to_string(), client_surface);
-        let thread_exists = self.threads.read().await.contains_key(thread_id);
-        if thread_exists {
-            self.persist_thread_by_id(thread_id).await;
-        }
+        self.persist_thread_metadata_patch(
+            thread_id,
+            ThreadMetadataPatch::ClientSurface(Some(client_surface)),
+        )
+        .await;
     }
 
     pub async fn get_thread_client_surface(
@@ -326,6 +426,8 @@ impl AgentEngine {
 
     pub async fn clear_thread_client_surface(&self, thread_id: &str) {
         self.thread_client_surfaces.write().await.remove(thread_id);
+        self.persist_thread_metadata_patch(thread_id, ThreadMetadataPatch::ClientSurface(None))
+            .await;
     }
 
     pub async fn set_thread_skill_discovery_state(
@@ -333,14 +435,16 @@ impl AgentEngine {
         thread_id: &str,
         state: LatestSkillDiscoveryState,
     ) {
+        let persisted_state = state.clone();
         self.thread_skill_discovery_states
             .write()
             .await
             .insert(thread_id.to_string(), state);
-        let thread_exists = self.threads.read().await.contains_key(thread_id);
-        if thread_exists {
-            self.persist_thread_by_id(thread_id).await;
-        }
+        self.persist_thread_metadata_patch(
+            thread_id,
+            ThreadMetadataPatch::LatestSkillDiscoveryState(Some(persisted_state)),
+        )
+        .await;
     }
 
     pub async fn get_thread_skill_discovery_state(
@@ -359,10 +463,11 @@ impl AgentEngine {
             .write()
             .await
             .remove(thread_id);
-        let thread_exists = self.threads.read().await.contains_key(thread_id);
-        if thread_exists {
-            self.persist_thread_by_id(thread_id).await;
-        }
+        self.persist_thread_metadata_patch(
+            thread_id,
+            ThreadMetadataPatch::LatestSkillDiscoveryState(None),
+        )
+        .await;
     }
 
     pub async fn set_thread_memory_injection_state(
@@ -370,14 +475,16 @@ impl AgentEngine {
         thread_id: &str,
         state: PromptMemoryInjectionState,
     ) {
+        let persisted_state = state.clone();
         self.thread_memory_injection_state_map()
             .write()
             .await
             .insert(thread_id.to_string(), state);
-        let thread_exists = self.threads.read().await.contains_key(thread_id);
-        if thread_exists {
-            self.persist_thread_by_id(thread_id).await;
-        }
+        self.persist_thread_metadata_patch(
+            thread_id,
+            ThreadMetadataPatch::PromptMemoryInjectionState(Some(persisted_state)),
+        )
+        .await;
     }
 
     pub async fn get_thread_memory_injection_state(
@@ -396,10 +503,11 @@ impl AgentEngine {
             .write()
             .await
             .remove(thread_id);
-        let thread_exists = self.threads.read().await.contains_key(thread_id);
-        if thread_exists {
-            self.persist_thread_by_id(thread_id).await;
-        }
+        self.persist_thread_metadata_patch(
+            thread_id,
+            ThreadMetadataPatch::PromptMemoryInjectionState(None),
+        )
+        .await;
     }
 
     pub async fn set_goal_run_client_surface(

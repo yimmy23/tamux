@@ -266,6 +266,9 @@ async fn concierge_recovery_deduplicates_inflight_investigations_per_thread_sign
             &serde_json::json!({"raw_message": "Invalid 'input[12].name': empty string"}),
         )
         .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
     let second = engine
         .concierge
         .maybe_start_recovery_investigation(
@@ -281,7 +284,24 @@ async fn concierge_recovery_deduplicates_inflight_investigations_per_thread_sign
     assert!(first.is_some());
     assert!(second.is_none());
 
-    let tasks = engine.tasks.lock().await;
+    let first_task_id = first.as_deref().expect("first recovery task id");
+    let tasks = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(first_task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await;
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].source, "concierge_recovery");
     assert_eq!(

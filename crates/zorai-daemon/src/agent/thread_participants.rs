@@ -483,18 +483,41 @@ impl AgentEngine {
         mut continuation: DeferredVisibleThreadContinuation,
     ) {
         if continuation.task_id.is_none() {
-            let tasks = self.tasks.lock().await;
-            continuation.task_id = tasks
-                .iter()
-                .rev()
-                .find(|task| {
-                    task.thread_id.as_deref() == Some(thread_id)
-                        && !matches!(
-                            task.status,
-                            TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled
-                        )
+            let active_statuses = [
+                TaskStatus::Queued,
+                TaskStatus::InProgress,
+                TaskStatus::AwaitingApproval,
+                TaskStatus::Blocked,
+                TaskStatus::FailedAnalyzing,
+                TaskStatus::BudgetExceeded,
+            ]
+            .into_iter()
+            .filter_map(|status| {
+                serde_json::to_value(status)
+                    .ok()
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned))
+            })
+            .collect::<Vec<_>>();
+            continuation.task_id = self
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: None,
+                    status: None,
+                    statuses: active_statuses,
+                    source: None,
+                    thread_id: Some(thread_id.to_string()),
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: true,
+                    limit: Some(1),
                 })
-                .map(|task| task.id.clone());
+                .await
+                .into_iter()
+                .next()
+                .map(|task| task.id);
         }
         let mut queued = self.deferred_visible_thread_continuations.lock().await;
         let entry = queued.entry(thread_id.to_string()).or_default();
@@ -612,17 +635,7 @@ impl AgentEngine {
         if force_compaction {
             let config = self.config.read().await.clone();
             let provider_config = if let Some(task_id) = task_id {
-                let override_provider = {
-                    let tasks = self.tasks.lock().await;
-                    tasks
-                        .iter()
-                        .find(|task| task.id == task_id)
-                        .and_then(|task| {
-                            task.override_provider.as_ref().map(|provider_id| {
-                                (provider_id.clone(), task.override_model.clone())
-                            })
-                        })
-                };
+                let override_provider = self.task_provider_override_for_compaction(task_id).await;
                 if let Some((provider_id, model_override)) = override_provider {
                     let mut provider_config =
                         self.resolve_sub_agent_provider_config(&config, &provider_id)?;
@@ -723,6 +736,34 @@ impl AgentEngine {
             }
             return Ok(outcome);
         }
+    }
+
+    async fn task_provider_override_for_compaction(
+        &self,
+        task_id: &str,
+    ) -> Option<(String, Option<String>)> {
+        self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
+        .and_then(|task| {
+            task.override_provider
+                .map(|provider_id| (provider_id, task.override_model))
+        })
     }
 
     pub async fn list_thread_participants(&self, thread_id: &str) -> Vec<ThreadParticipantState> {
@@ -1623,21 +1664,7 @@ impl AgentEngine {
                     "internal delegate continuation requires a visible operator thread, not an internal thread"
                 );
             }
-            let budget_exceeded_task = {
-                let tasks = self.tasks.lock().await;
-                tasks
-                    .iter()
-                    .filter(|task| {
-                        task.thread_id.as_deref() == Some(thread_id)
-                            && task.status == TaskStatus::BudgetExceeded
-                    })
-                    .max_by_key(|task| {
-                        task.completed_at
-                            .or(task.started_at)
-                            .unwrap_or(task.created_at)
-                    })
-                    .cloned()
-            };
+            let budget_exceeded_task = self.budget_exceeded_task_for_thread(thread_id).await;
             if let Some(task) = budget_exceeded_task {
                 anyhow::bail!(
                     "thread {thread_id} is locked because task {} exhausted its execution budget",
@@ -1815,5 +1842,49 @@ impl AgentEngine {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn task_provider_override_for_compaction_uses_persisted_task_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let mut task = engine
+            .enqueue_task(
+                "persisted override task".to_string(),
+                "force compaction should use this persisted provider override".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                None,
+                Some("thread-persisted-override".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        task.override_provider = Some("openai".to_string());
+        task.override_model = Some("gpt-5.4-mini".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            tasks.clear();
+            tasks.push_back(task.clone());
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        assert_eq!(
+            engine.task_provider_override_for_compaction(&task.id).await,
+            Some(("openai".to_string(), Some("gpt-5.4-mini".to_string())))
+        );
     }
 }

@@ -589,6 +589,8 @@ async fn collect_stalled_turn_observations_ignores_completed_spawned_task_thread
         let mut tasks = engine.tasks.lock().await;
         tasks.push_back(spawned_task(thread_id, task_id, TaskStatus::Completed, now));
     }
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     let observations = engine.collect_stalled_turn_observations().await;
     assert!(
@@ -1851,6 +1853,8 @@ async fn collect_stalled_turn_observations_detects_recent_subagent_no_progress_w
             sub_agent_def_id: None,
         });
     }
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     assert!(
         engine.subagent_runtime.read().await.get(task_id).is_none(),

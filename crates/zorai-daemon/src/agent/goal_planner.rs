@@ -633,15 +633,10 @@ impl AgentEngine {
                 )
                 .await
             {
-                Ok(handoff_result) => {
-                    // Find the task that was created by route_handoff
-                    let tasks = self.tasks.lock().await;
-                    tasks
-                        .iter()
-                        .find(|t| t.id == handoff_result.task_id)
-                        .cloned()
-                        .expect("handoff-created task missing from queue")
-                }
+                Ok(handoff_result) => self
+                    .handoff_created_task_for_goal_step(&handoff_result.task_id)
+                    .await
+                    .expect("handoff-created task missing from queue"),
                 Err(e) => {
                     tracing::warn!(
                         "specialist handoff failed for step '{}': {e} — falling back to normal enqueue",
@@ -923,6 +918,27 @@ impl AgentEngine {
         .await;
 
         Ok(())
+    }
+
+    async fn handoff_created_task_for_goal_step(&self, task_id: &str) -> Option<AgentTask> {
+        self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .into_iter()
+        .next()
     }
 }
 

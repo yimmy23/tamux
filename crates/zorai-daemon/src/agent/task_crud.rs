@@ -1233,7 +1233,7 @@ impl AgentEngine {
     }
 
     pub(crate) async fn list_tasks_capped_for_ipc(&self) -> (Vec<AgentTask>, bool) {
-        cap_task_list_for_ipc(self.snapshot_tasks().await)
+        cap_task_list_for_ipc(self.list_tasks().await)
     }
 
     pub(crate) async fn list_todos_capped_for_ipc(&self) -> (HashMap<String, Vec<TodoItem>>, bool) {
@@ -1281,8 +1281,11 @@ impl AgentEngine {
                 statuses: Vec::new(),
                 source: None,
                 thread_id: None,
+                thread_ids: Vec::new(),
                 goal_run_id: Some(goal_run.id.clone()),
                 parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: None,
@@ -1314,8 +1317,11 @@ impl AgentEngine {
                 statuses: Vec::new(),
                 source: None,
                 thread_id: None,
+                thread_ids: Vec::new(),
                 goal_run_id: Some(goal_run_id.to_string()),
                 parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
                 exclude_terminal_statuses: true,
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
@@ -1327,32 +1333,91 @@ impl AgentEngine {
     async fn goal_related_task_ids(&self, goal_run: &GoalRun) -> Vec<String> {
         let mut task_ids = declared_goal_task_ids(goal_run);
         let mut thread_ids = declared_goal_thread_ids(goal_run);
-        let tasks = self.tasks.lock().await;
 
         loop {
             let mut changed = false;
-            for task in tasks.iter() {
-                let belongs_to_goal = task.goal_run_id.as_deref() == Some(goal_run.id.as_str())
-                    || task_ids.iter().any(|id| id == &task.id)
-                    || task
-                        .parent_task_id
-                        .as_deref()
-                        .is_some_and(|parent_task_id| {
-                            task_ids.iter().any(|id| id == parent_task_id)
-                        })
-                    || task
-                        .parent_thread_id
-                        .as_deref()
-                        .is_some_and(|parent_thread_id| {
-                            thread_ids.iter().any(|id| id == parent_thread_id)
-                        });
-                if !belongs_to_goal {
-                    continue;
-                }
-
+            let mut related_tasks = self
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: None,
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: Some(goal_run.id.clone()),
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: None,
+                })
+                .await;
+            if !thread_ids.is_empty() {
+                related_tasks.extend(
+                    self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: None,
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: thread_ids.clone(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: None,
+                    })
+                    .await,
+                );
+            }
+            for task_id in task_ids.clone() {
+                related_tasks.extend(
+                    self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: Some(task_id.clone()),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                    })
+                    .await,
+                );
+                related_tasks.extend(
+                    self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: None,
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: Some(task_id),
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: None,
+                    })
+                    .await,
+                );
+            }
+            for task in related_tasks {
                 changed |= push_unique_string(&mut task_ids, &task.id);
                 if let Some(thread_id) = task.thread_id.as_deref() {
                     changed |= push_unique_string(&mut thread_ids, thread_id);
+                }
+                if let Some(parent_thread_id) = task.parent_thread_id.as_deref() {
+                    changed |= push_unique_string(&mut thread_ids, parent_thread_id);
                 }
             }
             if !changed {
@@ -1607,7 +1672,7 @@ impl AgentEngine {
                 .expect("validated goal run index should remove item")
         };
 
-        let related_task_ids = {
+        let mut related_task_ids = {
             let mut tasks = self.tasks.lock().await;
             let mut removed_ids = Vec::new();
             tasks.retain(|task| {
@@ -1623,6 +1688,51 @@ impl AgentEngine {
             });
             removed_ids
         };
+        for task in self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: Some(goal_run_id.to_string()),
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await
+        {
+            push_unique_string(&mut related_task_ids, &task.id);
+        }
+        for child_task_id in &removed_goal.child_task_ids {
+            if self
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(child_task_id.clone()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
+                .await
+                .into_iter()
+                .next()
+                .is_some()
+            {
+                push_unique_string(&mut related_task_ids, child_task_id);
+            }
+        }
 
         self.inflight_goal_runs.lock().await.remove(goal_run_id);
         self.cost_trackers.lock().await.remove(goal_run_id);

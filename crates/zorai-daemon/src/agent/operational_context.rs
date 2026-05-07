@@ -5,23 +5,23 @@ use super::*;
 impl AgentEngine {
     pub(super) async fn build_operational_context_summary(&self) -> Option<String> {
         let sessions = self.session_manager.list().await;
-        let active_tasks = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .filter(|task| {
-                    !matches!(
-                        task.status,
-                        TaskStatus::Completed
-                            | TaskStatus::BudgetExceeded
-                            | TaskStatus::Failed
-                            | TaskStatus::Cancelled
-                    )
-                })
-                .take(4)
-                .cloned()
-                .collect::<Vec<_>>()
-        };
+        let active_tasks = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: true,
+                order_by_recent_activity_desc: false,
+                limit: Some(4),
+            })
+            .await;
         let active_goals = {
             let goal_runs = self.goal_runs.lock().await;
             goal_runs
@@ -133,5 +133,45 @@ fn goal_run_status_label(status: GoalRunStatus) -> &'static str {
         GoalRunStatus::Completed => "completed",
         GoalRunStatus::Failed => "failed",
         GoalRunStatus::Cancelled => "cancelled",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn operational_context_includes_persisted_active_tasks_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine
+            .enqueue_task(
+                "Persisted visible task".to_string(),
+                "task should appear in operational context".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "test",
+                None,
+                None,
+                Some("thread-operational-context".to_string()),
+                None,
+            )
+            .await;
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        let summary = engine
+            .build_operational_context_summary()
+            .await
+            .expect("active persisted task should produce operational context");
+
+        assert!(summary.contains("- Active tasks: 1"));
+        assert!(summary.contains("- Task [queued] Persisted visible task"));
     }
 }

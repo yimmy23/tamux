@@ -49,8 +49,11 @@ impl AgentEngine {
                 statuses: Vec::new(),
                 source: None,
                 thread_id: None,
+                thread_ids: Vec::new(),
                 goal_run_id: None,
                 parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
@@ -402,27 +405,41 @@ impl AgentEngine {
             capability_tags.to_vec()
         };
 
-        let occupied_specialists = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .filter(|task| {
-                    task.source == "handoff"
-                        && matches!(
-                            task.status,
-                            TaskStatus::InProgress | TaskStatus::AwaitingApproval
-                        )
-                })
-                .filter_map(|task| {
-                    task.title
-                        .strip_prefix('[')
-                        .and_then(|rest| rest.split(']').next())
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .map(ToOwned::to_owned)
-                })
-                .collect::<std::collections::HashSet<_>>()
-        };
+        let occupied_statuses = [TaskStatus::InProgress, TaskStatus::AwaitingApproval]
+            .into_iter()
+            .filter_map(|status| {
+                serde_json::to_value(status)
+                    .ok()
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned))
+            })
+            .collect::<Vec<_>>();
+        let occupied_specialists = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: occupied_statuses,
+                source: Some("handoff".to_string()),
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await
+            .into_iter()
+            .filter_map(|task| {
+                task.title
+                    .strip_prefix('[')
+                    .and_then(|rest| rest.split(']').next())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+            })
+            .collect::<std::collections::HashSet<_>>();
         let available_profiles = profiles
             .iter()
             .filter(|profile| !occupied_specialists.contains(profile.role.as_str()))
@@ -771,13 +788,10 @@ impl AgentEngine {
         acceptance_criteria: &AcceptanceCriteria,
     ) -> Result<ValidationResult> {
         // Look up completed task result
-        let task_result = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|t| t.id == task_id)
-                .and_then(|t| t.result.clone())
-        };
+        let task_result = self
+            .task_by_id_for_handoff_context(task_id)
+            .await
+            .and_then(|task| task.result);
 
         let output = match task_result {
             Some(result) => result,
@@ -989,6 +1003,8 @@ mod tests {
         occupied.title = "[researcher] already running".to_string();
         occupied.description = "existing occupied researcher task".to_string();
         engine.tasks.lock().await.push_back(occupied);
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
 
         let result = engine
             .route_handoff(
@@ -1013,6 +1029,51 @@ mod tests {
             "routing result should reflect availability-aware fallback: {:?}",
             result
         );
+    }
+
+    #[tokio::test]
+    async fn validate_specialist_output_uses_persisted_task_result_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let mut task = engine
+            .enqueue_task(
+                "[researcher] completed task".to_string(),
+                "completed specialist task".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "handoff",
+                None,
+                None,
+                Some("thread-validate-specialist-output".to_string()),
+                None,
+            )
+            .await;
+        task.status = TaskStatus::Completed;
+        task.result = Some("specialist output reports success".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            tasks.clear();
+            tasks.push_back(task.clone());
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        let criteria = AcceptanceCriteria {
+            description: "validate persisted result".to_string(),
+            structural_checks: vec!["contains:success".to_string()],
+            require_llm_validation: false,
+        };
+        let result = engine
+            .validate_specialist_output("handoff-log-persisted-result", &task.id, &criteria)
+            .await
+            .expect("validation should run");
+
+        assert!(result.passed, "persisted task result should be validated");
     }
 
     #[tokio::test]

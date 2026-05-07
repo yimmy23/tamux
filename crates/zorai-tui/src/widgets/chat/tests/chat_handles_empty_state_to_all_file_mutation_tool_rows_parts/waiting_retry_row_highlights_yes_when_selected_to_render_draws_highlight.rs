@@ -358,6 +358,55 @@ fn selected_expanded_tool_message_action_bar_stays_visible_in_windowed_render() 
 }
 
 #[test]
+fn expanded_tool_metrics_cover_full_rendered_payload() {
+    let mut chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("run_terminal_command".into()),
+        tool_status: Some("done".into()),
+        tool_arguments: Some(
+            serde_json::json!({
+                "command": "cargo test -p zorai-tui",
+                "cwd": "/tmp/workspace",
+                "options": {
+                    "timeout_ms": 120000,
+                    "background": false
+                }
+            })
+            .to_string(),
+        ),
+        content: serde_json::json!({
+            "status": "ok",
+            "stdout_lines": 24,
+            "artifacts": ["one", "two", "three"]
+        })
+        .to_string(),
+        weles_review: Some(crate::state::chat::WelesReviewMetaVm {
+            weles_reviewed: false,
+            verdict: "flag_only".into(),
+            reasons: vec![
+                "governance_not_run because policy service was unavailable".into(),
+                "manual review required before reusing this command".into(),
+            ],
+            security_override_mode: Some("yolo".into()),
+            audit_id: Some("audit-expanded-tool".into()),
+        }),
+        ..Default::default()
+    }]);
+    chat.select_message(Some(0));
+    chat.toggle_tool_expansion(0);
+
+    let (_, rendered_ranges) = build_rendered_lines(&chat, &ThemeTokens::default(), 60, 0, false);
+    let metrics = build_transcript_metrics(&chat, &ThemeTokens::default(), 60, 0, false);
+    let rendered_count = rendered_ranges[0].1 - rendered_ranges[0].0;
+    let estimated_count = metrics.message_line_ranges[0].1 - metrics.message_line_ranges[0].0;
+
+    assert_eq!(
+        estimated_count, rendered_count,
+        "expanded tool transcript metrics must cover every rendered line"
+    );
+}
+
+#[test]
 fn selected_expanded_reasoning_message_action_bar_shows_collapse() {
     let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Assistant,

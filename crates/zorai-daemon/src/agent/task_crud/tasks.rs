@@ -43,6 +43,17 @@ fn task_matches_list_query(task: &AgentTask, query: &crate::history::AgentTaskLi
             return false;
         }
     }
+    if !query.thread_ids.is_empty()
+        && !task.thread_id.as_deref().is_some_and(|thread_id| {
+            query
+                .thread_ids
+                .iter()
+                .map(|candidate| candidate.trim())
+                .any(|candidate| !candidate.is_empty() && candidate == thread_id)
+        })
+    {
+        return false;
+    }
     if let Some(goal_run_id) = query
         .goal_run_id
         .as_deref()
@@ -60,6 +71,18 @@ fn task_matches_list_query(task: &AgentTask, query: &crate::history::AgentTaskLi
         if task.parent_task_id.as_deref() != Some(parent_task_id) {
             return false;
         }
+    }
+    if let Some(approval_id) = query
+        .awaiting_approval_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        if task.awaiting_approval_id.as_deref() != Some(approval_id) {
+            return false;
+        }
+    }
+    if query.supervisor_config_present && task.supervisor_config.is_none() {
+        return false;
     }
     if query.exclude_terminal_statuses
         && crate::agent::task_scheduler::is_task_terminal_status(task.status)
@@ -185,22 +208,28 @@ impl AgentEngine {
         &self,
         approval_id: &str,
     ) -> Result<Option<zorai_protocol::TaskApprovalRule>> {
-        let command = {
-            let tasks = self.tasks.lock().await;
-            tasks.iter().find_map(|task| {
-                (task.awaiting_approval_id.as_deref() == Some(approval_id))
-                    .then(|| Self::approval_command_from_task(task))
-                    .flatten()
-            })
-        };
-        let command = match command {
+        let persisted_command = self
+            .history
+            .pending_agent_task_approval_command(approval_id)
+            .await?;
+        let command = match persisted_command {
             Some(command) => Some(command),
-            None => self
-                .pending_approval_commands
-                .read()
-                .await
-                .get(approval_id)
-                .cloned(),
+            None => match {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find_map(|task| {
+                    (task.awaiting_approval_id.as_deref() == Some(approval_id))
+                        .then(|| Self::approval_command_from_task(task))
+                        .flatten()
+                })
+            } {
+                Some(command) => Some(command),
+                None => self
+                    .pending_approval_commands
+                    .read()
+                    .await
+                    .get(approval_id)
+                    .cloned(),
+            },
         };
         let Some(command) = command else {
             return Ok(None);
@@ -267,6 +296,60 @@ impl AgentEngine {
             Some(pending_approval.command.clone()),
         );
         true
+    }
+
+    async fn pending_approval_task_for_resolution(
+        &self,
+        approval_id: &str,
+        source: Option<&str>,
+    ) -> Option<AgentTask> {
+        let task = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: source.map(ToOwned::to_owned),
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: Some(approval_id.to_string()),
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: true,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next();
+        if let Some(task) = task {
+            {
+                let mut tasks = self.tasks.lock().await;
+                if !tasks.iter().any(|entry| entry.id == task.id) {
+                    tasks.push_back(task.clone());
+                }
+            }
+            return Some(task);
+        }
+
+        let task = {
+            let tasks = self.tasks.lock().await;
+            tasks
+                .iter()
+                .find(|task| {
+                    task.awaiting_approval_id.as_deref() == Some(approval_id)
+                        && source.is_none_or(|source| task.source == source)
+                })
+                .cloned()
+        };
+        let task = task?;
+        {
+            let mut tasks = self.tasks.lock().await;
+            if !tasks.iter().any(|entry| entry.id == task.id) {
+                tasks.push_back(task.clone());
+            }
+        }
+        Some(task)
     }
 
     pub async fn add_task(
@@ -500,7 +583,90 @@ impl AgentEngine {
                 return true;
             }
         }
-        false
+        drop(tasks);
+
+        let Some(mut task) = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+        else {
+            return false;
+        };
+        if !matches!(
+            task.status,
+            TaskStatus::Queued
+                | TaskStatus::InProgress
+                | TaskStatus::Blocked
+                | TaskStatus::FailedAnalyzing
+                | TaskStatus::AwaitingApproval
+        ) {
+            return false;
+        }
+
+        let thread_to_stop = task.thread_id.clone();
+        let session_to_interrupt = task.session_id.clone();
+        task.status = TaskStatus::Cancelled;
+        task.completed_at = Some(now_millis());
+        task.lane_id = None;
+        task.blocked_reason = None;
+        task.awaiting_approval_id = None;
+        task.logs.push(make_task_log_entry(
+            task.retry_count,
+            TaskLogLevel::Warn,
+            "queue",
+            "task cancelled by user",
+            None,
+        ));
+        {
+            let mut tasks = self.tasks.lock().await;
+            if !tasks.iter().any(|entry| entry.id == task.id) {
+                tasks.push_back(task.clone());
+            }
+        }
+        self.persist_tasks().await;
+        if let Some(thread_id) = thread_to_stop {
+            let _ = self.stop_stream(&thread_id).await;
+        }
+        if let Some(session_id) =
+            session_to_interrupt.and_then(|value| Uuid::parse_str(&value).ok())
+        {
+            let _ = self.session_manager.write_input(session_id, &[3]).await;
+        }
+        self.emit_task_update(&task, Some("Cancelled by user".into()));
+        self.settle_task_skill_consultations(&task, "cancelled")
+            .await;
+        self.record_collaboration_outcome(&task, "cancelled").await;
+        self.record_provenance_event(
+            "step_cancelled",
+            "task cancelled by operator",
+            serde_json::json!({
+                "task_id": task.id,
+                "title": task.title,
+                "source": task.source,
+            }),
+            task.goal_run_id.as_deref(),
+            Some(task.id.as_str()),
+            task.thread_id.as_deref(),
+            None,
+            None,
+        )
+        .await;
+        true
     }
 
     pub async fn handle_task_approval_resolution(
@@ -508,16 +674,9 @@ impl AgentEngine {
         approval_id: &str,
         decision: zorai_protocol::ApprovalDecision,
     ) -> bool {
-        let goal_plan_approval_task = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|task| {
-                    task.awaiting_approval_id.as_deref() == Some(approval_id)
-                        && task.source == "goal_plan_approval"
-                })
-                .cloned()
-        };
+        let goal_plan_approval_task = self
+            .pending_approval_task_for_resolution(approval_id, Some("goal_plan_approval"))
+            .await;
         if let Some(task) = goal_plan_approval_task {
             let review_task_id = task.id.clone();
             let goal_run_id = task.goal_run_id.clone();
@@ -653,16 +812,9 @@ impl AgentEngine {
             return true;
         }
 
-        let handoff_task = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|task| {
-                    task.awaiting_approval_id.as_deref() == Some(approval_id)
-                        && task.source == "thread_handoff"
-                })
-                .cloned()
-        };
+        let handoff_task = self
+            .pending_approval_task_for_resolution(approval_id, Some("thread_handoff"))
+            .await;
         if let Some(task) = handoff_task {
             let handoff_task_id = task.id.clone();
             let request = task.command.as_deref().and_then(|value| {
@@ -797,6 +949,14 @@ impl AgentEngine {
                     return true;
                 }
             }
+        }
+
+        if self
+            .pending_approval_task_for_resolution(approval_id, None)
+            .await
+            .is_none()
+        {
+            return false;
         }
 
         let updated = {
@@ -941,7 +1101,8 @@ impl AgentEngine {
     }
 
     pub async fn list_tasks(&self) -> Vec<AgentTask> {
-        self.snapshot_tasks().await
+        self.list_tasks_filtered(&crate::history::AgentTaskListQuery::default())
+            .await
     }
 
     async fn refresh_task_queue_state_for_filtered_list(&self) {
@@ -981,7 +1142,23 @@ impl AgentEngine {
     }
 
     pub async fn list_runs(&self) -> Vec<AgentRun> {
-        let tasks = self.snapshot_tasks().await;
+        let tasks = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await;
         let sessions = self.session_manager.list().await;
         let mut runs = project_task_runs(&tasks, &sessions);
         runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -989,7 +1166,44 @@ impl AgentEngine {
     }
 
     pub async fn get_run(&self, run_id: &str) -> Option<AgentRun> {
-        let tasks = self.snapshot_tasks().await;
+        let mut tasks = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(run_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await;
+        let parent_task_id = tasks.first().and_then(|task| task.parent_task_id.clone());
+        if let Some(parent_task_id) = parent_task_id {
+            tasks.extend(
+                self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(parent_task_id),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
+                .await,
+            );
+        }
         let sessions = self.session_manager.list().await;
         project_task_runs(&tasks, &sessions)
             .into_iter()

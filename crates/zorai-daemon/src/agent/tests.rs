@@ -527,6 +527,8 @@ async fn replace_thread_todos_binds_authoritative_goal_items_to_current_step() {
     task.goal_step_id = Some("step-0".to_string());
     task.goal_step_title = Some("Inspect".to_string());
     engine.tasks.lock().await.push_back(task.clone());
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     engine
         .replace_thread_todos(

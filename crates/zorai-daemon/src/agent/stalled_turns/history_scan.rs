@@ -20,7 +20,29 @@ impl AgentEngine {
             .collect::<HashSet<_>>();
         let threads = self.threads.read().await.clone();
         let goal_runs = self.goal_runs.lock().await.clone();
-        let tasks = self.tasks.lock().await.clone();
+        let task_thread_ids = threads.keys().cloned().collect::<Vec<_>>();
+        let tasks = if task_thread_ids.is_empty() {
+            VecDeque::new()
+        } else {
+            self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: stalled_turn_task_statuses(),
+                source: None,
+                thread_id: None,
+                thread_ids: task_thread_ids,
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: true,
+                limit: None,
+            })
+            .await
+            .into_iter()
+            .collect::<VecDeque<_>>()
+        };
         let subagent_runtime = self.subagent_runtime.read().await.clone();
         let pending_operator_question_thread_ids =
             self.pending_operator_question_thread_ids().await;
@@ -190,6 +212,27 @@ impl AgentEngine {
             .participant_observer_restore_window_hours;
         (window_hours as u64).saturating_mul(60 * 60 * 1000)
     }
+}
+
+fn stalled_turn_task_statuses() -> Vec<String> {
+    [
+        TaskStatus::Queued,
+        TaskStatus::InProgress,
+        TaskStatus::AwaitingApproval,
+        TaskStatus::Blocked,
+        TaskStatus::FailedAnalyzing,
+        TaskStatus::BudgetExceeded,
+        TaskStatus::Completed,
+        TaskStatus::Failed,
+        TaskStatus::Cancelled,
+    ]
+    .into_iter()
+    .filter_map(|status| {
+        serde_json::to_value(status)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned))
+    })
+    .collect()
 }
 
 fn latest_stalled_turn_observation(

@@ -2871,8 +2871,11 @@ async fn spawn_subagent_inherits_goal_from_persisted_parent_task() {
             statuses: Vec::new(),
             source: Some("subagent".to_string()),
             thread_id: None,
+            thread_ids: Vec::new(),
             goal_run_id: None,
             parent_task_id: Some(parent_task.id.clone()),
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
@@ -3185,6 +3188,73 @@ async fn broadcast_contribution_honors_explicit_parent_task_id_without_current_t
             .len(),
         1
     );
+}
+
+#[tokio::test]
+async fn broadcast_contribution_uses_persisted_current_task_parent_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.collaboration.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Parent coordinator".to_string(),
+            "Coordinate the child work".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    let child = engine
+        .enqueue_task(
+            "Research child".to_string(),
+            "Inspect deployment risks".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine
+        .register_subagent_collaboration(&parent.id, &child)
+        .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let result = super::execute_broadcast_contribution(
+        &serde_json::json!({
+            "topic": "deploy",
+            "position": "ship after smoke tests",
+            "evidence": ["child task was persisted"],
+            "confidence": 0.91
+        }),
+        &engine,
+        "thread-parent",
+        Some(&child.id),
+    )
+    .await
+    .expect("persisted current task should provide parent context");
+
+    let report: serde_json::Value =
+        serde_json::from_str(&result).expect("result should be valid json");
+    assert_eq!(report["contribution"]["task_id"], child.id);
+    assert_eq!(report["contribution"]["topic"], "deploy");
 }
 
 #[tokio::test]

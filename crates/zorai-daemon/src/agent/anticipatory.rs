@@ -136,10 +136,38 @@ impl AgentEngine {
             let goal_runs = self.goal_runs.lock().await;
             goal_runs.iter().cloned().collect::<Vec<_>>()
         };
-        let tasks = {
-            let tasks = self.tasks.lock().await;
-            tasks.clone()
-        };
+        let prewarm_task_statuses = [
+            TaskStatus::InProgress,
+            TaskStatus::AwaitingApproval,
+            TaskStatus::Blocked,
+            TaskStatus::FailedAnalyzing,
+        ]
+        .into_iter()
+        .filter_map(|status| {
+            serde_json::to_value(status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        })
+        .collect::<Vec<_>>();
+        let tasks = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: prewarm_task_statuses,
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await
+            .into_iter()
+            .collect::<VecDeque<_>>();
         let threads = collect_session_start_prewarm_threads(attention_target, &goal_runs, &tasks);
         let now = now_millis();
         for thread_id in threads {
@@ -244,18 +272,30 @@ impl AgentEngine {
         &self,
         attention_target: Option<&str>,
     ) -> Option<String> {
-        let awaiting_task_threads = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .filter(|task| task.status == TaskStatus::AwaitingApproval)
-                .filter_map(|task| {
-                    task.thread_id
-                        .clone()
-                        .or_else(|| task.parent_thread_id.clone())
-                })
-                .collect::<Vec<_>>()
-        };
+        let awaiting_approval_status = serde_json::to_value(TaskStatus::AwaitingApproval)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned))
+            .unwrap_or_else(|| "awaiting_approval".to_string());
+        let awaiting_task_threads = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: Some(awaiting_approval_status),
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await
+            .into_iter()
+            .filter_map(|task| task.thread_id.or(task.parent_thread_id))
+            .collect::<Vec<_>>();
 
         if let Some(attention_target) = attention_target {
             if awaiting_task_threads
@@ -896,18 +936,39 @@ impl AgentEngine {
                 now,
             )
         };
-        let tasks = self.tasks.lock().await;
+        let stuck_hint_statuses = [
+            TaskStatus::InProgress,
+            TaskStatus::AwaitingApproval,
+            TaskStatus::Blocked,
+            TaskStatus::FailedAnalyzing,
+        ]
+        .into_iter()
+        .filter_map(|status| {
+            serde_json::to_value(status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        })
+        .collect::<Vec<_>>();
+        let tasks = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: stuck_hint_statuses,
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await;
         let candidate = tasks
             .iter()
-            .filter(|task| {
-                matches!(
-                    task.status,
-                    TaskStatus::InProgress
-                        | TaskStatus::AwaitingApproval
-                        | TaskStatus::Blocked
-                        | TaskStatus::FailedAnalyzing
-                ) && !crate::agent::concierge::is_user_hidden_task(task)
-            })
+            .filter(|task| !crate::agent::concierge::is_user_hidden_task(task))
             .max_by(|left, right| {
                 let left_priority = task_attention_priority(left, &attention);
                 let right_priority = task_attention_priority(right, &attention);
@@ -1216,13 +1277,20 @@ impl AgentEngine {
         let mut predicted_action = None::<(&str, f64, Vec<String>)>;
 
         if let Some(thread_id) = attention_thread_id.as_deref() {
-            let pending_approval = {
-                let tasks = self.tasks.lock().await;
-                tasks.iter().any(|task| {
-                    matches!(task.status, TaskStatus::AwaitingApproval)
-                        && (task.thread_id.as_deref() == Some(thread_id)
-                            || task.parent_thread_id.as_deref() == Some(thread_id))
-                })
+            let pending_approval = match self
+                .history
+                .has_awaiting_approval_task_for_thread(thread_id)
+                .await
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    tracing::warn!(
+                        thread_id = %thread_id,
+                        error = %error,
+                        "failed to query awaiting-approval tasks for intent prediction"
+                    );
+                    false
+                }
             };
             if pending_approval {
                 predicted_action = Some((

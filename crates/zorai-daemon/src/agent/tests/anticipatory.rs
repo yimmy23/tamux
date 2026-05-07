@@ -253,6 +253,36 @@ async fn session_start_prewarm_hydrates_active_attention_thread() {
 }
 
 #[tokio::test]
+async fn session_start_prewarm_hydrates_persisted_active_task_thread_after_live_queue_clear() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut task = sample_task("task-prewarm", Some("thread-task-prewarm"), None);
+    task.status = TaskStatus::InProgress;
+    task.started_at = Some(now_millis().saturating_sub(5_000));
+    engine.tasks.lock().await.push_back(task);
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    engine.mark_operator_present("test").await;
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .hydration_by_thread
+            .contains_key("thread-task-prewarm"),
+        "session-start prewarm should hydrate active task threads from persisted task rows"
+    );
+}
+
+#[tokio::test]
 async fn anticipatory_tick_routes_stuck_hint_to_thread_surface_with_idle_signal() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
@@ -270,6 +300,8 @@ async fn anticipatory_tick_routes_stuck_hint_to_thread_surface_with_idle_signal(
     stale_task.started_at = Some(now.saturating_sub(30_000));
     stale_task.last_error = Some("command timed out while waiting for output".to_string());
     engine.tasks.lock().await.push_back(stale_task);
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     engine
         .set_thread_client_surface("thread-surface", zorai_protocol::ClientSurface::Electron)
@@ -733,6 +765,8 @@ async fn anticipatory_tick_surfaces_intent_prediction_for_pending_approval() {
     task.title = "Need approval".to_string();
     task.status = TaskStatus::AwaitingApproval;
     engine.tasks.lock().await.push_back(task);
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
     engine
         .record_operator_attention("conversation:chat", Some("thread-intent"), None)
         .await
@@ -981,6 +1015,8 @@ async fn awaiting_approval_thread_overrides_tightened_predictive_hydration_targe
     let mut approval_task = sample_task("task-awaiting", Some("thread-approval"), None);
     approval_task.status = TaskStatus::AwaitingApproval;
     engine.tasks.lock().await.push_back(approval_task);
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     {
         let mut model = engine.operator_model.write().await;

@@ -95,7 +95,7 @@ fn scroll_offset_from_thumb_offset(thumb_offset: u16, track_span: u16, max_scrol
 pub(crate) fn scrollbar_layout(
     area: Rect,
     chat: &ChatState,
-    _theme: &ThemeTokens,
+    theme: &ThemeTokens,
     current_tick: u64,
     retry_wait_start_selected: bool,
 ) -> Option<ChatScrollbarLayout> {
@@ -105,6 +105,7 @@ pub(crate) fn scrollbar_layout(
 
     let metrics = build_transcript_metrics(
         chat,
+        theme,
         area.width as usize,
         current_tick,
         retry_wait_start_selected,
@@ -255,6 +256,7 @@ fn visible_rendered_lines(
     let inner = content_inner(area);
     let metrics = build_transcript_metrics(
         chat,
+        theme,
         inner.width as usize,
         current_tick,
         retry_wait_start_selected,
@@ -302,6 +304,7 @@ fn selection_snapshot(
 
     let metrics = build_transcript_metrics(
         chat,
+        theme,
         inner.width as usize,
         current_tick,
         retry_wait_start_selected,

@@ -84,8 +84,11 @@ impl AgentEngine {
             statuses: Vec::new(),
             source: None,
             thread_id: Some(thread_id.to_string()),
+            thread_ids: Vec::new(),
             goal_run_id: None,
             parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: true,
             limit: Some(1),
@@ -447,13 +450,7 @@ impl AgentEngine {
     pub(super) async fn reserve_unique_thread_id(&self) -> String {
         loop {
             let candidate = format!("thread_{}", Uuid::new_v4());
-            let task_conflict = {
-                let tasks = self.tasks.lock().await;
-                tasks
-                    .iter()
-                    .any(|task| task.thread_id.as_deref() == Some(candidate.as_str()))
-            };
-            if task_conflict {
+            if self.task_thread_id_conflicts(&candidate).await {
                 continue;
             }
 
@@ -474,6 +471,27 @@ impl AgentEngine {
 
             return candidate;
         }
+    }
+
+    async fn task_thread_id_conflicts(&self, thread_id: &str) -> bool {
+        !self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: Some(thread_id.to_string()),
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .is_empty()
     }
 
     /// Get or create a thread, returning the thread ID and whether it was newly created.
@@ -903,13 +921,26 @@ impl AgentEngine {
         let client_surface = if let Some(thread_id) = thread_id {
             self.get_thread_client_surface(thread_id).await
         } else {
-            let goal_run_id = {
-                let tasks = self.tasks.lock().await;
-                tasks
-                    .iter()
-                    .find(|task| task.id == task_id)
-                    .and_then(|task| task.goal_run_id.clone())
-            };
+            let goal_run_id = self
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
+                .await
+                .into_iter()
+                .next()
+                .and_then(|task| task.goal_run_id);
             match goal_run_id {
                 Some(goal_run_id) => self.get_goal_run_client_surface(&goal_run_id).await,
                 None => None,

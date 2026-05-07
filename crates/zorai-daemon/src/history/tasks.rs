@@ -398,6 +398,22 @@ impl HistoryStore {
             task_sql.push_str(" AND thread_id = ?");
             task_values.push(rusqlite::types::Value::Text(thread_id.to_string()));
         }
+        let thread_ids = query
+            .thread_ids
+            .iter()
+            .map(|thread_id| thread_id.trim())
+            .filter(|thread_id| !thread_id.is_empty())
+            .collect::<Vec<_>>();
+        if !thread_ids.is_empty() {
+            let placeholders = std::iter::repeat("?")
+                .take(thread_ids.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            task_sql.push_str(&format!(" AND thread_id IN ({placeholders})"));
+            for thread_id in thread_ids {
+                task_values.push(rusqlite::types::Value::Text(thread_id.to_string()));
+            }
+        }
         if let Some(goal_run_id) = query
             .goal_run_id
             .as_deref()
@@ -413,6 +429,19 @@ impl HistoryStore {
         {
             task_sql.push_str(" AND parent_task_id = ?");
             task_values.push(rusqlite::types::Value::Text(parent_task_id.to_string()));
+        }
+        if let Some(approval_id) = query
+            .awaiting_approval_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            task_sql.push_str(" AND awaiting_approval_id = ?");
+            task_values.push(rusqlite::types::Value::Text(approval_id.to_string()));
+        }
+        if query.supervisor_config_present {
+            task_sql.push_str(
+                " AND supervisor_config_json IS NOT NULL AND TRIM(supervisor_config_json) <> ''",
+            );
         }
         if query.exclude_terminal_statuses {
             task_sql.push_str(
@@ -603,6 +632,91 @@ impl HistoryStore {
                 )
                 .optional()
                 .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn has_agent_task_pending_approval(&self) -> Result<bool> {
+        self.read_conn
+            .call(move |conn| {
+                let count: i64 = conn.query_row(
+                    "SELECT COUNT(1)
+                     FROM agent_tasks
+                     WHERE deleted_at IS NULL
+                       AND awaiting_approval_id IS NOT NULL
+                       AND TRIM(awaiting_approval_id) <> ''",
+                    [],
+                    |row| row.get(0),
+                )?;
+                Ok(count > 0)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn has_awaiting_approval_task_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Result<bool> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let count: i64 = conn.query_row(
+                    "SELECT COUNT(1)
+                     FROM agent_tasks
+                     WHERE deleted_at IS NULL
+                       AND status = 'awaiting_approval'
+                       AND (thread_id = ?1 OR parent_thread_id = ?1)",
+                    params![thread_id],
+                    |row| row.get(0),
+                )?;
+                Ok(count > 0)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn pending_agent_task_approval_command(
+        &self,
+        approval_id: &str,
+    ) -> Result<Option<String>> {
+        const APPROVAL_REASON_PREFIX: &str = "waiting for operator approval: ";
+
+        let approval_id = approval_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let row = conn
+                    .query_row(
+                        "SELECT command, blocked_reason
+                         FROM agent_tasks
+                         WHERE deleted_at IS NULL
+                           AND awaiting_approval_id = ?1
+                         ORDER BY created_at DESC
+                         LIMIT 1",
+                        params![approval_id],
+                        |row| {
+                            Ok((
+                                row.get::<_, Option<String>>(0)?,
+                                row.get::<_, Option<String>>(1)?,
+                            ))
+                        },
+                    )
+                    .optional()?;
+                let Some((command, blocked_reason)) = row else {
+                    return Ok(None);
+                };
+                if let Some(command) = command.map(|value| value.trim().to_string()) {
+                    if !command.is_empty() {
+                        return Ok(Some(command));
+                    }
+                }
+                Ok(blocked_reason
+                    .as_deref()
+                    .and_then(|reason| reason.strip_prefix(APPROVAL_REASON_PREFIX))
+                    .map(str::trim)
+                    .filter(|command| !command.is_empty())
+                    .map(ToOwned::to_owned))
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))

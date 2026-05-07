@@ -1713,6 +1713,45 @@ async fn enqueue_goal_run_specialist_step_uses_goal_local_assignment_overrides()
 }
 
 #[tokio::test]
+async fn handoff_created_task_for_goal_step_reads_persisted_task_after_live_queue_clear() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut task = engine
+        .enqueue_task(
+            "Persisted specialist handoff".to_string(),
+            "goal planner should read this handoff task from history".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "handoff",
+            Some("goal-persisted-handoff".to_string()),
+            None,
+            Some("thread-persisted-handoff".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    task.thread_id = Some("thread-persisted-handoff".to_string());
+    {
+        let mut tasks = engine.tasks.lock().await;
+        tasks.clear();
+        tasks.push_back(task.clone());
+    }
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let fetched = engine
+        .handoff_created_task_for_goal_step(&task.id)
+        .await
+        .expect("persisted handoff task should be found");
+    assert_eq!(fetched.id, task.id);
+    assert_eq!(fetched.source, "handoff");
+}
+
+#[tokio::test]
 async fn current_step_owner_profile_reports_goal_local_agent_details() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -3959,6 +3998,8 @@ async fn complete_goal_run_reuses_existing_active_final_review() {
     existing_review.goal_step_id = None;
     existing_review.goal_step_title = None;
     engine.tasks.lock().await.push_back(existing_review.clone());
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     engine
         .complete_goal_run(goal_run_id)
@@ -3974,13 +4015,23 @@ async fn complete_goal_run_reuses_existing_active_final_review() {
         Some(existing_review.id.as_str())
     );
     let final_review_task_count = engine
-        .tasks
-        .lock()
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: Some("goal_final_review".to_string()),
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: Some(goal_run_id.to_string()),
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
         .await
-        .iter()
-        .filter(|task| task.goal_run_id.as_deref() == Some(goal_run_id))
-        .filter(|task| task.source == "goal_final_review")
-        .count();
+        .len();
     assert_eq!(final_review_task_count, 1);
 }
 

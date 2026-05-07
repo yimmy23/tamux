@@ -68,6 +68,42 @@ fn direct_message_entrypoints_box_large_send_message_futures() {
     );
 }
 
+#[tokio::test]
+async fn task_thread_id_conflicts_finds_persisted_task_after_live_queue_clear() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-persisted-task-conflict";
+
+    let mut task = engine
+        .enqueue_task(
+            "Persisted task thread".to_string(),
+            "reserve_unique_thread_id should avoid this persisted thread id".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            None,
+            Some(thread_id.to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    task.thread_id = Some(thread_id.to_string());
+    {
+        let mut tasks = engine.tasks.lock().await;
+        tasks.clear();
+        tasks.push_back(task.clone());
+    }
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    assert_eq!(task.thread_id.as_deref(), Some(thread_id));
+    assert!(engine.task_thread_id_conflicts(thread_id).await);
+}
+
 #[test]
 fn daemon_generated_message_paths_use_internal_initiator() {
     let heartbeat =
@@ -96,6 +132,60 @@ fn daemon_generated_message_paths_use_internal_initiator() {
     assert!(
         gateway_message_helpers.contains("send_internal_message(None, &prompt)"),
         "gateway reset confirmations should use agent initiator"
+    );
+}
+
+#[tokio::test]
+async fn send_task_message_inherits_goal_surface_from_persisted_task_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-send-task-surface";
+
+    let task = engine
+        .enqueue_task(
+            "Persisted task surface".to_string(),
+            "task message should inherit goal surface from persisted metadata".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "goal_run",
+            Some(goal_run_id.to_string()),
+            None,
+            None,
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine
+        .set_goal_run_client_surface(goal_run_id, zorai_protocol::ClientSurface::Tui)
+        .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let result = engine
+        .send_task_message(
+            &task.id,
+            None,
+            None,
+            Some("missing-provider-for-surface-test"),
+            "surface inheritance probe",
+        )
+        .await;
+
+    assert!(
+        result.is_err(),
+        "invalid provider should stop before any network request"
+    );
+    assert!(
+        engine
+            .thread_client_surfaces
+            .read()
+            .await
+            .values()
+            .any(|surface| *surface == zorai_protocol::ClientSurface::Tui),
+        "new task thread should inherit the TUI surface from the persisted task's goal run"
     );
 }
 
@@ -443,6 +533,55 @@ async fn thread_client_surface_persists_with_thread_metadata() {
         rehydrated.get_thread_client_surface(thread_id).await,
         Some(zorai_protocol::ClientSurface::Tui)
     );
+}
+
+#[tokio::test]
+async fn thread_client_surface_setter_updates_persisted_thread_without_live_thread() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread_surface_persisted_only";
+
+    engine
+        .history
+        .create_thread(&zorai_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some(MAIN_AGENT_NAME.to_string()),
+            title: "Persisted only surface".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: Some(serde_json::json!({ "pinned": true }).to_string()),
+        })
+        .await
+        .expect("seed persisted thread");
+    assert!(
+        engine.threads.read().await.is_empty(),
+        "test setup should leave thread outside the live map"
+    );
+
+    engine
+        .set_thread_client_surface(thread_id, zorai_protocol::ClientSurface::Tui)
+        .await;
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let rehydrated = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    rehydrated.hydrate().await.expect("hydrate");
+
+    assert_eq!(
+        rehydrated.get_thread_client_surface(thread_id).await,
+        Some(zorai_protocol::ClientSurface::Tui)
+    );
+    let thread = rehydrated
+        .get_thread(thread_id)
+        .await
+        .expect("thread should hydrate");
+    assert!(thread.pinned, "unrelated metadata should be preserved");
 }
 
 #[tokio::test]

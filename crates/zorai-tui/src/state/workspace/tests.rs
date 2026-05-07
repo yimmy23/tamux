@@ -1,5 +1,8 @@
 use super::*;
-use zorai_protocol::{WorkspaceActor, WorkspaceTaskRuntimeHistoryEntry, WorkspaceTaskType};
+use zorai_protocol::{
+    WorkspaceActor, WorkspaceNotice, WorkspacePriority, WorkspaceTask,
+    WorkspaceTaskRuntimeHistoryEntry, WorkspaceTaskStatus, WorkspaceTaskType,
+};
 
 fn task(id: &str, status: WorkspaceTaskStatus, priority: WorkspacePriority) -> WorkspaceTask {
     WorkspaceTask {

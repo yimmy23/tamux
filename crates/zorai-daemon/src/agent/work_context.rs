@@ -18,6 +18,31 @@ fn goal_run_status_to_event_kind(status: GoalRunStatus) -> &'static str {
     }
 }
 
+fn mark_task_waiting_for_approval(
+    task: &mut AgentTask,
+    thread_id: &str,
+    pending_approval: &ToolPendingApproval,
+    reason: String,
+) {
+    task.status = TaskStatus::AwaitingApproval;
+    task.thread_id = Some(thread_id.to_string());
+    if task.session_id.is_none() {
+        task.session_id = pending_approval.session_id.clone();
+    }
+    task.awaiting_approval_id = Some(pending_approval.approval_id.clone());
+    task.blocked_reason = Some(reason.clone());
+    task.error = None;
+    task.last_error = None;
+    task.progress = task.progress.max(35);
+    task.logs.push(make_task_log_entry(
+        task.retry_count,
+        TaskLogLevel::Warn,
+        "approval",
+        "managed command paused for operator approval",
+        Some(reason),
+    ));
+}
+
 impl AgentEngine {
     pub(super) fn emit_task_update(&self, task: &AgentTask, message: Option<String>) {
         let _ = self.event_tx.send(AgentEvent::TaskUpdate {
@@ -265,8 +290,11 @@ impl AgentEngine {
                 statuses: Vec::new(),
                 source: None,
                 thread_id: None,
+                thread_ids: Vec::new(),
                 goal_run_id: None,
                 parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
@@ -321,8 +349,11 @@ impl AgentEngine {
                 statuses: Vec::new(),
                 source: None,
                 thread_id: None,
+                thread_ids: Vec::new(),
                 goal_run_id: None,
                 parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
@@ -629,13 +660,26 @@ impl AgentEngine {
         task_id: &str,
         items: &[TodoItem],
     ) -> Option<GoalRun> {
-        let goal_run_id = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|task| task.id == task_id)
-                .and_then(|task| task.goal_run_id.clone())
-        }?;
+        let goal_run_id = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .into_iter()
+            .next()
+            .and_then(|task| task.goal_run_id)?;
 
         let mut goal_runs = self.goal_runs.lock().await;
         let goal_run = goal_runs
@@ -658,37 +702,63 @@ impl AgentEngine {
         thread_id: &str,
         pending_approval: &ToolPendingApproval,
     ) {
-        let updated = {
+        let reason = format!(
+            "waiting for operator approval: {}",
+            pending_approval.command
+        );
+        let live_updated = {
             let mut tasks = self.tasks.lock().await;
-            let Some(task) = tasks.iter_mut().find(|entry| entry.id == task_id) else {
+            tasks
+                .iter_mut()
+                .find(|entry| entry.id == task_id)
+                .map(|task| {
+                    mark_task_waiting_for_approval(
+                        task,
+                        thread_id,
+                        pending_approval,
+                        reason.clone(),
+                    );
+                    task.clone()
+                })
+        };
+        let updated = if let Some(updated) = live_updated {
+            self.persist_tasks().await;
+            updated
+        } else {
+            let Some(mut task) = self
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
+                .await
+                .into_iter()
+                .next()
+            else {
                 return;
             };
-
-            let reason = format!(
-                "waiting for operator approval: {}",
-                pending_approval.command
-            );
-            task.status = TaskStatus::AwaitingApproval;
-            task.thread_id = Some(thread_id.to_string());
-            if task.session_id.is_none() {
-                task.session_id = pending_approval.session_id.clone();
+            mark_task_waiting_for_approval(&mut task, thread_id, pending_approval, reason);
+            if let Err(error) = self.history.upsert_agent_task(&task).await {
+                tracing::warn!(
+                    task_id = %task.id,
+                    %error,
+                    "failed to persist task awaiting approval state"
+                );
+                return;
             }
-            task.awaiting_approval_id = Some(pending_approval.approval_id.clone());
-            task.blocked_reason = Some(reason.clone());
-            task.error = None;
-            task.last_error = None;
-            task.progress = task.progress.max(35);
-            task.logs.push(make_task_log_entry(
-                task.retry_count,
-                TaskLogLevel::Warn,
-                "approval",
-                "managed command paused for operator approval",
-                Some(reason),
-            ));
-            task.clone()
+            task
         };
 
-        self.persist_tasks().await;
         self.emit_task_update(&updated, Some("Task awaiting approval".into()));
         if let Some(thread_id) = updated.thread_id.as_deref() {
             let _ = self

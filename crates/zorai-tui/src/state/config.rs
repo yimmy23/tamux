@@ -1,12 +1,18 @@
 // Local wire type copies (will be replaced by crate::wire imports in Task 9)
 #![allow(dead_code)]
 
-include!("config_parts/json_u32_to_from_config.rs");
-include!("config_parts/new_to_default.rs");
+#[path = "config_parts/json_u32_to_from_config.rs"]
+mod json_u32_to_from_config;
+
+#[path = "config_parts/new_to_default.rs"]
+mod new_to_default;
+
+pub use json_u32_to_from_config::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zorai_shared::providers::PROVIDER_ID_MINIMAX_CODING_PLAN;
+    use crate::providers;
+    use zorai_shared::providers::{PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI};
 
     fn make_snapshot(provider: &str, model: &str) -> AgentConfigSnapshot {
         AgentConfigSnapshot {

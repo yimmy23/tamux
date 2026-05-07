@@ -271,6 +271,7 @@ struct TranscriptMetrics {
 
 fn build_transcript_metrics(
     chat: &ChatState,
+    theme: &ThemeTokens,
     inner_width: usize,
     current_tick: u64,
     retry_wait_start_selected: bool,
@@ -297,6 +298,7 @@ fn build_transcript_metrics(
                 msg,
                 idx,
                 mode,
+                theme,
                 content_width,
                 &expanded,
                 &expanded_tools,
@@ -330,6 +332,7 @@ fn estimated_message_block_line_count(
     msg: &AgentMessage,
     msg_index: usize,
     mode: TranscriptMode,
+    theme: &ThemeTokens,
     content_width: usize,
     expanded: &std::collections::HashSet<usize>,
     expanded_tools: &std::collections::HashSet<usize>,
@@ -340,6 +343,7 @@ fn estimated_message_block_line_count(
         msg,
         msg_index,
         mode,
+        theme,
         content_width,
         expanded,
         expanded_tools,
@@ -392,6 +396,7 @@ fn estimated_message_content_line_count(
     msg: &AgentMessage,
     msg_index: usize,
     mode: TranscriptMode,
+    theme: &ThemeTokens,
     content_width: usize,
     expanded: &std::collections::HashSet<usize>,
     expanded_tools: &std::collections::HashSet<usize>,
@@ -411,23 +416,19 @@ fn estimated_message_content_line_count(
                 if msg.tool_name.is_none() {
                     return 0;
                 }
-                let mut count = 1usize;
                 if tools_expanded {
-                    if msg
-                        .tool_arguments
-                        .as_deref()
-                        .is_some_and(|args| !args.is_empty())
-                    {
-                        count = count.saturating_add(1);
-                    }
-                    if !msg.content.is_empty() {
-                        count = count.saturating_add(msg.content.lines().count().min(5));
-                        if msg.content.lines().count() > 5 {
-                            count = count.saturating_add(1);
-                        }
-                    }
+                    return super::message::message_to_lines(
+                        msg,
+                        msg_index,
+                        mode,
+                        theme,
+                        content_width,
+                        expanded,
+                        expanded_tools,
+                    )
+                    .len();
                 }
-                return count;
+                return 1;
             }
 
             if super::message::is_collapsible_system_notice_message(msg) {

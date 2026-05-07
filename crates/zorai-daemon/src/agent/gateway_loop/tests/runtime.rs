@@ -6231,6 +6231,8 @@ async fn gateway_pending_approval_lookup_prefers_task_owned_approval_for_thread(
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     let continuation_approval_id = "approval-task-owned-lookup-continuation".to_string();
     engine.critique_approval_continuations.lock().await.insert(

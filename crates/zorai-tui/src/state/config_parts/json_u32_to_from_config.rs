@@ -23,7 +23,7 @@ pub struct FetchedModel {
     pub metadata: Option<serde_json::Value>,
 }
 
-fn json_u32(value: &serde_json::Value) -> Option<u32> {
+pub(super) fn json_u32(value: &serde_json::Value) -> Option<u32> {
     match value {
         serde_json::Value::Number(number) => number.as_u64().and_then(|n| u32::try_from(n).ok()),
         serde_json::Value::String(text) => text.trim().parse::<u32>().ok(),
@@ -32,7 +32,7 @@ fn json_u32(value: &serde_json::Value) -> Option<u32> {
     .filter(|value| *value > 0)
 }
 
-fn setting_name_matches(value: &serde_json::Value) -> bool {
+pub(super) fn setting_name_matches(value: &serde_json::Value) -> bool {
     value
         .as_str()
         .map(|text| {
@@ -49,22 +49,22 @@ fn setting_name_matches(value: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
-fn provider_supports_audio(provider: &str, group: &str) -> bool {
+pub(super) fn provider_supports_audio(provider: &str, group: &str) -> bool {
     match group {
         "stt" | "tts" => provider == "openrouter",
         _ => false,
     }
 }
 
-fn provider_supports_image_generation(provider: &str) -> bool {
+pub(super) fn provider_supports_image_generation(provider: &str) -> bool {
     provider == "openrouter"
 }
 
-fn provider_supports_embeddings(provider: &str) -> bool {
+pub(super) fn provider_supports_embeddings(provider: &str) -> bool {
     provider == "openrouter"
 }
 
-fn dimensions_from_settings_array(settings: &[serde_json::Value]) -> Option<u32> {
+pub(super) fn dimensions_from_settings_array(settings: &[serde_json::Value]) -> Option<u32> {
     settings.iter().find_map(|setting| {
         let object = setting.as_object()?;
         let name_matches = ["id", "key", "name", "param", "parameter"]

@@ -25,8 +25,11 @@ async fn execute_list_subagents(
             statuses: Vec::new(),
             source: Some("subagent".to_string()),
             thread_id: None,
+            thread_ids: Vec::new(),
             goal_run_id: None,
             parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
@@ -42,8 +45,11 @@ async fn execute_list_subagents(
                     statuses: Vec::new(),
                     source: None,
                     thread_id: None,
+                    thread_ids: Vec::new(),
                     goal_run_id: None,
                     parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
                     exclude_terminal_statuses: false,
                     order_by_recent_activity_desc: false,
                     limit: Some(1),
@@ -222,11 +228,8 @@ async fn execute_broadcast_contribution(
         .map(ToOwned::to_owned);
     let task = if let Some(task_id) = task_id {
         Some(
-            agent
-                .list_tasks()
+            task_by_id_for_tool_scope(agent, task_id)
                 .await
-                .into_iter()
-                .find(|task| task.id == task_id)
                 .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
         )
     } else {
@@ -319,11 +322,8 @@ async fn execute_read_peer_memory(
         .map(ToOwned::to_owned);
     let task = if let Some(task_id) = task_id {
         Some(
-            agent
-                .list_tasks()
+            task_by_id_for_tool_scope(agent, task_id)
                 .await
-                .into_iter()
-                .find(|task| task.id == task_id)
                 .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
         )
     } else {
@@ -355,11 +355,8 @@ async fn execute_vote_on_disagreement(
     }
     let task_id =
         task_id.ok_or_else(|| anyhow::anyhow!("vote_on_disagreement requires a current task"))?;
-    let task = agent
-        .list_tasks()
+    let task = task_by_id_for_tool_scope(agent, task_id)
         .await
-        .into_iter()
-        .find(|task| task.id == task_id)
         .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
     let parent_task_id = task.parent_task_id.clone().ok_or_else(|| {
         anyhow::anyhow!("vote_on_disagreement is only available inside subagents")
@@ -473,11 +470,8 @@ async fn execute_list_collaboration_sessions(
         anyhow::bail!("collaboration capability is disabled in agent config");
     }
     let fallback_parent = if let Some(task_id) = task_id {
-        agent
-            .list_tasks()
+        task_by_id_for_tool_scope(agent, task_id)
             .await
-            .into_iter()
-            .find(|task| task.id == task_id)
             .and_then(|task| task.parent_task_id.or_else(|| Some(task.id)))
     } else {
         None
@@ -712,8 +706,11 @@ async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Re
             statuses: Vec::new(),
             source: None,
             thread_id: None,
+            thread_ids: Vec::new(),
             goal_run_id: None,
             parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit,
@@ -1451,8 +1448,11 @@ async fn execute_show_harness_state(
                     statuses: Vec::new(),
                     source: None,
                     thread_id: None,
+                    thread_ids: Vec::new(),
                     goal_run_id: None,
                     parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
                     exclude_terminal_statuses: false,
                     order_by_recent_activity_desc: false,
                     limit: Some(1),

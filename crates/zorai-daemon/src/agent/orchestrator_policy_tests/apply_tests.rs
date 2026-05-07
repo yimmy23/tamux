@@ -116,6 +116,79 @@ async fn apply_fresh_halt_retries_marks_task_as_failed_immediately() {
 }
 
 #[tokio::test]
+async fn apply_fresh_halt_retries_marks_persisted_task_after_live_queue_clear() {
+    let engine = test_engine().await;
+    let thread_id = "thread-policy-fresh-halt-persisted-task";
+    seed_runtime(&engine, thread_id).await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+    let decision = PolicyDecision {
+        action: PolicyAction::HaltRetries,
+        reason: "Stop retrying the same failing bash path.".to_string(),
+        strategy_hint: None,
+        retry_guard: Some("approach-hash-1".to_string()),
+    };
+    let trigger = PolicyTriggerContext {
+        thread_id: thread_id.to_string(),
+        goal_run_id: Some("goal-1".to_string()),
+        repeated_approach: true,
+        awareness_stuck: true,
+        self_assessment: PolicySelfAssessmentSummary {
+            should_pivot: false,
+            should_escalate: false,
+        },
+    };
+
+    let outcome = engine
+        .apply_orchestrator_policy_decision(
+            thread_id,
+            Some("task-1"),
+            Some("goal-1"),
+            &trigger,
+            &decision,
+            1_000,
+        )
+        .await
+        .expect("halt retries should apply");
+
+    assert_eq!(outcome, PolicyLoopAction::AbortRetry);
+    let persisted = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some("task-1".to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await
+        .pop()
+        .expect("persisted task should remain queryable");
+    assert_eq!(persisted.status, TaskStatus::Failed);
+    assert_eq!(persisted.retry_count, persisted.max_retries);
+    assert_eq!(
+        persisted.blocked_reason.as_deref(),
+        Some("policy halted repeated retry")
+    );
+    assert_eq!(
+        persisted.last_error.as_deref(),
+        Some("policy halted repeated retry")
+    );
+    assert!(persisted.completed_at.is_some());
+    assert!(persisted
+        .logs
+        .iter()
+        .any(|entry| entry.message.contains("policy halted repeated retry")));
+}
+
+#[tokio::test]
 async fn apply_pivot_routes_into_existing_strategy_refresh_behavior() {
     let engine = test_engine().await;
     let thread_id = "thread-policy-pivot";

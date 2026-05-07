@@ -38,6 +38,36 @@ impl GoalResolvedAgentTarget {
     }
 }
 
+fn apply_goal_resolved_target_to_task_state(
+    task: &mut AgentTask,
+    target: Option<&GoalResolvedAgentTarget>,
+) -> Option<String> {
+    match target {
+        Some(GoalResolvedAgentTarget::GoalLocal(agent)) => {
+            task.override_provider = Some(agent.provider.clone());
+            task.override_model = Some(agent.model.clone());
+            task.sub_agent_def_id = None;
+        }
+        Some(GoalResolvedAgentTarget::GlobalSubagent(definition)) => {
+            task.override_provider = Some(definition.provider.clone());
+            task.override_model = Some(definition.model.clone());
+            task.override_system_prompt = definition.system_prompt.clone();
+            task.tool_whitelist = definition.tool_whitelist.clone();
+            task.tool_blacklist = definition.tool_blacklist.clone();
+            task.context_budget_tokens = definition.context_budget_tokens;
+            task.max_duration_secs = definition.max_duration_secs;
+            task.supervisor_config = definition.supervisor_config.clone();
+            task.sub_agent_def_id = Some(definition.id.clone());
+            crate::agent::task_crud::enforce_goal_task_autonomy_tool_blacklist(task);
+            if definition.id == crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID {
+                return Some(task.id.clone());
+            }
+        }
+        Some(GoalResolvedAgentTarget::BuiltinMain) | None => {}
+    }
+    None
+}
+
 fn is_main_identifier(identifier: &str) -> bool {
     let normalized = identifier.trim().to_ascii_lowercase();
     matches!(
@@ -383,39 +413,52 @@ impl AgentEngine {
         task_id: &str,
         target: Option<&GoalResolvedAgentTarget>,
     ) -> Option<AgentTask> {
-        let mut mark_trusted_weles = None;
-        let updated = {
+        let (updated, mark_trusted_weles) = {
             let mut tasks = self.tasks.lock().await;
-            let task = tasks.iter_mut().find(|task| task.id == task_id)?;
-            match target {
-                Some(GoalResolvedAgentTarget::GoalLocal(agent)) => {
-                    task.override_provider = Some(agent.provider.clone());
-                    task.override_model = Some(agent.model.clone());
-                    task.sub_agent_def_id = None;
-                }
-                Some(GoalResolvedAgentTarget::GlobalSubagent(definition)) => {
-                    task.override_provider = Some(definition.provider.clone());
-                    task.override_model = Some(definition.model.clone());
-                    task.override_system_prompt = definition.system_prompt.clone();
-                    task.tool_whitelist = definition.tool_whitelist.clone();
-                    task.tool_blacklist = definition.tool_blacklist.clone();
-                    task.context_budget_tokens = definition.context_budget_tokens;
-                    task.max_duration_secs = definition.max_duration_secs;
-                    task.supervisor_config = definition.supervisor_config.clone();
-                    task.sub_agent_def_id = Some(definition.id.clone());
-                    crate::agent::task_crud::enforce_goal_task_autonomy_tool_blacklist(task);
-                    if definition.id == crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID {
-                        mark_trusted_weles = Some(task.id.clone());
-                    }
-                }
-                Some(GoalResolvedAgentTarget::BuiltinMain) | None => {}
+            if let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) {
+                let mark_trusted_weles = apply_goal_resolved_target_to_task_state(task, target);
+                (Some(task.clone()), mark_trusted_weles)
+            } else {
+                (None, None)
             }
-            task.clone()
+        };
+        let (updated, mark_trusted_weles) = if let Some(updated) = updated {
+            self.persist_tasks().await;
+            (updated, mark_trusted_weles)
+        } else {
+            let mut task = self
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
+                .await
+                .into_iter()
+                .next()?;
+            let mark_trusted_weles = apply_goal_resolved_target_to_task_state(&mut task, target);
+            if let Err(error) = self.history.upsert_agent_task(&task).await {
+                tracing::warn!(
+                    task_id = %task.id,
+                    %error,
+                    "failed to persist goal-resolved task target"
+                );
+                return None;
+            }
+            (task, mark_trusted_weles)
         };
         if let Some(task_id) = mark_trusted_weles {
             self.trusted_weles_tasks.write().await.insert(task_id);
         }
-        self.persist_tasks().await;
         Some(updated)
     }
 
@@ -557,5 +600,67 @@ mod tests {
         assert!(block.contains("planning"));
         assert!(!block.contains(crate::agent::agent_identity::MAIN_AGENT_ID));
         assert!(!block.contains("research"));
+    }
+
+    #[tokio::test]
+    async fn apply_goal_resolved_target_updates_persisted_task_after_live_queue_clear() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let task = engine
+            .enqueue_task(
+                "Persisted goal target".to_string(),
+                "Apply goal-local routing to a persisted task row".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "goal_run",
+                Some("goal-persisted-target".to_string()),
+                None,
+                Some("thread-persisted-target".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+        let target = GoalResolvedAgentTarget::GoalLocal(ResolvedGoalLocalAgent {
+            role_id: "planning".to_string(),
+            agent_label: "Planning".to_string(),
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            reasoning_effort: Some("medium".to_string()),
+        });
+
+        let updated = engine
+            .apply_goal_resolved_target_to_task(&task.id, Some(&target))
+            .await
+            .expect("persisted task should update");
+
+        assert_eq!(updated.override_provider.as_deref(), Some("openai"));
+        assert_eq!(updated.override_model.as_deref(), Some("gpt-5.4-mini"));
+        let persisted = engine
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task.id.clone()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+            })
+            .await
+            .pop()
+            .expect("persisted task should remain queryable");
+        assert_eq!(persisted.override_provider.as_deref(), Some("openai"));
+        assert_eq!(persisted.override_model.as_deref(), Some("gpt-5.4-mini"));
+        assert!(persisted.sub_agent_def_id.is_none());
     }
 }

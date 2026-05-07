@@ -31,10 +31,35 @@ impl AgentEngine {
             let goal_runs = self.goal_runs.lock().await;
             goal_runs.iter().cloned().collect::<Vec<_>>()
         };
-        let tasks = {
-            let tasks = self.tasks.lock().await;
-            tasks.iter().cloned().collect::<Vec<_>>()
-        };
+        let quiet_goal_task_statuses = [
+            TaskStatus::InProgress,
+            TaskStatus::Blocked,
+            TaskStatus::Queued,
+        ]
+        .into_iter()
+        .filter_map(|status| {
+            serde_json::to_value(status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        })
+        .collect::<Vec<_>>();
+        let tasks = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: quiet_goal_task_statuses,
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await;
         let threads = self.threads.read().await.clone();
         let streams = self.stream_cancellations.lock().await.clone();
         let runtimes = self.subagent_runtime.read().await.clone();
@@ -544,6 +569,8 @@ mod tests {
             .lock()
             .await
             .push_back(sample_main_goal_task(now, thread_id, task_id));
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
         engine.thread_todos.write().await.insert(
             thread_id.to_string(),
             vec![

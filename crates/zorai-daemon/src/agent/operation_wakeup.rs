@@ -446,8 +446,11 @@ impl AgentEngine {
             statuses: active_statuses,
             source: None,
             thread_id: Some(thread_id.to_string()),
+            thread_ids: Vec::new(),
             goal_run_id: None,
             parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: true,
             limit: Some(1),
@@ -1302,6 +1305,33 @@ mod tests {
         let manager = SessionManager::new_test(root.path()).await;
         let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
         let thread_id = "thread-duplicate-visible-continuations";
+        let task = engine
+            .enqueue_task(
+                "Visible continuation owner".to_string(),
+                "Own the deferred visible continuation".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                None,
+                Some(thread_id.to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        {
+            let mut tasks = engine.tasks.lock().await;
+            let task = tasks
+                .iter_mut()
+                .find(|entry| entry.id == task.id)
+                .expect("task should exist");
+            task.status = TaskStatus::InProgress;
+            task.thread_id = Some(thread_id.to_string());
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
 
         let continuation = DeferredVisibleThreadContinuation {
             agent_id: MAIN_AGENT_ID.to_string(),
@@ -1330,6 +1360,10 @@ mod tests {
             1,
             "identical deferred continuations should collapse to one queued turn"
         );
+        let queued = engine
+            .deferred_visible_thread_continuations_for(thread_id)
+            .await;
+        assert_eq!(queued[0].task_id.as_deref(), Some(task.id.as_str()));
     }
 
     #[tokio::test]

@@ -141,19 +141,27 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<String> {
+        if let Some(approval_id) = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: Some(thread_id.to_string()),
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: true,
+                limit: None,
+            })
+            .await
+            .into_iter()
+            .find_map(|task| task.awaiting_approval_id)
         {
-            let tasks = self.tasks.lock().await;
-            if let Some(approval_id) = tasks
-                .iter()
-                .rev()
-                .find(|task| {
-                    task.thread_id.as_deref() == Some(thread_id)
-                        && task.awaiting_approval_id.is_some()
-                })
-                .and_then(|task| task.awaiting_approval_id.clone())
-            {
-                return Some(approval_id);
-            }
+            return Some(approval_id);
         }
 
         if let Some(approval_id) = self
@@ -194,10 +202,18 @@ impl AgentEngine {
     }
 
     async fn gateway_has_pending_approval_anywhere(&self) -> bool {
-        {
-            let tasks = self.tasks.lock().await;
-            if tasks.iter().any(|task| task.awaiting_approval_id.is_some()) {
-                return true;
+        match self.history.has_agent_task_pending_approval().await {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "gateway: failed to query task-owned pending approvals"
+                );
+                let tasks = self.tasks.lock().await;
+                if tasks.iter().any(|task| task.awaiting_approval_id.is_some()) {
+                    return true;
+                }
             }
         }
 
@@ -919,5 +935,76 @@ impl AgentEngine {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn gateway_has_pending_approval_anywhere_finds_persisted_task_owned_approval() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine.tasks.lock().await.push_back(AgentTask {
+            id: "approval-task-anywhere".to_string(),
+            title: "approval task".to_string(),
+            description: "awaiting approval anywhere".to_string(),
+            status: TaskStatus::Queued,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at: now_millis(),
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some("thread-approval-anywhere".to_string()),
+            source: "managed_command".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: Some("echo ok".to_string()),
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: Some("awaiting approval".to_string()),
+            awaiting_approval_id: Some("approval-task-anywhere-1".to_string()),
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        assert!(engine.gateway_has_pending_approval_anywhere().await);
     }
 }

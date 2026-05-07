@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::agent::metacognitive::{escalation, replanning};
 use crate::agent::{
     generate_message_id, make_task_log_entry, now_millis, AgentEngine, AgentEvent, AgentMessage,
-    MessageRole, TaskLogLevel, TaskStatus,
+    AgentTask, MessageRole, TaskLogLevel, TaskStatus,
 };
 
 use super::*;
@@ -20,8 +20,11 @@ impl AgentEngine {
                 statuses: Vec::new(),
                 source: None,
                 thread_id: None,
+                thread_ids: Vec::new(),
                 goal_run_id: None,
                 parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
@@ -72,6 +75,21 @@ fn build_strategy_refresh_prompt(
     prompt
 }
 
+fn mark_task_policy_halted_retry_failure(task: &mut AgentTask, detail: Option<String>) {
+    task.retry_count = task.max_retries;
+    task.status = TaskStatus::Failed;
+    task.completed_at = Some(now_millis());
+    task.blocked_reason = Some("policy halted repeated retry".to_string());
+    task.last_error = Some("policy halted repeated retry".to_string());
+    task.logs.push(make_task_log_entry(
+        task.retry_count,
+        TaskLogLevel::Warn,
+        "policy",
+        "policy halted repeated retry",
+        detail,
+    ));
+}
+
 fn retry_guard_matches_runtime_context(
     decision: &PolicyDecision,
     context: &PolicyEvaluationContext,
@@ -91,26 +109,34 @@ impl AgentEngine {
         detail: Option<String>,
     ) {
         if let Some(task_id) = task_id {
-            let updated = {
+            let live_updated = {
                 let mut tasks = self.tasks.lock().await;
-                let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) else {
+                tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .map(|task| {
+                        mark_task_policy_halted_retry_failure(task, detail.clone());
+                        task.clone()
+                    })
+            };
+            let updated = if let Some(updated) = live_updated {
+                self.persist_tasks().await;
+                updated
+            } else {
+                let Some(mut task) = self.task_by_id_for_orchestrator_policy(task_id).await else {
                     return;
                 };
-                task.retry_count = task.max_retries;
-                task.status = TaskStatus::Failed;
-                task.completed_at = Some(now_millis());
-                task.blocked_reason = Some("policy halted repeated retry".to_string());
-                task.last_error = Some("policy halted repeated retry".to_string());
-                task.logs.push(make_task_log_entry(
-                    task.retry_count,
-                    TaskLogLevel::Warn,
-                    "policy",
-                    "policy halted repeated retry",
-                    detail,
-                ));
-                task.clone()
+                mark_task_policy_halted_retry_failure(&mut task, detail);
+                if let Err(error) = self.history.upsert_agent_task(&task).await {
+                    tracing::warn!(
+                        task_id = %task.id,
+                        %error,
+                        "failed to persist policy-halted task"
+                    );
+                    return;
+                }
+                task
             };
-            self.persist_tasks().await;
             self.emit_task_update(&updated, Some("Policy halted repeated retry".into()));
             if let Some(goal_run_id) = updated.goal_run_id.as_deref() {
                 self.sync_goal_run_with_task(goal_run_id, &updated).await;
