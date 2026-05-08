@@ -874,24 +874,40 @@ impl AgentEngine {
         let stats = self.history.get_agent_statistics(window).await?;
 
         // Recent activity context
-        let tasks = self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                id: None,
-                status: None,
-                statuses: Vec::new(),
-                source: None,
-                thread_id: None,
-                thread_ids: Vec::new(),
-                goal_run_id: None,
-                parent_task_id: None,
-                awaiting_approval_id: None,
-                supervisor_config_present: false,
-                exclude_terminal_statuses: false,
-                order_by_recent_activity_desc: false,
-                limit: Some(10),
-            })
-            .await;
-        let recent_tasks: Vec<_> = tasks
+        let task_summary_query = crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(10),
+        };
+        let task_refs = match self
+            .history
+            .list_agent_task_summary_refs_filtered(&task_summary_query)
+            .await
+        {
+            Ok(refs) => refs,
+            Err(_) => self
+                .list_tasks_filtered(&task_summary_query)
+                .await
+                .into_iter()
+                .map(|task| crate::history::AgentTaskSummaryRef {
+                    id: task.id,
+                    title: task.title,
+                    status: task.status,
+                    priority: task.priority,
+                })
+                .collect(),
+        };
+        let recent_tasks: Vec<_> = task_refs
             .iter()
             .map(|task| {
                 json!({

@@ -4,8 +4,8 @@ use crate::state::goal_workspace::{GoalWorkspaceMode, GoalWorkspaceState};
 use crate::state::task::{GoalRun, GoalRunStep, TaskAction, TaskState};
 use crate::theme::ThemeTokens;
 use ratatui::backend::TestBackend;
-use ratatui::Terminal;
 use ratatui::layout::{Position, Rect};
+use ratatui::Terminal;
 
 #[test]
 fn goal_workspace_hit_test_distinguishes_step_and_todo_rows() {

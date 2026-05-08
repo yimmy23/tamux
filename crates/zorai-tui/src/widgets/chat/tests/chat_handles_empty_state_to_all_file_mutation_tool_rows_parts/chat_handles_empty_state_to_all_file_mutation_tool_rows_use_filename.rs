@@ -1,10 +1,12 @@
-use super::super::*;
 use super::super::chat_with_messages;
-use crate::state::chat::{AgentMessage, AgentThread, ChatAction, ChatState, MessageRole, RetryPhase, RetryStatusVm};
+use super::super::*;
+use crate::state::chat::{
+    AgentMessage, AgentThread, ChatAction, ChatState, MessageRole, RetryPhase, RetryStatusVm,
+};
 use crate::theme::ThemeTokens;
 use ratatui::backend::TestBackend;
-use ratatui::Terminal;
 use ratatui::layout::Rect;
+use ratatui::Terminal;
 #[test]
 fn chat_handles_empty_state() {
     let chat = ChatState::new();
@@ -147,7 +149,9 @@ fn hit_test_tool_header_body_selects_message_instead_of_toggling() {
         .expect("tool header should be visible");
     let hit_line = &visible[header_row];
     let (plain, content_start, _) = rendered_line_content_bounds(hit_line);
-    let gear_offset = plain.find("⌨").expect("terminal emoji icon should be rendered for bash_command");
+    let gear_offset = plain
+        .find("⌨")
+        .expect("terminal emoji icon should be rendered for bash_command");
 
     let hit = hit_test(
         area,
@@ -375,8 +379,8 @@ fn read_guideline_tool_row_renders_clickable_file_chip_from_result_header() {
 
 #[test]
 fn tool_file_path_chip_prefers_tool_output_preview_path_metadata() {
-    let preview_path = std::env::temp_dir()
-        .join(format!("bash_command-preview-{}.txt", uuid::Uuid::new_v4()));
+    let preview_path =
+        std::env::temp_dir().join(format!("bash_command-preview-{}.txt", uuid::Uuid::new_v4()));
     let message = AgentMessage {
         role: MessageRole::Tool,
         tool_name: Some("bash_command".into()),

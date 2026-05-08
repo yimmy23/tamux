@@ -1,4 +1,5 @@
-fn add_available_tools_part_d(
+use super::*;
+pub(crate) fn add_available_tools_part_d(
     tools: &mut Vec<ToolDefinition>,
     config: &AgentConfig,
     agent_data_dir: &std::path::Path,
@@ -217,13 +218,17 @@ fn add_available_tools_part_d(
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def(tool_names::RUN_ROUTINE_NOW, "Execute one stored routine immediately and record an explicit manual run history entry.", serde_json::json!({
-        "type": "object",
-        "properties": {
-            "routine_id": { "type": "string", "description": "Routine definition id" }
-        },
-        "required": ["routine_id"]
-    })));
+    tools.push(tool_def(
+        tool_names::RUN_ROUTINE_NOW,
+        "Execute one stored routine immediately and record an explicit manual run history entry.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "routine_id": { "type": "string", "description": "Routine definition id" }
+            },
+            "required": ["routine_id"]
+        }),
+    ));
     tools.push(tool_def(tool_names::LIST_ROUTINE_HISTORY, "List recent persisted run attempts for one routine, including success, failure, run-now, and rerun entries.", serde_json::json!({
         "type": "object",
         "properties": {
@@ -253,13 +258,17 @@ fn add_available_tools_part_d(
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def(tool_names::DELETE_ROUTINE, "Delete one durable routine definition by id.", serde_json::json!({
-        "type": "object",
-        "properties": {
-            "routine_id": { "type": "string", "description": "Routine definition id" }
-        },
-        "required": ["routine_id"]
-    })));
+    tools.push(tool_def(
+        tool_names::DELETE_ROUTINE,
+        "Delete one durable routine definition by id.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "routine_id": { "type": "string", "description": "Routine definition id" }
+            },
+            "required": ["routine_id"]
+        }),
+    ));
     tools.push(tool_def(tool_names::RUN_WORKFLOW_PACK, "Execute one canonical workflow pack with prerequisite-aware, approval-aware runtime behavior. Supports Wave 1 and Wave 2 packs: Daily Brief, PR/Issue Triage, Inbox + Calendar Triage, Watch/Monitor, Standup (status report with task/routine/connector/trigger/browser summary), and Approval-Checkpoint Long Task.", serde_json::json!({
         "type": "object",
         "properties": {

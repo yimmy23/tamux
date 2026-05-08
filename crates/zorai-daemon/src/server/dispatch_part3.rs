@@ -1,5 +1,26 @@
-if matches!(
-        &msg,
+use super::*;
+use crate::agent::AgentEngine;
+use crate::session_manager::SessionManager;
+use anyhow::Result;
+use futures::SinkExt;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
+
+pub(crate) async fn dispatch_part3<S>(
+    msg: &ClientMessage,
+    agent: &Arc<AgentEngine>,
+    framed: &mut Framed<S, DaemonCodec>,
+    manager: &Arc<SessionManager>,
+    client_agent_threads: &mut HashSet<String>,
+) -> Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    if !matches!(
+        msg,
         ClientMessage::ListAgentMessages{ .. } |
         ClientMessage::UpsertTranscriptIndex{ .. } |
         ClientMessage::ListTranscriptIndex{ .. } |
@@ -34,18 +55,23 @@ if matches!(
         ClientMessage::AgentSendParticipantSuggestion{ .. } |
         ClientMessage::AgentDismissParticipantSuggestion{ .. }
     ) {
+        return Ok(false);
+    }
+    let msg = msg.clone();
+
         match msg {
                 ClientMessage::ListAgentMessages {
                     thread_id,
                     limit,
                     include_deleted,
                 } => {
+                    let effective_limit = limit.or(Some(AGENT_DB_THREAD_DETAIL_MESSAGE_WINDOW));
                     let list_result = if include_deleted {
                         manager
-                            .list_agent_messages_with_deleted(&thread_id, limit)
+                            .list_agent_messages_with_deleted(&thread_id, effective_limit)
                             .await
                     } else {
-                        manager.list_agent_messages(&thread_id, limit).await
+                        manager.list_agent_messages(&thread_id, effective_limit).await
                     };
                     match list_result {
                         Ok(messages) => {
@@ -100,7 +126,13 @@ if matches!(
                 }
 
                 ClientMessage::ListTranscriptIndex { workspace_id } => {
-                    match manager.list_transcript_index(workspace_id.as_deref()).await {
+                    match manager
+                        .list_transcript_index_limited(
+                            workspace_id.as_deref(),
+                            Some(AGENT_DB_INDEX_LIST_WINDOW),
+                        )
+                        .await
+                    {
                         Ok(entries) => {
                             let entries_json = serde_json::to_string(&entries).unwrap_or_default();
                             framed
@@ -142,7 +174,13 @@ if matches!(
                 }
 
                 ClientMessage::ListSnapshotIndex { workspace_id } => {
-                    match manager.list_snapshot_index(workspace_id.as_deref()).await {
+                    match manager
+                        .list_snapshot_index_limited(
+                            workspace_id.as_deref(),
+                            Some(AGENT_DB_INDEX_LIST_WINDOW),
+                        )
+                        .await
+                    {
                         Ok(entries) => {
                             let entries_json = serde_json::to_string(&entries).unwrap_or_default();
                             framed
@@ -403,7 +441,13 @@ if matches!(
                 }
 
                 ClientMessage::ListSnapshots { workspace_id } => {
-                    match manager.list_snapshots(workspace_id.as_deref()).await {
+                    match manager
+                        .list_snapshots_limited(
+                            workspace_id.as_deref(),
+                            AGENT_DB_INDEX_LIST_WINDOW,
+                        )
+                        .await
+                    {
                         Ok(snapshots) => {
                             framed
                                 .send(DaemonMessage::SnapshotList { snapshots })
@@ -573,7 +617,7 @@ if matches!(
                                         ),
                                     })
                                     .await?;
-                                continue;
+                                return Ok(true);
                             }
                         }
                     }
@@ -734,7 +778,7 @@ if matches!(
                                         ),
                                     })
                                     .await?;
-                                continue;
+                                return Ok(true);
                             }
                         }
                     }
@@ -772,7 +816,7 @@ if matches!(
                                         ),
                                     })
                                     .await?;
-                                continue;
+                                return Ok(true);
                             }
                         }
                     }
@@ -808,7 +852,7 @@ if matches!(
                                         ),
                                     })
                                     .await?;
-                                continue;
+                                return Ok(true);
                             }
                         }
                     }
@@ -840,5 +884,5 @@ if matches!(
 
             _ => unreachable!("message chunk should be exhaustive"),
         }
-        continue;
-    }
+    Ok(true)
+}

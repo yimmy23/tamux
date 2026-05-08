@@ -1,13 +1,13 @@
-use super::*;
-use crate::widgets::duration_format::format_duration_ms;
-use crate::widgets::chat::SelectionPoint;
-use super::selection::*;
-use super::sections::*;
-use crate::state::task::*;
 use super::sections;
+use super::sections::*;
 use super::selection;
+use super::selection::*;
+use super::*;
 use crate::state::sidebar::{SidebarItemTarget, SidebarTab};
+use crate::state::task::*;
 use crate::theme::ThemeTokens;
+use crate::widgets::chat::SelectionPoint;
+use crate::widgets::duration_format::format_duration_ms;
 use ratatui::layout::{Position, Rect};
 use ratatui::prelude::*;
 use ratatui::style::{Color, Modifier, Style};
@@ -120,7 +120,12 @@ pub(crate) fn has_goal_usage(run: &GoalRun) -> bool {
         || !run.model_usage.is_empty()
 }
 
-pub(crate) fn render_goal_usage(rows: &mut Vec<RenderRow>, run: &GoalRun, theme: &ThemeTokens, _width: usize) {
+pub(crate) fn render_goal_usage(
+    rows: &mut Vec<RenderRow>,
+    run: &GoalRun,
+    theme: &ThemeTokens,
+    _width: usize,
+) {
     if !has_goal_usage(run) {
         return;
     }

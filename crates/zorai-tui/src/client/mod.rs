@@ -11,10 +11,10 @@ pub(crate) struct ThreadDetailChunkBuffer {
 }
 
 mod daemon_message_kind_to_handle_connection_to_handle_daemon_message;
-mod handle_thread_workspace_and_provider_daemon_messages;
-mod handle_activity_profile_gateway_daemon_messages;
-mod is_internal_agent_thread_to_request_git_diff;
 mod dispatch_match;
+mod handle_activity_profile_gateway_daemon_messages;
+mod handle_thread_workspace_and_provider_daemon_messages;
+mod is_internal_agent_thread_to_request_git_diff;
 mod request_agent_status_to_defer_operator_profile_question_to_get_operator;
 pub(crate) use daemon_message_kind_to_handle_connection_to_handle_daemon_message::*;
 pub(crate) use handle_activity_profile_gateway_daemon_messages::*;
@@ -35,12 +35,12 @@ mod tests {
         rx.try_recv().expect("expected queued client message")
     }
 
-    #[path = "whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task.rs"]
-    mod whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task;
     #[path = "bootstrap_rearms_after_successful_connection_cycle_to_daemon_bootstrap.rs"]
     mod bootstrap_rearms_after_successful_connection_cycle_to_daemon_bootstrap;
     #[path = "daemon_collaboration_sessions_reply_emits_client_event_to_workspace.rs"]
     mod daemon_collaboration_sessions_reply_emits_client_event_to_workspace;
+    #[path = "whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task.rs"]
+    mod whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task;
 
     #[tokio::test]
     async fn dispatch_client_event_does_not_panic_when_receiver_dropped() {

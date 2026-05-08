@@ -96,6 +96,14 @@ fn parse_runtime_history_json(value: String) -> Vec<WorkspaceTaskRuntimeHistoryE
     serde_json::from_str(&value).unwrap_or_default()
 }
 
+fn serialize_string_list(values: &[String]) -> std::result::Result<String, tokio_rusqlite::Error> {
+    serde_json::to_string(values).call_err()
+}
+
+fn parse_string_list_json(value: String) -> Vec<String> {
+    serde_json::from_str(&value).unwrap_or_default()
+}
+
 fn map_workspace_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceTask> {
     Ok(WorkspaceTask {
         id: row.get(0)?,
@@ -139,8 +147,11 @@ fn map_workspace_settings(row: &rusqlite::Row<'_>) -> rusqlite::Result<Workspace
         workspace_id: row.get(0)?,
         workspace_root: row.get(1)?,
         operator: parse_workspace_operator(&row.get::<_, String>(2)?),
-        created_at: row.get::<_, i64>(3)? as u64,
-        updated_at: row.get::<_, i64>(4)? as u64,
+        repo_monitor_enabled: row.get::<_, i64>(3)? != 0,
+        repo_monitor_include_dirs: parse_string_list_json(row.get(4)?),
+        repo_monitor_exclude_dirs: parse_string_list_json(row.get(5)?),
+        created_at: row.get::<_, i64>(6)? as u64,
+        updated_at: row.get::<_, i64>(7)? as u64,
     })
 }
 
@@ -149,14 +160,19 @@ impl HistoryStore {
         let settings = settings.clone();
         self.conn
             .call(move |conn| {
+                let include_dirs_json = serialize_string_list(&settings.repo_monitor_include_dirs)?;
+                let exclude_dirs_json = serialize_string_list(&settings.repo_monitor_exclude_dirs)?;
                 conn.execute(
                     "INSERT OR REPLACE INTO workspace_settings \
-                     (workspace_id, workspace_root, operator, created_at, updated_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                     (workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                     params![
                         settings.workspace_id,
                         settings.workspace_root,
                         workspace_operator_to_str(settings.operator),
+                        settings.repo_monitor_enabled as i64,
+                        include_dirs_json,
+                        exclude_dirs_json,
                         settings.created_at as i64,
                         settings.updated_at as i64,
                     ],
@@ -175,7 +191,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 conn.query_row(
-                    "SELECT workspace_id, workspace_root, operator, created_at, updated_at \
+                    "SELECT workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at \
                      FROM workspace_settings WHERE workspace_id = ?1",
                     params![workspace_id],
                     map_workspace_settings,
@@ -191,7 +207,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT workspace_id, workspace_root, operator, created_at, updated_at \
+                    "SELECT workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at \
                      FROM workspace_settings ORDER BY workspace_id ASC",
                 )?;
                 let rows = stmt.query_map([], map_workspace_settings)?;
@@ -210,7 +226,7 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT workspace_id, workspace_root, operator, created_at, updated_at \
+                    "SELECT workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at \
                      FROM workspace_settings WHERE operator = ?1 ORDER BY workspace_id ASC",
                 )?;
                 let rows = stmt.query_map(params![operator], map_workspace_settings)?;

@@ -40,7 +40,8 @@ impl TuiModel {
     }
 
     pub(crate) fn clamp_settings_cursor(&mut self) {
-        self.settings.clamp_field_cursor(self.settings_field_count());
+        self.settings
+            .clamp_field_cursor(self.settings_field_count());
     }
 
     pub(crate) fn open_honcho_editor(&mut self) {
@@ -463,8 +464,7 @@ impl TuiModel {
             }
             SettingsPickerTarget::TargetAgentModel => {
                 self.status_line =
-                    "Custom model entry is not available for thread-owned agents here"
-                        .to_string();
+                    "Custom model entry is not available for thread-owned agents here".to_string();
             }
             _ => self.begin_custom_model_edit(),
         }
@@ -473,5 +473,4 @@ impl TuiModel {
     pub(crate) fn whatsapp_linking_allowed(&self) -> bool {
         zorai_protocol::has_whatsapp_allowed_contacts(&self.config.whatsapp_allowed_contacts)
     }
-
 }

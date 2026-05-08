@@ -75,6 +75,18 @@ pub(crate) struct AgentThreadListQuery {
     pub offset: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ThreadDelegatePayloadMessageRef {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ThreadDelegatePayloadContext {
+    pub title: String,
+    pub messages: Vec<ThreadDelegatePayloadMessageRef>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct AgentTaskListQuery {
     pub id: Option<String>,
@@ -90,6 +102,370 @@ pub(crate) struct AgentTaskListQuery {
     pub exclude_terminal_statuses: bool,
     pub order_by_recent_activity_desc: bool,
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTaskGoalContext {
+    pub goal_run_id: Option<String>,
+    pub goal_step_id: Option<String>,
+    pub session_id: Option<String>,
+    pub source: String,
+    pub parent_task_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTaskOperationalRef {
+    pub id: String,
+    pub title: String,
+    pub status: TaskStatus,
+    pub progress: u8,
+    pub awaiting_approval_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTaskSummaryRef {
+    pub id: String,
+    pub title: String,
+    pub status: TaskStatus,
+    pub priority: TaskPriority,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTaskQuietRecoveryRef {
+    pub id: String,
+    pub source: String,
+    pub status: TaskStatus,
+    pub progress: u8,
+    pub created_at: u64,
+    pub started_at: Option<u64>,
+    pub goal_run_id: Option<String>,
+    pub parent_task_id: Option<String>,
+    pub thread_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTaskSubagentHierarchyRef {
+    pub id: String,
+    pub parent_task_id: Option<String>,
+    pub containment_scope: Option<String>,
+}
+
+impl From<&AgentTask> for AgentTaskOperationalRef {
+    fn from(task: &AgentTask) -> Self {
+        Self {
+            id: task.id.clone(),
+            title: task.title.clone(),
+            status: task.status,
+            progress: task.progress,
+            awaiting_approval_id: task.awaiting_approval_id.clone(),
+        }
+    }
+}
+
+impl From<&AgentTask> for AgentTaskQuietRecoveryRef {
+    fn from(task: &AgentTask) -> Self {
+        Self {
+            id: task.id.clone(),
+            source: task.source.clone(),
+            status: task.status,
+            progress: task.progress,
+            created_at: task.created_at,
+            started_at: task.started_at,
+            goal_run_id: task.goal_run_id.clone(),
+            parent_task_id: task.parent_task_id.clone(),
+            thread_id: task.thread_id.clone(),
+        }
+    }
+}
+
+impl From<&AgentTask> for AgentTaskSubagentHierarchyRef {
+    fn from(task: &AgentTask) -> Self {
+        Self {
+            id: task.id.clone(),
+            parent_task_id: task.parent_task_id.clone(),
+            containment_scope: task.containment_scope.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunOperationalRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub title: String,
+    pub current_step_index: usize,
+    pub step_count: usize,
+}
+
+impl From<&GoalRun> for GoalRunOperationalRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            title: goal_run.title.clone(),
+            current_step_index: goal_run.current_step_index,
+            step_count: goal_run.steps.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunStuckCheckRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub title: String,
+    pub updated_at: u64,
+    pub last_error: Option<String>,
+}
+
+impl From<&GoalRun> for GoalRunStuckCheckRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            title: goal_run.title.clone(),
+            updated_at: goal_run.updated_at,
+            last_error: goal_run.last_error.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunBriefRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub title: String,
+    pub updated_at: u64,
+    pub thread_id: Option<String>,
+    pub current_step_title: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunQuietRecoveryRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub created_at: u64,
+    pub started_at: Option<u64>,
+    pub thread_id: Option<String>,
+    pub root_thread_id: Option<String>,
+    pub execution_thread_ids: Vec<String>,
+    pub current_step_index: usize,
+    pub current_step_id: Option<String>,
+    pub current_step_title: Option<String>,
+    pub active_task_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunStatusReplyRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub title: String,
+    pub updated_at: u64,
+    pub current_step_title: Option<String>,
+    pub plan_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunTaskContextRef {
+    pub current_step_index: usize,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunRepoContextRef {
+    pub id: String,
+    pub session_id: Option<String>,
+    pub current_step_index: usize,
+}
+
+impl From<&GoalRun> for GoalRunRepoContextRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            session_id: goal_run.session_id.clone(),
+            current_step_index: goal_run.current_step_index,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunProgressMetricsRef {
+    pub steps_completed: usize,
+    pub steps_total: usize,
+}
+
+impl From<&GoalRun> for GoalRunProgressMetricsRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            steps_completed: goal_run
+                .steps
+                .iter()
+                .filter(|step| step.status == GoalRunStepStatus::Completed)
+                .count(),
+            steps_total: goal_run.steps.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunPolicyContextRef {
+    pub goal: String,
+    pub title: String,
+    pub current_step_title: Option<String>,
+    pub steps_completed: usize,
+    pub steps_total: usize,
+}
+
+impl From<&GoalRun> for GoalRunPolicyContextRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        let progress = GoalRunProgressMetricsRef::from(goal_run);
+        Self {
+            goal: goal_run.goal.clone(),
+            title: goal_run.title.clone(),
+            current_step_title: goal_run.current_step_title.clone().or_else(|| {
+                goal_run
+                    .steps
+                    .get(goal_run.current_step_index)
+                    .map(|step| step.title.clone())
+            }),
+            steps_completed: progress.steps_completed,
+            steps_total: progress.steps_total,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunTodoContextRef {
+    pub step_index: usize,
+    pub step_id: Option<String>,
+    pub step_status: Option<GoalRunStepStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunWorkspaceRuntimeRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub last_error: Option<String>,
+    pub reflection_summary: Option<String>,
+    pub plan_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunCompactionScopeRef {
+    pub id: String,
+    pub active_task_id: Option<String>,
+    pub title: String,
+    pub goal: String,
+    pub status: GoalRunStatus,
+    pub root_thread_id: Option<String>,
+    pub active_thread_id: Option<String>,
+    pub execution_thread_ids: Vec<String>,
+    pub current_step_title: Option<String>,
+    pub current_step_status: Option<GoalRunStepStatus>,
+    pub current_step_summary: Option<String>,
+    pub plan_summary: Option<String>,
+    pub latest_error: Option<String>,
+    pub recent_events: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GatewayTurnAutoSendProjection {
+    pub used_send_tool: bool,
+    pub latest_assistant_response: Option<String>,
+}
+
+impl From<&GoalRun> for GoalRunStatusReplyRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            title: goal_run.title.clone(),
+            updated_at: goal_run.updated_at,
+            current_step_title: goal_run.current_step_title.clone().or_else(|| {
+                goal_run
+                    .steps
+                    .get(goal_run.current_step_index)
+                    .map(|step| step.title.clone())
+            }),
+            plan_summary: goal_run.plan_summary.clone(),
+        }
+    }
+}
+
+impl From<&GoalRun> for GoalRunQuietRecoveryRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        let current_step = goal_run.steps.get(goal_run.current_step_index);
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            created_at: goal_run.created_at,
+            started_at: goal_run.started_at,
+            thread_id: goal_run.thread_id.clone(),
+            root_thread_id: goal_run.root_thread_id.clone(),
+            execution_thread_ids: goal_run.execution_thread_ids.clone(),
+            current_step_index: goal_run.current_step_index,
+            current_step_id: current_step.map(|step| step.id.clone()),
+            current_step_title: goal_run
+                .current_step_title
+                .clone()
+                .or_else(|| current_step.map(|step| step.title.clone())),
+            active_task_id: goal_run.active_task_id.clone(),
+        }
+    }
+}
+
+impl From<&GoalRun> for GoalRunBriefRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            title: goal_run.title.clone(),
+            updated_at: goal_run.updated_at,
+            thread_id: goal_run.thread_id.clone(),
+            current_step_title: goal_run.current_step_title.clone().or_else(|| {
+                goal_run
+                    .steps
+                    .get(goal_run.current_step_index)
+                    .map(|step| step.title.clone())
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunThreadRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub updated_at: u64,
+    pub thread_id: Option<String>,
+    pub root_thread_id: Option<String>,
+    pub active_thread_id: Option<String>,
+    pub execution_thread_ids: Vec<String>,
+}
+
+impl From<&GoalRun> for GoalRunThreadRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            updated_at: goal_run.updated_at,
+            thread_id: goal_run.thread_id.clone(),
+            root_thread_id: goal_run.root_thread_id.clone(),
+            active_thread_id: goal_run.active_thread_id.clone(),
+            execution_thread_ids: goal_run.execution_thread_ids.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ThreadRecallMatchRow {
+    pub thread_id: String,
+    pub title: String,
+    pub updated_at: u64,
+    pub message_count: u32,
+    pub metadata_json: Option<String>,
+    pub message_role: Option<String>,
+    pub message_content: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -1,12 +1,12 @@
-use crate::client::{DaemonClient, ClientEvent};
-use serde_json::Value;
-use zorai_protocol::ClientMessage;
-use tokio::sync::mpsc;
-use zorai_protocol::DaemonMessage;
-use crate::wire::*;
 use super::*;
 use crate::client::ThreadDetailChunkBuffer;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::*;
+use serde_json::Value;
+use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
+use zorai_protocol::ClientMessage;
+use zorai_protocol::DaemonMessage;
 
 // Sends a ClientEvent and logs (rather than panics or silently drops) if the
 // receiver has been closed — typically during shutdown or after the TUI's event
@@ -406,22 +406,15 @@ impl DaemonClient {
                 debug!("Ignoring gateway runtime daemon message in TUI client");
             }
             DaemonMessage::Error { message } => {
-                dispatch_client_event(
-                    event_tx,
-                    ClientEvent::Error(message),
-                    "daemon_error",
-                )
-                .await;
+                dispatch_client_event(event_tx, ClientEvent::Error(message), "daemon_error").await;
             }
             DaemonMessage::AgentError { message } => {
-                dispatch_client_event(
-                    event_tx,
-                    ClientEvent::Error(message),
-                    "daemon_agent_error",
-                )
-                .await;
+                dispatch_client_event(event_tx, ClientEvent::Error(message), "daemon_agent_error")
+                    .await;
             }
-            _ => unreachable!("activity/profile/gateway daemon message dispatch should be exhaustive"),
+            _ => unreachable!(
+                "activity/profile/gateway daemon message dispatch should be exhaustive"
+            ),
         }
     }
 }

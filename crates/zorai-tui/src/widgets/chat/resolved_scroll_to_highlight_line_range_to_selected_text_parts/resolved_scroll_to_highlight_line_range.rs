@@ -1,9 +1,11 @@
-use super::super::*;
-use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
-use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
 use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
 use super::super::selection_point_from_snapshot_to_render::*;
-use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode};
+use super::super::*;
+use crate::state::chat::{
+    AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode,
+};
 use crate::theme::ThemeTokens;
 use crate::widgets::message;
 use crate::widgets::message::wrap_text;
@@ -96,7 +98,11 @@ pub(crate) fn scrollbar_layout_from_metrics(
     })
 }
 
-pub(crate) fn scroll_offset_from_thumb_offset(thumb_offset: u16, track_span: u16, max_scroll: usize) -> usize {
+pub(crate) fn scroll_offset_from_thumb_offset(
+    thumb_offset: u16,
+    track_span: u16,
+    max_scroll: usize,
+) -> usize {
     if max_scroll == 0 || track_span == 0 {
         return 0;
     }
@@ -363,7 +369,10 @@ pub(crate) fn selection_snapshot(
     })
 }
 
-pub(crate) fn snapshot_line_at(snapshot: &SelectionSnapshot, row: usize) -> Option<&RenderedChatLine> {
+pub(crate) fn snapshot_line_at(
+    snapshot: &SelectionSnapshot,
+    row: usize,
+) -> Option<&RenderedChatLine> {
     let local = row.checked_sub(snapshot.rendered_start_idx)?;
     snapshot.all_lines.get(local)
 }
@@ -383,7 +392,8 @@ pub(crate) fn nearest_content_row(snapshot: &SelectionSnapshot, row: usize) -> O
     }
 
     if let Some(message_index) = current.message_index {
-        let search_span = snapshot_rendered_end_idx(snapshot).saturating_sub(snapshot.rendered_start_idx);
+        let search_span =
+            snapshot_rendered_end_idx(snapshot).saturating_sub(snapshot.rendered_start_idx);
         for distance in 1..search_span {
             if let Some(prev) = row.checked_sub(distance) {
                 let Some(line) = snapshot_line_at(snapshot, prev) else {
@@ -434,14 +444,18 @@ pub(crate) fn nearest_content_row(snapshot: &SelectionSnapshot, row: usize) -> O
     None
 }
 
-pub(crate) fn nearest_message_content_row(snapshot: &SelectionSnapshot, row: usize) -> Option<usize> {
+pub(crate) fn nearest_message_content_row(
+    snapshot: &SelectionSnapshot,
+    row: usize,
+) -> Option<usize> {
     let current = snapshot_line_at(snapshot, row)?;
     let message_index = current.message_index?;
     if !matches!(current.kind, RenderedLineKind::Padding) {
         return Some(row);
     }
 
-    let search_span = snapshot_rendered_end_idx(snapshot).saturating_sub(snapshot.rendered_start_idx);
+    let search_span =
+        snapshot_rendered_end_idx(snapshot).saturating_sub(snapshot.rendered_start_idx);
     for distance in 1..search_span {
         if let Some(prev) = row.checked_sub(distance) {
             let Some(line) = snapshot_line_at(snapshot, prev) else {

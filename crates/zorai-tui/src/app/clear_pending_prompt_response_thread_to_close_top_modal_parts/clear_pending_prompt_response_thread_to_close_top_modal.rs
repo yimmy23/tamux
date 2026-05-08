@@ -4,7 +4,9 @@ use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear};
 use std::process::Child;
@@ -15,7 +17,10 @@ impl TuiModel {
         self.pending_prompt_response_threads.remove(thread_id);
     }
 
-    pub(crate) fn should_preserve_pending_thinking_activity_on_reload(&self, thread_id: &str) -> bool {
+    pub(crate) fn should_preserve_pending_thinking_activity_on_reload(
+        &self,
+        thread_id: &str,
+    ) -> bool {
         if self
             .thread_agent_activity
             .get(thread_id)
@@ -294,7 +299,9 @@ impl TuiModel {
         }
     }
 
-    pub(crate) fn current_operator_profile_select_options(&self) -> Option<&'static [&'static str]> {
+    pub(crate) fn current_operator_profile_select_options(
+        &self,
+    ) -> Option<&'static [&'static str]> {
         self.operator_profile
             .question
             .as_ref()

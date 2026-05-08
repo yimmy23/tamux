@@ -102,9 +102,16 @@ fn done_event_stores_provider_final_result_on_final_message() {
         .provider_final_result_json
         .as_deref()
         .expect("provider final result should be stored");
-    let value: serde_json::Value = serde_json::from_str(json).expect("parse provider final result json");
-    assert_eq!(value.get("provider").and_then(|v| v.as_str()), Some("open_ai_responses"));
-    assert_eq!(value.get("id").and_then(|v| v.as_str()), Some("resp_tui_done"));
+    let value: serde_json::Value =
+        serde_json::from_str(json).expect("parse provider final result json");
+    assert_eq!(
+        value.get("provider").and_then(|v| v.as_str()),
+        Some("open_ai_responses")
+    );
+    assert_eq!(
+        value.get("id").and_then(|v| v.as_str()),
+        Some("resp_tui_done")
+    );
 }
 
 #[test]
@@ -205,10 +212,7 @@ fn submit_prompt_deduplicates_referenced_files() {
     let lib_rs = cwd.join("lib.rs");
     fs::write(&lib_rs, "pub fn demo() {}\n").expect("fixture file should be writable");
 
-    model.submit_prompt(format!(
-        "Check @{0} and again @{0}",
-        lib_rs.display()
-    ));
+    model.submit_prompt(format!("Check @{0} and again @{0}", lib_rs.display()));
 
     let sent_content = match cmd_rx.try_recv() {
         Ok(DaemonCommand::SendMessage { content, .. }) => content,

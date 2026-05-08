@@ -1,8 +1,12 @@
-use super::*;
-use super::task_status_to_task_state::*;
-use super::new_to_reduce::*;
 use super::goal_step_todo_thread_ids_to_merge_usize_field::*;
-pub(super) fn merge_goal_run(existing: &mut GoalRun, incoming: GoalRun, preserve_owner_metadata: bool) {
+use super::new_to_reduce::*;
+use super::task_status_to_task_state::*;
+use super::*;
+pub(super) fn merge_goal_run(
+    existing: &mut GoalRun,
+    incoming: GoalRun,
+    preserve_owner_metadata: bool,
+) {
     let preserve_sparse_fields = preserve_owner_metadata && incoming.sparse_update;
     let older_page_request_cooldown_until_tick = existing
         .older_page_request_cooldown_until_tick
@@ -224,4 +228,3 @@ pub(super) fn merge_goal_run_dossier(
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
-

@@ -1,6 +1,6 @@
-use super::*;
 use super::spawned_agents;
 use super::tab_layout::*;
+use super::*;
 use crate::app::RecentActionVm;
 use crate::state::chat::{ChatState, GatewayStatusVm, MessageRole};
 use crate::state::sidebar::{SidebarState, SidebarTab};
@@ -236,7 +236,11 @@ pub(crate) fn visible_rows(
         .collect()
 }
 
-pub(crate) fn has_spawned_tab(tasks: &TaskState, chat: &ChatState, thread_id: Option<&str>) -> bool {
+pub(crate) fn has_spawned_tab(
+    tasks: &TaskState,
+    chat: &ChatState,
+    thread_id: Option<&str>,
+) -> bool {
     spawned_agents::has_content(tasks, thread_id) || chat.can_go_back_thread()
 }
 
@@ -259,11 +263,18 @@ pub(crate) fn selected_spawned_thread_id(
     spawned_agents::selected_thread_id(tasks, sidebar.selected_item(), thread_id)
 }
 
-pub(crate) fn first_openable_spawned_index(tasks: &TaskState, thread_id: Option<&str>) -> Option<usize> {
+pub(crate) fn first_openable_spawned_index(
+    tasks: &TaskState,
+    thread_id: Option<&str>,
+) -> Option<usize> {
     spawned_agents::first_openable_index(tasks, thread_id)
 }
 
-pub(crate) fn resolved_scroll(item_count: usize, sidebar: &SidebarState, body_height: usize) -> usize {
+pub(crate) fn resolved_scroll(
+    item_count: usize,
+    sidebar: &SidebarState,
+    body_height: usize,
+) -> usize {
     let max_scroll = item_count.saturating_sub(body_height);
     let mut scroll = sidebar.scroll_offset().min(max_scroll);
     let selected = sidebar.selected_item().min(item_count.saturating_sub(1));
@@ -275,7 +286,10 @@ pub(crate) fn resolved_scroll(item_count: usize, sidebar: &SidebarState, body_he
     scroll.min(max_scroll)
 }
 
-pub(crate) fn gateway_status_lines(statuses: &[GatewayStatusVm], theme: &ThemeTokens) -> Vec<Line<'static>> {
+pub(crate) fn gateway_status_lines(
+    statuses: &[GatewayStatusVm],
+    theme: &ThemeTokens,
+) -> Vec<Line<'static>> {
     // Only show gateway section if at least one platform is not disconnected
     let active: Vec<&GatewayStatusVm> = statuses
         .iter()
@@ -325,7 +339,10 @@ pub(crate) fn gateway_status_lines(statuses: &[GatewayStatusVm], theme: &ThemeTo
     lines
 }
 
-pub(crate) fn recent_actions_lines(actions: &[RecentActionVm], theme: &ThemeTokens) -> Vec<Line<'static>> {
+pub(crate) fn recent_actions_lines(
+    actions: &[RecentActionVm],
+    theme: &ThemeTokens,
+) -> Vec<Line<'static>> {
     if actions.is_empty() {
         return Vec::new();
     }

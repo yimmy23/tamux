@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use super::now_millis;
 use super::types::*;
 mod classification;
-mod selection;
+pub(crate) mod selection;
 
 pub(in crate::agent) use classification::{classify_task, project_task_runs};
 pub(in crate::agent) use selection::{

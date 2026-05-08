@@ -169,7 +169,10 @@ fn workspace_enter_activates_new_task_not_concierge_action() {
     let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(!handled);
-    assert_eq!(model.modal.top(), Some(modal::ModalKind::WorkspaceCreateTask));
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::WorkspaceCreateTask)
+    );
     assert!(cmd_rx.try_recv().is_err());
 }
 
@@ -385,7 +388,10 @@ fn workspace_picker_selection_ignores_delayed_concierge_welcome() {
     assert!(!model.concierge.welcome_visible);
     assert!(model.chat.active_actions().is_empty());
     assert!(
-        matches!(cmd_rx.try_recv(), Ok(DaemonCommand::DismissConciergeWelcome)),
+        matches!(
+            cmd_rx.try_recv(),
+            Ok(DaemonCommand::DismissConciergeWelcome)
+        ),
         "workspace navigation should dismiss the active concierge welcome"
     );
 }
@@ -477,22 +483,27 @@ fn in_review_run_action_opens_queued_review_task_thread() {
             last_notice_id: None,
         }],
     );
-    model.workspace.set_notices(vec![zorai_protocol::WorkspaceNotice {
-        id: "notice-1".to_string(),
-        workspace_id: "main".to_string(),
-        task_id: "wtask-1".to_string(),
-        notice_type: "review_requested".to_string(),
-        message: "Workspace task review requested from subagent:qa; queued review task review-task-1"
-            .to_string(),
-        actor: Some(zorai_protocol::WorkspaceActor::Subagent("qa".to_string())),
-        created_at: 2,
-    }]);
-    model.tasks.reduce(task::TaskAction::TaskUpdate(task::AgentTask {
-        id: "review-task-1".to_string(),
-        title: "Review".to_string(),
-        thread_id: Some("review-thread-1".to_string()),
-        ..Default::default()
-    }));
+    model
+        .workspace
+        .set_notices(vec![zorai_protocol::WorkspaceNotice {
+            id: "notice-1".to_string(),
+            workspace_id: "main".to_string(),
+            task_id: "wtask-1".to_string(),
+            notice_type: "review_requested".to_string(),
+            message:
+                "Workspace task review requested from subagent:qa; queued review task review-task-1"
+                    .to_string(),
+            actor: Some(zorai_protocol::WorkspaceActor::Subagent("qa".to_string())),
+            created_at: 2,
+        }]);
+    model
+        .tasks
+        .reduce(task::TaskAction::TaskUpdate(task::AgentTask {
+            id: "review-task-1".to_string(),
+            title: "Review".to_string(),
+            thread_id: Some("review-thread-1".to_string()),
+            ..Default::default()
+        }));
 
     model.activate_workspace_task_action(
         "wtask-1".to_string(),

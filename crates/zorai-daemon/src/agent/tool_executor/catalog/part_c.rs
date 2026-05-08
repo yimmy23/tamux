@@ -1,3 +1,4 @@
+use super::*;
 fn configured_image_generation_setting<'a>(
     config: &'a AgentConfig,
     field: &str,
@@ -29,7 +30,7 @@ fn configured_image_generation_model(config: &AgentConfig) -> Option<&str> {
     configured_image_generation_setting(config, "model")
 }
 
-fn add_available_tools_part_c(
+pub(crate) fn add_available_tools_part_c(
     tools: &mut Vec<ToolDefinition>,
     config: &AgentConfig,
     _agent_data_dir: &std::path::Path,
@@ -172,8 +173,8 @@ fn add_available_tools_part_c(
         None,
         false,
     );
-    let image_generation_enabled =
-        configured_image_generation_model(config).is_some() || active_model_features.image_generation;
+    let image_generation_enabled = configured_image_generation_model(config).is_some()
+        || active_model_features.image_generation;
     let active_model_supports_image = crate::agent::types::model_supports(
         &config.provider,
         &config.model,
@@ -203,7 +204,6 @@ fn add_available_tools_part_c(
                 }
             }),
         ));
-
     }
 
     if image_generation_enabled {

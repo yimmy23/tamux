@@ -1,6 +1,7 @@
+use super::*;
 use serde::Serialize;
 
-const MEMORY_SEARCH_MAX_CANDIDATES_PER_LAYER: usize = 64;
+pub(crate) const MEMORY_SEARCH_MAX_CANDIDATES_PER_LAYER: usize = 64;
 
 #[derive(Debug, Clone, Copy)]
 enum MemoryReadScope {
@@ -33,118 +34,118 @@ impl MemoryReadScope {
 
 #[derive(Debug, Clone)]
 struct MemoryReadRequest {
-    include_already_injected: bool,
-    include_base_markdown: bool,
-    include_operator_profile_json: bool,
-    include_operator_model_summary: bool,
-    include_thread_structural_memory: bool,
-    limit_per_layer: usize,
+    pub(crate) include_already_injected: bool,
+    pub(crate) include_base_markdown: bool,
+    pub(crate) include_operator_profile_json: bool,
+    pub(crate) include_operator_model_summary: bool,
+    pub(crate) include_thread_structural_memory: bool,
+    pub(crate) limit_per_layer: usize,
 }
 
 #[derive(Debug, Clone)]
 struct MemorySearchRequest {
-    query: String,
-    include_already_injected: bool,
-    include_base_markdown: bool,
-    include_operator_profile_json: bool,
-    include_operator_model_summary: bool,
-    include_thread_structural_memory: bool,
-    limit: usize,
+    pub(crate) query: String,
+    pub(crate) include_already_injected: bool,
+    pub(crate) include_base_markdown: bool,
+    pub(crate) include_operator_profile_json: bool,
+    pub(crate) include_operator_model_summary: bool,
+    pub(crate) include_thread_structural_memory: bool,
+    pub(crate) limit: usize,
 }
 
 #[derive(Debug, Serialize)]
 struct MemoryReadEnvelope {
-    scope: String,
-    injection_state: MemoryReadInjectionState,
-    layers_consulted: Vec<String>,
-    layers_skipped: Vec<MemoryReadSkippedLayer>,
-    results: serde_json::Value,
-    truncated: bool,
+    pub(crate) scope: String,
+    pub(crate) injection_state: MemoryReadInjectionState,
+    pub(crate) layers_consulted: Vec<String>,
+    pub(crate) layers_skipped: Vec<MemoryReadSkippedLayer>,
+    pub(crate) results: serde_json::Value,
+    pub(crate) truncated: bool,
 }
 
 #[derive(Debug, Serialize)]
 struct MemoryReadInjectionState {
-    include_already_injected: bool,
-    base_layer_injected: bool,
-    base_layer_stale: bool,
-    injected_base_markdown_hash: Option<String>,
-    injected_base_markdown_updated_at_ms: Option<u64>,
-    current_base_markdown_hash: Option<String>,
-    current_base_markdown_updated_at_ms: Option<u64>,
+    pub(crate) include_already_injected: bool,
+    pub(crate) base_layer_injected: bool,
+    pub(crate) base_layer_stale: bool,
+    pub(crate) injected_base_markdown_hash: Option<String>,
+    pub(crate) injected_base_markdown_updated_at_ms: Option<u64>,
+    pub(crate) current_base_markdown_hash: Option<String>,
+    pub(crate) current_base_markdown_updated_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
 struct MemoryReadSkippedLayer {
-    layer: String,
-    reason: String,
+    pub(crate) layer: String,
+    pub(crate) reason: String,
 }
 
 #[derive(Debug, Serialize)]
 struct BaseMarkdownResult {
-    file: String,
-    content: String,
-    updated_at_ms: Option<u64>,
+    pub(crate) file: String,
+    pub(crate) content: String,
+    pub(crate) updated_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
 struct MemorySearchEnvelope {
-    scope: String,
-    query: String,
-    injection_state: MemoryReadInjectionState,
-    layers_consulted: Vec<String>,
-    layers_skipped: Vec<MemoryReadSkippedLayer>,
+    pub(crate) scope: String,
+    pub(crate) query: String,
+    pub(crate) injection_state: MemoryReadInjectionState,
+    pub(crate) layers_consulted: Vec<String>,
+    pub(crate) layers_skipped: Vec<MemoryReadSkippedLayer>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    thread_structural_memory: Option<serde_json::Value>,
-    matches: Vec<MemorySearchMatch>,
-    truncated: bool,
+    pub(crate) thread_structural_memory: Option<serde_json::Value>,
+    pub(crate) matches: Vec<MemorySearchMatch>,
+    pub(crate) truncated: bool,
 }
 
 #[derive(Debug, Serialize)]
 struct MemorySearchMatch {
-    layer: String,
-    source: String,
-    snippet: String,
-    score: u32,
+    pub(crate) layer: String,
+    pub(crate) source: String,
+    pub(crate) snippet: String,
+    pub(crate) score: u32,
     #[serde(skip_serializing)]
-    rank_weight: Option<f64>,
-    freshness: MemorySearchFreshness,
+    pub(crate) rank_weight: Option<f64>,
+    pub(crate) freshness: MemorySearchFreshness,
 }
 
 #[derive(Debug, Serialize)]
 struct MemorySearchFreshness {
-    status: String,
-    updated_at_ms: Option<u64>,
-    injected_updated_at_ms: Option<u64>,
+    pub(crate) status: String,
+    pub(crate) updated_at_ms: Option<u64>,
+    pub(crate) injected_updated_at_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 struct MemorySearchCandidate {
-    layer: &'static str,
-    source: String,
-    snippet: String,
-    haystack: String,
-    rank_weight: Option<f64>,
-    updated_at_ms: Option<u64>,
-    injected_updated_at_ms: Option<u64>,
-    freshness_status: &'static str,
+    pub(crate) layer: &'static str,
+    pub(crate) source: String,
+    pub(crate) snippet: String,
+    pub(crate) haystack: String,
+    pub(crate) rank_weight: Option<f64>,
+    pub(crate) updated_at_ms: Option<u64>,
+    pub(crate) injected_updated_at_ms: Option<u64>,
+    pub(crate) freshness_status: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct MemoryGraphPathStep {
-    node_id: String,
-    label: String,
-    node_type: String,
+    pub(crate) node_id: String,
+    pub(crate) label: String,
+    pub(crate) node_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    relation_type: Option<String>,
+    pub(crate) relation_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    weight: Option<f64>,
+    pub(crate) weight: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
 struct ThreadMemoryGraphNeighbor {
-    node: crate::history::MemoryNodeRow,
-    via_edge: crate::history::MemoryEdgeRow,
-    path: Vec<MemoryGraphPathStep>,
+    pub(crate) node: crate::history::MemoryNodeRow,
+    pub(crate) via_edge: crate::history::MemoryEdgeRow,
+    pub(crate) path: Vec<MemoryGraphPathStep>,
 }
 
 impl ThreadMemoryGraphNeighbor {
@@ -155,9 +156,9 @@ impl ThreadMemoryGraphNeighbor {
 
 #[derive(Debug, Clone)]
 struct MemoryGraphFrontierEntry {
-    node_id: String,
-    path: Vec<MemoryGraphPathStep>,
-    last_edge_weight: Option<f64>,
+    pub(crate) node_id: String,
+    pub(crate) path: Vec<MemoryGraphPathStep>,
+    pub(crate) last_edge_weight: Option<f64>,
 }
 
 fn inferred_memory_graph_node_type(node_id: &str) -> String {
@@ -961,7 +962,7 @@ async fn task_or_current_scope_id(
     Ok(current_agent_scope_id())
 }
 
-async fn task_by_id_for_tool_scope(
+pub(crate) async fn task_by_id_for_tool_scope(
     agent: &AgentEngine,
     task_id: &str,
 ) -> Option<crate::agent::types::AgentTask> {
@@ -1182,7 +1183,7 @@ async fn execute_memory_read_tool(
     Ok(serde_json::to_string(&envelope)?)
 }
 
-async fn execute_read_memory(
+pub(crate) async fn execute_read_memory(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: Option<&str>,
@@ -1200,7 +1201,7 @@ async fn execute_read_memory(
     .await
 }
 
-async fn execute_read_user(
+pub(crate) async fn execute_read_user(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: Option<&str>,
@@ -1218,7 +1219,7 @@ async fn execute_read_user(
     .await
 }
 
-async fn execute_read_soul(
+pub(crate) async fn execute_read_soul(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: Option<&str>,
@@ -1446,7 +1447,7 @@ async fn execute_memory_search_tool(
     Ok(serde_json::to_string(&envelope)?)
 }
 
-async fn execute_search_memory(
+pub(crate) async fn execute_search_memory(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: Option<&str>,
@@ -1464,7 +1465,7 @@ async fn execute_search_memory(
     .await
 }
 
-async fn execute_search_user(
+pub(crate) async fn execute_search_user(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: Option<&str>,
@@ -1482,7 +1483,7 @@ async fn execute_search_user(
     .await
 }
 
-async fn execute_search_soul(
+pub(crate) async fn execute_search_soul(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: Option<&str>,

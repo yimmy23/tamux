@@ -88,7 +88,7 @@ impl AgentEngine {
     }
 
     pub(in crate::agent) async fn repair_tool_call_sequence(&self, thread_id: &str) {
-        let removed = {
+        let removed_ids = {
             let mut threads = self.threads.write().await;
             let Some(thread) = threads.get_mut(thread_id) else {
                 return;
@@ -138,11 +138,20 @@ impl AgentEngine {
                     i += 1;
                 }
             }
-            let removed = before - repaired.len();
-            if removed > 0 {
+            let retained_ids = repaired
+                .iter()
+                .map(|message| message.id.as_str())
+                .collect::<std::collections::HashSet<_>>();
+            let removed_ids = thread
+                .messages
+                .iter()
+                .filter(|message| !retained_ids.contains(message.id.as_str()))
+                .map(|message| message.id.clone())
+                .collect::<Vec<_>>();
+            if !removed_ids.is_empty() {
                 tracing::info!(
                     "repair_tool_call_sequence: removed {} broken messages from thread {}",
-                    removed,
+                    removed_ids.len(),
                     thread_id
                 );
                 thread.messages = repaired;
@@ -150,10 +159,19 @@ impl AgentEngine {
                 thread.total_input_tokens = thread.messages.iter().map(|m| m.input_tokens).sum();
                 thread.total_output_tokens = thread.messages.iter().map(|m| m.output_tokens).sum();
             }
-            removed
+            debug_assert_eq!(before - thread.messages.len(), removed_ids.len());
+            removed_ids
         };
 
-        if removed > 0 {
+        if !removed_ids.is_empty() {
+            let id_refs = removed_ids.iter().map(String::as_str).collect::<Vec<_>>();
+            if let Err(error) = self.history.delete_messages(thread_id, &id_refs).await {
+                tracing::warn!(
+                    thread_id,
+                    %error,
+                    "failed to soft-delete repaired tool-call messages from history"
+                );
+            }
             self.persist_thread_by_id(thread_id).await;
         }
     }

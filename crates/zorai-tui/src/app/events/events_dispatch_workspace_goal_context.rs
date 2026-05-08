@@ -15,6 +15,13 @@ impl TuiModel {
                 None
             }
             ClientEvent::WorkspaceSettings(settings) => {
+                if self.workspace.workspace_id() == settings.workspace_id.as_str() {
+                    self.config.workspace_repo_monitor_enabled = settings.repo_monitor_enabled;
+                    self.config.workspace_repo_monitor_include_dirs =
+                        settings.repo_monitor_include_dirs.join("\n");
+                    self.config.workspace_repo_monitor_exclude_dirs =
+                        settings.repo_monitor_exclude_dirs.join("\n");
+                }
                 self.workspace.set_settings(settings);
                 None
             }

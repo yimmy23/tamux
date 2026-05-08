@@ -1,23 +1,24 @@
-struct WhatsAppLinkSubscriberGuard {
+use super::*;
+pub(crate) struct WhatsAppLinkSubscriberGuard {
     agent: Arc<AgentEngine>,
     subscriber_id: Option<u64>,
 }
 
 impl WhatsAppLinkSubscriberGuard {
-    fn new(agent: Arc<AgentEngine>) -> Self {
+    pub(crate) fn new(agent: Arc<AgentEngine>) -> Self {
         Self {
             agent,
             subscriber_id: None,
         }
     }
 
-    async fn set(&mut self, subscriber_id: u64) {
+    pub(crate) async fn set(&mut self, subscriber_id: u64) {
         if let Some(previous) = self.subscriber_id.replace(subscriber_id) {
             self.agent.whatsapp_link.unsubscribe(previous).await;
         }
     }
 
-    async fn clear(&mut self) {
+    pub(crate) async fn clear(&mut self) {
         if let Some(subscriber_id) = self.subscriber_id.take() {
             self.agent.whatsapp_link.unsubscribe(subscriber_id).await;
         }
@@ -36,7 +37,7 @@ impl Drop for WhatsAppLinkSubscriberGuard {
 }
 
 #[derive(Debug, Clone)]
-enum GatewayConnectionState {
+pub(crate) enum GatewayConnectionState {
     Unregistered,
     AwaitingBootstrapAck {
         registration: GatewayRegistration,
@@ -47,7 +48,7 @@ enum GatewayConnectionState {
     },
 }
 
-fn current_time_ms() -> u64 {
+pub(crate) fn current_time_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
@@ -136,7 +137,7 @@ fn parse_gateway_route_mode(value: &str) -> GatewayRouteMode {
     GatewayRouteMode::parse(value)
 }
 
-async fn build_gateway_bootstrap_payload(
+pub(crate) async fn build_gateway_bootstrap_payload(
     agent: &AgentEngine,
     bootstrap_correlation_id: String,
 ) -> GatewayBootstrapPayload {
@@ -221,11 +222,11 @@ async fn build_gateway_bootstrap_payload(
     }
 }
 
-fn gateway_connection_is_active(state: &GatewayConnectionState) -> bool {
+pub(crate) fn gateway_connection_is_active(state: &GatewayConnectionState) -> bool {
     matches!(state, GatewayConnectionState::Active { .. })
 }
 
-fn gateway_connection_is_tracked(state: &GatewayConnectionState) -> bool {
+pub(crate) fn gateway_connection_is_tracked(state: &GatewayConnectionState) -> bool {
     !matches!(state, GatewayConnectionState::Unregistered)
 }
 
@@ -260,7 +261,7 @@ fn gateway_thread_context_from_event(
     }
 }
 
-async fn enqueue_gateway_incoming_event(
+pub(crate) async fn enqueue_gateway_incoming_event(
     agent: &Arc<AgentEngine>,
     event: GatewayIncomingEvent,
 ) -> Result<()> {

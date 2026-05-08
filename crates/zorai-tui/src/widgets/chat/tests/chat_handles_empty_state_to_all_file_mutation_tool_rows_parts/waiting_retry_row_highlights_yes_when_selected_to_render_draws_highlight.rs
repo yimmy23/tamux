@@ -1,10 +1,12 @@
-use super::super::*;
 use super::super::chat_with_messages;
-use crate::state::chat::{AgentMessage, AgentThread, ChatAction, ChatState, MessageRole, RetryPhase, RetryStatusVm};
+use super::super::*;
+use crate::state::chat::{
+    AgentMessage, AgentThread, ChatAction, ChatState, MessageRole, RetryPhase, RetryStatusVm,
+};
 use crate::theme::ThemeTokens;
 use ratatui::backend::TestBackend;
-use ratatui::Terminal;
 use ratatui::layout::Rect;
+use ratatui::Terminal;
 #[test]
 fn waiting_retry_row_highlights_yes_when_selected() {
     let mut chat = ChatState::new();
@@ -204,7 +206,10 @@ fn assert_blank_line_before_action_bar(lines: &[RenderedChatLine], message_index
         })
         .expect("selected message should render an action bar");
 
-    assert!(action_index > 0, "action bar should not be the first rendered line");
+    assert!(
+        action_index > 0,
+        "action bar should not be the first rendered line"
+    );
     assert_eq!(lines[action_index - 1].message_index, Some(message_index));
     assert!(
         matches!(lines[action_index - 1].kind, RenderedLineKind::Padding),
@@ -326,7 +331,10 @@ fn selected_expanded_tool_message_keeps_blank_line_before_action_bar() {
         })
         .expect("selected tool message should render an action bar");
 
-    assert!(action_index > 0, "action bar should not be the first rendered line");
+    assert!(
+        action_index > 0,
+        "action bar should not be the first rendered line"
+    );
     assert_eq!(lines[action_index - 1].message_index, Some(0));
     assert!(
         matches!(lines[action_index - 1].kind, RenderedLineKind::Padding),
@@ -356,7 +364,10 @@ fn selected_expanded_tool_message_action_bar_stays_visible_in_windowed_render() 
         })
         .expect("selected expanded tool action bar should remain visible");
 
-    assert!(action_index > 0, "action bar should not be the first visible line");
+    assert!(
+        action_index > 0,
+        "action bar should not be the first visible line"
+    );
     assert_eq!(visible[action_index - 1].message_index, Some(0));
     assert!(
         matches!(visible[action_index - 1].kind, RenderedLineKind::Padding),
@@ -506,7 +517,9 @@ fn selected_expanded_reasoning_message_action_bar_targets_toggle() {
 fn meta_cognition_header_uses_reasoning_toggle_hit_target() {
     let chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::System,
-        content: "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file".into(),
+        content:
+            "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file"
+                .into(),
         ..Default::default()
     }]);
 
@@ -537,7 +550,9 @@ fn meta_cognition_header_uses_reasoning_toggle_hit_target() {
 fn selected_meta_cognition_message_action_bar_targets_expand() {
     let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::System,
-        content: "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file".into(),
+        content:
+            "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file"
+                .into(),
         ..Default::default()
     }]);
     chat.select_message(Some(0));
@@ -577,7 +592,9 @@ fn selected_meta_cognition_message_action_bar_targets_expand() {
 fn selected_meta_cognition_message_keeps_blank_line_before_action_bar() {
     let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::System,
-        content: "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file".into(),
+        content:
+            "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file"
+                .into(),
         ..Default::default()
     }]);
     chat.select_message(Some(0));

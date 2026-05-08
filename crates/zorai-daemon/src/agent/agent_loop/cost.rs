@@ -3,50 +3,49 @@ use crate::agent::cost::CostTracker;
 
 impl AgentEngine {
     pub(super) async fn find_active_goal_run_for_thread(&self, thread_id: &str) -> Option<String> {
-        let mut goal_runs = match self
+        let persisted_latest = match self
             .history
-            .list_goal_runs_for_thread_ids(&[thread_id.to_string()])
+            .latest_goal_run_id_and_updated_at_for_thread_ids_and_statuses(
+                &[thread_id.to_string()],
+                &[GoalRunStatus::Running, GoalRunStatus::Planning],
+            )
             .await
         {
-            Ok(goal_runs) => goal_runs,
+            Ok(goal_run) => goal_run,
             Err(error) => {
                 tracing::warn!(
                     thread_id,
-                    "failed to query persisted goal runs for cost accounting: {error}"
+                    "failed to query latest persisted active goal run for cost accounting: {error}"
                 );
-                Vec::new()
+                None
             }
         };
-        let mut seen_goal_ids = goal_runs
-            .iter()
-            .map(|goal_run| goal_run.id.clone())
-            .collect::<std::collections::HashSet<_>>();
-        {
+
+        let live_latest = {
             let live_goal_runs = self.goal_runs.lock().await;
-            for goal_run in live_goal_runs.iter().filter(|goal_run| {
-                goal_run.thread_id.as_deref() == Some(thread_id)
-                    || goal_run.root_thread_id.as_deref() == Some(thread_id)
-                    || goal_run.active_thread_id.as_deref() == Some(thread_id)
-                    || goal_run
-                        .execution_thread_ids
-                        .iter()
-                        .any(|candidate| candidate == thread_id)
-            }) {
-                if seen_goal_ids.insert(goal_run.id.clone()) {
-                    goal_runs.push(goal_run.clone());
-                }
-            }
-        }
-        goal_runs
+            live_goal_runs
+                .iter()
+                .filter(|goal_run| {
+                    matches!(
+                        goal_run.status,
+                        GoalRunStatus::Running | GoalRunStatus::Planning
+                    ) && (goal_run.thread_id.as_deref() == Some(thread_id)
+                        || goal_run.root_thread_id.as_deref() == Some(thread_id)
+                        || goal_run.active_thread_id.as_deref() == Some(thread_id)
+                        || goal_run
+                            .execution_thread_ids
+                            .iter()
+                            .any(|candidate| candidate == thread_id))
+                })
+                .max_by_key(|goal_run| goal_run.updated_at)
+                .map(|goal_run| (goal_run.id.clone(), goal_run.updated_at))
+        };
+
+        [persisted_latest, live_latest]
             .into_iter()
-            .filter(|goal_run| {
-                matches!(
-                    goal_run.status,
-                    GoalRunStatus::Running | GoalRunStatus::Planning
-                )
-            })
-            .max_by_key(|goal_run| goal_run.updated_at)
-            .map(|goal_run| goal_run.id)
+            .flatten()
+            .max_by_key(|(_, updated_at)| *updated_at)
+            .map(|(goal_run_id, _)| goal_run_id)
     }
 
     pub(super) async fn accumulate_goal_run_cost(

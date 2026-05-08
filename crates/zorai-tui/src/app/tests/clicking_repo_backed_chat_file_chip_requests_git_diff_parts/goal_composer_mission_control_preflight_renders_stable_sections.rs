@@ -71,16 +71,8 @@ fn mission_control_roster_render_shows_live_now_and_pending_next_turn_labels() {
     model.width = 100;
     model.height = 40;
     model.main_pane_view = MainPaneView::GoalComposer;
-    model.goal_mission_control = goal_mission_control::GoalMissionControlState::from_main_assignment(
-        task::GoalAgentAssignment {
-            role_id: zorai_protocol::AGENT_ID_SWAROG.to_string(),
-            enabled: true,
-            provider: "openai".to_string(),
-            model: "gpt-5.4".to_string(),
-            reasoning_effort: Some("medium".to_string()),
-            inherit_from_main: false,
-        },
-        vec![
+    model.goal_mission_control =
+        goal_mission_control::GoalMissionControlState::from_main_assignment(
             task::GoalAgentAssignment {
                 role_id: zorai_protocol::AGENT_ID_SWAROG.to_string(),
                 enabled: true,
@@ -89,17 +81,26 @@ fn mission_control_roster_render_shows_live_now_and_pending_next_turn_labels() {
                 reasoning_effort: Some("medium".to_string()),
                 inherit_from_main: false,
             },
-            task::GoalAgentAssignment {
-                role_id: "reviewer".to_string(),
-                enabled: true,
-                provider: "openai".to_string(),
-                model: "gpt-5.4".to_string(),
-                reasoning_effort: Some("low".to_string()),
-                inherit_from_main: false,
-            },
-        ],
-        "Goal runtime roster",
-    );
+            vec![
+                task::GoalAgentAssignment {
+                    role_id: zorai_protocol::AGENT_ID_SWAROG.to_string(),
+                    enabled: true,
+                    provider: "openai".to_string(),
+                    model: "gpt-5.4".to_string(),
+                    reasoning_effort: Some("medium".to_string()),
+                    inherit_from_main: false,
+                },
+                task::GoalAgentAssignment {
+                    role_id: "reviewer".to_string(),
+                    enabled: true,
+                    provider: "openai".to_string(),
+                    model: "gpt-5.4".to_string(),
+                    reasoning_effort: Some("low".to_string()),
+                    inherit_from_main: false,
+                },
+            ],
+            "Goal runtime roster",
+        );
     model.goal_mission_control.runtime_goal_run_id = Some("goal-1".to_string());
     model.goal_mission_control.active_runtime_assignment_index = Some(0);
     model.goal_mission_control.pending_role_assignments = Some(vec![

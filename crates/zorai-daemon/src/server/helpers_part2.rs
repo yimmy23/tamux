@@ -1,4 +1,5 @@
-async fn persist_gateway_health_update(
+use super::*;
+pub(crate) async fn persist_gateway_health_update(
     agent: &Arc<AgentEngine>,
     update: GatewayHealthState,
 ) -> Result<()> {
@@ -141,11 +142,13 @@ async fn persist_gateway_health_update(
     Ok(())
 }
 
-fn gateway_response_channel_key(platform: &str, channel_id: &str) -> Option<String> {
-    Some(crate::agent::gateway::gateway_channel_key(platform, channel_id))
+pub(crate) fn gateway_response_channel_key(platform: &str, channel_id: &str) -> Option<String> {
+    Some(crate::agent::gateway::gateway_channel_key(
+        platform, channel_id,
+    ))
 }
 
-fn is_expected_disconnect_error(error: &anyhow::Error) -> bool {
+pub(crate) fn is_expected_disconnect_error(error: &anyhow::Error) -> bool {
     let expected_io_error = |kind: std::io::ErrorKind| {
         matches!(
             kind,
@@ -326,19 +329,17 @@ where
 
 const MAX_THREAD_DETAIL_CHUNK_BYTES: usize = 64 * 1024;
 
-fn thread_detail_fits_single_ipc_frame(thread_json: &str) -> bool {
+pub(crate) fn thread_detail_fits_single_ipc_frame(thread_json: &str) -> bool {
     zorai_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentThreadDetail {
         thread_json: thread_json.to_string(),
     })
 }
 
-fn thread_detail_chunks_for_ipc(thread_json: &str) -> impl Iterator<Item = &[u8]> {
-    thread_json
-        .as_bytes()
-        .chunks(MAX_THREAD_DETAIL_CHUNK_BYTES)
+pub(crate) fn thread_detail_chunks_for_ipc(thread_json: &str) -> impl Iterator<Item = &[u8]> {
+    thread_json.as_bytes().chunks(MAX_THREAD_DETAIL_CHUNK_BYTES)
 }
 
-fn cap_agent_thread_list_for_ipc(
+pub(crate) fn cap_agent_thread_list_for_ipc(
     threads: Vec<crate::agent::types::AgentThread>,
 ) -> (Vec<crate::agent::types::AgentThread>, bool) {
     cap_vec_prefix_for_ipc(threads, |candidate| {
@@ -349,7 +350,7 @@ fn cap_agent_thread_list_for_ipc(
     })
 }
 
-fn cap_scrollback_for_ipc(
+pub(crate) fn cap_scrollback_for_ipc(
     id: zorai_protocol::SessionId,
     data: Vec<u8>,
 ) -> (Vec<u8>, bool) {
@@ -361,7 +362,7 @@ fn cap_scrollback_for_ipc(
     })
 }
 
-fn cap_analysis_result_for_ipc(
+pub(crate) fn cap_analysis_result_for_ipc(
     id: zorai_protocol::SessionId,
     result: String,
 ) -> (String, bool) {
@@ -373,7 +374,7 @@ fn cap_analysis_result_for_ipc(
     })
 }
 
-fn cap_history_search_result_for_ipc(
+pub(crate) fn cap_history_search_result_for_ipc(
     query: &str,
     summary: String,
     hits: Vec<zorai_protocol::HistorySearchHit>,
@@ -391,7 +392,8 @@ fn cap_history_search_result_for_ipc(
         return (summary, hits, false);
     }
 
-    let (hits, hits_truncated) = cap_vec_prefix_for_ipc(hits, |candidate| fits(&summary, candidate));
+    let (hits, hits_truncated) =
+        cap_vec_prefix_for_ipc(hits, |candidate| fits(&summary, candidate));
     if fits(&summary, &hits) {
         return (summary, hits, true);
     }
@@ -401,7 +403,7 @@ fn cap_history_search_result_for_ipc(
     (summary, hits, hits_truncated || summary_truncated)
 }
 
-fn cap_agent_db_thread_detail_for_ipc(
+pub(crate) fn cap_agent_db_thread_detail_for_ipc(
     thread: Option<zorai_protocol::AgentDbThread>,
     messages: Vec<zorai_protocol::AgentDbMessage>,
 ) -> ((String, String), bool) {
@@ -424,7 +426,7 @@ fn cap_agent_db_thread_detail_for_ipc(
     ((thread_json, messages_json), truncated)
 }
 
-fn cap_agent_event_rows_for_ipc(
+pub(crate) fn cap_agent_event_rows_for_ipc(
     events: Vec<zorai_protocol::AgentEventRow>,
 ) -> (String, bool) {
     let fits = |candidate: &[zorai_protocol::AgentEventRow]| {
@@ -435,10 +437,13 @@ fn cap_agent_event_rows_for_ipc(
     };
 
     let (events, truncated) = cap_vec_suffix_for_ipc(events, fits);
-    (serde_json::to_string(&events).unwrap_or_default(), truncated)
+    (
+        serde_json::to_string(&events).unwrap_or_default(),
+        truncated,
+    )
 }
 
-fn cap_git_diff_for_ipc(
+pub(crate) fn cap_git_diff_for_ipc(
     repo_path: &str,
     file_path: Option<&str>,
     diff: String,
@@ -454,7 +459,7 @@ fn cap_git_diff_for_ipc(
     })
 }
 
-fn cap_plugin_api_call_result_for_ipc(
+pub(crate) fn cap_plugin_api_call_result_for_ipc(
     operation_id: Option<&str>,
     plugin_name: &str,
     endpoint_name: &str,
@@ -484,7 +489,9 @@ fn agent_event_frame_fits_ipc(event_json: &str) -> bool {
     })
 }
 
-fn cap_agent_event_for_ipc(event: &crate::agent::types::AgentEvent) -> Option<(String, bool)> {
+pub(crate) fn cap_agent_event_for_ipc(
+    event: &crate::agent::types::AgentEvent,
+) -> Option<(String, bool)> {
     let event_json = serde_json::to_string(event).ok()?;
     if agent_event_frame_fits_ipc(&event_json) {
         return Some((event_json, false));
@@ -508,17 +515,18 @@ fn cap_agent_event_for_ipc(event: &crate::agent::types::AgentEvent) -> Option<(S
             return Some((without_details_json, true));
         }
 
-        let (capped_message, _truncated) = cap_string_prefix_for_ipc(message.clone(), |candidate| {
-            let candidate_event = crate::agent::types::AgentEvent::WorkflowNotice {
-                thread_id: thread_id.clone(),
-                kind: kind.clone(),
-                message: candidate.to_string(),
-                details: None,
-            };
-            serde_json::to_string(&candidate_event)
-                .map(|json| agent_event_frame_fits_ipc(&json))
-                .unwrap_or(false)
-        });
+        let (capped_message, _truncated) =
+            cap_string_prefix_for_ipc(message.clone(), |candidate| {
+                let candidate_event = crate::agent::types::AgentEvent::WorkflowNotice {
+                    thread_id: thread_id.clone(),
+                    kind: kind.clone(),
+                    message: candidate.to_string(),
+                    details: None,
+                };
+                serde_json::to_string(&candidate_event)
+                    .map(|json| agent_event_frame_fits_ipc(&json))
+                    .unwrap_or(false)
+            });
         let candidate_event = crate::agent::types::AgentEvent::WorkflowNotice {
             thread_id: thread_id.clone(),
             kind: kind.clone(),
@@ -572,7 +580,7 @@ fn summarize_session_output(recent_output: Option<&str>) -> Option<String> {
     Some(condensed.chars().take(MAX_CHARS - 3).collect::<String>() + "...")
 }
 
-fn build_session_end_episode_payload(
+pub(crate) fn build_session_end_episode_payload(
     session_id: &str,
     info: Option<&SessionInfo>,
     recent_output: Option<&str>,
@@ -627,7 +635,7 @@ fn build_session_end_episode_payload(
     (summary, entities)
 }
 
-fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str> {
+pub(crate) fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str> {
     use crate::agent::types::AgentEvent;
 
     match event {
@@ -665,12 +673,12 @@ fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str
 }
 
 #[cfg(not(test))]
-async fn start_whatsapp_link_backend(agent: Arc<AgentEngine>) -> Result<()> {
+pub(crate) async fn start_whatsapp_link_backend(agent: Arc<AgentEngine>) -> Result<()> {
     crate::agent::start_whatsapp_link_native(agent).await
 }
 
 #[cfg(not(test))]
-async fn maybe_autostart_whatsapp_link(agent: Arc<AgentEngine>) {
+pub(crate) async fn maybe_autostart_whatsapp_link(agent: Arc<AgentEngine>) {
     let gateway = agent.config.read().await.gateway.clone();
     if !gateway.enabled {
         return;

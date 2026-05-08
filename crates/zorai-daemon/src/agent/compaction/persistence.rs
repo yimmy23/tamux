@@ -225,39 +225,60 @@ impl AgentEngine {
         thread_id: &str,
         task_id: Option<&str>,
     ) -> Option<CompactionScopeSnapshot> {
-        let task = if let Some(task_id) = task_id {
-            match self
-                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                    id: Some(task_id.to_string()),
-                    status: None,
-                    statuses: Vec::new(),
-                    source: None,
-                    thread_id: None,
-                    thread_ids: Vec::new(),
-                    goal_run_id: None,
-                    parent_task_id: None,
-                    awaiting_approval_id: None,
-                    supervisor_config_present: false,
-                    exclude_terminal_statuses: false,
-                    order_by_recent_activity_desc: false,
-                    limit: Some(1),
-                })
-                .await
-                .into_iter()
-                .next()
-            {
-                Some(task) => Some(task),
-                None => {
+        let (task_exists, task_goal_run_id) = if let Some(task_id) = task_id {
+            match self.history.agent_task_goal_context(task_id).await {
+                Ok(Some(context)) => (true, context.goal_run_id),
+                Ok(None) => {
                     let tasks = self.tasks.lock().await;
-                    tasks.iter().find(|task| task.id == task_id).cloned()
+                    let task = tasks.iter().find(|task| task.id == task_id);
+                    (
+                        task.is_some(),
+                        task.and_then(|task| task.goal_run_id.clone()),
+                    )
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        task_id,
+                        %error,
+                        "failed to query task goal context for compaction scope"
+                    );
+                    match self
+                        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                            id: Some(task_id.to_string()),
+                            status: None,
+                            statuses: Vec::new(),
+                            source: None,
+                            thread_id: None,
+                            thread_ids: Vec::new(),
+                            goal_run_id: None,
+                            parent_task_id: None,
+                            awaiting_approval_id: None,
+                            supervisor_config_present: false,
+                            exclude_terminal_statuses: false,
+                            order_by_recent_activity_desc: false,
+                            limit: Some(1),
+                        })
+                        .await
+                        .into_iter()
+                        .next()
+                    {
+                        Some(task) => (true, task.goal_run_id),
+                        None => {
+                            let tasks = self.tasks.lock().await;
+                            let task = tasks.iter().find(|task| task.id == task_id);
+                            (
+                                task.is_some(),
+                                task.and_then(|task| task.goal_run_id.clone()),
+                            )
+                        }
+                    }
                 }
             }
         } else {
-            None
+            (false, None)
         };
-        let task_goal_run_id = task.as_ref().and_then(|task| task.goal_run_id.clone());
 
-        let mut goal_run = {
+        let goal_run = {
             let goal_runs = self.goal_runs.lock().await;
             goal_runs
                 .iter()
@@ -269,77 +290,64 @@ impl AgentEngine {
                 })
                 .cloned()
         };
-        if goal_run.is_none() {
+
+        if let Some(goal_run) = goal_run {
+            return Some(compaction_scope_snapshot_from_goal_run(
+                thread_id,
+                task_id.map(ToOwned::to_owned),
+                goal_run,
+            ));
+        }
+
+        let mut persisted_goal_run = None;
+        if persisted_goal_run.is_none() {
             if let Some(goal_run_id) = task_goal_run_id.as_deref() {
-                goal_run = self.history.get_goal_run(goal_run_id).await.ok().flatten();
+                persisted_goal_run = self
+                    .history
+                    .goal_run_compaction_scope_ref(goal_run_id)
+                    .await
+                    .ok()
+                    .flatten();
             }
         }
-        if goal_run.is_none() {
-            goal_run = self
+        if persisted_goal_run.is_none() {
+            persisted_goal_run = match self
                 .history
-                .list_goal_runs_for_thread_ids(&[thread_id.to_string()])
+                .latest_goal_run_id_for_thread_ids(&[thread_id.to_string()])
                 .await
-                .ok()
-                .and_then(|goal_runs| {
-                    goal_runs
-                        .into_iter()
-                        .max_by_key(|goal_run| goal_run.updated_at)
-                });
+            {
+                Ok(Some(goal_run_id)) => self
+                    .history
+                    .goal_run_compaction_scope_ref(&goal_run_id)
+                    .await
+                    .ok()
+                    .flatten(),
+                Ok(None) => None,
+                Err(error) => {
+                    tracing::warn!(
+                        thread_id,
+                        "failed to query latest persisted goal run for compaction scope: {error}"
+                    );
+                    None
+                }
+            };
         }
 
-        let goal_run = match goal_run {
-            Some(goal_run) => goal_run,
-            None if task.is_some() => {
-                return Some(CompactionScopeSnapshot {
-                    thread_id: thread_id.to_string(),
-                    task_id: task.as_ref().map(|task| task.id.clone()),
-                    active_task_id: task.as_ref().map(|task| task.id.clone()),
-                    goal_run_id: task_goal_run_id,
-                    ..CompactionScopeSnapshot::default()
-                });
-            }
-            None => return None,
-        };
-
-        let task_id = task
-            .as_ref()
-            .map(|task| task.id.clone())
-            .or_else(|| goal_run.active_task_id.clone());
-        let step = goal_run.steps.get(goal_run.current_step_index);
-        let current_step_title = step
-            .map(|step| step.title.clone())
-            .or_else(|| goal_run.current_step_title.clone());
-        let current_step_status = step.map(|step| format!("{:?}", step.status));
-        let current_step_summary = step.and_then(|step| step.summary.clone());
-        let recent_events = goal_run
-            .events
-            .iter()
-            .rev()
-            .take(3)
-            .map(|event| event.message.clone())
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<Vec<_>>();
-
-        Some(CompactionScopeSnapshot {
-            thread_id: thread_id.to_string(),
-            task_id,
-            goal_run_id: Some(goal_run.id),
-            active_task_id: goal_run.active_task_id,
-            goal_title: Some(goal_run.title),
-            goal: Some(goal_run.goal),
-            goal_status: Some(format!("{:?}", goal_run.status)),
-            root_thread_id: goal_run.root_thread_id,
-            active_thread_id: goal_run.active_thread_id,
-            execution_thread_ids: goal_run.execution_thread_ids,
-            current_step_title,
-            current_step_status,
-            current_step_summary,
-            plan_summary: goal_run.plan_summary,
-            latest_error: goal_run.last_error.or(goal_run.failure_cause),
-            recent_events,
-        })
+        match persisted_goal_run {
+            Some(goal_run) => Some(compaction_scope_snapshot_from_goal_run_ref(
+                thread_id,
+                task_id.map(ToOwned::to_owned),
+                goal_run,
+            )),
+            None if task_exists => Some(CompactionScopeSnapshot {
+                thread_id: thread_id.to_string(),
+                task_id: task_id.map(ToOwned::to_owned),
+                active_task_id: task_id.map(ToOwned::to_owned),
+                goal_run_id: task_goal_run_id,
+                ..CompactionScopeSnapshot::default()
+            }),
+            None => None,
+        }
     }
 
     pub async fn force_compact_and_continue(self: &Arc<Self>, thread_id: &str) -> Result<bool> {
@@ -404,4 +412,74 @@ fn goal_run_thread_matches(goal_run: &GoalRun, thread_id: &str) -> bool {
             .iter()
             .any(|execution_thread_id| execution_thread_id == thread_id)
         || thread_id == format!("goal:{}", goal_run.id)
+}
+
+fn compaction_scope_snapshot_from_goal_run(
+    thread_id: &str,
+    task_id: Option<String>,
+    goal_run: GoalRun,
+) -> CompactionScopeSnapshot {
+    let task_id = task_id.or_else(|| goal_run.active_task_id.clone());
+    let step = goal_run.steps.get(goal_run.current_step_index);
+    let current_step_title = step
+        .map(|step| step.title.clone())
+        .or_else(|| goal_run.current_step_title.clone());
+    let current_step_status = step.map(|step| format!("{:?}", step.status));
+    let current_step_summary = step.and_then(|step| step.summary.clone());
+    let recent_events = goal_run
+        .events
+        .iter()
+        .rev()
+        .take(3)
+        .map(|event| event.message.clone())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>();
+
+    CompactionScopeSnapshot {
+        thread_id: thread_id.to_string(),
+        task_id,
+        goal_run_id: Some(goal_run.id),
+        active_task_id: goal_run.active_task_id,
+        goal_title: Some(goal_run.title),
+        goal: Some(goal_run.goal),
+        goal_status: Some(format!("{:?}", goal_run.status)),
+        root_thread_id: goal_run.root_thread_id,
+        active_thread_id: goal_run.active_thread_id,
+        execution_thread_ids: goal_run.execution_thread_ids,
+        current_step_title,
+        current_step_status,
+        current_step_summary,
+        plan_summary: goal_run.plan_summary,
+        latest_error: goal_run.last_error.or(goal_run.failure_cause),
+        recent_events,
+    }
+}
+
+fn compaction_scope_snapshot_from_goal_run_ref(
+    thread_id: &str,
+    task_id: Option<String>,
+    goal_run: crate::history::GoalRunCompactionScopeRef,
+) -> CompactionScopeSnapshot {
+    CompactionScopeSnapshot {
+        thread_id: thread_id.to_string(),
+        task_id: task_id.or_else(|| goal_run.active_task_id.clone()),
+        goal_run_id: Some(goal_run.id),
+        active_task_id: goal_run.active_task_id,
+        goal_title: Some(goal_run.title),
+        goal: Some(goal_run.goal),
+        goal_status: Some(format!("{:?}", goal_run.status)),
+        root_thread_id: goal_run.root_thread_id,
+        active_thread_id: goal_run.active_thread_id,
+        execution_thread_ids: goal_run.execution_thread_ids,
+        current_step_title: goal_run.current_step_title,
+        current_step_status: goal_run
+            .current_step_status
+            .map(|status| format!("{:?}", status)),
+        current_step_summary: goal_run.current_step_summary,
+        plan_summary: goal_run.plan_summary,
+        latest_error: goal_run.latest_error,
+        recent_events: goal_run.recent_events,
+    }
 }

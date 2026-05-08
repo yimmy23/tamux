@@ -355,16 +355,15 @@ impl AgentEngine {
     }
 
     async fn enqueue_operation_completion_continuation(&self, thread_id: &str) {
-        let prior_user_message = {
-            let threads = self.threads.read().await;
-            threads.get(thread_id).and_then(|thread| {
-                thread
-                    .messages
-                    .iter()
-                    .rev()
-                    .find(|message| message.role == MessageRole::User)
-                    .map(|message| message.content.clone())
-            })
+        let prior_user_message = match self.history.latest_user_message_content(thread_id).await {
+            Ok(message) => message,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    "failed to load latest user message for operation continuation: {error}"
+                );
+                None
+            }
         };
 
         let Some(prior_user_message) = prior_user_message else {
@@ -440,7 +439,7 @@ impl AgentEngine {
                 .and_then(|value| value.as_str().map(ToOwned::to_owned))
         })
         .collect::<Vec<_>>();
-        self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+        let query = crate::history::AgentTaskListQuery {
             id: None,
             status: None,
             statuses: active_statuses,
@@ -454,11 +453,20 @@ impl AgentEngine {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: true,
             limit: Some(1),
-        })
-        .await
-        .into_iter()
-        .next()
-        .map(|task| task.id)
+        };
+        match self.history.list_agent_task_refs_filtered(&query).await {
+            Ok(task_refs) => task_refs.into_iter().next().map(|(task_id, _, _)| task_id),
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query operation wakeup active task id for thread {thread_id}: {error}"
+                );
+                self.list_tasks_filtered(&query)
+                    .await
+                    .into_iter()
+                    .next()
+                    .map(|task| task.id)
+            }
+        }
     }
 }
 

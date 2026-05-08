@@ -51,12 +51,21 @@ impl AgentEngine {
         // Only inject zorai context on the first message in a thread
         // (subsequent messages in the same thread don't need the preamble
         // repeated — the external agent session carries the context)
-        let is_first_message = {
-            let threads = self.threads.read().await;
-            threads
-                .get(&tid)
-                .map(|t| t.messages.len() <= 1) // 1 = just the user message we added above
-                .unwrap_or(true)
+        let is_first_message = match self.history.thread_message_count(&tid).await {
+            Ok(Some(message_count)) => message_count <= 1, // 1 = just the user message we added above
+            Ok(None) => true,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %tid,
+                    %error,
+                    "failed to query persisted thread message count; falling back to live thread messages"
+                );
+                let threads = self.threads.read().await;
+                threads
+                    .get(&tid)
+                    .map(|t| t.messages.len() <= 1)
+                    .unwrap_or(true)
+            }
         };
 
         let mut enriched_prompt = if is_first_message {

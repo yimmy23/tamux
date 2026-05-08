@@ -1,11 +1,12 @@
+use super::*;
 #[derive(Debug, Clone, Default)]
-struct AnthropicStreamStopMetadata {
-    stop_reason: Option<String>,
-    stop_sequence: Option<String>,
+pub(crate) struct AnthropicStreamStopMetadata {
+    pub(crate) stop_reason: Option<String>,
+    pub(crate) stop_sequence: Option<String>,
 }
 
 impl AnthropicStreamStopMetadata {
-    fn capture_message_delta(&mut self, parsed: &serde_json::Value) {
+    pub(crate) fn capture_message_delta(&mut self, parsed: &serde_json::Value) {
         self.stop_reason = parsed
             .pointer("/delta/stop_reason")
             .and_then(|value| value.as_str())

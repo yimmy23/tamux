@@ -1,5 +1,5 @@
-use super::*;
 use super::cursor::*;
+use super::*;
 use crate::state::config::ConfigState;
 use zorai_shared::providers::PROVIDER_ID_OPENROUTER;
 impl SettingsState {
@@ -27,6 +27,9 @@ impl SettingsState {
             "snapshot_max_size_mb",
             "snapshot_stats",
             "auto_refresh_interval_secs",
+            "workspace_repo_monitor_enabled",
+            "workspace_repo_monitor_include_dirs",
+            "workspace_repo_monitor_exclude_dirs",
         ];
         const WELES_FIELDS: &[&str] = &[
             "managed_sandbox_enabled",
@@ -54,6 +57,9 @@ impl SettingsState {
             "snapshot_max_size_mb",
             "snapshot_stats",
             "auto_refresh_interval_secs",
+            "workspace_repo_monitor_enabled",
+            "workspace_repo_monitor_include_dirs",
+            "workspace_repo_monitor_exclude_dirs",
         ];
         const CUSTOM_FIELDS: &[&str] = &[
             "managed_sandbox_enabled",
@@ -87,6 +93,9 @@ impl SettingsState {
             "snapshot_max_size_mb",
             "snapshot_stats",
             "auto_refresh_interval_secs",
+            "workspace_repo_monitor_enabled",
+            "workspace_repo_monitor_include_dirs",
+            "workspace_repo_monitor_exclude_dirs",
         ];
 
         match strategy {
@@ -335,6 +344,9 @@ impl SettingsState {
                 19 => "snapshot_max_size_mb",
                 20 => "snapshot_stats",
                 21 => "auto_refresh_interval_secs",
+                22 => "workspace_repo_monitor_enabled",
+                23 => "workspace_repo_monitor_include_dirs",
+                24 => "workspace_repo_monitor_exclude_dirs",
                 _ => "",
             },
             SettingsTab::Plugins => {
@@ -382,7 +394,7 @@ impl SettingsState {
             SettingsTab::SubAgents => 1,
             SettingsTab::Concierge => 5,
             SettingsTab::Features => 29,
-            SettingsTab::Advanced => 22,
+            SettingsTab::Advanced => 25,
             SettingsTab::Plugins => 1,
             SettingsTab::About => 0,
         }
@@ -422,5 +434,4 @@ impl SettingsState {
             self.field_cursor = self.field_cursor.saturating_sub((-delta) as usize);
         }
     }
-
 }

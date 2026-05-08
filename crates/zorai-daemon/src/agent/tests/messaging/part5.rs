@@ -1640,9 +1640,8 @@ async fn internal_delegate_does_not_register_participant() {
         first_body
             .get("tools")
             .and_then(|value| value.as_array())
-            .map(|tools| tools.is_empty())
-            .unwrap_or(true),
-        "internal DM delegate request should not expose tools: {}",
+            .is_some_and(|tools| !tools.is_empty()),
+        "internal DM delegate request should expose tools: {}",
         recorded[0]
     );
 

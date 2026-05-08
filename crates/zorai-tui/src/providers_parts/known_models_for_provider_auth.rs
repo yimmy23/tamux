@@ -1,8 +1,8 @@
-use super::*;
-use zorai_shared::providers::*;
 use super::context;
 use super::model_catalog;
+use super::*;
 use crate::state::config::FetchedModel;
+use zorai_shared::providers::*;
 
 // Return a hardcoded list of known models for the given provider so the model
 // picker works without a live daemon fetch.

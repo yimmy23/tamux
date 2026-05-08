@@ -1,11 +1,17 @@
-use super::*;
 use super::whatsapp_link_device_probes_status_before_starting_link_flow::focus_settings_field;
-use super::{make_model, auth_env_lock, write_provider_auth_row, has_provider_auth_row, unique_test_db_path, EnvGuard};
+use super::*;
+use super::{
+    auth_env_lock, has_provider_auth_row, make_model, unique_test_db_path, write_provider_auth_row,
+    EnvGuard,
+};
 #[test]
 fn operator_model_inspect_field_requests_operator_model_snapshot() {
     let (mut model, mut daemon_rx) = make_model();
     focus_settings_field(&mut model, SettingsTab::Chat, "operator_model_inspect");
-    assert_eq!(model.settings.current_field_name(), "operator_model_inspect");
+    assert_eq!(
+        model.settings.current_field_name(),
+        "operator_model_inspect"
+    );
 
     model.activate_settings_field();
 
@@ -34,11 +40,7 @@ fn operator_model_reset_field_requests_model_reset() {
 #[test]
 fn chat_settings_history_page_size_allows_twenty_messages() {
     let (mut model, _daemon_rx) = make_model();
-    focus_settings_field(
-        &mut model,
-        SettingsTab::Chat,
-        "tui_chat_history_page_size",
-    );
+    focus_settings_field(&mut model, SettingsTab::Chat, "tui_chat_history_page_size");
     model.config.tui_chat_history_page_size = 100;
 
     model.activate_settings_field();

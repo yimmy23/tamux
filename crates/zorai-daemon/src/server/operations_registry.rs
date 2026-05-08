@@ -1,3 +1,4 @@
+use super::*;
 #[derive(Default)]
 pub(crate) struct OperationRegistry {
     records: std::sync::Mutex<std::collections::HashMap<String, OperationRecord>>,
@@ -218,7 +219,10 @@ mod operation_registry_tests {
     #[test]
     fn terminal_operations_remain_queryable_but_release_dedup_slot() {
         let registry = OperationRegistry::default();
-        let first = registry.accept_operation(zorai_protocol::tool_names::PLUGIN_API_CALL, Some("plugin:dedup".to_string()));
+        let first = registry.accept_operation(
+            zorai_protocol::tool_names::PLUGIN_API_CALL,
+            Some("plugin:dedup".to_string()),
+        );
 
         registry.mark_completed(&first.operation_id);
 
@@ -230,7 +234,10 @@ mod operation_registry_tests {
             zorai_protocol::OperationLifecycleState::Completed
         );
 
-        let second = registry.accept_operation(zorai_protocol::tool_names::PLUGIN_API_CALL, Some("plugin:dedup".to_string()));
+        let second = registry.accept_operation(
+            zorai_protocol::tool_names::PLUGIN_API_CALL,
+            Some("plugin:dedup".to_string()),
+        );
         assert_ne!(first.operation_id, second.operation_id);
         assert_eq!(
             second.state,

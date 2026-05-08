@@ -4,17 +4,17 @@ use futures::TryStreamExt;
 use lancedb::query::{ExecutableQuery, QueryBase};
 use tokio::time::{timeout, Duration};
 
-use super::skill_mesh::index::{
+use crate::agent::skill_mesh::index::{
     fail_replace_document_once_for_tests, pause_after_document_replace_once_for_tests,
 };
 
-use super::skill_mesh::{
+use crate::agent::skill_mesh::{
     InMemorySkillMeshIndex, LanceDbSkillMeshIndex, SkillMeshDocument, SkillMeshDocumentKey,
     SkillMeshEmbeddingRecord, SkillMeshFeedbackState, SkillMeshIndex, SkillMeshIntent,
     SkillMeshOutcome, SkillMeshResult,
 };
 
-fn sample_skill_mesh_document() -> SkillMeshDocument {
+pub(super) fn sample_skill_mesh_document() -> SkillMeshDocument {
     SkillMeshDocument {
         skill_id: "debug-rust-build".to_string(),
         variant_id: Some("debug-rust-build@v1".to_string()),
@@ -25,7 +25,11 @@ fn sample_skill_mesh_document() -> SkillMeshDocument {
         content_hash: "hash-123".to_string(),
         compile_version: 1,
         summary: Some("Debug Rust build and cargo test failures".to_string()),
-        capability_path: vec!["development".to_string(), "rust".to_string(), "debug".to_string()],
+        capability_path: vec![
+            "development".to_string(),
+            "rust".to_string(),
+            "debug".to_string(),
+        ],
         synthetic_queries: vec![
             "debug a failing cargo build".to_string(),
             "fix rust test failure".to_string(),
@@ -55,7 +59,11 @@ fn sample_embedding_record() -> SkillMeshEmbeddingRecord {
         embedding_kind: "synthetic_query".to_string(),
         text: "debug a failing cargo build".to_string(),
         vector: vec![0.1, 0.2, 0.3],
-        capability_path: vec!["development".to_string(), "rust".to_string(), "debug".to_string()],
+        capability_path: vec![
+            "development".to_string(),
+            "rust".to_string(),
+            "debug".to_string(),
+        ],
         trust_tier: "trusted".to_string(),
         risk_level: "low".to_string(),
         source_kind: "builtin".to_string(),
@@ -145,8 +153,16 @@ async fn lancedb_embedding_capability_paths(db_path: &std::path::Path) -> Result
     let connection = lancedb::connect(&db_path.to_string_lossy().to_string())
         .execute()
         .await?;
-    let table = connection.open_table("skill_mesh_embeddings").execute().await?;
-    let batches = table.query().execute().await?.try_collect::<Vec<_>>().await?;
+    let table = connection
+        .open_table("skill_mesh_embeddings")
+        .execute()
+        .await?;
+    let batches = table
+        .query()
+        .execute()
+        .await?
+        .try_collect::<Vec<_>>()
+        .await?;
     let mut capability_paths = Vec::new();
 
     for batch in batches {
@@ -178,8 +194,16 @@ async fn lancedb_document_payloads(db_path: &std::path::Path) -> Result<Vec<(Str
     let connection = lancedb::connect(&db_path.to_string_lossy().to_string())
         .execute()
         .await?;
-    let table = connection.open_table("skill_mesh_documents").execute().await?;
-    let batches = table.query().execute().await?.try_collect::<Vec<_>>().await?;
+    let table = connection
+        .open_table("skill_mesh_documents")
+        .execute()
+        .await?;
+    let batches = table
+        .query()
+        .execute()
+        .await?
+        .try_collect::<Vec<_>>()
+        .await?;
     let mut payloads = Vec::new();
 
     for batch in batches {
@@ -214,7 +238,10 @@ async fn lancedb_embedding_identity_rows(
     let connection = lancedb::connect(&db_path.to_string_lossy().to_string())
         .execute()
         .await?;
-    let table = connection.open_table("skill_mesh_embeddings").execute().await?;
+    let table = connection
+        .open_table("skill_mesh_embeddings")
+        .execute()
+        .await?;
     let filter = match key.variant_id.as_deref() {
         Some(variant_id) => format!(
             "skill_id = '{}' AND variant_id = '{}'",
@@ -264,8 +291,7 @@ async fn lancedb_embedding_identity_rows(
         for row_index in 0..batch.num_rows() {
             rows.push((
                 embedding_ids.value(row_index).to_string(),
-                (!variant_ids.is_null(row_index))
-                    .then(|| variant_ids.value(row_index).to_string()),
+                (!variant_ids.is_null(row_index)).then(|| variant_ids.value(row_index).to_string()),
                 texts.value(row_index).to_string(),
                 source_kinds.value(row_index).to_string(),
             ));
@@ -283,7 +309,10 @@ async fn overwrite_lancedb_document_row(
     let connection = lancedb::connect(&db_path.to_string_lossy().to_string())
         .execute()
         .await?;
-    let table = connection.open_table("skill_mesh_documents").execute().await?;
+    let table = connection
+        .open_table("skill_mesh_documents")
+        .execute()
+        .await?;
     table
         .delete(&format!("skill_id = '{}'", storage_key.replace('\'', "''")))
         .await?;
@@ -322,7 +351,10 @@ fn skill_mesh_result_preserves_chosen_variant_identity() -> Result<()> {
     let serialized = serde_json::to_value(&result)?;
     let round_trip: SkillMeshResult = serde_json::from_value(serialized.clone())?;
 
-    assert_eq!(serialized["chosen_document_key"]["skill_id"], chosen_key.skill_id);
+    assert_eq!(
+        serialized["chosen_document_key"]["skill_id"],
+        chosen_key.skill_id
+    );
     assert_eq!(
         serialized["chosen_document_key"]["variant_id"],
         chosen_key.variant_id.clone().unwrap()
@@ -482,12 +514,12 @@ async fn skill_mesh_index_serializes_multi_step_boundary_writes() -> Result<()> 
     pause_controller.wait_until_hit().await;
 
     let second_index = std::sync::Arc::clone(&index);
-    let mut second_task = tokio::spawn(async move {
-        second_index.upsert_document(second).await
-    });
+    let mut second_task = tokio::spawn(async move { second_index.upsert_document(second).await });
 
     assert!(
-        timeout(Duration::from_millis(250), &mut second_task).await.is_err(),
+        timeout(Duration::from_millis(250), &mut second_task)
+            .await
+            .is_err(),
         "second mutation should remain blocked until the first multi-step write fully completes"
     );
 
@@ -522,8 +554,7 @@ async fn skill_mesh_index_keeps_distinct_variants_for_the_same_skill() -> Result
     let db_path = root.path().join("skill-mesh-variants");
     let base_document = sample_skill_mesh_document();
     let base_key = base_document.document_key();
-    let alternate_document =
-        sample_skill_mesh_variant_document("debug-rust-build@v2", "alternate");
+    let alternate_document = sample_skill_mesh_variant_document("debug-rust-build@v2", "alternate");
     let alternate_key = alternate_document.document_key();
 
     let index = LanceDbSkillMeshIndex::open(&db_path).await?;
@@ -549,20 +580,26 @@ async fn skill_mesh_index_keeps_distinct_variants_for_the_same_skill() -> Result
 
     assert_eq!(base_loaded.variant_id, base_key.variant_id);
     assert_eq!(alternate_loaded.variant_id, alternate_key.variant_id);
-    assert_eq!(document_rows, 2, "both variants should retain separate document rows");
-    assert_eq!(embedding_rows, 2, "both variants should retain separate embedding rows");
+    assert_eq!(
+        document_rows, 2,
+        "both variants should retain separate document rows"
+    );
+    assert_eq!(
+        embedding_rows, 2,
+        "both variants should retain separate embedding rows"
+    );
 
     Ok(())
 }
 
 #[tokio::test]
-async fn skill_mesh_index_replacement_with_no_embeddings_clears_stale_embedding_rows() -> Result<()> {
+async fn skill_mesh_index_replacement_with_no_embeddings_clears_stale_embedding_rows() -> Result<()>
+{
     let root = tempfile::tempdir()?;
     let db_path = root.path().join("skill-mesh-empty-embeddings");
     let document = sample_skill_mesh_document();
     let document_key = document.document_key();
-    let alternate_document =
-        sample_skill_mesh_variant_document("debug-rust-build@v2", "alternate");
+    let alternate_document = sample_skill_mesh_variant_document("debug-rust-build@v2", "alternate");
     let alternate_key = alternate_document.document_key();
 
     let index = LanceDbSkillMeshIndex::open(&db_path).await?;
@@ -596,8 +633,7 @@ async fn skill_mesh_index_replacement_with_no_embeddings_clears_stale_embedding_
         "updated variant should reload with no embeddings"
     );
     assert_eq!(
-        untouched_variant.embedding_records,
-        alternate_document.embedding_records,
+        untouched_variant.embedding_records, alternate_document.embedding_records,
         "other variant embeddings should remain intact"
     );
     assert_eq!(
@@ -651,8 +687,14 @@ async fn skill_mesh_index_reopened_width_mismatch_keeps_document_and_embeddings_
         missing.is_none(),
         "failed insert must not leave a document row behind without embeddings"
     );
-    assert_eq!(document_rows, 1, "failed insert must not persist a new document row");
-    assert_eq!(embedding_rows, 1, "failed insert must not disturb the original embedding rows");
+    assert_eq!(
+        document_rows, 1,
+        "failed insert must not persist a new document row"
+    );
+    assert_eq!(
+        embedding_rows, 1,
+        "failed insert must not disturb the original embedding rows"
+    );
     assert_eq!(
         stored_payloads,
         vec![(original_key.storage_key(), original.to_storage_json()?)],
@@ -707,10 +749,9 @@ async fn skill_mesh_index_rejects_mismatched_embedding_identity_without_partial_
     malformed.content_hash = "hash-malformed-embedding-identity".to_string();
     malformed.embedding_records[0].variant_id = Some("debug-rust-build@wrong".to_string());
 
-    let err = index
-        .upsert_document(malformed)
-        .await
-        .expect_err("upsert should reject embedding rows whose identity diverges from the document key");
+    let err = index.upsert_document(malformed).await.expect_err(
+        "upsert should reject embedding rows whose identity diverges from the document key",
+    );
 
     drop(index);
 
@@ -728,8 +769,14 @@ async fn skill_mesh_index_rejects_mismatched_embedding_identity_without_partial_
         "mismatched embedding identity should surface a boundary error: {err:#}"
     );
     assert_eq!(loaded, original);
-    assert_eq!(document_rows, 1, "rejected input must not replace the persisted document row");
-    assert_eq!(embedding_rows, 1, "rejected input must not replace the persisted embedding rows");
+    assert_eq!(
+        document_rows, 1,
+        "rejected input must not replace the persisted document row"
+    );
+    assert_eq!(
+        embedding_rows, 1,
+        "rejected input must not replace the persisted embedding rows"
+    );
     assert_eq!(
         stored_payloads,
         vec![(key.storage_key(), original.to_storage_json()?)],
@@ -740,8 +787,8 @@ async fn skill_mesh_index_rejects_mismatched_embedding_identity_without_partial_
 }
 
 #[tokio::test]
-async fn skill_mesh_feedback_persistence_preserves_prior_document_on_replace_failure(
-) -> Result<()> {
+async fn skill_mesh_feedback_persistence_preserves_prior_document_on_replace_failure() -> Result<()>
+{
     let root = tempfile::tempdir()?;
     let db_path = root.path().join("skill-mesh-feedback-rollback");
     let original = document_with_feedback_state(sample_feedback_state());
@@ -772,8 +819,14 @@ async fn skill_mesh_feedback_persistence_preserves_prior_document_on_replace_fai
         "failure path should come from the replace-document failpoint: {err:#}"
     );
     assert_eq!(loaded, original);
-    assert_eq!(document_rows, 1, "failed feedback persistence must keep the document row");
-    assert_eq!(embedding_rows, 1, "failed feedback persistence must keep the embedding row");
+    assert_eq!(
+        document_rows, 1,
+        "failed feedback persistence must keep the document row"
+    );
+    assert_eq!(
+        embedding_rows, 1,
+        "failed feedback persistence must keep the embedding row"
+    );
     assert_eq!(
         stored_payloads,
         vec![(key.storage_key(), original.to_storage_json()?)],

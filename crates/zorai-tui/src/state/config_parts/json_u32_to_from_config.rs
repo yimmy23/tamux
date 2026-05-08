@@ -320,4 +320,9 @@ pub struct ConfigState {
     // Snapshot stats (read-only, refreshed periodically)
     pub snapshot_count: usize,
     pub snapshot_total_size_bytes: u64,
+
+    // Workspace-scoped advanced settings mirrored for editing in the TUI.
+    pub workspace_repo_monitor_enabled: bool,
+    pub workspace_repo_monitor_include_dirs: String,
+    pub workspace_repo_monitor_exclude_dirs: String,
 }

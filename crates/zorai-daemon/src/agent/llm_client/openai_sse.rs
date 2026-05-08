@@ -1,4 +1,5 @@
-async fn parse_openai_sse(
+use super::*;
+pub(crate) async fn parse_openai_sse(
     response: reqwest::Response,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
@@ -463,7 +464,7 @@ async fn emit_openai_responses_terminal_chunk(
         .await;
 }
 
-async fn parse_openai_responses_sse(
+pub(crate) async fn parse_openai_responses_sse(
     response: reqwest::Response,
     provider: &str,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
@@ -580,12 +581,14 @@ async fn parse_openai_responses_sse(
                     }
                 }
                 OpenAiResponsesStreamEvent::ResponseFunctionCallArgumentsDelta(event) => {
-                    let entry = pending_tool_call_entry(&mut pending_tool_calls, event.output_index);
+                    let entry =
+                        pending_tool_call_entry(&mut pending_tool_calls, event.output_index);
                     entry.arguments.push_str(&event.delta);
                 }
                 OpenAiResponsesStreamEvent::ResponseCompleted(event)
                 | OpenAiResponsesStreamEvent::ResponseIncomplete(event) => {
-                    let terminal_response = canonical_openai_responses_terminal_response(&event.response);
+                    let terminal_response =
+                        canonical_openai_responses_terminal_response(&event.response);
                     apply_openai_responses_terminal_response(
                         &event.response,
                         &mut response_id,

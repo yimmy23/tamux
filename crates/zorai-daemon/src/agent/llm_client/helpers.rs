@@ -1,10 +1,11 @@
-struct PendingToolCall {
-    id: String,
-    name: String,
-    arguments: String,
+use super::*;
+pub(crate) struct PendingToolCall {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) arguments: String,
 }
 
-fn synthesize_tool_call_id(seed: &str, index: usize, name: &str) -> String {
+pub(crate) fn synthesize_tool_call_id(seed: &str, index: usize, name: &str) -> String {
     let clean_name: String = name
         .chars()
         .map(|ch| {
@@ -18,7 +19,7 @@ fn synthesize_tool_call_id(seed: &str, index: usize, name: &str) -> String {
     format!("synthetic_tool_call_{seed}_{index}_{clean_name}")
 }
 
-fn drain_tool_calls(map: &mut HashMap<u32, PendingToolCall>) -> Vec<ToolCall> {
+pub(crate) fn drain_tool_calls(map: &mut HashMap<u32, PendingToolCall>) -> Vec<ToolCall> {
     let mut entries: Vec<(u32, PendingToolCall)> = map.drain().collect();
     entries.sort_by_key(|(idx, _)| *idx);
     entries
@@ -91,7 +92,11 @@ pub fn fetched_model_feature_capabilities(
         provider_id,
         &model.id,
         model.metadata.as_ref(),
-        model.pricing.as_ref().and_then(|pricing| pricing.image.as_deref()).is_some(),
+        model
+            .pricing
+            .as_ref()
+            .and_then(|pricing| pricing.image.as_deref())
+            .is_some(),
     )
 }
 
@@ -126,7 +131,7 @@ fn parse_model_pricing(model: &serde_json::Value) -> Option<FetchedModelPricing>
     (!pricing.is_empty()).then_some(pricing)
 }
 
-fn parse_fetched_models_response(json: &serde_json::Value) -> Vec<FetchedModel> {
+pub(crate) fn parse_fetched_models_response(json: &serde_json::Value) -> Vec<FetchedModel> {
     json.get("data")
         .and_then(|d| d.as_array())
         .map(|arr| {
@@ -185,17 +190,20 @@ pub async fn fetch_models(
     api_key: &str,
     output_modalities: Option<&str>,
 ) -> Result<Vec<FetchedModel>> {
-    let _ = super::types::reload_custom_provider_catalog_from_default_path();
+    let _ = crate::agent::types::reload_custom_provider_catalog_from_default_path();
 
     if provider_id == zorai_shared::providers::PROVIDER_ID_GITHUB_COPILOT {
         return built_in_models_for_provider(provider_id);
     }
 
-    let def = super::types::get_provider_definition(provider_id)
+    let def = crate::agent::types::get_provider_definition(provider_id)
         .ok_or_else(|| anyhow::anyhow!("Unknown provider '{}'", provider_id))?;
 
     if !def.supports_model_fetch {
-        tracing::info!(provider_id, "provider does not support remote model fetching; returning built-in catalog");
+        tracing::info!(
+            provider_id,
+            "provider does not support remote model fetching; returning built-in catalog"
+        );
         return built_in_models_for_provider(provider_id);
     }
 
@@ -278,7 +286,7 @@ pub async fn validate_provider_connection(
     }
 
     if provider_id == zorai_shared::providers::PROVIDER_ID_GITHUB_COPILOT {
-        let models = super::copilot_auth::list_github_copilot_models(api_key, auth_source)?
+        let models = super::super::copilot_auth::list_github_copilot_models(api_key, auth_source)?
             .into_iter()
             .map(|model| FetchedModel {
                 id: model.id,
@@ -432,7 +440,10 @@ mod helper_tests {
         assert_eq!(models[0].id, "grok-4");
         assert_eq!(models[0].name.as_deref(), Some("Grok 4"));
         assert_eq!(models[0].context_window, Some(262_144));
-        assert_eq!(models[0].pricing.as_ref().and_then(|p| p.prompt.as_deref()), Some("3.00"));
+        assert_eq!(
+            models[0].pricing.as_ref().and_then(|p| p.prompt.as_deref()),
+            Some("3.00")
+        );
         assert_eq!(
             models[0]
                 .pricing

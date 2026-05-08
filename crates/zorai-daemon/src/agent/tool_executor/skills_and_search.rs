@@ -1,9 +1,10 @@
-async fn execute_list_skills(
+use super::*;
+pub(crate) async fn execute_list_skills(
     args: &serde_json::Value,
     agent_data_dir: &std::path::Path,
     history: &HistoryStore,
 ) -> Result<String> {
-    let skills_root = super::skills_dir(agent_data_dir);
+    let skills_root = super::super::task_prompt::skills_dir(agent_data_dir);
     let query = args
         .get("query")
         .and_then(|value| value.as_str())
@@ -65,7 +66,7 @@ async fn execute_list_skills(
     Ok(body)
 }
 
-async fn execute_discover_skills(
+pub(crate) async fn execute_discover_skills(
     args: &serde_json::Value,
     agent: &AgentEngine,
     current_session_id: Option<SessionId>,
@@ -108,11 +109,11 @@ async fn execute_discover_skills(
         .map_err(|error| anyhow::anyhow!("failed to serialize skill discovery result: {error}"))
 }
 
-async fn execute_list_guidelines(
+pub(crate) async fn execute_list_guidelines(
     args: &serde_json::Value,
     agent_data_dir: &std::path::Path,
 ) -> Result<String> {
-    let guidelines_root = super::guidelines_dir(agent_data_dir);
+    let guidelines_root = super::super::task_prompt::guidelines_dir(agent_data_dir);
     let query = args
         .get("query")
         .and_then(|value| value.as_str())
@@ -162,7 +163,7 @@ async fn execute_list_guidelines(
     Ok(body)
 }
 
-async fn execute_discover_guidelines(
+pub(crate) async fn execute_discover_guidelines(
     args: &serde_json::Value,
     agent: &AgentEngine,
     current_session_id: Option<SessionId>,
@@ -201,12 +202,11 @@ async fn execute_discover_guidelines(
     let result = agent
         .discover_guideline_recommendations_public(query, session_id, limit, cursor)
         .await?;
-    serde_json::to_string(&result).map_err(|error| {
-        anyhow::anyhow!("failed to serialize guideline discovery result: {error}")
-    })
+    serde_json::to_string(&result)
+        .map_err(|error| anyhow::anyhow!("failed to serialize guideline discovery result: {error}"))
 }
 
-async fn execute_read_guideline(
+pub(crate) async fn execute_read_guideline(
     args: &serde_json::Value,
     agent_data_dir: &std::path::Path,
 ) -> Result<String> {
@@ -224,7 +224,7 @@ async fn execute_read_guideline(
         .and_then(|value| value.as_u64())
         .unwrap_or(200)
         .clamp(20, 1000) as usize;
-    let guidelines_root = super::guidelines_dir(agent_data_dir);
+    let guidelines_root = super::super::task_prompt::guidelines_dir(agent_data_dir);
     let guideline_path = resolve_guideline_document_path(&guidelines_root, guideline)?;
     let content = tokio::fs::read_to_string(&guideline_path).await?;
     let total_lines = content.lines().count();
@@ -261,7 +261,10 @@ fn resolve_guideline_document_path(
         let canonical = std::fs::canonicalize(&candidate)
             .with_context(|| format!("guideline '{}' was not found", guideline))?;
         if !canonical.starts_with(&root_canonical) {
-            anyhow::bail!("guideline path must stay inside {}", guidelines_root.display());
+            anyhow::bail!(
+                "guideline path must stay inside {}",
+                guidelines_root.display()
+            );
         }
         return Ok(canonical);
     }
@@ -335,7 +338,7 @@ fn parse_clamped_non_negative_usize_arg(
     }
 }
 
-async fn execute_list_tools(
+pub(crate) async fn execute_list_tools(
     args: &serde_json::Value,
     agent: &AgentEngine,
     session_manager: &Arc<SessionManager>,
@@ -360,7 +363,7 @@ async fn execute_list_tools(
         .map_err(|error| anyhow::anyhow!("failed to serialize tool list result: {error}"))
 }
 
-async fn execute_tool_search(
+pub(crate) async fn execute_tool_search(
     args: &serde_json::Value,
     agent: &AgentEngine,
     session_manager: &Arc<SessionManager>,
@@ -392,7 +395,7 @@ async fn execute_tool_search(
         .map_err(|error| anyhow::anyhow!("failed to serialize tool search result: {error}"))
 }
 
-async fn execute_read_skill(
+pub(crate) async fn execute_read_skill(
     args: &serde_json::Value,
     agent: &AgentEngine,
     agent_data_dir: &std::path::Path,
@@ -408,7 +411,7 @@ async fn execute_read_skill(
         .and_then(|value| value.as_u64())
         .unwrap_or(200)
         .clamp(20, 1000) as usize;
-    let skills_root = super::skills_dir(agent_data_dir);
+    let skills_root = super::super::task_prompt::skills_dir(agent_data_dir);
     sync_skill_catalog(&skills_root, history).await?;
     let context_tags =
         resolve_skill_context_tags(agent.workspace_root.as_ref(), session_manager, session_id)
@@ -626,7 +629,7 @@ async fn read_single_skill(
     Ok(body)
 }
 
-async fn execute_justify_skill_skip(
+pub(crate) async fn execute_justify_skill_skip(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -646,7 +649,7 @@ async fn execute_justify_skill_skip(
     ))
 }
 
-async fn execute_update_todo(
+pub(crate) async fn execute_update_todo(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -812,7 +815,7 @@ async fn execute_update_todo(
     Ok(format!("Updated todo list with {} item(s).", items.len()))
 }
 
-async fn execute_web_search(
+pub(crate) async fn execute_web_search(
     args: &serde_json::Value,
     http_client: &reqwest::Client,
     search_provider: &str,
@@ -872,7 +875,7 @@ async fn execute_web_search(
     .await
 }
 
-async fn execute_web_search_with_runner<F, Fut>(
+pub(crate) async fn execute_web_search_with_runner<F, Fut>(
     args: &serde_json::Value,
     search_provider: &str,
     exa_api_key: &str,
@@ -900,7 +903,7 @@ where
     .map_err(|_| anyhow::anyhow!("web search timed out after {timeout_seconds} seconds"))?
 }
 
-fn safe_snippet_preview(text: &str, max_chars: usize) -> String {
+pub(crate) fn safe_snippet_preview(text: &str, max_chars: usize) -> String {
     truncate_on_char_boundary(text, max_chars, "...")
 }
 
@@ -1092,13 +1095,13 @@ async fn execute_ddg_search(
     }
 }
 
-fn build_duckduckgo_search_url(query: &str, region: &str, safe_search: &str) -> String {
+pub(crate) fn build_duckduckgo_search_url(query: &str, region: &str, safe_search: &str) -> String {
     let region = normalize_duckduckgo_region(region);
     let safe_search = duckduckgo_safe_search_param(safe_search);
     format!(
         "https://lite.duckduckgo.com/lite/?q={}&kl={}&kp={}",
-        urlencoding::encode(query),
-        urlencoding::encode(&region),
+        super::gateway_workspace::urlencoding::encode(query),
+        super::gateway_workspace::urlencoding::encode(&region),
         safe_search
     )
 }

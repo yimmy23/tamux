@@ -280,7 +280,11 @@ impl AgentEngine {
         let Some(goal_run_id) = task.goal_run_id.clone() else {
             return Ok(task);
         };
-        let Some(goal_run) = self.history.get_goal_run(&goal_run_id).await? else {
+        let Some(goal_run) = self
+            .history
+            .goal_run_workspace_runtime_ref(&goal_run_id)
+            .await?
+        else {
             return Ok(task);
         };
         let (next_status, notice_type, notice_message) = match goal_run.status {
@@ -376,7 +380,7 @@ impl AgentEngine {
     async fn ensure_workspace_goal_completion_notice(
         &self,
         task: &WorkspaceTask,
-        goal_run: &GoalRun,
+        goal_run: &crate::history::GoalRunWorkspaceRuntimeRef,
     ) -> Result<()> {
         if self
             .history

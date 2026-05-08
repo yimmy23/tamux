@@ -1,3 +1,4 @@
+use super::super::*;
 use zorai_shared::providers::{
     PROVIDER_ID_ANTHROPIC, PROVIDER_ID_OPENAI, PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
     PROVIDER_ID_Z_AI_CODING_PLAN,
@@ -395,7 +396,10 @@ fn z_ai_coding_plan_catalog_keeps_glm_5_default_and_includes_glm_5_1() {
 
     assert_eq!(provider.default_model, "glm-5");
     assert_eq!(provider.models.first().map(|model| model.id), Some("glm-5"));
-    assert_eq!(provider.models.get(1).map(|model| model.id), Some("glm-5.1"));
+    assert_eq!(
+        provider.models.get(1).map(|model| model.id),
+        Some("glm-5.1")
+    );
     assert_eq!(
         provider.models.get(1).map(|model| model.context_window),
         Some(204800)

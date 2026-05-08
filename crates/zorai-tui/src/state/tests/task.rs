@@ -1,8 +1,8 @@
-#[path = "task_parts/task_list_received_replaces_tasks_to_goal_step_todos_use_latest_event.rs"]
-mod task_list_received_replaces_tasks_to_goal_step_todos_use_latest_event;
-#[path = "task_parts/goal_step_todos_use_goal_scoped_live_todos_when_event_snapshot.rs"]
-mod goal_step_todos_use_goal_scoped_live_todos_when_event_snapshot;
 #[path = "task_parts/goal_run_detail_received_stores_owner_profiles_to_spawned_tree_nests.rs"]
 mod goal_run_detail_received_stores_owner_profiles_to_spawned_tree_nests;
+#[path = "task_parts/goal_step_todos_use_goal_scoped_live_todos_when_event_snapshot.rs"]
+mod goal_step_todos_use_goal_scoped_live_todos_when_event_snapshot;
 #[path = "task_parts/spawned_tree_uses_parent_thread_id_for_visible_roots_to_heartbeat_digest.rs"]
 mod spawned_tree_uses_parent_thread_id_for_visible_roots_to_heartbeat_digest;
+#[path = "task_parts/task_list_received_replaces_tasks_to_goal_step_todos_use_latest_event.rs"]
+mod task_list_received_replaces_tasks_to_goal_step_todos_use_latest_event;

@@ -232,8 +232,8 @@ impl AgentEngine {
 
             // Get replan_count from goal_run if present (Pitfall 1)
             let replan_count: u32 = if let Some(ref gr_id) = trace.goal_run_id {
-                match self.history.get_goal_run(gr_id).await {
-                    Ok(Some(gr)) => gr.replan_count,
+                match self.history.goal_run_replan_count(gr_id).await {
+                    Ok(Some(replan_count)) => replan_count,
                     _ => 0,
                 }
             } else {

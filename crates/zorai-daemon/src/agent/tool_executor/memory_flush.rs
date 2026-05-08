@@ -1,3 +1,4 @@
+use super::*;
 pub fn get_memory_flush_tools() -> Vec<ToolDefinition> {
     vec![tool_def(
         tool_names::UPDATE_MEMORY,
@@ -14,7 +15,11 @@ pub fn get_memory_flush_tools() -> Vec<ToolDefinition> {
     )]
 }
 
-fn tool_def(name: &str, description: &str, parameters: serde_json::Value) -> ToolDefinition {
+pub(crate) fn tool_def(
+    name: &str,
+    description: &str,
+    parameters: serde_json::Value,
+) -> ToolDefinition {
     ToolDefinition {
         tool_type: "function".into(),
         function: ToolFunctionDef {
@@ -28,4 +33,3 @@ fn tool_def(name: &str, description: &str, parameters: serde_json::Value) -> Too
 // ---------------------------------------------------------------------------
 // Tool execution
 // ---------------------------------------------------------------------------
-

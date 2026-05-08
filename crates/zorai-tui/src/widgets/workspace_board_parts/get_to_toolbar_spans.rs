@@ -8,7 +8,6 @@ use std::collections::HashSet;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use zorai_protocol::WorkspaceTaskStatus;
 
-
 pub(crate) const TASK_COLLAPSED_ROW_HEIGHT: u16 = 7;
 pub(crate) const TASK_EXPANDED_ROW_HEIGHT: u16 = 11;
 pub(crate) const TASK_PRIMARY_ACTION_ROW: u16 = 4;

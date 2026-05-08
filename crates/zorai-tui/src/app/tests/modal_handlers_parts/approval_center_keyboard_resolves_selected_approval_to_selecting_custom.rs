@@ -1,9 +1,9 @@
-use tokio::sync::mpsc::unbounded_channel;
-use std::sync::mpsc;
-use zorai_shared::providers::*;
 use super::whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings::*;
-use crate::state::*;
 use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn approval_center_keyboard_resolves_selected_approval() {
     let (mut model, mut daemon_rx) = make_model();
@@ -493,4 +493,3 @@ fn selecting_custom_provider_does_not_chain_into_model_picker() {
     assert_eq!(model.config.provider, PROVIDER_ID_CUSTOM);
     assert_ne!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
 }
-

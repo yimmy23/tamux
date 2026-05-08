@@ -244,4 +244,12 @@ pub enum ClientMessage {
     AgentSetTargetAgentReasoningEffort { target_agent_id: String, reasoning_effort: String },
     AgentSemanticDocumentSync,
     AgentRepairSemanticIndex { confirmed: bool },
+    AgentSetWorkspaceRepoMonitor {
+        workspace_id: String,
+        repo_monitor_enabled: bool,
+        #[serde(default)]
+        repo_monitor_include_dirs: Vec<String>,
+        #[serde(default)]
+        repo_monitor_exclude_dirs: Vec<String>,
+    },
 }

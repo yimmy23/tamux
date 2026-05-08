@@ -1,4 +1,5 @@
-async fn execute_onecontext_search_with_runner<F, Fut>(
+use super::*;
+pub(crate) async fn execute_onecontext_search_with_runner<F, Fut>(
     args: &serde_json::Value,
     aline_available: bool,
     runner: F,
@@ -74,7 +75,7 @@ where
 
 /// Classify URL source authority for web search/read results (UNCR-03).
 /// Uses URL domain pattern matching -- deterministic, zero-latency.
-fn classify_source_authority(url: &str) -> &'static str {
+pub(crate) fn classify_source_authority(url: &str) -> &'static str {
     let lower = url.to_lowercase();
     if lower.contains("docs.")
         || lower.contains("/docs/")
@@ -104,11 +105,11 @@ fn classify_source_authority(url: &str) -> &'static str {
 }
 
 /// Format a single search result line with source authority label prepended.
-fn format_result_with_authority(title: &str, url: &str, snippet: &str) -> String {
+pub(crate) fn format_result_with_authority(title: &str, url: &str, snippet: &str) -> String {
     format_result_with_metadata(title, url, snippet, None)
 }
 
-fn classify_freshness(published_at: Option<&str>) -> &'static str {
+pub(crate) fn classify_freshness(published_at: Option<&str>) -> &'static str {
     let Some(value) = published_at
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -132,7 +133,7 @@ fn classify_freshness(published_at: Option<&str>) -> &'static str {
     }
 }
 
-fn format_result_with_metadata(
+pub(crate) fn format_result_with_metadata(
     title: &str,
     url: &str,
     snippet: &str,

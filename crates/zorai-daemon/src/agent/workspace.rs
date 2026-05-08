@@ -13,6 +13,21 @@ enum WorkspaceAutoStart {
     Defer(Arc<AgentEngine>),
 }
 
+fn normalize_repo_monitor_dirs(values: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for value in values {
+        let trimmed = value.trim().trim_matches('/').to_string();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if seen.insert(trimmed.clone()) {
+            normalized.push(trimmed);
+        }
+    }
+    normalized
+}
+
 impl AgentEngine {
     pub async fn get_or_create_workspace_settings(
         &self,
@@ -31,6 +46,9 @@ impl AgentEngine {
                     .into(),
             ),
             operator: WorkspaceOperator::User,
+            repo_monitor_enabled: false,
+            repo_monitor_include_dirs: Vec::new(),
+            repo_monitor_exclude_dirs: Vec::new(),
             created_at: now,
             updated_at: now,
         };
@@ -96,6 +114,25 @@ impl AgentEngine {
                 }
             }
         }
+        self.sync_workspace_mirror(workspace_id).await?;
+        Ok(settings)
+    }
+
+    pub async fn set_workspace_repo_monitor(
+        &self,
+        workspace_id: &str,
+        repo_monitor_enabled: bool,
+        repo_monitor_include_dirs: Vec<String>,
+        repo_monitor_exclude_dirs: Vec<String>,
+    ) -> Result<WorkspaceSettings> {
+        let mut settings = self.get_or_create_workspace_settings(workspace_id).await?;
+        settings.repo_monitor_include_dirs = normalize_repo_monitor_dirs(repo_monitor_include_dirs);
+        settings.repo_monitor_exclude_dirs = normalize_repo_monitor_dirs(repo_monitor_exclude_dirs);
+        settings.repo_monitor_enabled =
+            repo_monitor_enabled && !settings.repo_monitor_include_dirs.is_empty();
+        settings.updated_at = now_millis();
+        self.history.upsert_workspace_settings(&settings).await?;
+        self.broadcast_workspace_settings(&settings);
         self.sync_workspace_mirror(workspace_id).await?;
         Ok(settings)
     }
@@ -618,6 +655,9 @@ impl AgentEngine {
                     .into(),
             ),
             operator: WorkspaceOperator::User,
+            repo_monitor_enabled: false,
+            repo_monitor_include_dirs: Vec::new(),
+            repo_monitor_exclude_dirs: Vec::new(),
             created_at: now,
             updated_at: now,
         };

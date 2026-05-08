@@ -436,4 +436,3 @@ fn apply_patch_tool_message_expanded_renders_diff_like_sections() {
         "expected formatted diff instead of raw JSON arguments, got: {plain}"
     );
 }
-

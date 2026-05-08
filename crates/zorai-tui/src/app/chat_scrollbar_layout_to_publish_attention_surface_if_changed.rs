@@ -82,7 +82,10 @@ impl TuiModel {
         self.set_chat_scroll_offset(max_scroll);
     }
 
-    pub(crate) fn capture_locked_chat_viewport(&self, thread_id: Option<&str>) -> Option<(usize, usize)> {
+    pub(crate) fn capture_locked_chat_viewport(
+        &self,
+        thread_id: Option<&str>,
+    ) -> Option<(usize, usize)> {
         let thread_id = thread_id?;
         if self.chat.active_thread_id() != Some(thread_id) || self.chat.scroll_offset() == 0 {
             return None;
@@ -110,7 +113,11 @@ impl TuiModel {
         self.set_chat_scroll_offset(target.min(after_max_scroll));
     }
 
-    pub(crate) fn reduce_chat_for_thread(&mut self, thread_id: Option<&str>, action: chat::ChatAction) {
+    pub(crate) fn reduce_chat_for_thread(
+        &mut self,
+        thread_id: Option<&str>,
+        action: chat::ChatAction,
+    ) {
         let anchor = self.capture_locked_chat_viewport(thread_id);
         self.chat.reduce(action);
         self.restore_locked_chat_viewport(anchor);

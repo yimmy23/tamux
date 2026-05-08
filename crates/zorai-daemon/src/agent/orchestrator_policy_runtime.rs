@@ -191,6 +191,48 @@ impl AgentEngine {
         self.persist_thread_by_id(thread_id).await;
     }
 
+    async fn goal_run_current_step_title_for_orchestrator_policy(
+        &self,
+        goal_run_id: &str,
+    ) -> Option<String> {
+        let live_title = {
+            let goal_runs = self.goal_runs.lock().await;
+            goal_runs
+                .iter()
+                .find(|goal_run| goal_run.id == goal_run_id)
+                .and_then(|goal_run| {
+                    goal_run.current_step_title.clone().or_else(|| {
+                        goal_run
+                            .steps
+                            .get(goal_run.current_step_index)
+                            .map(|step| step.title.clone())
+                    })
+                })
+        };
+        if live_title.is_some() {
+            return live_title;
+        }
+
+        match self.history.goal_run_current_step_title(goal_run_id).await {
+            Ok(title) => title,
+            Err(error) => {
+                tracing::warn!(
+                    goal_run_id,
+                    %error,
+                    "failed to query goal step title for orchestrator policy"
+                );
+                self.get_goal_run(goal_run_id).await.and_then(|goal_run| {
+                    goal_run.current_step_title.or_else(|| {
+                        goal_run
+                            .steps
+                            .get(goal_run.current_step_index)
+                            .map(|step| step.title.clone())
+                    })
+                })
+            }
+        }
+    }
+
     async fn apply_policy_pivot(
         &self,
         thread_id: &str,
@@ -200,9 +242,8 @@ impl AgentEngine {
         decision: &PolicyDecision,
     ) -> Result<PolicyLoopAction> {
         let step_title = if let Some(goal_run_id) = goal_run_id {
-            self.get_goal_run(goal_run_id)
+            self.goal_run_current_step_title_for_orchestrator_policy(goal_run_id)
                 .await
-                .and_then(|goal_run| goal_run.current_step_title)
                 .unwrap_or_else(|| "current step".to_string())
         } else {
             "current step".to_string()

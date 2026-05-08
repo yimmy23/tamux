@@ -4,7 +4,9 @@ use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear};
 use std::process::Child;
@@ -268,7 +270,11 @@ impl TuiModel {
         (message_limit, message_offset)
     }
 
-    pub(crate) fn request_authoritative_thread_refresh(&mut self, thread_id: String, show_loading: bool) {
+    pub(crate) fn request_authoritative_thread_refresh(
+        &mut self,
+        thread_id: String,
+        show_loading: bool,
+    ) {
         let (message_limit, message_offset) = self.authoritative_thread_refresh_page(&thread_id);
         self.request_thread_page(thread_id, message_limit, message_offset, show_loading);
     }
@@ -297,7 +303,11 @@ impl TuiModel {
         self.pending_goal_hydration_refreshes.remove(goal_run_id);
     }
 
-    pub(crate) fn goal_sidebar_item_count_for_tab(&self, goal_run_id: &str, tab: GoalSidebarTab) -> usize {
+    pub(crate) fn goal_sidebar_item_count_for_tab(
+        &self,
+        goal_run_id: &str,
+        tab: GoalSidebarTab,
+    ) -> usize {
         self.goal_sidebar_items_for_tab(goal_run_id, tab).len()
     }
 

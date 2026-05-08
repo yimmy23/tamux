@@ -1,7 +1,9 @@
 use super::*;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
-use crate::widgets;
 use crate::providers;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use zorai_shared::providers::*;
 impl TuiModel {
@@ -51,12 +53,14 @@ impl TuiModel {
                 self.settings_picker_target = Some(SettingsPickerTarget::ConciergeReasoningEffort);
                 self.execute_command("effort");
             }
-            "concierge_openrouter_provider_order" => self.open_concierge_openrouter_provider_picker(
-                SettingsPickerTarget::ConciergeOpenRouterPreferredProviders,
-            ),
-            "concierge_openrouter_provider_ignore" => self.open_concierge_openrouter_provider_picker(
-                SettingsPickerTarget::ConciergeOpenRouterExcludedProviders,
-            ),
+            "concierge_openrouter_provider_order" => self
+                .open_concierge_openrouter_provider_picker(
+                    SettingsPickerTarget::ConciergeOpenRouterPreferredProviders,
+                ),
+            "concierge_openrouter_provider_ignore" => self
+                .open_concierge_openrouter_provider_picker(
+                    SettingsPickerTarget::ConciergeOpenRouterExcludedProviders,
+                ),
             "concierge_openrouter_allow_fallbacks" => {
                 if self.concierge.provider.as_deref() == Some(PROVIDER_ID_OPENROUTER) {
                     self.concierge.openrouter_allow_fallbacks =
@@ -64,8 +68,7 @@ impl TuiModel {
                     self.send_concierge_config();
                 } else {
                     self.status_line =
-                        "OpenRouter provider routing only applies to OpenRouter agents"
-                            .to_string();
+                        "OpenRouter provider routing only applies to OpenRouter agents".to_string();
                 }
             }
             "managed_security_level" => {

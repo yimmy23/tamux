@@ -989,6 +989,9 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 workspace_id   TEXT PRIMARY KEY,
                 workspace_root TEXT,
                 operator       TEXT NOT NULL,
+                repo_monitor_enabled INTEGER NOT NULL DEFAULT 0,
+                repo_monitor_include_dirs_json TEXT NOT NULL DEFAULT '[]',
+                repo_monitor_exclude_dirs_json TEXT NOT NULL DEFAULT '[]',
                 created_at     INTEGER NOT NULL,
                 updated_at     INTEGER NOT NULL
             );

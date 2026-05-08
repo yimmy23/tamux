@@ -1,12 +1,12 @@
-use super::render_provider_tab_to_render_tools_tab::*;
-use super::render_websearch_tab::*;
-use super::render_chat_tab_to_render_honcho_editor_actions::*;
-use super::render_gateway_text_field::*;
-use super::render_concierge_tab_to_render_feature_toggle_line::*;
-use super::render_auth_tab_to_render_agent_tab::*;
-use super::render_plugins_tab_to_connector_readiness_style::*;
 use super::render_about_tab::*;
 use super::render_advanced_value_to_render_advanced_tab::*;
+use super::render_auth_tab_to_render_agent_tab::*;
+use super::render_chat_tab_to_render_honcho_editor_actions::*;
+use super::render_concierge_tab_to_render_feature_toggle_line::*;
+use super::render_gateway_text_field::*;
+use super::render_plugins_tab_to_connector_readiness_style::*;
+use super::render_provider_tab_to_render_tools_tab::*;
+use super::render_websearch_tab::*;
 use super::*;
 use crate::providers;
 use crate::state::concierge::ConciergeState;
@@ -292,7 +292,11 @@ pub(crate) fn render_features_tab<'a>(
         settings,
         17,
         "STT Provider",
-        if stt_provider.is_empty() { "openai" } else { &stt_provider },
+        if stt_provider.is_empty() {
+            "openai"
+        } else {
+            &stt_provider
+        },
         "  [Enter: edit]",
         theme,
     );
@@ -304,7 +308,11 @@ pub(crate) fn render_features_tab<'a>(
         settings,
         18,
         "STT Model",
-        if stt_model.is_empty() { "whisper-1" } else { &stt_model },
+        if stt_model.is_empty() {
+            "whisper-1"
+        } else {
+            &stt_model
+        },
         "  [Enter: edit]",
         theme,
     );
@@ -326,7 +334,11 @@ pub(crate) fn render_features_tab<'a>(
         settings,
         20,
         "TTS Provider",
-        if tts_provider.is_empty() { "openai" } else { &tts_provider },
+        if tts_provider.is_empty() {
+            "openai"
+        } else {
+            &tts_provider
+        },
         "  [Enter: edit]",
         theme,
     );
@@ -354,7 +366,11 @@ pub(crate) fn render_features_tab<'a>(
         settings,
         22,
         "TTS Voice",
-        if tts_voice.is_empty() { "alloy" } else { &tts_voice },
+        if tts_voice.is_empty() {
+            "alloy"
+        } else {
+            &tts_voice
+        },
         "  [Enter: edit]",
         theme,
     );
@@ -398,7 +414,10 @@ pub(crate) fn render_features_tab<'a>(
     );
 
     lines.push(Line::raw(""));
-    lines.push(Line::from(Span::styled("  Semantic Search", theme.fg_active)));
+    lines.push(Line::from(Span::styled(
+        "  Semantic Search",
+        theme.fg_active,
+    )));
     lines.push(Line::from(Span::styled(
         "  Embedding model used for LanceDB vector rows",
         theme.fg_dim,

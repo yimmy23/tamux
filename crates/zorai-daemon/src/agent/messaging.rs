@@ -70,15 +70,12 @@ fn sum_message_token_totals(messages: &[AgentMessage]) -> (u64, u64) {
 }
 
 impl AgentEngine {
-    pub(super) async fn budget_exceeded_task_for_thread(
-        &self,
-        thread_id: &str,
-    ) -> Option<AgentTask> {
+    pub(super) async fn budget_exceeded_task_for_thread(&self, thread_id: &str) -> Option<String> {
         let budget_exceeded_status = serde_json::to_value(TaskStatus::BudgetExceeded)
             .ok()
             .and_then(|value| value.as_str().map(ToOwned::to_owned))
             .unwrap_or_else(|| "budget_exceeded".to_string());
-        self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+        let query = crate::history::AgentTaskListQuery {
             id: None,
             status: Some(budget_exceeded_status),
             statuses: Vec::new(),
@@ -92,10 +89,20 @@ impl AgentEngine {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: true,
             limit: Some(1),
-        })
-        .await
-        .into_iter()
-        .next()
+        };
+        match self.history.list_agent_task_refs_filtered(&query).await {
+            Ok(task_refs) => task_refs.into_iter().next().map(|(task_id, _, _)| task_id),
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query budget-exceeded task id for thread {thread_id}: {error}"
+                );
+                self.list_tasks_filtered(&query)
+                    .await
+                    .into_iter()
+                    .next()
+                    .map(|task| task.id)
+            }
+        }
     }
 
     #[cfg(test)]
@@ -117,7 +124,9 @@ impl AgentEngine {
             .await
             .contains(thread_id);
         if !needs_hydration {
-            return self.threads.read().await.contains_key(thread_id);
+            return self
+                .ensure_thread_messages_loaded_from_live_or_db(thread_id)
+                .await;
         }
 
         let _guard = self.thread_message_hydration_lock.lock().await;
@@ -127,7 +136,9 @@ impl AgentEngine {
             .await
             .contains(thread_id);
         if !still_needs_hydration {
-            return self.threads.read().await.contains_key(thread_id);
+            return self
+                .ensure_thread_messages_loaded_from_live_or_db(thread_id)
+                .await;
         }
 
         #[cfg(test)]
@@ -162,6 +173,21 @@ impl AgentEngine {
             self.clear_thread_message_hydration_pending(thread_id).await;
         }
         updated
+    }
+
+    async fn ensure_thread_messages_loaded_from_live_or_db(&self, thread_id: &str) -> bool {
+        if self.threads.read().await.contains_key(thread_id) {
+            return true;
+        }
+
+        let Some(restored) = self.restore_thread_with_messages_from_db(thread_id).await else {
+            return false;
+        };
+        self.threads
+            .write()
+            .await
+            .insert(thread_id.to_string(), restored);
+        true
     }
 
     async fn prepare_internal_dm_thread(
@@ -460,11 +486,9 @@ impl AgentEngine {
 
             if self
                 .history
-                .get_thread(&candidate)
+                .has_thread_id(&candidate)
                 .await
-                .ok()
-                .flatten()
-                .is_some()
+                .unwrap_or(false)
             {
                 continue;
             }
@@ -474,24 +498,16 @@ impl AgentEngine {
     }
 
     async fn task_thread_id_conflicts(&self, thread_id: &str) -> bool {
-        !self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                id: None,
-                status: None,
-                statuses: Vec::new(),
-                source: None,
-                thread_id: Some(thread_id.to_string()),
-                thread_ids: Vec::new(),
-                goal_run_id: None,
-                parent_task_id: None,
-                awaiting_approval_id: None,
-                supervisor_config_present: false,
-                exclude_terminal_statuses: false,
-                order_by_recent_activity_desc: false,
-                limit: Some(1),
-            })
-            .await
-            .is_empty()
+        match self.history.has_agent_task_for_thread(thread_id).await {
+            Ok(conflicts) => conflicts,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id,
+                    "failed to query task thread id conflict from sqlite: {error}"
+                );
+                false
+            }
+        }
     }
 
     /// Get or create a thread, returning the thread ID and whether it was newly created.
@@ -629,7 +645,7 @@ impl AgentEngine {
     }
 
     /// Restore a thread shell from SQLite without loading its message payloads.
-    async fn restore_thread_from_db(&self, thread_id: &str) -> Option<AgentThread> {
+    pub(super) async fn restore_thread_from_db(&self, thread_id: &str) -> Option<AgentThread> {
         let db_thread = self.history.get_thread(thread_id).await.ok().flatten()?;
         let thread_metadata = parse_thread_metadata(db_thread.metadata_json.as_deref());
         if let Some(client_surface) = thread_metadata.client_surface {
@@ -661,6 +677,39 @@ impl AgentEngine {
             }
             None => {
                 self.thread_execution_profiles
+                    .write()
+                    .await
+                    .remove(thread_id);
+            }
+        }
+        if thread_metadata.thread_participants.is_empty() {
+            self.thread_participants.write().await.remove(thread_id);
+        } else {
+            self.thread_participants.write().await.insert(
+                thread_id.to_string(),
+                thread_metadata.thread_participants.clone(),
+            );
+        }
+        if thread_metadata.thread_participant_suggestions.is_empty() {
+            self.thread_participant_suggestions
+                .write()
+                .await
+                .remove(thread_id);
+        } else {
+            self.thread_participant_suggestions.write().await.insert(
+                thread_id.to_string(),
+                thread_metadata.thread_participant_suggestions.clone(),
+            );
+        }
+        match thread_metadata.latest_skill_discovery_state {
+            Some(latest_skill_discovery_state) => {
+                self.thread_skill_discovery_states
+                    .write()
+                    .await
+                    .insert(thread_id.to_string(), latest_skill_discovery_state);
+            }
+            None => {
+                self.thread_skill_discovery_states
                     .write()
                     .await
                     .remove(thread_id);
@@ -859,10 +908,9 @@ impl AgentEngine {
         client_surface: Option<zorai_protocol::ClientSurface>,
     ) -> Result<String> {
         if let Some(thread_id) = thread_id {
-            if let Some(task) = self.budget_exceeded_task_for_thread(thread_id).await {
+            if let Some(task_id) = self.budget_exceeded_task_for_thread(thread_id).await {
                 anyhow::bail!(
-                    "thread {thread_id} is locked because task {} exhausted its execution budget",
-                    task.id
+                    "thread {thread_id} is locked because task {task_id} exhausted its execution budget"
                 );
             }
         }
@@ -921,26 +969,16 @@ impl AgentEngine {
         let client_surface = if let Some(thread_id) = thread_id {
             self.get_thread_client_surface(thread_id).await
         } else {
-            let goal_run_id = self
-                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                    id: Some(task_id.to_string()),
-                    status: None,
-                    statuses: Vec::new(),
-                    source: None,
-                    thread_id: None,
-                    thread_ids: Vec::new(),
-                    goal_run_id: None,
-                    parent_task_id: None,
-                    awaiting_approval_id: None,
-                    supervisor_config_present: false,
-                    exclude_terminal_statuses: false,
-                    order_by_recent_activity_desc: false,
-                    limit: Some(1),
-                })
-                .await
-                .into_iter()
-                .next()
-                .and_then(|task| task.goal_run_id);
+            let goal_run_id = match self.history.agent_task_goal_context(task_id).await {
+                Ok(Some(task)) => task.goal_run_id,
+                Ok(None) | Err(_) => {
+                    let tasks = self.tasks.lock().await;
+                    tasks
+                        .iter()
+                        .find(|task| task.id == task_id)
+                        .and_then(|task| task.goal_run_id.clone())
+                }
+            };
             match goal_run_id {
                 Some(goal_run_id) => self.get_goal_run_client_surface(&goal_run_id).await,
                 None => None,

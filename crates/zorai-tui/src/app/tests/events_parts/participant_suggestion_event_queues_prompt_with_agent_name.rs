@@ -1,10 +1,10 @@
-use tokio::sync::mpsc::unbounded_channel;
-use std::sync::mpsc;
-use zorai_shared::providers::*;
-use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
 use super::done_event_persists_final_reasoning_into_chat_message_to_mission_control::*;
-use crate::state::*;
+use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
 use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn participant_suggestion_event_queues_prompt_with_agent_name() {
     let mut model = make_model();
@@ -487,4 +487,3 @@ fn participant_suggestion_does_not_auto_flush_as_user_message_after_done() {
         Some("sugg-1")
     );
 }
-

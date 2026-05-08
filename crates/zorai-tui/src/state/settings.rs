@@ -74,7 +74,11 @@ pub struct SettingsState {
 fn field_uses_textarea(field: &str) -> bool {
     matches!(
         field,
-        "system_prompt" | "subagent_system_prompt" | "whatsapp_allowed_contacts"
+        "system_prompt"
+            | "subagent_system_prompt"
+            | "whatsapp_allowed_contacts"
+            | "workspace_repo_monitor_include_dirs"
+            | "workspace_repo_monitor_exclude_dirs"
     )
 }
 
@@ -155,9 +159,9 @@ mod default_02;
 #[path = "tests/settings.rs"]
 mod tests;
 
-pub use all::*;
 pub use advanced_field_names_for_strategy_to_navigate_field::*;
-pub use reduce::*;
+pub use all::*;
 pub use default::*;
-pub use new_to_is_key_secret::*;
 pub use default_02::*;
+pub use new_to_is_key_secret::*;
+pub use reduce::*;

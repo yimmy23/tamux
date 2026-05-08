@@ -4,7 +4,9 @@ use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear};
 use std::process::Child;
@@ -19,7 +21,11 @@ impl TuiModel {
         }
     }
 
-    pub(crate) fn matches_shift_char(code: KeyCode, modifiers: KeyModifiers, expected: char) -> bool {
+    pub(crate) fn matches_shift_char(
+        code: KeyCode,
+        modifiers: KeyModifiers,
+        expected: char,
+    ) -> bool {
         modifiers.contains(KeyModifiers::SHIFT)
             && matches!(code, KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&expected))
     }
@@ -101,5 +107,4 @@ impl TuiModel {
             _ => false,
         }
     }
-
 }

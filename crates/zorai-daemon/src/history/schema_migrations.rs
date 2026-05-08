@@ -944,6 +944,9 @@ pub(super) fn apply_schema_migrations(
             workspace_id TEXT PRIMARY KEY,
             workspace_root TEXT,
             operator TEXT NOT NULL,
+            repo_monitor_enabled INTEGER NOT NULL DEFAULT 0,
+            repo_monitor_include_dirs_json TEXT NOT NULL DEFAULT '[]',
+            repo_monitor_exclude_dirs_json TEXT NOT NULL DEFAULT '[]',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -986,6 +989,24 @@ pub(super) fn apply_schema_migrations(
         connection,
         "workspace_tasks",
         "runtime_history_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
+    ensure_column(
+        connection,
+        "workspace_settings",
+        "repo_monitor_enabled",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(
+        connection,
+        "workspace_settings",
+        "repo_monitor_include_dirs_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
+    ensure_column(
+        connection,
+        "workspace_settings",
+        "repo_monitor_exclude_dirs_json",
         "TEXT NOT NULL DEFAULT '[]'",
     )?;
     // Episodic memory schema (Phase v3.0).

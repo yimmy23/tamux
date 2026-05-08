@@ -1,6 +1,6 @@
-use super::*;
 use super::spawned_agents;
 use super::tab_layout::*;
+use super::*;
 use crate::app::RecentActionVm;
 use crate::state::chat::{ChatState, GatewayStatusVm, MessageRole};
 use crate::state::sidebar::{SidebarState, SidebarTab};

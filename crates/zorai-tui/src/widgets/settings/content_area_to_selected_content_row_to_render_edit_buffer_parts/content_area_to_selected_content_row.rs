@@ -1,8 +1,8 @@
-use super::*;
 use super::super::advanced_single_line_edit_layout_to_subagent_row_action_offsets::*;
+use super::super::render_advanced_value_to_render_advanced_tab::*;
 use super::super::render_edit_buffer_with_cursor_to_editing_cursor_hit_test_to_content::*;
 use super::super::wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render::*;
-use super::super::render_advanced_value_to_render_advanced_tab::*;
+use super::*;
 use crate::providers;
 use crate::state::concierge::ConciergeState;
 use crate::state::config::ConfigState;
@@ -107,7 +107,9 @@ pub(crate) fn scroll_for_selected_field(
     if selected_row < scroll {
         scroll = selected_row;
     } else if selected_row >= scroll.saturating_add(viewport_height) {
-        scroll = selected_row.saturating_add(1).saturating_sub(viewport_height);
+        scroll = selected_row
+            .saturating_add(1)
+            .saturating_sub(viewport_height);
     }
     scroll.min(max_scroll)
 }

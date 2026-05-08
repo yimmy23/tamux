@@ -1,9 +1,9 @@
-use tokio::sync::mpsc::unbounded_channel;
-use std::sync::mpsc;
-use zorai_shared::providers::*;
 use super::whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings::*;
-use crate::state::*;
 use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn thread_picker_playgrounds_new_row_is_browse_only() {
     let (mut model, _daemon_rx) = make_model();
@@ -497,4 +497,3 @@ fn slash_effort_updates_active_thread_owner_effort() {
     );
     assert!(daemon_rx.try_recv().is_err());
 }
-

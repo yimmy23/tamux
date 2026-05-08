@@ -60,7 +60,7 @@ struct GeneratedOpenApiSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct GeneratedToolRecord {
+pub(crate) struct GeneratedToolRecord {
     id: String,
     name: String,
     description: String,
@@ -103,7 +103,7 @@ impl GeneratedToolRecord {
     }
 }
 
-pub(super) fn generated_tool_definitions(
+pub(crate) fn generated_tool_definitions(
     config: &AgentConfig,
     agent_data_dir: &Path,
 ) -> Vec<ToolDefinition> {
@@ -145,7 +145,7 @@ pub(super) fn generated_tool_definitions(
         .collect()
 }
 
-pub(super) async fn synthesize_tool(
+pub(crate) async fn synthesize_tool(
     args: &serde_json::Value,
     agent: &AgentEngine,
     agent_data_dir: &Path,
@@ -206,7 +206,7 @@ pub(super) async fn synthesize_tool(
     Ok(serde_json::to_string_pretty(&record)?)
 }
 
-pub(super) fn list_generated_tools(agent_data_dir: &Path) -> Result<String> {
+pub(crate) fn list_generated_tools(agent_data_dir: &Path) -> Result<String> {
     Ok(serde_json::to_string_pretty(&load_generated_tools(
         agent_data_dir,
     )?)?)
@@ -290,7 +290,7 @@ pub(crate) fn find_equivalent_generated_openapi_tool(
     Ok(None)
 }
 
-pub(super) async fn execute_generated_tool(
+pub(crate) async fn execute_generated_tool(
     tool_name: &str,
     args: &serde_json::Value,
     agent: &AgentEngine,
@@ -347,7 +347,7 @@ pub(super) async fn execute_generated_tool(
     output.map(Some)
 }
 
-pub(super) fn promote_generated_tool(agent_data_dir: &Path, tool_name: &str) -> Result<String> {
+pub(crate) fn promote_generated_tool(agent_data_dir: &Path, tool_name: &str) -> Result<String> {
     let mut record = load_generated_tool(agent_data_dir, tool_name)?
         .ok_or_else(|| anyhow::anyhow!("unknown generated tool `{tool_name}`"))?;
     if record.status == "new" {
@@ -395,7 +395,7 @@ pub(super) fn promote_generated_tool(agent_data_dir: &Path, tool_name: &str) -> 
     Ok(serde_json::to_string_pretty(&record)?)
 }
 
-pub(super) fn activate_generated_tool(agent_data_dir: &Path, tool_name: &str) -> Result<String> {
+pub(crate) fn activate_generated_tool(agent_data_dir: &Path, tool_name: &str) -> Result<String> {
     let mut record = load_generated_tool(agent_data_dir, tool_name)?
         .ok_or_else(|| anyhow::anyhow!("unknown generated tool `{tool_name}`"))?;
     record.status = "active".to_string();
@@ -404,7 +404,7 @@ pub(super) fn activate_generated_tool(agent_data_dir: &Path, tool_name: &str) ->
     Ok(serde_json::to_string_pretty(&record)?)
 }
 
-pub(super) fn retire_generated_tool(agent_data_dir: &Path, tool_name: &str) -> Result<String> {
+pub(crate) fn retire_generated_tool(agent_data_dir: &Path, tool_name: &str) -> Result<String> {
     let mut record = load_generated_tool(agent_data_dir, tool_name)?
         .ok_or_else(|| anyhow::anyhow!("unknown generated tool `{tool_name}`"))?;
     if let Some(path) = record.promoted_skill_path.as_deref() {
@@ -422,7 +422,7 @@ pub(super) fn retire_generated_tool(agent_data_dir: &Path, tool_name: &str) -> R
     Ok(serde_json::to_string_pretty(&record)?)
 }
 
-pub(super) fn restore_generated_tool(agent_data_dir: &Path, tool_name: &str) -> Result<String> {
+pub(crate) fn restore_generated_tool(agent_data_dir: &Path, tool_name: &str) -> Result<String> {
     let mut record = load_generated_tool(agent_data_dir, tool_name)?
         .ok_or_else(|| anyhow::anyhow!("unknown generated tool `{tool_name}`"))?;
     if record.status != "archived" {

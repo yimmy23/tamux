@@ -376,7 +376,6 @@ fn clicking_chat_file_chip_requests_file_preview() {
 
 #[test]
 fn clicking_chat_image_attachment_requests_file_preview() {
-
     let (_daemon_tx, daemon_rx) = mpsc::channel();
     let (cmd_tx, mut cmd_rx) = unbounded_channel();
     let mut model = TuiModel::new(daemon_rx, cmd_tx);

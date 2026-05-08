@@ -1,11 +1,12 @@
-use super::super::*;
-use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
-use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
 use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
 use super::super::selection_point_from_snapshot_to_render::*;
+use super::super::*;
 use super::render_streaming_markdown_to_message_block_style::*;
-use unicode_width::UnicodeWidthStr;
-use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode};
+use crate::state::chat::{
+    AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode,
+};
 use crate::theme::ThemeTokens;
 use crate::widgets::message;
 use crate::widgets::message::wrap_text;
@@ -13,6 +14,7 @@ use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use unicode_width::UnicodeWidthStr;
 pub(crate) fn message_action_targets(
     chat: &ChatState,
     msg_index: usize,
@@ -171,7 +173,10 @@ pub(crate) fn action_hit_target(
     None
 }
 
-pub(crate) fn retry_wait_remaining_secs(status: &crate::state::chat::RetryStatusVm, current_tick: u64) -> u64 {
+pub(crate) fn retry_wait_remaining_secs(
+    status: &crate::state::chat::RetryStatusVm,
+    current_tick: u64,
+) -> u64 {
     let elapsed_ticks = current_tick.saturating_sub(status.received_at_tick);
     let elapsed_ms = elapsed_ticks.saturating_mul(crate::app::TUI_TICK_RATE_MS);
     status
@@ -222,8 +227,13 @@ pub(crate) fn classify_message_lines(
     let content_width = padded_content_width(width);
     let image_line_count = message_image_preview_path(msg)
         .map(|path| {
-            crate::widgets::image_preview::render_image_preview_lines(&path, content_width, 12, &ThemeTokens::default())
-                .len()
+            crate::widgets::image_preview::render_image_preview_lines(
+                &path,
+                content_width,
+                12,
+                &ThemeTokens::default(),
+            )
+            .len()
         })
         .unwrap_or(0);
 
@@ -285,8 +295,8 @@ pub(crate) fn classify_message_lines(
                 let mut kinds = vec![reasoning_toggle_kind];
                 if reasoning_expanded {
                     let detail_width = content_width.saturating_sub(2).max(1);
-                    let detail =
-                        crate::widgets::message::collapsible_system_notice_detail(msg).unwrap_or_default();
+                    let detail = crate::widgets::message::collapsible_system_notice_detail(msg)
+                        .unwrap_or_default();
                     let detail_line_count = wrap_text(&detail, detail_width).len();
                     kinds.extend(std::iter::repeat_n(
                         RenderedLineKind::ReasoningContent,
@@ -296,7 +306,8 @@ pub(crate) fn classify_message_lines(
                 return kinds;
             }
 
-            if msg.content.is_empty() && image_line_count == 0 && msg.role != MessageRole::Assistant {
+            if msg.content.is_empty() && image_line_count == 0 && msg.role != MessageRole::Assistant
+            {
                 return Vec::new();
             }
             if msg.content.is_empty() && image_line_count == 0 && msg.reasoning.is_none() {
@@ -317,9 +328,12 @@ pub(crate) fn classify_message_lines(
                         matches!(mode, TranscriptMode::Full) || expanded.contains(&msg_index);
                     if reasoning_expanded {
                         let reasoning_width = content_width.saturating_sub(2).max(1);
-                        1 + wrap_text(msg.reasoning.as_deref().unwrap_or_default(), reasoning_width)
-                            .len()
-                            .max(1)
+                        1 + wrap_text(
+                            msg.reasoning.as_deref().unwrap_or_default(),
+                            reasoning_width,
+                        )
+                        .len()
+                        .max(1)
                     } else {
                         1
                     }

@@ -1192,6 +1192,43 @@ impl AgentEngine {
         }
     }
 
+    pub(crate) async fn count_tasks_filtered(
+        &self,
+        query: &crate::history::AgentTaskListQuery,
+    ) -> usize {
+        self.refresh_task_queue_state_for_filtered_list().await;
+        match self.history.count_agent_tasks_filtered(query).await {
+            Ok(count) => count,
+            Err(error) => {
+                tracing::warn!("failed to count filtered persisted tasks: {error}");
+                let snapshot = self.snapshot_tasks().await;
+                filter_task_snapshot_for_query(snapshot, query).len()
+            }
+        }
+    }
+
+    pub(crate) async fn list_task_quiet_recovery_refs_filtered(
+        &self,
+        query: &crate::history::AgentTaskListQuery,
+    ) -> Vec<crate::history::AgentTaskQuietRecoveryRef> {
+        self.refresh_task_queue_state_for_filtered_list().await;
+        match self
+            .history
+            .list_agent_task_quiet_recovery_refs_filtered(query)
+            .await
+        {
+            Ok(refs) => refs,
+            Err(error) => {
+                tracing::warn!("failed to list quiet-goal recovery task refs: {error}");
+                let snapshot = self.snapshot_tasks().await;
+                filter_task_snapshot_for_query(snapshot, query)
+                    .iter()
+                    .map(crate::history::AgentTaskQuietRecoveryRef::from)
+                    .collect()
+            }
+        }
+    }
+
     pub async fn list_runs(&self) -> Vec<AgentRun> {
         let tasks = self
             .list_tasks_filtered(&crate::history::AgentTaskListQuery {

@@ -180,16 +180,54 @@ fn cap_thread_detail_for_ipc(detail: ThreadDetailResult) -> ThreadDetailResult {
 }
 
 impl AgentEngine {
-    async fn persist_thread_metadata_patch(&self, thread_id: &str, patch: ThreadMetadataPatch) {
-        let thread_exists = self.threads.read().await.contains_key(thread_id);
-        if thread_exists {
-            self.persist_thread_by_id(thread_id).await;
-            return;
-        }
+    async fn persisted_thread_metadata(&self, thread_id: &str) -> Option<ParsedThreadMetadata> {
+        let metadata_json = match self.history.thread_metadata_json(thread_id).await {
+            Ok(Some(metadata_json)) => Some(metadata_json),
+            Ok(None) => match self.history.has_thread_id(thread_id).await {
+                Ok(true) => None,
+                Ok(false) => return None,
+                Err(error) => {
+                    tracing::warn!(
+                        thread_id = %thread_id,
+                        %error,
+                        "failed to check persisted thread existence for metadata lookup"
+                    );
+                    return None;
+                }
+            },
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "failed to read persisted thread metadata"
+                );
+                return None;
+            }
+        };
 
-        let persisted_thread = match self.history.get_thread(thread_id).await {
-            Ok(Some(thread)) => thread,
-            Ok(None) => return,
+        Some(parse_thread_metadata(metadata_json.as_deref()))
+    }
+
+    async fn persist_thread_metadata_patch(&self, thread_id: &str, patch: ThreadMetadataPatch) {
+        let metadata_json = match self.history.thread_metadata_json(thread_id).await {
+            Ok(Some(metadata_json)) => Some(metadata_json),
+            Ok(None) => match self.history.has_thread_id(thread_id).await {
+                Ok(true) => None,
+                Ok(false) => {
+                    if self.threads.read().await.contains_key(thread_id) {
+                        self.persist_thread_by_id(thread_id).await;
+                    }
+                    return;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        thread_id = %thread_id,
+                        %error,
+                        "failed to check persisted thread existence"
+                    );
+                    return;
+                }
+            },
             Err(error) => {
                 tracing::warn!(
                     thread_id = %thread_id,
@@ -200,8 +238,7 @@ impl AgentEngine {
             }
         };
 
-        let mut metadata = persisted_thread
-            .metadata_json
+        let mut metadata = metadata_json
             .as_deref()
             .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
             .and_then(|value| match value {
@@ -241,6 +278,10 @@ impl AgentEngine {
         thread_id: &str,
         content: impl Into<String>,
     ) -> bool {
+        if !self.ensure_thread_messages_loaded(thread_id).await {
+            return false;
+        }
+
         let content = content.into();
         let appended = {
             let mut threads = self.threads.write().await;
@@ -298,7 +339,6 @@ impl AgentEngine {
         thread_id: &str,
         message_id: &str,
     ) -> ThreadMessagePinMutationResult {
-        self.ensure_thread_messages_loaded(thread_id).await;
         let config = self.config.read().await.clone();
         let provider_config = match resolve_active_provider_config(&config) {
             Ok(provider_config) => provider_config,
@@ -313,36 +353,108 @@ impl AgentEngine {
                 );
             }
         };
+        let budget_chars = pinned_for_compaction_budget_chars(&config, &provider_config);
 
-        let result = {
-            let mut threads = self.threads.write().await;
-            let Some(thread) = threads.get_mut(thread_id) else {
+        if !self
+            .ensure_thread_persisted_for_message_pin(thread_id)
+            .await
+        {
+            return ThreadMessagePinMutationResult::failure(
+                thread_id,
+                message_id,
+                "thread_not_found",
+                0,
+                budget_chars,
+                None,
+            );
+        }
+
+        let pin_state = match self
+            .history
+            .thread_message_pin_state(thread_id, message_id)
+            .await
+        {
+            Ok(Some(pin_state)) => pin_state,
+            Ok(None) => {
                 return ThreadMessagePinMutationResult::failure(
                     thread_id,
                     message_id,
-                    "thread_not_found",
+                    "message_not_found",
                     0,
-                    pinned_for_compaction_budget_chars(&config, &provider_config),
+                    budget_chars,
                     None,
                 );
-            };
-
-            let result =
-                pin_thread_message_for_compaction(thread, message_id, &config, &provider_config);
-            if result.ok {
-                thread.updated_at = now_millis();
             }
-            result
+            Err(error) => {
+                return ThreadMessagePinMutationResult::failure(
+                    thread_id,
+                    message_id,
+                    format!("message_pin_state_unavailable:{error}"),
+                    0,
+                    budget_chars,
+                    None,
+                );
+            }
         };
 
-        if result.ok {
-            self.persist_thread_by_id(thread_id).await;
-            let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
-                thread_id: thread_id.to_string(),
-            });
+        if pin_state.pinned_for_compaction {
+            return ThreadMessagePinMutationResult::success(
+                thread_id,
+                message_id,
+                pin_state.current_pinned_chars,
+                budget_chars,
+            );
         }
 
-        result
+        let candidate_chars = pin_state
+            .current_pinned_chars
+            .saturating_add(pin_state.message_chars);
+        if candidate_chars > budget_chars {
+            return ThreadMessagePinMutationResult::failure(
+                thread_id,
+                message_id,
+                "pinned_budget_exceeded",
+                pin_state.current_pinned_chars,
+                budget_chars,
+                Some(candidate_chars),
+            );
+        }
+
+        match self
+            .history
+            .set_message_pinned_for_compaction(thread_id, message_id, true)
+            .await
+        {
+            Ok(true) => {
+                self.set_live_thread_message_pin_if_loaded(thread_id, message_id, true)
+                    .await;
+                let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
+                    thread_id: thread_id.to_string(),
+                });
+                ThreadMessagePinMutationResult::success(
+                    thread_id,
+                    message_id,
+                    candidate_chars,
+                    budget_chars,
+                )
+            }
+            Ok(false) => ThreadMessagePinMutationResult::failure(
+                thread_id,
+                message_id,
+                "message_not_found",
+                pin_state.current_pinned_chars,
+                budget_chars,
+                None,
+            ),
+            Err(error) => ThreadMessagePinMutationResult::failure(
+                thread_id,
+                message_id,
+                format!("message_pin_update_failed:{error}"),
+                pin_state.current_pinned_chars,
+                budget_chars,
+                None,
+            ),
+        }
     }
 
     pub(crate) async fn unpin_thread_message_for_compaction(
@@ -350,7 +462,6 @@ impl AgentEngine {
         thread_id: &str,
         message_id: &str,
     ) -> ThreadMessagePinMutationResult {
-        self.ensure_thread_messages_loaded(thread_id).await;
         let config = self.config.read().await.clone();
         let provider_config = match resolve_active_provider_config(&config) {
             Ok(provider_config) => provider_config,
@@ -365,36 +476,142 @@ impl AgentEngine {
                 );
             }
         };
+        let budget_chars = pinned_for_compaction_budget_chars(&config, &provider_config);
 
-        let result = {
-            let mut threads = self.threads.write().await;
-            let Some(thread) = threads.get_mut(thread_id) else {
+        if !self
+            .ensure_thread_persisted_for_message_pin(thread_id)
+            .await
+        {
+            return ThreadMessagePinMutationResult::failure(
+                thread_id,
+                message_id,
+                "thread_not_found",
+                0,
+                budget_chars,
+                None,
+            );
+        }
+
+        let pin_state = match self
+            .history
+            .thread_message_pin_state(thread_id, message_id)
+            .await
+        {
+            Ok(Some(pin_state)) => pin_state,
+            Ok(None) => {
                 return ThreadMessagePinMutationResult::failure(
                     thread_id,
                     message_id,
-                    "thread_not_found",
+                    "message_not_found",
                     0,
-                    pinned_for_compaction_budget_chars(&config, &provider_config),
+                    budget_chars,
                     None,
                 );
-            };
-
-            let result =
-                unpin_thread_message_for_compaction(thread, message_id, &config, &provider_config);
-            if result.ok {
-                thread.updated_at = now_millis();
             }
-            result
+            Err(error) => {
+                return ThreadMessagePinMutationResult::failure(
+                    thread_id,
+                    message_id,
+                    format!("message_pin_state_unavailable:{error}"),
+                    0,
+                    budget_chars,
+                    None,
+                );
+            }
         };
 
-        if result.ok {
-            self.persist_thread_by_id(thread_id).await;
-            let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
-                thread_id: thread_id.to_string(),
-            });
+        let current_after_unpin =
+            if pin_state.pinned_for_compaction && pin_state.counts_toward_pinned_chars {
+                pin_state
+                    .current_pinned_chars
+                    .saturating_sub(pin_state.message_chars)
+            } else {
+                pin_state.current_pinned_chars
+            };
+
+        match self
+            .history
+            .set_message_pinned_for_compaction(thread_id, message_id, false)
+            .await
+        {
+            Ok(true) => {
+                self.set_live_thread_message_pin_if_loaded(thread_id, message_id, false)
+                    .await;
+                let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
+                    thread_id: thread_id.to_string(),
+                });
+                ThreadMessagePinMutationResult::success(
+                    thread_id,
+                    message_id,
+                    current_after_unpin,
+                    budget_chars,
+                )
+            }
+            Ok(false) => ThreadMessagePinMutationResult::failure(
+                thread_id,
+                message_id,
+                "message_not_found",
+                pin_state.current_pinned_chars,
+                budget_chars,
+                None,
+            ),
+            Err(error) => ThreadMessagePinMutationResult::failure(
+                thread_id,
+                message_id,
+                format!("message_pin_update_failed:{error}"),
+                pin_state.current_pinned_chars,
+                budget_chars,
+                None,
+            ),
+        }
+    }
+
+    async fn ensure_thread_persisted_for_message_pin(&self, thread_id: &str) -> bool {
+        match self.history.has_thread_id(thread_id).await {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "failed to check persisted thread before message pin mutation"
+                );
+            }
         }
 
-        result
+        if self.threads.read().await.contains_key(thread_id) {
+            self.persist_thread_by_id(thread_id).await;
+            return self
+                .history
+                .has_thread_id(thread_id)
+                .await
+                .ok()
+                .unwrap_or(false);
+        }
+
+        false
+    }
+
+    async fn set_live_thread_message_pin_if_loaded(
+        &self,
+        thread_id: &str,
+        message_id: &str,
+        pinned: bool,
+    ) {
+        let mut threads = self.threads.write().await;
+        let Some(thread) = threads.get_mut(thread_id) else {
+            return;
+        };
+        let Some(message) = thread
+            .messages
+            .iter_mut()
+            .find(|message| message.id == message_id)
+        else {
+            return;
+        };
+
+        message.pinned_for_compaction = pinned;
+        thread.updated_at = now_millis();
     }
 
     pub async fn set_thread_client_surface(
@@ -417,11 +634,25 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<zorai_protocol::ClientSurface> {
-        self.thread_client_surfaces
+        if let Some(client_surface) = self
+            .thread_client_surfaces
             .read()
             .await
             .get(thread_id)
             .copied()
+        {
+            return Some(client_surface);
+        }
+
+        let client_surface = self
+            .persisted_thread_metadata(thread_id)
+            .await?
+            .client_surface?;
+        self.thread_client_surfaces
+            .write()
+            .await
+            .insert(thread_id.to_string(), client_surface);
+        Some(client_surface)
     }
 
     pub async fn clear_thread_client_surface(&self, thread_id: &str) {
@@ -451,11 +682,25 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<LatestSkillDiscoveryState> {
-        self.thread_skill_discovery_states
+        if let Some(state) = self
+            .thread_skill_discovery_states
             .read()
             .await
             .get(thread_id)
             .cloned()
+        {
+            return Some(state);
+        }
+
+        let state = self
+            .persisted_thread_metadata(thread_id)
+            .await?
+            .latest_skill_discovery_state?;
+        self.thread_skill_discovery_states
+            .write()
+            .await
+            .insert(thread_id.to_string(), state.clone());
+        Some(state)
     }
 
     pub async fn clear_thread_skill_discovery_state(&self, thread_id: &str) {
@@ -491,11 +736,25 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<PromptMemoryInjectionState> {
-        self.thread_memory_injection_state_map()
+        if let Some(state) = self
+            .thread_memory_injection_state_map()
             .read()
             .await
             .get(thread_id)
             .cloned()
+        {
+            return Some(state);
+        }
+
+        let state = self
+            .persisted_thread_metadata(thread_id)
+            .await?
+            .prompt_memory_injection_state?;
+        self.thread_memory_injection_state_map()
+            .write()
+            .await
+            .insert(thread_id.to_string(), state.clone());
+        Some(state)
     }
 
     pub async fn clear_thread_memory_injection_state(&self, thread_id: &str) {
@@ -610,12 +869,7 @@ impl AgentEngine {
     ) -> Option<ThreadDetailResult> {
         if let Some(limit) = message_limit {
             if let Some(detail) = self
-                .get_lazy_persisted_thread_window(
-                    thread_id,
-                    include_internal,
-                    limit,
-                    message_offset,
-                )
+                .get_persisted_thread_window(thread_id, include_internal, limit, message_offset)
                 .await
             {
                 tracing::info!(
@@ -719,6 +973,21 @@ impl AgentEngine {
             .await
             .get(thread_id)
             .map(|thread| thread.pinned);
+        let mut thread_shell = self.restore_thread_from_db(thread_id).await?;
+        if let Some(pinned) = existing_pinned {
+            thread_shell.pinned = pinned;
+        }
+        if !thread_is_query_visible(&thread_shell, include_internal) {
+            return None;
+        }
+        if !include_internal
+            && self
+                .persisted_thread_hidden_by_message_content(thread_id)
+                .await
+        {
+            return None;
+        }
+
         let mut thread = self.restore_thread_with_messages_from_db(thread_id).await?;
         if let Some(pinned) = existing_pinned {
             thread.pinned = pinned;
@@ -746,9 +1015,6 @@ impl AgentEngine {
         {
             let mut threads = self.threads.write().await;
             threads.insert(thread_id.to_string(), thread.clone());
-        }
-        if !thread_is_query_visible(&thread, include_internal) {
-            return None;
         }
 
         let end = total_messages.saturating_sub(message_offset);
@@ -804,8 +1070,35 @@ impl AgentEngine {
             return None;
         }
 
-        let mut thread = self.threads.read().await.get(thread_id).cloned()?;
+        self.get_persisted_thread_window(thread_id, include_internal, message_limit, message_offset)
+            .await
+    }
+
+    async fn get_persisted_thread_window(
+        &self,
+        thread_id: &str,
+        include_internal: bool,
+        message_limit: usize,
+        message_offset: usize,
+    ) -> Option<ThreadDetailResult> {
+        let existing_pinned = self
+            .threads
+            .read()
+            .await
+            .get(thread_id)
+            .map(|thread| thread.pinned);
+        let mut thread = self.restore_thread_from_db(thread_id).await?;
+        if let Some(pinned) = existing_pinned {
+            thread.pinned = pinned;
+        }
         if !thread_is_query_visible(&thread, include_internal) {
+            return None;
+        }
+        if !include_internal
+            && self
+                .persisted_thread_hidden_by_message_content(thread_id)
+                .await
+        {
             return None;
         }
 
@@ -868,23 +1161,16 @@ impl AgentEngine {
         thread_id: &str,
         include_internal: bool,
     ) -> Option<ThreadDetailResult> {
-        if self
-            .thread_message_hydration_pending
-            .read()
+        if let Some(detail) = self
+            .get_persisted_thread_window(
+                thread_id,
+                include_internal,
+                LAZY_CAPPED_IPC_MESSAGE_WINDOW,
+                0,
+            )
             .await
-            .contains(thread_id)
         {
-            if let Some(detail) = self
-                .get_lazy_persisted_thread_window(
-                    thread_id,
-                    include_internal,
-                    LAZY_CAPPED_IPC_MESSAGE_WINDOW,
-                    0,
-                )
-                .await
-            {
-                return Some(cap_thread_detail_for_ipc(detail));
-            }
+            return Some(cap_thread_detail_for_ipc(detail));
         }
 
         let detail = self
@@ -895,48 +1181,40 @@ impl AgentEngine {
     }
 
     pub async fn planner_required_for_thread(&self, thread_id: &str) -> bool {
-        self.ensure_thread_messages_loaded(thread_id).await;
-        let threads = self.threads.read().await;
-        let Some(thread) = threads.get(thread_id) else {
-            return false;
-        };
-        let latest_user_message = thread
-            .messages
-            .iter()
-            .rev()
-            .find(|message| message.role == MessageRole::User)
-            .map(|message| message.content.as_str())
-            .unwrap_or("");
-        planner_required_for_message(latest_user_message)
+        let latest_user_message = self
+            .history
+            .latest_user_message_content(thread_id)
+            .await
+            .ok()
+            .flatten();
+        planner_required_for_message(latest_user_message.as_deref().unwrap_or(""))
     }
 
     pub async fn delete_thread(&self, thread_id: &str) -> bool {
         let _ = self.stop_stream(thread_id).await;
-        let thread_snapshot = self.threads.write().await.remove(thread_id);
-        let thread_exists = if thread_snapshot.is_some() {
-            true
-        } else {
-            match self.history.get_thread(thread_id).await {
-                Ok(Some(_)) => true,
-                Ok(None) => false,
-                Err(error) => {
-                    tracing::warn!(
-                        thread_id = %thread_id,
-                        %error,
-                        "failed to read persisted thread before deletion"
-                    );
-                    false
-                }
+        let live_thread_exists = self.threads.read().await.contains_key(thread_id);
+        let persisted_thread_exists = match self.history.has_thread_id(thread_id).await {
+            Ok(exists) => exists,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "failed to check persisted thread before deletion"
+                );
+                false
             }
         };
+        let thread_exists = live_thread_exists || persisted_thread_exists;
         if !thread_exists {
             return false;
         }
 
-        if let Some(thread) = thread_snapshot.as_ref() {
-            self.maybe_record_session_abandon_on_thread_delete(thread)
-                .await;
+        if live_thread_exists && !persisted_thread_exists {
+            self.persist_thread_by_id(thread_id).await;
         }
+        self.maybe_record_session_abandon_on_thread_delete(thread_id)
+            .await;
+        self.threads.write().await.remove(thread_id);
         self.clear_thread_client_surface(thread_id).await;
         self.clear_thread_skill_discovery_state(thread_id).await;
         self.clear_thread_memory_injection_state(thread_id).await;
@@ -958,40 +1236,29 @@ impl AgentEngine {
         if let Err(error) = self.history.delete_thread(thread_id).await {
             tracing::warn!(thread_id = %thread_id, %error, "failed to delete thread history");
         }
-        self.persist_threads().await;
         self.persist_todos().await;
         self.persist_work_context().await;
         true
     }
 
-    async fn maybe_record_session_abandon_on_thread_delete(&self, thread: &AgentThread) {
+    async fn maybe_record_session_abandon_on_thread_delete(&self, thread_id: &str) {
         let now = now_millis();
-        let Some(last_assistant) = thread
-            .messages
-            .iter()
-            .rev()
-            .find(|message| message.role == MessageRole::Assistant)
+        let Some((last_assistant_message, last_assistant_timestamp)) = self
+            .history
+            .latest_unanswered_assistant_message(thread_id)
+            .await
+            .unwrap_or(None)
         else {
             return;
         };
 
-        if now.saturating_sub(last_assistant.timestamp) > SESSION_ABANDON_WINDOW_MS {
-            return;
-        }
-
-        let last_user_after_assistant = thread
-            .messages
-            .iter()
-            .rev()
-            .find(|message| message.role == MessageRole::User)
-            .is_some_and(|message| message.timestamp > last_assistant.timestamp);
-        if last_user_after_assistant {
+        if now.saturating_sub(last_assistant_timestamp) > SESSION_ABANDON_WINDOW_MS {
             return;
         }
 
         if self
             .history
-            .implicit_signal_exists(&thread.id, "session_abandon")
+            .implicit_signal_exists(thread_id, "session_abandon")
             .await
             .unwrap_or(false)
         {
@@ -1000,18 +1267,38 @@ impl AgentEngine {
 
         if let Err(error) = self
             .record_session_abandon_feedback(
-                &thread.id,
-                last_assistant.content.trim(),
-                last_assistant.timestamp,
+                thread_id,
+                last_assistant_message.trim(),
+                last_assistant_timestamp,
                 now,
             )
             .await
         {
             tracing::warn!(
-                thread_id = %thread.id,
+                thread_id = %thread_id,
                 error = %error,
                 "failed to record session abandonment feedback on thread delete"
             );
+        }
+    }
+}
+
+impl AgentEngine {
+    async fn persisted_thread_hidden_by_message_content(&self, thread_id: &str) -> bool {
+        match self
+            .history
+            .thread_has_message_substring(thread_id, &hidden_thread_message_substrings())
+            .await
+        {
+            Ok(hidden) => hidden,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    error = %error,
+                    "failed to query persisted thread hidden-message markers"
+                );
+                true
+            }
         }
     }
 }
@@ -1028,6 +1315,26 @@ fn thread_is_query_visible(thread: &AgentThread, include_internal: bool) -> bool
 
 fn list_filter_timestamp(value: Option<u64>) -> Option<i64> {
     value.map(|value| value.min(i64::MAX as u64) as i64)
+}
+
+fn hidden_thread_message_substrings() -> Vec<String> {
+    vec![
+        format!(
+            "{} {}",
+            crate::agent::agent_identity::PERSONA_ID_MARKER,
+            crate::agent::agent_identity::WELES_AGENT_ID
+        ),
+        format!(
+            "{} {}",
+            crate::agent::agent_identity::PERSONA_ID_MARKER,
+            crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE
+        ),
+        format!(
+            "{} {}",
+            crate::agent::agent_identity::PERSONA_ID_MARKER,
+            crate::agent::agent_identity::WELES_VITALITY_SCOPE
+        ),
+    ]
 }
 
 fn persisted_thread_list_query(
@@ -1059,23 +1366,7 @@ fn persisted_thread_list_query(
             crate::agent::agent_identity::PARTICIPANT_PLAYGROUND_THREAD_PREFIX.to_string(),
             crate::agent::thread_handoffs::INTERNAL_HANDOFF_THREAD_PREFIX.to_string(),
         ],
-        hidden_message_substrings: vec![
-            format!(
-                "{} {}",
-                crate::agent::agent_identity::PERSONA_ID_MARKER,
-                crate::agent::agent_identity::WELES_AGENT_ID
-            ),
-            format!(
-                "{} {}",
-                crate::agent::agent_identity::PERSONA_ID_MARKER,
-                crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE
-            ),
-            format!(
-                "{} {}",
-                crate::agent::agent_identity::PERSONA_ID_MARKER,
-                crate::agent::agent_identity::WELES_VITALITY_SCOPE
-            ),
-        ],
+        hidden_message_substrings: hidden_thread_message_substrings(),
         limit: filter.limit,
         offset: filter.offset,
     }

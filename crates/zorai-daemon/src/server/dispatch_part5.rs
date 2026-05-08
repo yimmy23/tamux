@@ -1,5 +1,22 @@
-if matches!(
-        &msg,
+use super::*;
+use crate::agent::AgentEngine;
+use anyhow::Result;
+use futures::SinkExt;
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
+
+pub(crate) async fn dispatch_part5<S>(
+    msg: &ClientMessage,
+    agent: &Arc<AgentEngine>,
+    framed: &mut Framed<S, DaemonCodec>,
+) -> Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    if !matches!(
+        msg,
         ClientMessage::AgentListHealthLog{ .. } |
         ClientMessage::AgentStartOperatorProfileSession{ .. } |
         ClientMessage::AgentNextOperatorProfileQuestion{ .. } |
@@ -10,6 +27,10 @@ if matches!(
     ClientMessage::AgentAskQuestion{ .. } |
     ClientMessage::AgentAnswerQuestion{ .. }
     ) {
+        return Ok(false);
+    }
+    let msg = msg.clone();
+
         match msg {
                 ClientMessage::AgentListHealthLog { limit } => {
                     let entries_json =
@@ -24,7 +45,7 @@ if matches!(
                                     })
                                     .await
                                     .ok();
-                                continue;
+                                return Ok(true);
                             }
                         };
                     framed
@@ -188,7 +209,7 @@ if matches!(
                                     session_id = %session_id,
                                     "ignored stale operator profile next-question request"
                                 );
-                                continue;
+                                return Ok(true);
                             }
                             framed
                                 .send(DaemonMessage::AgentError {
@@ -460,12 +481,12 @@ if matches!(
                     options,
                     session_id,
                 } => match agent
-                    .ask_operator_question(&content, options, session_id, None)
+                    .ask_operator_question(&content, options.clone(), session_id.clone(), None)
                     .await
                 {
                     Ok((question_id, answer)) => {
                         framed
-                            .send(DaemonMessage::AgentQuestionAnswered { question_id, answer })
+                            .send(DaemonMessage::AgentQuestionAnswered { question_id: question_id.clone(), answer: answer.clone() })
                             .await
                             .ok();
                     }
@@ -483,7 +504,7 @@ if matches!(
                     match agent.answer_operator_question(&question_id, &answer).await {
                         Ok(()) => {
                             framed
-                                .send(DaemonMessage::AgentQuestionAnswered { question_id, answer })
+                                .send(DaemonMessage::AgentQuestionAnswered { question_id: question_id.clone(), answer: answer.clone() })
                                 .await
                                 .ok();
                         }
@@ -500,5 +521,5 @@ if matches!(
 
             _ => unreachable!("message chunk should be exhaustive"),
         }
-        continue;
-    }
+    Ok(true)
+}

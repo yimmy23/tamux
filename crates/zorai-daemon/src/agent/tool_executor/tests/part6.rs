@@ -1,3 +1,40 @@
+use super::super::*;
+use super::super::{
+    adapted_timeout_override_for_mode, build_list_files_script, build_write_file_command,
+    build_write_file_script, command_looks_interactive, command_matches_policy_risk,
+    command_requires_managed_state, daemon_tool_timeout_seconds, default_timeout_seconds_for_tool,
+    execute_apply_patch, execute_create_file, execute_fetch_url_with_runner,
+    execute_gateway_message, execute_get_debate_session, execute_get_divergent_session,
+    execute_get_git_line_statuses, execute_headless_shell_command,
+    execute_onecontext_search_with_runner, execute_read_file, execute_run_debate,
+    execute_search_files_with_runner, execute_tool, execute_web_search_with_runner,
+    get_available_tools, get_file_path_arg, managed_alias_args, parse_capture_output,
+    parse_tool_args, resolve_skill_path, run_search_files_command,
+    should_use_linked_whatsapp_transport, should_use_managed_execution, validate_read_path,
+    validate_write_path, wait_for_managed_command_outcome,
+};
+use super::part7::*;
+use crate::agent::{
+    types::{AgentConfig, AgentEvent, ToolCall, ToolFunction},
+    AgentEngine,
+};
+use crate::history::SkillVariantRecord;
+use crate::session_manager::SessionManager;
+use base64::Engine;
+use std::fs;
+use std::sync::{Arc, Mutex};
+use tempfile::tempdir;
+use tokio::sync::broadcast;
+use tokio::time::{timeout, Duration};
+use tokio_util::sync::CancellationToken;
+use zorai_protocol::tool_names;
+use zorai_protocol::{DaemonMessage, GatewaySendResult, SessionId};
+
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
+#[cfg(windows)]
+use std::os::windows::process::ExitStatusExt;
+
 #[tokio::test]
 async fn send_discord_message_uses_canonical_dm_reply_context_for_user_targets() {
     let root = tempdir().expect("tempdir");
@@ -471,7 +508,7 @@ async fn execute_managed_command_auto_approves_learned_git_category() {
     config.operator_model.enabled = true;
     config.operator_model.allow_approval_learning = true;
     config.provider = "openai".to_string();
-    config.base_url = part4::spawn_stub_assistant_server_for_tool_executor(
+    config.base_url = super::part4::spawn_stub_assistant_server_for_tool_executor(
         recorded_bodies,
         serde_json::json!({
             "verdict": "allow",
@@ -570,7 +607,7 @@ async fn execute_managed_command_auto_approves_saved_rule() {
     let mut config = AgentConfig::default();
     config.operator_model.enabled = false;
     config.provider = "openai".to_string();
-    config.base_url = part4::spawn_stub_assistant_server_for_tool_executor(
+    config.base_url = super::part4::spawn_stub_assistant_server_for_tool_executor(
         recorded_bodies,
         serde_json::json!({
             "verdict": "allow",
@@ -759,7 +796,7 @@ async fn message_agent_can_request_visible_thread_continuation() {
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.provider = "openai".to_string();
-    config.base_url = part4::spawn_stub_assistant_server_for_tool_executor(
+    config.base_url = super::part4::spawn_stub_assistant_server_for_tool_executor(
         recorded_bodies.clone(),
         serde_json::json!({
             "verdict": "allow",
@@ -975,7 +1012,7 @@ async fn execute_managed_command_auto_denies_learned_destructive_category() {
     config.operator_model.enabled = true;
     config.operator_model.allow_approval_learning = true;
     config.provider = "openai".to_string();
-    config.base_url = part4::spawn_stub_assistant_server_for_tool_executor(
+    config.base_url = super::part4::spawn_stub_assistant_server_for_tool_executor(
         recorded_bodies,
         serde_json::json!({
             "verdict": "allow",
@@ -1420,7 +1457,9 @@ async fn tui_python_execute_wait_for_response_detaches_long_running_command() {
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
     let (event_tx, _) = broadcast::channel(8);
-    let marker = root.path().join("tui-python-execute-wait-true-detached.txt");
+    let marker = root
+        .path()
+        .join("tui-python-execute-wait-true-detached.txt");
     let thread_id = "thread-tui-python-execute-wait-true-detach";
     engine
         .set_thread_client_surface(thread_id, zorai_protocol::ClientSurface::Tui)
@@ -2304,9 +2343,15 @@ fn format_result_with_authority_prepends_official_tag() {
 #[test]
 fn classify_freshness_labels_recent_stale_and_old_dates() {
     let today = chrono::Utc::now().date_naive();
-    let recent = (today - chrono::Days::new(7)).format("%Y-%m-%d").to_string();
-    let stale = (today - chrono::Days::new(90)).format("%Y-%m-%d").to_string();
-    let old = (today - chrono::Days::new(500)).format("%Y-%m-%d").to_string();
+    let recent = (today - chrono::Days::new(7))
+        .format("%Y-%m-%d")
+        .to_string();
+    let stale = (today - chrono::Days::new(90))
+        .format("%Y-%m-%d")
+        .to_string();
+    let old = (today - chrono::Days::new(500))
+        .format("%Y-%m-%d")
+        .to_string();
 
     assert_eq!(classify_freshness(Some(&recent)), "recent");
     assert_eq!(classify_freshness(Some(&stale)), "stale");
@@ -2531,9 +2576,9 @@ async fn start_goal_run_tool_creates_goal_and_list_goal_runs_returns_it() {
         .as_array()
         .expect("goal run page should expose items");
     assert!(
-        goal_runs
-            .iter()
-            .any(|goal_run| goal_run.get("id").and_then(|value| value.as_str()) == Some(goal_run_id)),
+        goal_runs.iter().any(
+            |goal_run| goal_run.get("id").and_then(|value| value.as_str()) == Some(goal_run_id)
+        ),
         "list_goal_runs should include the started goal run"
     );
 }
@@ -2938,7 +2983,10 @@ async fn spawn_subagent_reserves_thread_id_immediately() {
     .expect("reserved child thread metadata should be valid JSON");
     assert_eq!(metadata["thread_id"], serde_json::json!(reserved_thread_id));
     assert_eq!(metadata["parent_thread_id"], serde_json::json!(thread_id));
-    assert_eq!(metadata["parent_task_id"], serde_json::json!(parent_task.id));
+    assert_eq!(
+        metadata["parent_task_id"],
+        serde_json::json!(parent_task.id)
+    );
     assert_eq!(metadata["goal_run_id"], serde_json::json!("goal-spawn-1"));
     assert_eq!(metadata["identity"]["thread_id"], metadata["thread_id"]);
     assert_eq!(
@@ -3127,8 +3175,7 @@ async fn spawn_subagent_seeds_reserved_thread_with_spawned_persona_identity() {
     assert_eq!(handoff_state.active_agent_id, persona_id);
     assert_eq!(handoff_state.responder_stack.len(), 1);
     assert_eq!(
-        handoff_state.responder_stack[0].agent_name,
-        persona_name,
+        handoff_state.responder_stack[0].agent_name, persona_name,
         "reserved child thread should keep the seeded responder name"
     );
 }
@@ -3814,7 +3861,8 @@ async fn list_providers_returns_auth_state_rows() {
     let providers: Vec<crate::agent::types::ProviderAuthState> =
         serde_json::from_str(&result.content).expect("parse provider auth states");
     assert!(providers.iter().any(|provider| {
-        provider.provider_id == zorai_shared::providers::PROVIDER_ID_OPENAI && provider.authenticated
+        provider.provider_id == zorai_shared::providers::PROVIDER_ID_OPENAI
+            && provider.authenticated
     }));
 }
 
@@ -4634,7 +4682,10 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
     let detail: serde_json::Value =
         serde_json::from_str(&detail_json).expect("thread detail json should parse");
 
-    assert_eq!(detail.get("agent_name").and_then(|value| value.as_str()), Some("Dazhbog"));
+    assert_eq!(
+        detail.get("agent_name").and_then(|value| value.as_str()),
+        Some("Dazhbog")
+    );
     assert_eq!(
         detail
             .get("profile_provider")
@@ -4996,9 +5047,12 @@ async fn spawn_subagent_allows_recursive_spawn_when_parent_scope_permits_and_der
 async fn spawn_subagent_strained_mode_constrains_derived_budgets() {
     let root_normal = tempdir().expect("tempdir should succeed");
     let manager_normal = SessionManager::new_test(root_normal.path()).await;
-    let engine_normal =
-        AgentEngine::new_test(manager_normal.clone(), AgentConfig::default(), root_normal.path())
-            .await;
+    let engine_normal = AgentEngine::new_test(
+        manager_normal.clone(),
+        AgentConfig::default(),
+        root_normal.path(),
+    )
+    .await;
     let (event_tx_normal, _) = broadcast::channel(8);
 
     let normal_result = super::execute_spawn_subagent(
@@ -5066,7 +5120,10 @@ async fn spawn_subagent_strained_mode_constrains_derived_budgets() {
     let strained_tokens = strained_task
         .context_budget_tokens
         .expect("strained spawn should derive a context budget");
-    assert_eq!(strained_tokens, ((normal_tokens as f64 * 0.6).round() as u32).max(256));
+    assert_eq!(
+        strained_tokens,
+        ((normal_tokens as f64 * 0.6).round() as u32).max(256)
+    );
 
     let normal_duration = normal_task
         .max_duration_secs
@@ -5074,15 +5131,21 @@ async fn spawn_subagent_strained_mode_constrains_derived_budgets() {
     let strained_duration = strained_task
         .max_duration_secs
         .expect("strained spawn should derive a duration budget");
-    assert_eq!(strained_duration, ((normal_duration as f64 * 0.6).round() as u64).max(30));
+    assert_eq!(
+        strained_duration,
+        ((normal_duration as f64 * 0.6).round() as u64).max(30)
+    );
 
-    let normal_tool_calls = super::extract_tool_call_limit(normal_task.termination_conditions.as_deref())
-        .expect("normal spawn should derive a tool-call budget");
-    let strained_tool_calls = super::extract_tool_call_limit(
-        strained_task.termination_conditions.as_deref(),
-    )
-    .expect("strained spawn should derive a tool-call budget");
-    assert_eq!(strained_tool_calls, ((normal_tool_calls as f64 * 0.6).round() as u32).max(1));
+    let normal_tool_calls =
+        super::extract_tool_call_limit(normal_task.termination_conditions.as_deref())
+            .expect("normal spawn should derive a tool-call budget");
+    let strained_tool_calls =
+        super::extract_tool_call_limit(strained_task.termination_conditions.as_deref())
+            .expect("strained spawn should derive a tool-call budget");
+    assert_eq!(
+        strained_tool_calls,
+        ((normal_tool_calls as f64 * 0.6).round() as u32).max(1)
+    );
 }
 
 #[tokio::test]
@@ -5179,7 +5242,10 @@ async fn spawn_subagent_fragile_mode_constrains_inherited_max_depth_without_expl
         .into_iter()
         .find(|task| result.contains(&task.id))
         .expect("fragile spawned subagent should exist");
-    assert_eq!(task.containment_scope.as_deref(), Some("subagent-depth:1/2"));
+    assert_eq!(
+        task.containment_scope.as_deref(),
+        Some("subagent-depth:1/2")
+    );
 }
 
 #[tokio::test]
@@ -6788,7 +6854,9 @@ async fn show_harness_state_returns_projected_sections_for_current_scope() {
     assert_eq!(payload["scope"]["thread_id"], thread_id);
     assert_eq!(payload["scope"]["task_id"], task.id);
     assert!(payload["world_state"]["latest"].is_object());
-    assert!(payload["tensions"]["active"].as_array().is_some_and(|items| !items.is_empty()));
+    assert!(payload["tensions"]["active"]
+        .as_array()
+        .is_some_and(|items| !items.is_empty()));
     assert!(payload["procedures"]["latest"].is_object());
     assert!(payload["verifications"]["latest"]["verified"].is_boolean());
 }
@@ -7529,8 +7597,7 @@ async fn update_todo_for_goal_owned_main_task_rejects_updates_after_goal_step_cl
         .push_back(crate::agent::types::GoalRun {
             id: "goal-1".to_string(),
             title: "Goal One".to_string(),
-            goal: "Keep a completed step's todo list immutable after the goal advances"
-                .to_string(),
+            goal: "Keep a completed step's todo list immutable after the goal advances".to_string(),
             client_request_id: None,
             status: crate::agent::types::GoalRunStatus::Running,
             priority: crate::agent::types::TaskPriority::Normal,
@@ -7705,9 +7772,7 @@ async fn update_todo_for_goal_owned_main_task_rejects_updates_after_goal_step_cl
     );
     let initial_todos = engine.get_todos(thread_id).await;
     assert_eq!(initial_todos.len(), 2);
-    assert!(initial_todos
-        .iter()
-        .all(|item| item.step_index == Some(0)));
+    assert!(initial_todos.iter().all(|item| item.step_index == Some(0)));
 
     {
         let mut goal_runs = engine.goal_runs.lock().await;
@@ -7921,7 +7986,7 @@ async fn submit_goal_step_verdict_records_structured_verdict_for_current_goal_ve
             error: None,
             result: None,
             thread_id: Some(thread_id.to_string()),
-            source: super::super::GOAL_VERIFICATION_SOURCE.to_string(),
+            source: super::super::super::GOAL_VERIFICATION_SOURCE.to_string(),
             notify_on_complete: false,
             notify_channels: Vec::new(),
             dependencies: Vec::new(),
@@ -8000,7 +8065,9 @@ async fn submit_goal_step_verdict_records_structured_verdict_for_current_goal_ve
     );
     let record = engine
         .history
-        .get_consolidation_state(&super::super::goal_step_verdict_state_key(task_id))
+        .get_consolidation_state(
+            &super::super::super::goal_planner::goal_step_verdict_state_key(task_id),
+        )
         .await
         .expect("read persisted verdict")
         .expect("verdict should be persisted");
@@ -8059,13 +8126,16 @@ async fn execute_tool_records_timeout_adaptation_in_weles_review_for_fetch_url()
         .reasons
         .clone();
     assert!(
-        reasons.iter().any(|reason| reason == "adapted_runtime:timeout:fetch_url:180"),
+        reasons
+            .iter()
+            .any(|reason| reason == "adapted_runtime:timeout:fetch_url:180"),
         "expected timeout adaptation reason, got {reasons:?}"
     );
 }
 
 #[tokio::test]
-async fn execute_tool_records_timeout_adaptation_in_weles_review_for_search_files_under_fragile_feedback() {
+async fn execute_tool_records_timeout_adaptation_in_weles_review_for_search_files_under_fragile_feedback(
+) {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
     let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
@@ -8119,7 +8189,6 @@ async fn execute_tool_records_timeout_adaptation_in_weles_review_for_search_file
         "expected search_files timeout adaptation reason, got {reasons:?}"
     );
 }
-
 
 #[tokio::test]
 async fn update_browser_profile_health_emits_repair_notice_for_repair_needed() {
@@ -8271,7 +8340,9 @@ async fn list_browser_profiles_tool_returns_reclassified_expired_profiles() {
 
     let payload: serde_json::Value =
         serde_json::from_str(&result.content).expect("list_browser_profiles should return JSON");
-    let profiles = payload.as_array().expect("profiles should serialize as an array");
+    let profiles = payload
+        .as_array()
+        .expect("profiles should serialize as an array");
     let expired = profiles
         .iter()
         .find(|profile| profile["profile_id"] == serde_json::json!("expired-work"))
@@ -8337,7 +8408,9 @@ async fn update_browser_profile_health_does_not_emit_repair_notice_for_healthy()
     );
 
     assert!(
-        timeout(Duration::from_millis(150), event_rx.recv()).await.is_err(),
+        timeout(Duration::from_millis(150), event_rx.recv())
+            .await
+            .is_err(),
         "healthy browser profile updates should not emit repair notices"
     );
 }

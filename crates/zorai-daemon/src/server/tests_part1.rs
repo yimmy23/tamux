@@ -13,11 +13,6 @@ use crate::agent::{StreamCancellationEntry, StreamProgressKind};
 use crate::history::HistoryStore;
 use crate::plugin::PluginManager;
 use crate::session_manager::SessionManager;
-use zorai_protocol::{
-    ZoraiCodec, ClientMessage, DaemonMessage, GatewayConnectionStatus, GatewayHealthState,
-    GatewayIncomingEvent, GatewayRegistration, GatewaySendRequest, SessionInfo,
-    GATEWAY_IPC_PROTOCOL_VERSION,
-};
 use futures::{SinkExt, StreamExt};
 use std::collections::HashSet;
 use std::fs;
@@ -26,8 +21,13 @@ use std::sync::Arc;
 use tokio::io::DuplexStream;
 use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
+use zorai_protocol::{
+    ClientMessage, DaemonMessage, GatewayConnectionStatus, GatewayHealthState,
+    GatewayIncomingEvent, GatewayRegistration, GatewaySendRequest, SessionInfo, ZoraiCodec,
+    GATEWAY_IPC_PROTOCOL_VERSION,
+};
 
-fn repo_root() -> PathBuf {
+pub(crate) fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("daemon crate dir")

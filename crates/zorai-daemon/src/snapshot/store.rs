@@ -278,6 +278,18 @@ impl SnapshotStore {
         Ok(entries.into_iter().map(decode_snapshot).collect())
     }
 
+    pub async fn list_limited(
+        &self,
+        workspace_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<SnapshotInfo>> {
+        let entries = self
+            .history
+            .list_snapshot_index_ordered_limited(workspace_id, false, Some(limit))
+            .await?;
+        Ok(entries.into_iter().map(decode_snapshot).collect())
+    }
+
     pub async fn restore(&self, snapshot_id: &str) -> Result<(bool, String)> {
         let Some(entry) = self.history.get_snapshot_index(snapshot_id).await? else {
             return Ok((false, "snapshot not found".to_string()));

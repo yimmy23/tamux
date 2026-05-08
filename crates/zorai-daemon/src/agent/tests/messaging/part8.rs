@@ -1507,6 +1507,26 @@ async fn hydrate_trims_persisted_participant_playground_threads_to_recent_tail()
     let reloaded = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
     reloaded.hydrate().await.expect("hydrate");
 
+    assert!(
+        reloaded
+            .thread_message_hydration_pending
+            .read()
+            .await
+            .contains(&playground_thread_id),
+        "hydrate trim should leave the full playground thread message load lazy"
+    );
+    assert!(
+        reloaded
+            .threads
+            .read()
+            .await
+            .get(&playground_thread_id)
+            .expect("playground shell should be hydrated")
+            .messages
+            .is_empty(),
+        "hydrate trim should not load playground message bodies into memory"
+    );
+
     let playground = reloaded
         .get_thread_filtered(&playground_thread_id, true, None, 0)
         .await

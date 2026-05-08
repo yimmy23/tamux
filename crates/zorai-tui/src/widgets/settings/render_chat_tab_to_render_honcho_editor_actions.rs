@@ -1,12 +1,12 @@
-use super::render_provider_tab_to_render_tools_tab::*;
-use super::render_websearch_tab::*;
-use super::render_gateway_text_field::*;
-use super::render_concierge_tab_to_render_feature_toggle_line::*;
-use super::render_features_tab::*;
-use super::render_auth_tab_to_render_agent_tab::*;
-use super::render_plugins_tab_to_connector_readiness_style::*;
 use super::render_about_tab::*;
 use super::render_advanced_value_to_render_advanced_tab::*;
+use super::render_auth_tab_to_render_agent_tab::*;
+use super::render_concierge_tab_to_render_feature_toggle_line::*;
+use super::render_features_tab::*;
+use super::render_gateway_text_field::*;
+use super::render_plugins_tab_to_connector_readiness_style::*;
+use super::render_provider_tab_to_render_tools_tab::*;
+use super::render_websearch_tab::*;
 use super::*;
 use crate::providers;
 use crate::state::concierge::ConciergeState;
@@ -266,24 +266,26 @@ pub(crate) fn render_chat_tab<'a>(
         lines.push(Line::raw(""));
     }
 
-    for (idx, label, value, field_name) in [(
-        18usize,
-        "Tool Limit:     ",
-        config.tool_synthesis_max_generated_tools.to_string(),
-        "tool_synthesis_max_generated_tools",
-    ), (
-        19usize,
-        "Visible Msgs:   ",
-        config.tui_chat_history_page_size.to_string(),
-        "tui_chat_history_page_size",
-    ), (
-        20usize,
-        "Restore Hours:  ",
-        config
-            .participant_observer_restore_window_hours
-            .to_string(),
-        "participant_observer_restore_window_hours",
-    )] {
+    for (idx, label, value, field_name) in [
+        (
+            18usize,
+            "Tool Limit:     ",
+            config.tool_synthesis_max_generated_tools.to_string(),
+            "tool_synthesis_max_generated_tools",
+        ),
+        (
+            19usize,
+            "Visible Msgs:   ",
+            config.tui_chat_history_page_size.to_string(),
+            "tui_chat_history_page_size",
+        ),
+        (
+            20usize,
+            "Restore Hours:  ",
+            config.participant_observer_restore_window_hours.to_string(),
+            "participant_observer_restore_window_hours",
+        ),
+    ] {
         render_gateway_text_field(
             settings, theme, &mut lines, idx, label, &value, field_name, false,
         );

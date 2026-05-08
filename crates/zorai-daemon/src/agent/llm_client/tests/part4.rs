@@ -1,3 +1,16 @@
+use super::part1::*;
+use super::part5_support::*;
+use super::*;
+use crate::agent::provider_auth_store;
+use crate::agent::types::{AgentMessage, MessageRole};
+use crate::test_support::EnvGuard;
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::Mutex;
+use tempfile::tempdir;
+use zorai_shared::providers::*;
 #[test]
 fn retry_delay_scales_with_attempt_multiplier() {
     assert_eq!(compute_retry_delay_ms_for_attempt(5_000, 1), 5_000);
@@ -35,10 +48,10 @@ fn minimax_anthropic_requests_keep_connection_close_without_extra_transport_head
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -74,7 +87,10 @@ fn minimax_anthropic_requests_keep_connection_close_without_extra_transport_head
         Some("fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14")
     );
     let body: serde_json::Value = serde_json::from_slice(
-        request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
     )
     .expect("json body");
     assert_eq!(body["cache_control"]["type"], "ephemeral");
@@ -106,10 +122,10 @@ fn anthropic_request_sets_tool_choice_auto_when_tools_are_present() {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -137,7 +153,10 @@ fn anthropic_request_sets_tool_choice_auto_when_tools_are_present() {
     .expect("request should build");
 
     let body: serde_json::Value = serde_json::from_slice(
-        request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
     )
     .expect("json body");
     assert_eq!(body["tool_choice"]["type"], "auto");
@@ -149,7 +168,9 @@ fn github_copilot_provider_does_not_support_native_assistant_transport() {
         .expect("github copilot provider should exist");
 
     assert!(provider.native_transport_kind.is_none());
-    assert!(!provider.supported_transports.contains(&ApiTransport::NativeAssistant));
+    assert!(!provider
+        .supported_transports
+        .contains(&ApiTransport::NativeAssistant));
 }
 
 #[test]
@@ -177,10 +198,10 @@ fn anthropic_request_fingerprint_is_stable_for_identical_requests() {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
     let messages = vec![ApiMessage {
         role: "user".to_string(),
@@ -254,10 +275,10 @@ fn anthropic_request_fingerprint_changes_when_payload_changes() {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
 
     let request_a = build_anthropic_request(
@@ -325,10 +346,10 @@ fn minimax_attempt_target_uses_anthropic_messages_endpoint() {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
 
     let target = effective_attempt_target(
@@ -468,9 +489,9 @@ async fn minimax_anthropic_retry_recovers_after_malformed_http_response() {
         "expected a transport retry before recovery"
     );
     assert!(
-        chunks
-            .iter()
-            .any(|chunk| matches!(chunk, CompletionChunk::Done { content, .. } if content == "recovered")),
+        chunks.iter().any(
+            |chunk| matches!(chunk, CompletionChunk::Done { content, .. } if content == "recovered")
+        ),
         "expected retry path to recover and finish the anthropic stream"
     );
 }
@@ -670,8 +691,14 @@ async fn anthropic_stream_error_event_emits_error_chunk() {
     }
 
     let message = saw_error.expect("expected anthropic stream error chunk");
-    assert!(message.contains("Anthropic stream error"), "unexpected message: {message}");
-    assert!(message.contains("Over capacity"), "unexpected message: {message}");
+    assert!(
+        message.contains("Anthropic stream error"),
+        "unexpected message: {message}"
+    );
+    assert!(
+        message.contains("Over capacity"),
+        "unexpected message: {message}"
+    );
     server.await.expect("server task");
 }
 

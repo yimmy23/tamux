@@ -435,4 +435,3 @@ fn clicking_tool_file_path_metadata_requests_plain_preview() {
         other => panic!("expected file preview pane, got {:?}", other),
     }
 }
-

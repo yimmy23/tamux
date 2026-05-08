@@ -196,6 +196,12 @@ pub enum DaemonCommand {
         workspace_id: String,
         operator: zorai_protocol::WorkspaceOperator,
     },
+    SetWorkspaceRepoMonitor {
+        workspace_id: String,
+        repo_monitor_enabled: bool,
+        repo_monitor_include_dirs: Vec<String>,
+        repo_monitor_exclude_dirs: Vec<String>,
+    },
     CreateWorkspaceTask(zorai_protocol::WorkspaceTaskCreate),
     ListWorkspaceTasks {
         workspace_id: String,

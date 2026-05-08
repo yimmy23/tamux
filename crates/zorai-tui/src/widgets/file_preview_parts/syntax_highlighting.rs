@@ -198,7 +198,8 @@ fn syntax_highlight_line(text: String, theme: &ThemeTokens) -> Line<'static> {
         if ch == '_' || ch.is_ascii_alphabetic() {
             let start = index;
             index += 1;
-            while index < chars.len() && (chars[index] == '_' || chars[index].is_ascii_alphanumeric())
+            while index < chars.len()
+                && (chars[index] == '_' || chars[index].is_ascii_alphanumeric())
             {
                 index += 1;
             }

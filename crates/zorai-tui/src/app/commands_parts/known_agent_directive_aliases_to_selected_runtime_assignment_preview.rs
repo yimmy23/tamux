@@ -4,7 +4,9 @@ use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear};
 use std::process::Child;
@@ -117,7 +119,11 @@ impl TuiModel {
         self.status_line = format!("Configure {} provider", target_agent_name);
     }
 
-    pub(crate) fn open_builtin_persona_prompt_setup_flow(&mut self, agent_alias: &str, prompt: String) {
+    pub(crate) fn open_builtin_persona_prompt_setup_flow(
+        &mut self,
+        agent_alias: &str,
+        prompt: String,
+    ) {
         self.open_builtin_persona_setup_flow(
             agent_alias,
             PendingBuiltinPersonaSetupContinuation::SubmitPrompt(prompt),
@@ -465,12 +471,13 @@ impl TuiModel {
         true
     }
 
-    pub(crate) fn selected_runtime_assignment_preview(&self) -> Option<(usize, task::GoalAgentAssignment)> {
+    pub(crate) fn selected_runtime_assignment_preview(
+        &self,
+    ) -> Option<(usize, task::GoalAgentAssignment)> {
         let index = self.goal_mission_control.selected_runtime_assignment_index;
         self.goal_mission_control
             .selected_runtime_assignment()
             .cloned()
             .map(|assignment| (index, assignment))
     }
-
 }

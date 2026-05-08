@@ -269,6 +269,7 @@ const bridgeApi = {
     agentListWorkspaceSettings: () => ipcRenderer.invoke('agent-list-workspace-settings'),
     agentGetWorkspaceSettings: (workspaceId) => ipcRenderer.invoke('agent-get-workspace-settings', workspaceId),
     agentSetWorkspaceOperator: (workspaceId, operator) => ipcRenderer.invoke('agent-set-workspace-operator', workspaceId, operator),
+    agentSetWorkspaceRepoMonitor: (workspaceId, payload) => ipcRenderer.invoke('agent-set-workspace-repo-monitor', workspaceId, payload),
     agentListWorkspaceTasks: (workspaceId, includeDeleted) => ipcRenderer.invoke('agent-list-workspace-tasks', workspaceId, includeDeleted),
     agentCreateWorkspaceTask: (request) => ipcRenderer.invoke('agent-create-workspace-task', request),
     agentUpdateWorkspaceTask: (taskId, update) => ipcRenderer.invoke('agent-update-workspace-task', taskId, update),

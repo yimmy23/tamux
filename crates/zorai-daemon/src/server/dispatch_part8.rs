@@ -1,5 +1,26 @@
-if matches!(
-        &msg,
+use super::*;
+use crate::agent::AgentEngine;
+use crate::session_manager::SessionManager;
+use anyhow::Result;
+use futures::SinkExt;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
+
+pub(crate) async fn dispatch_part8<S>(
+    msg: &ClientMessage,
+    agent: &Arc<AgentEngine>,
+    framed: &mut Framed<S, DaemonCodec>,
+    background_daemon_queues: &mut BackgroundSubsystemQueues,
+    background_daemon_pending: &mut BackgroundPendingCounts,
+) -> Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    if !matches!(
+        msg,
         ClientMessage::SkillInspect{ .. } |
         ClientMessage::SkillReject{ .. } |
         ClientMessage::SkillPromote{ .. } |
@@ -7,6 +28,10 @@ if matches!(
         ClientMessage::SkillImport{ .. } |
         ClientMessage::SkillExport{ .. }
     ) {
+        return Ok(false);
+    }
+    let msg = msg.clone();
+
         match msg {
                 ClientMessage::SkillInspect { identifier } => {
                     // Try variant_id first, then fall back to skill name search
@@ -294,7 +319,7 @@ if matches!(
                                 message: "plugin_io background queue is full".to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(true);
                     }
 
                     let operation = operation_registry().accept_operation(
@@ -331,7 +356,7 @@ if matches!(
                         BackgroundSubsystem::PluginIo,
                         operation_id,
                         background_daemon_tx,
-                        &mut background_daemon_pending,
+                        background_daemon_pending,
                         async move {
                             let client = RegistryClient::new(registry_url, &registry_root);
                             let import_result: Result<(String, String), anyhow::Error> = async {
@@ -517,5 +542,5 @@ if matches!(
 
             _ => unreachable!("message chunk should be exhaustive"),
         }
-        continue;
-    }
+    Ok(true)
+}

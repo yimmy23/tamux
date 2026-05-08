@@ -1,15 +1,17 @@
-use crate::test_support::{env_var_lock, EnvVarGuard, ZORAI_DATA_DIR_ENV};
-use crate::state::*;
+use super::normalize_provider_auth_source_falls_back_for_invalid_values_to_apply::*;
+use crate::app::config_io::helpers::{
+    normalize_compliance_mode, normalize_provider_auth_source, normalize_provider_transport,
+};
+use crate::app::TuiModel;
 use crate::app::*;
+use crate::state::DaemonCommand;
+use crate::state::*;
+use crate::test_support::{env_var_lock, EnvVarGuard, ZORAI_DATA_DIR_ENV};
 use rusqlite::Connection;
 use std::sync::mpsc;
 use tempfile::tempdir;
 use tokio::sync::mpsc::unbounded_channel;
 use zorai_shared::providers::*;
-use crate::app::TuiModel;
-use crate::state::DaemonCommand;
-use crate::app::config_io::helpers::{normalize_compliance_mode, normalize_provider_auth_source, normalize_provider_transport};
-use super::normalize_provider_auth_source_falls_back_for_invalid_values_to_apply::*;
 #[test]
 fn build_config_patch_value_keeps_inheritance_during_first_time_main_provider_setup() {
     let mut model = make_model();

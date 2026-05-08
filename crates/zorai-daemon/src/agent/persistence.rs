@@ -170,12 +170,58 @@ impl AgentEngine {
             Err(error) => tracing::warn!("failed to read agent config items from sqlite: {error}"),
         }
 
-        let mut most_recent_thread_context_hint: Option<(String, String, u64)> = None;
+        let most_recent_thread_context_hint = match self.history.latest_thread_context_hint().await
+        {
+            Ok(hint) => hint,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "failed to select latest thread context hint from sqlite"
+                );
+                None
+            }
+        };
 
         // Load threads
         match self.history.list_threads().await {
             Ok(thread_rows) if !thread_rows.is_empty() => {
                 let mut threads = HashMap::new();
+                let thread_ids = thread_rows
+                    .iter()
+                    .map(|thread_row| thread_row.id.clone())
+                    .collect::<Vec<_>>();
+                let thread_structural_memories = match self
+                    .history
+                    .list_thread_structural_memory_for_threads(&thread_ids)
+                    .await
+                {
+                    Ok(rows) => rows
+                        .into_iter()
+                        .filter_map(|row| {
+                            match serde_json::from_value::<
+                                crate::agent::context::structural_memory::ThreadStructuralMemory,
+                            >(row.state_json)
+                            {
+                                Ok(state) => Some((row.thread_id, state)),
+                                Err(error) => {
+                                    tracing::warn!(
+                                        thread_id = %row.thread_id,
+                                        %error,
+                                        "failed to hydrate thread structural memory"
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect::<HashMap<_, _>>(),
+                    Err(error) => {
+                        tracing::warn!(
+                            %error,
+                            "failed to bulk hydrate thread structural memory"
+                        );
+                        HashMap::new()
+                    }
+                };
                 let mut thread_message_hydration_pending = HashSet::new();
                 let mut handoff_states = HashMap::new();
                 let mut thread_participants = HashMap::new();
@@ -185,7 +231,6 @@ impl AgentEngine {
                 let mut thread_identity_metadata = HashMap::new();
                 let mut thread_skill_discovery_states = HashMap::new();
                 let mut thread_memory_injection_states = HashMap::new();
-                let mut thread_structural_memories = HashMap::new();
                 for thread_row in thread_rows {
                     let thread_id = thread_row.id.clone();
                     let thread_title = thread_row.title.clone();
@@ -271,18 +316,6 @@ impl AgentEngine {
                     let total_tokens = thread_row.total_tokens.max(0) as u64;
                     if thread_row.message_count > 0 {
                         thread_message_hydration_pending.insert(thread_id.clone());
-                        let preview = thread_row.last_preview.trim();
-                        if !preview.is_empty()
-                            && most_recent_thread_context_hint.as_ref().is_none_or(
-                                |(_, _, updated_at)| thread_row.updated_at as u64 > *updated_at,
-                            )
-                        {
-                            most_recent_thread_context_hint = Some((
-                                thread_id.clone(),
-                                preview.to_string(),
-                                thread_row.updated_at as u64,
-                            ));
-                        }
                     }
 
                     threads.insert(
@@ -304,21 +337,6 @@ impl AgentEngine {
                             total_output_tokens: 0,
                         },
                     );
-                    match self
-                        .history
-                        .get_thread_structural_memory_state::<
-                            crate::agent::context::structural_memory::ThreadStructuralMemory,
-                        >(&thread_id)
-                        .await
-                    {
-                        Ok(Some(state)) => {
-                            thread_structural_memories.insert(thread_id.clone(), state);
-                        }
-                        Ok(None) => {}
-                        Err(error) => {
-                            tracing::warn!(thread_id = %thread_id, %error, "failed to hydrate thread structural memory");
-                        }
-                    }
                     handoff_states.insert(thread_id, handoff_state);
                 }
                 *self.threads.write().await = threads;
@@ -398,7 +416,7 @@ impl AgentEngine {
             Ok(_) => {
                 let has_sqlite_tasks = self
                     .history
-                    .list_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    .count_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
                         id: None,
                         status: None,
                         statuses: Vec::new(),
@@ -414,7 +432,7 @@ impl AgentEngine {
                         limit: Some(1),
                     })
                     .await
-                    .map(|tasks| !tasks.is_empty())
+                    .map(|count| count > 0)
                     .unwrap_or(false);
                 let tasks_path = self.data_dir.join("tasks.json");
                 if !has_sqlite_tasks && tasks_path.exists() {
@@ -442,6 +460,22 @@ impl AgentEngine {
             Err(e) => tracing::warn!("failed to load agent tasks from sqlite: {e}"),
         }
 
+        let mut pause_interrupted_goal_runs_in_memory = false;
+        let paused_goal_runs_on_restart = match self
+            .history
+            .pause_interrupted_goal_runs_on_restart(now_millis())
+            .await
+        {
+            Ok(paused_count) => paused_count,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to pause interrupted goal runs in sqlite on restart: {error}"
+                );
+                pause_interrupted_goal_runs_in_memory = true;
+                0
+            }
+        };
+
         match self
             .history
             .list_goal_runs_for_statuses(&[
@@ -455,26 +489,28 @@ impl AgentEngine {
         {
             Ok(goal_runs) if !goal_runs.is_empty() => {
                 let mut runs: VecDeque<GoalRun> = goal_runs.into_iter().collect();
-                let mut paused_count = 0;
+                let mut paused_count = paused_goal_runs_on_restart;
 
-                // D-11: Mark interrupted goal runs as Paused on restart.
-                for goal_run in runs.iter_mut() {
-                    if matches!(
-                        goal_run.status,
-                        GoalRunStatus::Running | GoalRunStatus::Planning
-                    ) {
-                        goal_run.status = GoalRunStatus::Paused;
-                        goal_run.events.push(GoalRunEvent {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            timestamp: now_millis(),
-                            phase: "restart".to_string(),
-                            message: "Daemon restarted; goal run paused for operator review."
-                                .to_string(),
-                            details: None,
-                            step_index: None,
-                            todo_snapshot: Vec::new(),
-                        });
-                        paused_count += 1;
+                if pause_interrupted_goal_runs_in_memory {
+                    // Fallback for SQLite update failures: preserve D-11 behavior in memory.
+                    for goal_run in runs.iter_mut() {
+                        if matches!(
+                            goal_run.status,
+                            GoalRunStatus::Running | GoalRunStatus::Planning
+                        ) {
+                            goal_run.status = GoalRunStatus::Paused;
+                            goal_run.events.push(GoalRunEvent {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                timestamp: now_millis(),
+                                phase: "restart".to_string(),
+                                message: "Daemon restarted; goal run paused for operator review."
+                                    .to_string(),
+                                details: None,
+                                step_index: None,
+                                todo_snapshot: Vec::new(),
+                            });
+                            paused_count += 1;
+                        }
                     }
                 }
 
@@ -486,15 +522,17 @@ impl AgentEngine {
                 }
 
                 *self.goal_runs.lock().await = runs;
-                // Startup should not wait on goal projection writes before the daemon becomes usable.
-                self.persist_goal_runs_in_background();
+                if pause_interrupted_goal_runs_in_memory {
+                    // Startup should not wait on fallback goal projection writes before the daemon becomes usable.
+                    self.persist_goal_runs_in_background();
+                }
             }
             Ok(_) => {
                 let has_sqlite_goal_runs = self
                     .history
-                    .list_goal_run_ids_page(1, 0)
+                    .count_goal_runs()
                     .await
-                    .map(|(_, total)| total > 0)
+                    .map(|count| count > 0)
                     .unwrap_or(false);
                 let goal_runs_path = self.data_dir.join("goal-runs.json");
                 if !has_sqlite_goal_runs && goal_runs_path.exists() {

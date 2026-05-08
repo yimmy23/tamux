@@ -1,9 +1,9 @@
-use tokio::sync::mpsc::unbounded_channel;
-use std::sync::mpsc;
-use zorai_shared::providers::*;
 use super::whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings::*;
-use crate::state::*;
 use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn settings_modal_mouse_wheel_scrolls_overflowing_content() {
     let (mut model, _daemon_rx) = make_model();
@@ -70,7 +70,10 @@ fn settings_modal_keyboard_navigation_scrolls_selected_field_into_view() {
     }
 
     assert_eq!(model.settings.field_cursor(), target_field);
-    assert_eq!(model.settings.current_field_name(), "generated_tools_inspect");
+    assert_eq!(
+        model.settings.current_field_name(),
+        "generated_tools_inspect"
+    );
     assert!(
         model.settings_modal_scroll > 0,
         "expected keyboard navigation to advance the settings scroll offset"
@@ -489,4 +492,3 @@ fn help_viewer_down_scrolls_help_body() {
     assert!(!quit);
     assert_eq!(model.help_modal_scroll, 1);
 }
-

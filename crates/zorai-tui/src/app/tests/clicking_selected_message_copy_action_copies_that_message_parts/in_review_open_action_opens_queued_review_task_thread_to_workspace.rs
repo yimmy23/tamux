@@ -38,22 +38,27 @@ fn in_review_open_action_opens_queued_review_task_thread() {
             last_notice_id: None,
         }],
     );
-    model.workspace.set_notices(vec![zorai_protocol::WorkspaceNotice {
+    model
+        .workspace
+        .set_notices(vec![zorai_protocol::WorkspaceNotice {
         id: "notice-1".to_string(),
         workspace_id: "main".to_string(),
         task_id: "wtask-1".to_string(),
         notice_type: "review_requested".to_string(),
-        message: "Workspace task review requested from agent:swarog; queued review task review-task-1"
-            .to_string(),
+        message:
+            "Workspace task review requested from agent:swarog; queued review task review-task-1"
+                .to_string(),
         actor: Some(zorai_protocol::WorkspaceActor::Agent("swarog".to_string())),
         created_at: 2,
     }]);
-    model.tasks.reduce(task::TaskAction::TaskUpdate(task::AgentTask {
-        id: "review-task-1".to_string(),
-        title: "Review".to_string(),
-        thread_id: Some("review-thread-1".to_string()),
-        ..Default::default()
-    }));
+    model
+        .tasks
+        .reduce(task::TaskAction::TaskUpdate(task::AgentTask {
+            id: "review-task-1".to_string(),
+            title: "Review".to_string(),
+            thread_id: Some("review-thread-1".to_string()),
+            ..Default::default()
+        }));
 
     model.activate_workspace_task_action(
         "wtask-1".to_string(),
@@ -106,22 +111,27 @@ fn in_review_open_action_does_not_open_stale_internal_dm_review_thread() {
             last_notice_id: None,
         }],
     );
-    model.workspace.set_notices(vec![zorai_protocol::WorkspaceNotice {
-        id: "notice-1".to_string(),
-        workspace_id: "main".to_string(),
-        task_id: "wtask-1".to_string(),
-        notice_type: "review_requested".to_string(),
-        message: "Workspace task review requested from agent:weles; queued review task review-task-1"
-            .to_string(),
-        actor: Some(zorai_protocol::WorkspaceActor::Agent("weles".to_string())),
-        created_at: 2,
-    }]);
-    model.tasks.reduce(task::TaskAction::TaskUpdate(task::AgentTask {
-        id: "review-task-1".to_string(),
-        title: "Review".to_string(),
-        thread_id: Some("dm:swarog:weles".to_string()),
-        ..Default::default()
-    }));
+    model
+        .workspace
+        .set_notices(vec![zorai_protocol::WorkspaceNotice {
+            id: "notice-1".to_string(),
+            workspace_id: "main".to_string(),
+            task_id: "wtask-1".to_string(),
+            notice_type: "review_requested".to_string(),
+            message:
+                "Workspace task review requested from agent:weles; queued review task review-task-1"
+                    .to_string(),
+            actor: Some(zorai_protocol::WorkspaceActor::Agent("weles".to_string())),
+            created_at: 2,
+        }]);
+    model
+        .tasks
+        .reduce(task::TaskAction::TaskUpdate(task::AgentTask {
+            id: "review-task-1".to_string(),
+            title: "Review".to_string(),
+            thread_id: Some("dm:swarog:weles".to_string()),
+            ..Default::default()
+        }));
 
     model.activate_workspace_task_action(
         "wtask-1".to_string(),
@@ -166,12 +176,14 @@ fn in_review_run_action_uses_runtime_history_reviewer_task_when_notice_is_missin
         archived_at: 9,
     }];
     model.workspace.set_tasks("main".to_string(), vec![task]);
-    model.tasks.reduce(task::TaskAction::TaskUpdate(task::AgentTask {
-        id: "review-task-runtime".to_string(),
-        title: "Review".to_string(),
-        thread_id: Some("review-thread-runtime".to_string()),
-        ..Default::default()
-    }));
+    model
+        .tasks
+        .reduce(task::TaskAction::TaskUpdate(task::AgentTask {
+            id: "review-task-runtime".to_string(),
+            title: "Review".to_string(),
+            thread_id: Some("review-thread-runtime".to_string()),
+            ..Default::default()
+        }));
 
     model.activate_workspace_task_action(
         "wtask-1".to_string(),
@@ -220,7 +232,10 @@ fn todo_run_action_moves_task_to_in_progress_before_daemon_echo() {
         other => panic!("expected run command, got {other:?}"),
     }
     assert_eq!(
-        model.workspace.task_by_id("wtask-run").map(|task| &task.status),
+        model
+            .workspace
+            .task_by_id("wtask-run")
+            .map(|task| &task.status),
         Some(&zorai_protocol::WorkspaceTaskStatus::InProgress)
     );
     let in_progress_column = model
@@ -355,7 +370,9 @@ fn workspace_history_button_click_opens_modal() {
         model.modal.top(),
         Some(crate::state::modal::ModalKind::WorkspaceTaskHistory)
     );
-    assert!(model.workspace_history_modal_body().contains("workspace-thread:old"));
+    assert!(model
+        .workspace_history_modal_body()
+        .contains("workspace-thread:old"));
 }
 
 #[test]
@@ -425,6 +442,9 @@ pub(super) fn workspace_settings_for_operator(
         workspace_id: "main".to_string(),
         workspace_root: None,
         operator,
+        repo_monitor_enabled: false,
+        repo_monitor_include_dirs: Vec::new(),
+        repo_monitor_exclude_dirs: Vec::new(),
         created_at: 1,
         updated_at: 1,
     }
@@ -476,8 +496,8 @@ pub(super) fn workspace_hit_position(
                     &model.workspace_board_scroll,
                     position,
                 )
-                    .filter(|target| matches_target(target.clone()))
-                    .map(|_| position)
+                .filter(|target| matches_target(target.clone()))
+                .map(|_| position)
             })
         })
         .expect("workspace board target should be visible")

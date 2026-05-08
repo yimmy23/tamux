@@ -1,4 +1,15 @@
+use super::part1::*;
+use super::part5_support::*;
+use super::*;
+use crate::agent::provider_auth_store;
+use crate::agent::types::{AgentMessage, MessageRole};
+use crate::test_support::EnvGuard;
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
+use tempfile::tempdir;
 
 #[test]
 fn pending_login_reuses_flow() {
@@ -213,7 +224,8 @@ fn browser_callback_success_via_local_listener_completes_auth() {
     let _env_guard = EnvGuard::new(&["ZORAI_PROVIDER_AUTH_DB_PATH", "ZORAI_CODEX_CLI_AUTH_PATH"]);
     prepare_openai_auth_test(temp_dir.path(), "missing-codex-auth.json");
     let login = begin_openai_codex_auth_login().expect("login should start");
-    let state = extract_state_from_auth_url(login.auth_url.as_deref().expect("auth url should exist"));
+    let state =
+        extract_state_from_auth_url(login.auth_url.as_deref().expect("auth url should exist"));
 
     let (ready_tx, ready_rx) = std::sync::mpsc::channel();
     let wait_thread = std::thread::spawn(move || {

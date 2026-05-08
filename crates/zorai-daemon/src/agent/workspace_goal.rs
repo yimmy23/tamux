@@ -17,7 +17,7 @@ impl AgentEngine {
             .goal_run_id
             .clone()
             .unwrap_or_else(|| reserved_goal_run_id(&task.id));
-        if self.history.get_goal_run(&goal_run_id).await?.is_some() {
+        if self.history.has_goal_run_id(&goal_run_id).await? {
             return Ok(goal_run_id);
         }
 

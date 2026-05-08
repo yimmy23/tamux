@@ -22,8 +22,8 @@ thread_local! {
     static ASSISTANT_RESPONDER_LABELS_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-mod render_streaming_markdown_to_message_block_style_to_message_action;
 mod build_rendered_lines_to_build_visible_window_from_snapshot_to_apply;
+mod render_streaming_markdown_to_message_block_style_to_message_action;
 mod resolved_scroll_to_highlight_line_range_to_selected_text_to_selection;
 mod selection_point_from_snapshot_to_render;
 

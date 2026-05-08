@@ -4,7 +4,9 @@ use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear};
 use std::process::Child;
@@ -494,5 +496,4 @@ impl TuiModel {
         self.status_line = "Synthesizing speech...".to_string();
         self.set_active_thread_activity("preparing speech");
     }
-
 }

@@ -1,16 +1,17 @@
+use super::*;
 use crate::agent::CompletionServerToolUsage;
 
 #[derive(Debug, Clone, Default)]
-struct AnthropicStreamUsage {
-    input_tokens: u64,
-    output_tokens: u64,
-    cache_creation_input_tokens: Option<u64>,
-    cache_read_input_tokens: Option<u64>,
-    server_tool_use: Option<CompletionServerToolUsage>,
+pub(crate) struct AnthropicStreamUsage {
+    pub(crate) input_tokens: u64,
+    pub(crate) output_tokens: u64,
+    pub(crate) cache_creation_input_tokens: Option<u64>,
+    pub(crate) cache_read_input_tokens: Option<u64>,
+    pub(crate) server_tool_use: Option<CompletionServerToolUsage>,
 }
 
 impl AnthropicStreamUsage {
-    fn capture_message_start(&mut self, parsed: &serde_json::Value) {
+    pub(crate) fn capture_message_start(&mut self, parsed: &serde_json::Value) {
         self.input_tokens = parsed
             .pointer("/message/usage/input_tokens")
             .and_then(|value| value.as_u64())
@@ -27,7 +28,7 @@ impl AnthropicStreamUsage {
             .or_else(|| self.server_tool_use.clone());
     }
 
-    fn capture_message_delta(&mut self, parsed: &serde_json::Value) {
+    pub(crate) fn capture_message_delta(&mut self, parsed: &serde_json::Value) {
         self.input_tokens = parsed
             .pointer("/usage/input_tokens")
             .and_then(|value| value.as_u64())

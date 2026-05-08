@@ -1,6 +1,6 @@
-use super::*;
 use super::hit_test_for_workspace_to_now_millis::*;
 use super::is_svarog_agent_name_to_hit_test::*;
+use super::*;
 
 use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
@@ -26,7 +26,8 @@ pub(super) const WORKSPACE_THREAD_PREFIX: &str = "workspace-thread:";
 pub(super) const PLAYGROUND_THREAD_PREFIX: &str = "playground:";
 pub(super) const PLAYGROUND_THREAD_TITLE_PREFIX: &str = "Participant Playground";
 pub(super) const WELES_THREAD_TITLE: &str = "WELES";
-pub(super) const GATEWAY_THREAD_TITLE_PREFIXES: [&str; 4] = ["slack ", "discord ", "telegram ", "whatsapp "];
+pub(super) const GATEWAY_THREAD_TITLE_PREFIXES: [&str; 4] =
+    ["slack ", "discord ", "telegram ", "whatsapp "];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThreadPickerHitTarget {
@@ -593,7 +594,10 @@ pub(crate) fn is_goal_thread(thread: &AgentThread) -> bool {
     thread.id.starts_with(GOAL_THREAD_PREFIX)
 }
 
-pub(super) fn is_goal_thread_with_index(thread: &AgentThread, goal_index: Option<&GoalThreadIndex>) -> bool {
+pub(super) fn is_goal_thread_with_index(
+    thread: &AgentThread,
+    goal_index: Option<&GoalThreadIndex>,
+) -> bool {
     is_goal_thread(thread) || goal_index.is_some_and(|index| index.contains_thread(thread))
 }
 

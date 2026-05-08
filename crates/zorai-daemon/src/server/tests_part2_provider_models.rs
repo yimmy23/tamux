@@ -1,3 +1,5 @@
+use super::tests_part2_support::*;
+use super::*;
 #[tokio::test]
 async fn concierge_welcome_does_not_delay_fetch_models_acceptance() {
     let concierge_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -594,7 +596,10 @@ async fn unsupported_provider_fetch_models_returns_empty_response_instead_of_err
             assert_eq!(result_operation_id.as_deref(), Some(operation_id.as_str()));
             let models: Vec<serde_json::Value> =
                 serde_json::from_str(&models_json).expect("parse models response");
-            assert!(models.is_empty(), "unsupported providers should return no models");
+            assert!(
+                models.is_empty(),
+                "unsupported providers should return no models"
+            );
         }
         DaemonMessage::AgentError { message } => {
             panic!("unsupported providers should not surface an agent error: {message}");

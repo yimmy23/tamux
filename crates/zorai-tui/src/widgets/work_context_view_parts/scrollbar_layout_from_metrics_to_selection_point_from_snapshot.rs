@@ -1,5 +1,5 @@
-use super::*;
 use super::selection::*;
+use super::*;
 use crate::state::sidebar::SidebarTab;
 use crate::state::task::{TaskState, TodoStatus, WorkContextEntryKind};
 use crate::terminal_graphics::{active_protocol, TerminalImageOverlaySpec, TerminalImageProtocol};
@@ -124,7 +124,8 @@ static FILE_BODY_LINES_TRACKED_PATH: std::sync::OnceLock<std::sync::Mutex<Option
     std::sync::OnceLock::new();
 
 #[cfg(test)]
-pub(crate) fn tracked_file_body_lines_path_for_tests() -> &'static std::sync::Mutex<Option<String>> {
+pub(crate) fn tracked_file_body_lines_path_for_tests() -> &'static std::sync::Mutex<Option<String>>
+{
     FILE_BODY_LINES_TRACKED_PATH.get_or_init(|| std::sync::Mutex::new(None))
 }
 
@@ -236,7 +237,10 @@ pub(crate) fn push_preview_content(
     }
 }
 
-pub(crate) fn file_header_lines(entry: &crate::state::task::WorkContextEntry, theme: &ThemeTokens) -> Vec<RenderedWorkLine> {
+pub(crate) fn file_header_lines(
+    entry: &crate::state::task::WorkContextEntry,
+    theme: &ThemeTokens,
+) -> Vec<RenderedWorkLine> {
     let mut lines = Vec::new();
     section(&mut lines, "File", theme);
     lines.push(Line::from(vec![
@@ -462,7 +466,14 @@ pub(crate) fn sticky_files_snapshot(
         area.width,
         area.height.saturating_sub(header_height),
     );
-    let body_lines = file_body_lines(body_track_area, tasks, entry, SidebarTab::Files, theme, scroll);
+    let body_lines = file_body_lines(
+        body_track_area,
+        tasks,
+        entry,
+        SidebarTab::Files,
+        theme,
+        scroll,
+    );
     let first_layout = scrollbar_layout_from_metrics(body_track_area, body_lines.len(), scroll);
     let mut body_area = first_layout
         .map(|layout| layout.content)
@@ -814,7 +825,8 @@ pub(crate) fn selection_snapshot(
     scroll: usize,
 ) -> Option<SelectionSnapshot> {
     if active_tab == SidebarTab::Files {
-        let snapshot = sticky_files_snapshot(area, tasks, thread_id, selected_index, theme, scroll)?;
+        let snapshot =
+            sticky_files_snapshot(area, tasks, thread_id, selected_index, theme, scroll)?;
         let header_len = snapshot.header_lines.len();
         let all_lines = snapshot
             .header_lines

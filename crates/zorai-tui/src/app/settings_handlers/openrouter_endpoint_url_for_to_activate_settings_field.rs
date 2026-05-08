@@ -1,21 +1,23 @@
 use super::*;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
-use crate::widgets;
 use crate::providers;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use zorai_shared::providers::*;
-#[path = "activate_provider_settings_field.rs"]
-mod activate_provider_settings_field;
-#[path = "activate_gateway_settings_field.rs"]
-mod activate_gateway_settings_field;
-#[path = "activate_features_settings_field.rs"]
-mod activate_features_settings_field;
 #[path = "activate_advanced_settings_field.rs"]
 mod activate_advanced_settings_field;
 #[path = "activate_compaction_settings_field.rs"]
 mod activate_compaction_settings_field;
 #[path = "activate_concierge_settings_field.rs"]
 mod activate_concierge_settings_field;
+#[path = "activate_features_settings_field.rs"]
+mod activate_features_settings_field;
+#[path = "activate_gateway_settings_field.rs"]
+mod activate_gateway_settings_field;
+#[path = "activate_provider_settings_field.rs"]
+mod activate_provider_settings_field;
 impl TuiModel {
     fn openrouter_endpoint_url_for(model: &str, base_url: &str) -> Option<String> {
         let (author, slug) = model.trim().split_once('/')?;
@@ -49,10 +51,7 @@ impl TuiModel {
             .timeout_global(Some(std::time::Duration::from_secs(8)))
             .build();
         if !api_key.trim().is_empty() {
-            request = request.header(
-                "Authorization",
-                format!("Bearer {}", api_key.trim()),
-            );
+            request = request.header("Authorization", format!("Bearer {}", api_key.trim()));
         }
         let mut response = request.call().map_err(|error| error.to_string())?;
         let body = response

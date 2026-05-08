@@ -32,7 +32,11 @@ pub enum FilePreviewHitTarget {
     ClosePreview,
 }
 
-pub(super) fn scroll_offset_from_thumb_offset(thumb_offset: u16, track_span: u16, max_scroll: usize) -> usize {
+pub(super) fn scroll_offset_from_thumb_offset(
+    thumb_offset: u16,
+    track_span: u16,
+    max_scroll: usize,
+) -> usize {
     if max_scroll == 0 || track_span == 0 {
         return 0;
     }
@@ -326,7 +330,10 @@ pub(super) fn build_lines(
     lines
 }
 
-pub(super) fn build_header_lines(target: &ChatFilePreviewTarget, theme: &ThemeTokens) -> Vec<Line<'static>> {
+pub(super) fn build_header_lines(
+    target: &ChatFilePreviewTarget,
+    theme: &ThemeTokens,
+) -> Vec<Line<'static>> {
     vec![
         Line::from(vec![
             Span::styled("[x]", theme.accent_danger),

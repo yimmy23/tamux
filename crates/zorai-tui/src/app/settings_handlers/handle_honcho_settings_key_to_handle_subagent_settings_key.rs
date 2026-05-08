@@ -1,7 +1,9 @@
 use super::*;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
-use crate::widgets;
 use crate::providers;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use zorai_shared::providers::*;
 impl TuiModel {
@@ -41,11 +43,13 @@ impl TuiModel {
                     }
                     crate::state::config::HonchoEditorField::ApiKey => {
                         let current = editor.api_key.clone();
-                        self.settings.start_editing("honcho_editor_api_key", &current);
+                        self.settings
+                            .start_editing("honcho_editor_api_key", &current);
                     }
                     crate::state::config::HonchoEditorField::BaseUrl => {
                         let current = editor.base_url.clone();
-                        self.settings.start_editing("honcho_editor_base_url", &current);
+                        self.settings
+                            .start_editing("honcho_editor_base_url", &current);
                     }
                     crate::state::config::HonchoEditorField::WorkspaceId => {
                         let current = editor.workspace_id.clone();

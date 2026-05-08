@@ -1,5 +1,5 @@
-use super::*;
 use super::selection::*;
+use super::*;
 use crate::state::sidebar::SidebarTab;
 use crate::state::task::{TaskState, TodoStatus, WorkContextEntryKind};
 use crate::terminal_graphics::{active_protocol, TerminalImageOverlaySpec, TerminalImageProtocol};
@@ -450,16 +450,10 @@ pub(crate) fn terminal_image_overlay_spec(
         return None;
     }
 
-    let content = sticky_files_snapshot(
-        area,
-        tasks,
-        Some(thread_id),
-        selected_index,
-        theme,
-        scroll,
-    )
-    .map(|snapshot| snapshot.body_area)
-    .unwrap_or(area);
+    let content =
+        sticky_files_snapshot(area, tasks, Some(thread_id), selected_index, theme, scroll)
+            .map(|snapshot| snapshot.body_area)
+            .unwrap_or(area);
     let path = image_preview::resolve_local_image_path(&entry.path)?;
     let image_row = content.y.saturating_add(TERMINAL_IMAGE_HEADER_LINES);
     let image_rows = content.height.saturating_sub(TERMINAL_IMAGE_HEADER_LINES);

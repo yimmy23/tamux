@@ -1,7 +1,7 @@
 use super::*;
+#[path = "clear_pending_prompt_response_thread_to_close_top_modal_parts/clear_pending_prompt_response_thread_to_close_top_modal.rs"]
+mod clear_pending_prompt_response_thread_to_close_top_modal;
 #[path = "clear_pending_prompt_response_thread_to_close_top_modal_parts/new_to_prompt_modal_title.rs"]
 mod new_to_prompt_modal_title;
 #[path = "clear_pending_prompt_response_thread_to_close_top_modal_parts/thread_participants_modal_body_to_clear_bootstrap_pending_activity.rs"]
 mod thread_participants_modal_body_to_clear_bootstrap_pending_activity;
-#[path = "clear_pending_prompt_response_thread_to_close_top_modal_parts/clear_pending_prompt_response_thread_to_close_top_modal.rs"]
-mod clear_pending_prompt_response_thread_to_close_top_modal;

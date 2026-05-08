@@ -43,17 +43,17 @@ impl AgentEngine {
                 .await
             {
                 Ok(thread_id) => {
-                    let threads = self.threads.read().await;
-                    let response = threads
-                        .get(&thread_id)
-                        .and_then(|t| {
-                            t.messages
-                                .iter()
-                                .rev()
-                                .find(|m| m.role == MessageRole::Assistant)
-                                .map(|m| m.content.clone())
-                        })
-                        .unwrap_or_default();
+                    let response = match self.history.latest_assistant_message(&thread_id).await {
+                        Ok(Some(message)) => message.content,
+                        Ok(None) => String::new(),
+                        Err(error) => {
+                            tracing::warn!(
+                                thread_id = %thread_id,
+                                "failed to load persisted legacy heartbeat response: {error}"
+                            );
+                            String::new()
+                        }
+                    };
 
                     if response.contains("HEARTBEAT_OK") {
                         (HeartbeatOutcome::Ok, "OK".into())

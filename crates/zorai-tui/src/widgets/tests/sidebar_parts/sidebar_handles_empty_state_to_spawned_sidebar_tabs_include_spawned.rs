@@ -499,4 +499,3 @@ fn spawned_sidebar_tabs_include_spawned() {
         "expected spawned tab in sidebar, got: {plain}"
     );
 }
-

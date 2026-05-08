@@ -20,6 +20,19 @@ impl AgentEngine {
                 .any(|id| id == thread_id)
     }
 
+    fn goal_run_status_message_for_status(status: GoalRunStatus) -> &'static str {
+        match status {
+            GoalRunStatus::Queued => "Goal queued",
+            GoalRunStatus::Planning => "Goal planning",
+            GoalRunStatus::Running => "Goal running",
+            GoalRunStatus::AwaitingApproval => "Goal awaiting approval",
+            GoalRunStatus::Paused => "Goal paused",
+            GoalRunStatus::Completed => "Goal completed",
+            GoalRunStatus::Failed => "Goal failed",
+            GoalRunStatus::Cancelled => "Goal cancelled",
+        }
+    }
+
     fn extract_gateway_approval_id_from_message(content: &str) -> Option<String> {
         let (_, remainder) = content.split_once("Approval ID:")?;
         remainder
@@ -141,27 +154,20 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<String> {
-        if let Some(approval_id) = self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                id: None,
-                status: None,
-                statuses: Vec::new(),
-                source: None,
-                thread_id: Some(thread_id.to_string()),
-                thread_ids: Vec::new(),
-                goal_run_id: None,
-                parent_task_id: None,
-                awaiting_approval_id: None,
-                supervisor_config_present: false,
-                exclude_terminal_statuses: false,
-                order_by_recent_activity_desc: true,
-                limit: None,
-            })
+        match self
+            .history
+            .latest_agent_task_approval_id_for_thread(thread_id)
             .await
-            .into_iter()
-            .find_map(|task| task.awaiting_approval_id)
         {
-            return Some(approval_id);
+            Ok(Some(approval_id)) => return Some(approval_id),
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "gateway: failed to query pending task approval id"
+                );
+            }
         }
 
         if let Some(approval_id) = self
@@ -175,21 +181,33 @@ impl AgentEngine {
             return Some(approval_id);
         }
 
-        let approval_ids = {
-            let threads = self.threads.read().await;
-            threads
-                .get(thread_id)
-                .map(|thread| {
-                    thread
-                        .messages
-                        .iter()
-                        .rev()
-                        .filter_map(|message| {
-                            Self::extract_gateway_approval_id_from_message(&message.content)
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
+        let approval_ids = match self
+            .history
+            .gateway_approval_ids_for_thread(thread_id)
+            .await
+        {
+            Ok(approval_ids) => approval_ids,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "gateway: failed to query persisted approval ids; falling back to live thread messages"
+                );
+                let threads = self.threads.read().await;
+                threads
+                    .get(thread_id)
+                    .map(|thread| {
+                        thread
+                            .messages
+                            .iter()
+                            .rev()
+                            .filter_map(|message| {
+                                Self::extract_gateway_approval_id_from_message(&message.content)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            }
         };
         if approval_ids.is_empty() {
             return None;
@@ -314,14 +332,15 @@ impl AgentEngine {
 
         let mut goal_runs = match self
             .history
-            .list_goal_runs_for_thread_ids(&[thread_id.to_string()])
+            .latest_goal_run_status_reply_ref_for_thread_ids(&[thread_id.to_string()])
             .await
         {
-            Ok(goal_runs) => goal_runs,
+            Ok(Some(goal_run)) => vec![goal_run],
+            Ok(None) => Vec::new(),
             Err(error) => {
                 tracing::warn!(
                     thread_id,
-                    "gateway: failed to query persisted goal runs for status reply: {error}"
+                    "gateway: failed to query latest persisted goal run status reply fields: {error}"
                 );
                 Vec::new()
             }
@@ -337,7 +356,7 @@ impl AgentEngine {
                 .filter(|goal_run| Self::goal_run_matches_thread(goal_run, thread_id))
             {
                 if seen_goal_ids.insert(goal_run.id.clone()) {
-                    goal_runs.push(goal_run.clone());
+                    goal_runs.push(crate::history::GoalRunStatusReplyRef::from(goal_run));
                 }
             }
         }
@@ -350,7 +369,7 @@ impl AgentEngine {
                 "{} ({}) — {}.",
                 goal_run.title,
                 goal_run.id,
-                goal_run_status_message(&goal_run)
+                Self::goal_run_status_message_for_status(goal_run.status)
             );
 
             if let Some(step_title) = goal_run
@@ -869,15 +888,33 @@ impl AgentEngine {
         msg: &gateway::IncomingMessage,
         reply_tool_name: &str,
     ) {
-        let last_response = {
-            let threads = self.threads.read().await;
-            let Some(thread) = threads.get(thread_id) else {
-                return;
-            };
-            if gateway_turn_used_send_tool(&thread.messages) {
-                return;
+        let last_response = match self
+            .history
+            .gateway_turn_auto_send_projection(thread_id)
+            .await
+        {
+            Ok(Some(projection)) => {
+                if projection.used_send_tool {
+                    return;
+                }
+                projection.latest_assistant_response
             }
-            latest_gateway_turn_assistant_response(&thread.messages)
+            Ok(None) => return,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "gateway: failed to query persisted auto-send state; falling back to live thread messages"
+                );
+                let threads = self.threads.read().await;
+                let Some(thread) = threads.get(thread_id) else {
+                    return;
+                };
+                if gateway_turn_used_send_tool(&thread.messages) {
+                    return;
+                }
+                latest_gateway_turn_assistant_response(&thread.messages)
+            }
         };
 
         if let Some(response_text) = last_response {

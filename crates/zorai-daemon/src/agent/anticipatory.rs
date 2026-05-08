@@ -31,6 +31,19 @@ struct SystemForesight {
     thread_id: Option<String>,
 }
 
+fn goal_brief_attention_priority(
+    goal_run: &crate::history::GoalRunBriefRef,
+    attention: &AttentionFocus,
+) -> u8 {
+    if attention.goal_run_id.as_deref() == Some(goal_run.id.as_str()) {
+        2
+    } else if attention.thread_id.as_deref() == goal_run.thread_id.as_deref() {
+        1
+    } else {
+        0
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct AnticipatoryRuntime {
     pub items: Vec<AnticipatoryItem>,
@@ -140,7 +153,7 @@ impl AgentEngine {
         ];
         let mut goal_runs = match self
             .history
-            .list_goal_runs_for_statuses(&active_goal_statuses)
+            .list_goal_run_thread_refs_for_statuses(&active_goal_statuses)
             .await
         {
             Ok(goal_runs) => goal_runs,
@@ -162,7 +175,7 @@ impl AgentEngine {
                 .filter(|goal_run| active_goal_statuses.contains(&goal_run.status))
             {
                 if seen_goal_ids.insert(goal_run.id.clone()) {
-                    goal_runs.push(goal_run.clone());
+                    goal_runs.push(crate::history::GoalRunThreadRef::from(goal_run));
                 }
             }
         }
@@ -232,7 +245,7 @@ impl AgentEngine {
         ];
         let mut active_goal_runs = match self
             .history
-            .list_goal_runs_for_statuses(&active_goal_statuses)
+            .list_goal_run_thread_refs_for_statuses(&active_goal_statuses)
             .await
         {
             Ok(goal_runs) => goal_runs,
@@ -254,7 +267,7 @@ impl AgentEngine {
                 .filter(|goal_run| active_goal_statuses.contains(&goal_run.status))
             {
                 if seen_goal_ids.insert(goal_run.id.clone()) {
-                    active_goal_runs.push(goal_run.clone());
+                    active_goal_runs.push(crate::history::GoalRunThreadRef::from(goal_run));
                 }
             }
         }
@@ -327,25 +340,44 @@ impl AgentEngine {
             .ok()
             .and_then(|value| value.as_str().map(ToOwned::to_owned))
             .unwrap_or_else(|| "awaiting_approval".to_string());
-        let awaiting_task_threads = self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                id: None,
-                status: Some(awaiting_approval_status),
-                statuses: Vec::new(),
-                source: None,
-                thread_id: None,
-                thread_ids: Vec::new(),
-                goal_run_id: None,
-                parent_task_id: None,
-                awaiting_approval_id: None,
-                supervisor_config_present: false,
-                exclude_terminal_statuses: false,
-                order_by_recent_activity_desc: false,
-                limit: None,
-            })
+        let awaiting_task_query = crate::history::AgentTaskListQuery {
+            id: None,
+            status: Some(awaiting_approval_status),
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        };
+        let awaiting_task_threads = match self
+            .history
+            .list_agent_task_refs_filtered(&awaiting_task_query)
             .await
+        {
+            Ok(task_refs) => task_refs
+                .into_iter()
+                .filter_map(|(_, thread_id, parent_thread_id)| thread_id.or(parent_thread_id))
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query awaiting-approval task thread refs for predictive hydration: {error}"
+                );
+                self.list_tasks_filtered(&awaiting_task_query)
+                    .await
+                    .into_iter()
+                    .filter_map(|task| task.thread_id.or(task.parent_thread_id))
+                    .collect::<Vec<_>>()
+            }
+        };
+        let awaiting_task_threads = awaiting_task_threads
             .into_iter()
-            .filter_map(|task| task.thread_id.or(task.parent_thread_id))
+            .filter(|thread_id| !thread_id.trim().is_empty())
             .collect::<Vec<_>>();
 
         if let Some(attention_target) = attention_target {
@@ -362,7 +394,7 @@ impl AgentEngine {
 
         let mut awaiting_goal_runs = match self
             .history
-            .list_goal_runs_for_statuses(&[GoalRunStatus::AwaitingApproval])
+            .list_goal_run_thread_refs_for_statuses(&[GoalRunStatus::AwaitingApproval])
             .await
         {
             Ok(goal_runs) => goal_runs,
@@ -384,7 +416,7 @@ impl AgentEngine {
                 .filter(|goal_run| goal_run.status == GoalRunStatus::AwaitingApproval)
             {
                 if seen_goal_ids.insert(goal_run.id.clone()) {
-                    awaiting_goal_runs.push(goal_run.clone());
+                    awaiting_goal_runs.push(crate::history::GoalRunThreadRef::from(goal_run));
                 }
             }
         }
@@ -519,13 +551,12 @@ impl AgentEngine {
             }
         }
 
-        match self.history.get_goal_run(&goal_run_id).await {
-            Ok(Some(goal_run)) => goal_run.thread_id,
-            Ok(None) => None,
+        match self.history.goal_run_thread_id(&goal_run_id).await {
+            Ok(thread_id) => thread_id,
             Err(error) => {
                 tracing::warn!(
                     goal_run_id,
-                    "failed to query persisted attention goal run: {error}"
+                    "failed to query persisted attention goal run thread id: {error}"
                 );
                 None
             }
@@ -931,13 +962,13 @@ impl AgentEngine {
         ];
         let mut unfinished_goals = match self
             .history
-            .list_goal_runs_for_statuses(&unfinished_statuses)
+            .list_goal_run_brief_refs_for_statuses(&unfinished_statuses)
             .await
         {
             Ok(goal_runs) => goal_runs,
             Err(error) => {
                 tracing::warn!(
-                    "failed to query persisted unfinished goal runs for morning brief: {error}"
+                    "failed to query persisted unfinished goal refs for morning brief: {error}"
                 );
                 Vec::new()
             }
@@ -953,13 +984,13 @@ impl AgentEngine {
                 .filter(|goal_run| unfinished_statuses.contains(&goal_run.status))
             {
                 if seen_goal_ids.insert(goal_run.id.clone()) {
-                    unfinished_goals.push(goal_run.clone());
+                    unfinished_goals.push(crate::history::GoalRunBriefRef::from(goal_run));
                 }
             }
         };
         unfinished_goals.sort_by(|left, right| {
-            let left_priority = goal_attention_priority(left, &attention);
-            let right_priority = goal_attention_priority(right, &attention);
+            let left_priority = goal_brief_attention_priority(left, &attention);
+            let right_priority = goal_brief_attention_priority(right, &attention);
             right_priority
                 .cmp(&left_priority)
                 .then_with(|| right.updated_at.cmp(&left.updated_at))
@@ -984,7 +1015,7 @@ impl AgentEngine {
                 "Goal \"{}\" is {status}; next focus: {step}",
                 goal_run.title
             );
-            if goal_attention_priority(&goal_run, &attention) > 0 {
+            if goal_brief_attention_priority(&goal_run, &attention) > 0 {
                 bullet.push_str(" (currently in your active view)");
             }
             bullets.push(bullet);

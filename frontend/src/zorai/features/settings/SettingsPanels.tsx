@@ -28,6 +28,7 @@ import { filterFetchedModelsForAudio, filterFetchedModelsForEmbeddings, filterFe
 import { usePluginStore } from "@/lib/pluginStore";
 import { useSettingsStore } from "@/lib/settingsStore";
 import { BUILTIN_THEMES } from "@/lib/themes";
+import { getWorkspaceSettings, setWorkspaceRepoMonitor } from "@/lib/workspaceBoard";
 import { ZORAI_APP_NAME } from "@/zorai/branding";
 import { embeddingSettingsPatchForModelSelection } from "./embeddingSettings";
 import { duckDuckGoSafeSearchOptions, searchProviderOptions } from "./searchProviders";
@@ -60,6 +61,7 @@ const APP_VERSION = "0.8.17";
 const APP_AUTHOR = "Mariusz Kurman";
 const APP_GITHUB = "mkurman/zorai";
 const APP_HOMEPAGE = "zorai.app";
+const DEFAULT_WORKSPACE_ID = "main";
 
 const toolToggles: ToggleSetting[] = [
   { key: "enable_bash_tool", label: "Terminal tool", description: "Allow agents to execute managed shell commands." },
@@ -728,6 +730,7 @@ function AdvancedPanel() {
         <NumberRow label="Bash Timeout (s)" description="Managed shell command timeout." value={agentSettings.bash_timeout_seconds} onChange={(value) => updateAgentSetting("bash_timeout_seconds", value)} min={5} max={300} />
         <NumberRow label="WELES Reviews" description="Concurrent WELES review limit." value={agentSettings.weles_max_concurrent_reviews} onChange={(value) => updateAgentSetting("weles_max_concurrent_reviews", value)} min={0} max={16} />
       </Panel>
+      <WorkspaceRepoMonitorPanel />
       <Panel section="Advanced" title="Compaction Strategy Settings">
         {compaction.strategy === "weles" ? (
           <>
@@ -797,6 +800,80 @@ function AdvancedPanel() {
         {compaction.strategy === "heuristic" ? <p className="zorai-empty-state">Heuristic compaction uses the message limit and token threshold above.</p> : null}
       </Panel>
     </SettingsGrid>
+  );
+}
+
+function WorkspaceRepoMonitorPanel() {
+  const [enabled, setEnabled] = useState(false);
+  const [includeDirs, setIncludeDirs] = useState("");
+  const [excludeDirs, setExcludeDirs] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getWorkspaceSettings(DEFAULT_WORKSPACE_ID).then((settings) => {
+      if (cancelled || !settings) return;
+      setEnabled(settings.repo_monitor_enabled);
+      setIncludeDirs(settings.repo_monitor_include_dirs.join("\n"));
+      setExcludeDirs(settings.repo_monitor_exclude_dirs.join("\n"));
+    }).catch(() => {
+      if (!cancelled) {
+        setStatus("Workspace git monitor settings are unavailable until the daemon bridge responds.");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const parseList = (value: string) => value
+    .split(/\r?\n|,/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  const save = async () => {
+    setSaving(true);
+    setStatus(null);
+    try {
+      const settings = await setWorkspaceRepoMonitor(DEFAULT_WORKSPACE_ID, {
+        repo_monitor_enabled: enabled,
+        repo_monitor_include_dirs: parseList(includeDirs),
+        repo_monitor_exclude_dirs: parseList(excludeDirs),
+      });
+      if (!settings) {
+        setStatus("Workspace git monitor settings were not saved.");
+        return;
+      }
+      setEnabled(settings.repo_monitor_enabled);
+      setIncludeDirs(settings.repo_monitor_include_dirs.join("\n"));
+      setExcludeDirs(settings.repo_monitor_exclude_dirs.join("\n"));
+      setStatus(settings.repo_monitor_enabled
+        ? "Workspace git monitoring saved. Only included directories will be scanned."
+        : "Workspace git monitoring saved. Monitoring stays off until includes are provided and enabled.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to save workspace git monitor settings.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Panel section="Advanced" title="Workspace git monitoring">
+      <SettingRow label="Enable Monitor" description="Default is off. Monitoring only runs when this is enabled and the include list is not empty.">
+        <Switch checked={enabled} onChange={setEnabled} />
+      </SettingRow>
+      <SettingRow label="Include Dirs" description="Relative or absolute directories to monitor. Only these directories are scanned for repo changes.">
+        <textarea className="zorai-input" value={includeDirs} onChange={(event) => setIncludeDirs(event.target.value)} placeholder="frontend/src\ncrates/zorai-daemon" />
+      </SettingRow>
+      <SettingRow label="Exclude Dirs" description="Directories to subtract from the include list.">
+        <textarea className="zorai-input" value={excludeDirs} onChange={(event) => setExcludeDirs(event.target.value)} placeholder="target\nfrontend/dist" />
+      </SettingRow>
+      <button type="button" className="zorai-ghost-button" onClick={() => void save()} disabled={saving}>
+        {saving ? "Saving..." : "Save workspace monitor"}
+      </button>
+      {status ? <p className="zorai-empty-state">{status}</p> : null}
+    </Panel>
   );
 }
 

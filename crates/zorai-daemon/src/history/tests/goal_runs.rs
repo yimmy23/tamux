@@ -455,6 +455,1076 @@ async fn list_agent_tasks_filtered_applies_status_and_limit_in_sql() -> Result<(
 }
 
 #[tokio::test]
+async fn count_agent_tasks_filtered_counts_rows_without_hydrating_task_payloads() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let running_one = sample_agent_task_record("task-running-one", TaskStatus::InProgress, 30);
+    let running_two = sample_agent_task_record("task-running-two", TaskStatus::InProgress, 40);
+    let awaiting = sample_agent_task_record("task-awaiting", TaskStatus::AwaitingApproval, 50);
+    let completed = sample_agent_task_record("task-completed-count", TaskStatus::Completed, 60);
+
+    store.upsert_agent_task(&running_one).await?;
+    store.upsert_agent_task(&running_two).await?;
+    store.upsert_agent_task(&awaiting).await?;
+    store.upsert_agent_task(&completed).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-running-two"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let active = store
+        .count_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: vec!["in_progress".to_string(), "awaiting_approval".to_string()],
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await?;
+    assert_eq!(active, 3);
+
+    let awaiting_count = store
+        .count_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: Some("awaiting_approval".to_string()),
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await?;
+    assert_eq!(awaiting_count, 1);
+
+    let running_by_id = store
+        .count_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some("task-running-two".to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: true,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await?;
+    assert_eq!(running_by_id, 1);
+
+    let completed_by_id = store
+        .count_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some("task-completed-count".to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: true,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+        })
+        .await?;
+    assert_eq!(completed_by_id, 0);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_agent_task_approval_id_for_thread_selects_pending_id_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut older_approval =
+        sample_agent_task_record("task-approval-older", TaskStatus::AwaitingApproval, 30);
+    older_approval.thread_id = Some("thread-approval".to_string());
+    older_approval.awaiting_approval_id = Some("approval-older".to_string());
+    let mut newer_without_approval =
+        sample_agent_task_record("task-approval-newer-empty", TaskStatus::InProgress, 60);
+    newer_without_approval.thread_id = Some("thread-approval".to_string());
+    let mut unrelated_approval =
+        sample_agent_task_record("task-approval-unrelated", TaskStatus::AwaitingApproval, 70);
+    unrelated_approval.thread_id = Some("thread-other".to_string());
+    unrelated_approval.awaiting_approval_id = Some("approval-other".to_string());
+
+    store.upsert_agent_task(&older_approval).await?;
+    store.upsert_agent_task(&newer_without_approval).await?;
+    store.upsert_agent_task(&unrelated_approval).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-approval-older"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let approval_id = store
+        .latest_agent_task_approval_id_for_thread("thread-approval")
+        .await?;
+
+    assert_eq!(approval_id.as_deref(), Some("approval-older"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn has_agent_task_for_thread_checks_existence_without_hydrating_task() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut task = sample_agent_task_record("task-thread-exists", TaskStatus::Queued, 30);
+    task.thread_id = Some("thread-conflict".to_string());
+    store.upsert_agent_task(&task).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-thread-exists"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(store.has_agent_task_for_thread("thread-conflict").await?);
+    assert!(!store.has_agent_task_for_thread("thread-missing").await?);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn has_agent_task_id_checks_existence_without_hydrating_task() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let task = sample_agent_task_record("task-id-exists", TaskStatus::Queued, 30);
+    store.upsert_agent_task(&task).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-id-exists"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(store.has_agent_task_id("task-id-exists").await?);
+    assert!(!store.has_agent_task_id("task-id-missing").await?);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_agent_task_refs_filtered_selects_ids_without_hydrating_task_payloads() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut parent = sample_agent_task_record("task-ref-parent", TaskStatus::Queued, 20);
+    parent.goal_run_id = Some("goal-ref".to_string());
+    parent.thread_id = Some("thread-ref-parent".to_string());
+    let mut child = sample_agent_task_record("task-ref-child", TaskStatus::Queued, 30);
+    child.parent_task_id = Some("task-ref-parent".to_string());
+    child.thread_id = Some("thread-ref-child".to_string());
+    child.parent_thread_id = Some("thread-ref-parent".to_string());
+    let unrelated = sample_agent_task_record("task-ref-unrelated", TaskStatus::Queued, 40);
+
+    store.upsert_agent_task(&parent).await?;
+    store.upsert_agent_task(&child).await?;
+    store.upsert_agent_task(&unrelated).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id IN (?1, ?2)",
+                params!["task-ref-parent", "task-ref-child"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let goal_refs = store
+        .list_agent_task_refs_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: Some("goal-ref".to_string()),
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await?;
+    assert_eq!(
+        goal_refs
+            .iter()
+            .map(|(task_id, thread_id, parent_thread_id)| {
+                (
+                    task_id.as_str(),
+                    thread_id.as_deref(),
+                    parent_thread_id.as_deref(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        vec![("task-ref-parent", Some("thread-ref-parent"), None)]
+    );
+
+    let child_refs = store
+        .list_agent_task_refs_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: Some("task-ref-parent".to_string()),
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await?;
+    assert_eq!(
+        child_refs
+            .iter()
+            .map(|(task_id, thread_id, parent_thread_id)| {
+                (
+                    task_id.as_str(),
+                    thread_id.as_deref(),
+                    parent_thread_id.as_deref(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        vec![(
+            "task-ref-child",
+            Some("thread-ref-child"),
+            Some("thread-ref-parent")
+        )]
+    );
+
+    let awaiting_refs = store
+        .list_agent_task_refs_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: Some("queued".to_string()),
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await?;
+    assert_eq!(
+        awaiting_refs
+            .iter()
+            .map(|(task_id, _, _)| task_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["task-ref-child", "task-ref-parent", "task-ref-unrelated"]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_agent_task_ids_filtered_selects_ids_without_hydrating_task_payloads() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut active_child =
+        sample_agent_task_record("task-id-active-child", TaskStatus::InProgress, 30);
+    active_child.source = "subagent".to_string();
+    active_child.parent_task_id = Some("task-id-parent".to_string());
+    let mut queued_child = sample_agent_task_record("task-id-queued-child", TaskStatus::Queued, 20);
+    queued_child.source = "subagent".to_string();
+    queued_child.parent_task_id = Some("task-id-parent".to_string());
+    let mut terminal_child =
+        sample_agent_task_record("task-id-terminal-child", TaskStatus::Completed, 40);
+    terminal_child.source = "subagent".to_string();
+    terminal_child.parent_task_id = Some("task-id-parent".to_string());
+    let mut unrelated = sample_agent_task_record("task-id-unrelated-child", TaskStatus::Queued, 50);
+    unrelated.source = "subagent".to_string();
+    unrelated.parent_task_id = Some("task-id-other-parent".to_string());
+
+    store.upsert_agent_task(&active_child).await?;
+    store.upsert_agent_task(&queued_child).await?;
+    store.upsert_agent_task(&terminal_child).await?;
+    store.upsert_agent_task(&unrelated).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id IN (?1, ?2)",
+                params!["task-id-active-child", "task-id-queued-child"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let task_ids = store
+        .list_agent_task_ids_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: Some("subagent".to_string()),
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: Some("task-id-parent".to_string()),
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: true,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await?;
+
+    assert_eq!(
+        task_ids,
+        vec![
+            "task-id-active-child".to_string(),
+            "task-id-queued-child".to_string()
+        ]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn agent_task_goal_context_selects_goal_columns_without_hydrating_task() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut task = sample_agent_task_record("task-goal-context", TaskStatus::InProgress, 30);
+    task.goal_run_id = Some("goal-context".to_string());
+    task.goal_step_id = Some("step-context".to_string());
+    task.session_id = Some("session-context".to_string());
+    task.source = "goal_run".to_string();
+    task.parent_task_id = Some("task-parent-context".to_string());
+
+    store.upsert_agent_task(&task).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-goal-context"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let context = store
+        .agent_task_goal_context("task-goal-context")
+        .await?
+        .expect("task goal context should exist");
+
+    assert_eq!(context.goal_run_id.as_deref(), Some("goal-context"));
+    assert_eq!(context.goal_step_id.as_deref(), Some("step-context"));
+    assert_eq!(context.session_id.as_deref(), Some("session-context"));
+    assert_eq!(context.source, "goal_run");
+    assert_eq!(
+        context.parent_task_id.as_deref(),
+        Some("task-parent-context")
+    );
+    assert!(store
+        .agent_task_goal_context("task-missing")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_agent_task_titles_filtered_selects_titles_without_hydrating_task_payloads(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut running = sample_agent_task_record("task-title-running", TaskStatus::InProgress, 20);
+    running.source = "handoff".to_string();
+    running.title = "[frontend] Build the panel".to_string();
+    let mut awaiting =
+        sample_agent_task_record("task-title-awaiting", TaskStatus::AwaitingApproval, 30);
+    awaiting.source = "handoff".to_string();
+    awaiting.title = "[backend] Wire the endpoint".to_string();
+    let mut unrelated =
+        sample_agent_task_record("task-title-unrelated", TaskStatus::InProgress, 40);
+    unrelated.source = "user".to_string();
+    unrelated.title = "[frontend] User task".to_string();
+
+    store.upsert_agent_task(&running).await?;
+    store.upsert_agent_task(&awaiting).await?;
+    store.upsert_agent_task(&unrelated).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-title-awaiting"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let titles = store
+        .list_agent_task_titles_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: vec!["in_progress".to_string(), "awaiting_approval".to_string()],
+            source: Some("handoff".to_string()),
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await?;
+
+    assert_eq!(
+        titles,
+        vec![
+            (
+                "task-title-awaiting".to_string(),
+                "[backend] Wire the endpoint".to_string(),
+            ),
+            (
+                "task-title-running".to_string(),
+                "[frontend] Build the panel".to_string(),
+            ),
+        ]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn agent_task_provider_override_selects_override_columns_without_hydrating_task_payload(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut task = sample_agent_task_record("task-provider-override", TaskStatus::Queued, 20);
+    task.override_provider = Some("openai".to_string());
+    task.override_model = Some("gpt-5.4-mini".to_string());
+    let mut no_override =
+        sample_agent_task_record("task-provider-no-override", TaskStatus::Queued, 30);
+    no_override.override_model = Some("ignored-model".to_string());
+
+    store.upsert_agent_task(&task).await?;
+    store.upsert_agent_task(&no_override).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-provider-override"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert_eq!(
+        store
+            .agent_task_provider_override("task-provider-override")
+            .await?,
+        Some(("openai".to_string(), Some("gpt-5.4-mini".to_string())))
+    );
+    assert!(store
+        .agent_task_provider_override("task-provider-no-override")
+        .await?
+        .is_none());
+    assert!(store
+        .agent_task_provider_override("task-provider-missing")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn agent_task_override_system_prompt_selects_prompt_without_hydrating_task_payload(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut task = sample_agent_task_record("task-system-prompt", TaskStatus::Queued, 20);
+    task.override_system_prompt =
+        Some("You are Review Bot (review-bot) operating as a spawned zorai agent.".to_string());
+    let no_prompt = sample_agent_task_record("task-system-prompt-missing", TaskStatus::Queued, 30);
+
+    store.upsert_agent_task(&task).await?;
+    store.upsert_agent_task(&no_prompt).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-system-prompt"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert_eq!(
+        store
+            .agent_task_override_system_prompt("task-system-prompt")
+            .await?,
+        Some(Some(
+            "You are Review Bot (review-bot) operating as a spawned zorai agent.".to_string()
+        ))
+    );
+    assert_eq!(
+        store
+            .agent_task_override_system_prompt("task-system-prompt-missing")
+            .await?,
+        Some(None)
+    );
+    assert!(store
+        .agent_task_override_system_prompt("task-system-prompt-unknown")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_agent_task_operational_refs_selects_prompt_fields_without_hydrating_task_payloads(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut active =
+        sample_agent_task_record("task-operational-active", TaskStatus::InProgress, 20);
+    active.title = "Keep the prompt small".to_string();
+    active.progress = 42;
+    active.awaiting_approval_id = Some("approval-operational".to_string());
+    let terminal =
+        sample_agent_task_record("task-operational-completed", TaskStatus::Completed, 30);
+
+    store.upsert_agent_task(&active).await?;
+    store.upsert_agent_task(&terminal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-operational-active"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_agent_task_operational_refs_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: true,
+            order_by_recent_activity_desc: false,
+            limit: Some(4),
+        })
+        .await?;
+
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].id, "task-operational-active");
+    assert_eq!(refs[0].title, "Keep the prompt small");
+    assert_eq!(refs[0].status, TaskStatus::InProgress);
+    assert_eq!(refs[0].progress, 42);
+    assert_eq!(
+        refs[0].awaiting_approval_id.as_deref(),
+        Some("approval-operational")
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_agent_task_summary_refs_selects_summary_fields_without_hydrating_task_payloads(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut high = sample_agent_task_record("task-summary-high", TaskStatus::InProgress, 20);
+    high.title = "Summarize only these columns".to_string();
+    high.priority = TaskPriority::High;
+    let terminal = sample_agent_task_record("task-summary-completed", TaskStatus::Completed, 30);
+
+    store.upsert_agent_task(&high).await?;
+    store.upsert_agent_task(&terminal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-summary-high"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_agent_task_summary_refs_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: true,
+            order_by_recent_activity_desc: false,
+            limit: Some(4),
+        })
+        .await?;
+
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].id, "task-summary-high");
+    assert_eq!(refs[0].title, "Summarize only these columns");
+    assert_eq!(refs[0].status, TaskStatus::InProgress);
+    assert_eq!(refs[0].priority, TaskPriority::High);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_agent_task_quiet_recovery_refs_selects_activity_fields_without_hydrating_task_payloads(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut active = sample_agent_task_record("task-quiet-active", TaskStatus::InProgress, 20);
+    active.source = "goal_run".to_string();
+    active.progress = 64;
+    active.goal_run_id = Some("goal-quiet".to_string());
+    active.thread_id = Some("thread-quiet-active".to_string());
+    let mut child = sample_agent_task_record("task-quiet-child", TaskStatus::Queued, 30);
+    child.goal_run_id = Some("goal-quiet".to_string());
+    child.parent_task_id = Some("task-quiet-active".to_string());
+    child.thread_id = Some("thread-quiet-child".to_string());
+    let terminal = sample_agent_task_record("task-quiet-completed", TaskStatus::Completed, 40);
+
+    store.upsert_agent_task(&active).await?;
+    store.upsert_agent_task(&child).await?;
+    store.upsert_agent_task(&terminal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET retry_count = 'not-an-integer' WHERE id IN (?1, ?2)",
+                params!["task-quiet-active", "task-quiet-child"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_agent_task_quiet_recovery_refs_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: vec![
+                "in_progress".to_string(),
+                "blocked".to_string(),
+                "queued".to_string(),
+            ],
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await?;
+
+    assert_eq!(refs.len(), 2);
+    assert_eq!(refs[0].id, "task-quiet-active");
+    assert_eq!(refs[0].status, TaskStatus::InProgress);
+    assert_eq!(refs[0].source, "goal_run");
+    assert_eq!(refs[0].progress, 64);
+    assert_eq!(refs[0].goal_run_id.as_deref(), Some("goal-quiet"));
+    assert_eq!(refs[0].thread_id.as_deref(), Some("thread-quiet-active"));
+    assert_eq!(refs[1].id, "task-quiet-child");
+    assert_eq!(refs[1].parent_task_id.as_deref(), Some("task-quiet-active"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_agent_task_subagent_hierarchy_refs_selects_depth_fields_without_hydrating_payloads(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut parent = sample_agent_task_record("task-subagent-parent", TaskStatus::InProgress, 20);
+    parent.source = "subagent".to_string();
+    parent.containment_scope = Some("subagent-depth:1/3".to_string());
+    let mut child = sample_agent_task_record("task-subagent-child", TaskStatus::Queued, 30);
+    child.source = "subagent".to_string();
+    child.parent_task_id = Some("task-subagent-parent".to_string());
+    let mut user_task = sample_agent_task_record("task-user", TaskStatus::Queued, 40);
+    user_task.source = "user".to_string();
+
+    store.upsert_agent_task(&parent).await?;
+    store.upsert_agent_task(&child).await?;
+    store.upsert_agent_task(&user_task).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET retry_count = 'not-an-integer' WHERE id IN (?1, ?2)",
+                params!["task-subagent-parent", "task-subagent-child"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_agent_task_subagent_hierarchy_refs_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: Some("subagent".to_string()),
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        })
+        .await?;
+
+    assert_eq!(refs.len(), 2);
+    assert_eq!(refs[0].id, "task-subagent-child");
+    assert_eq!(
+        refs[0].parent_task_id.as_deref(),
+        Some("task-subagent-parent")
+    );
+    assert_eq!(refs[1].id, "task-subagent-parent");
+    assert_eq!(
+        refs[1].containment_scope.as_deref(),
+        Some("subagent-depth:1/3")
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_goal_run_operational_refs_selects_prompt_fields_without_hydrating_events(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut running = sample_goal_run_record("goal-operational-running", 40);
+    running.title = "Run the focused projection".to_string();
+    running.current_step_index = 1;
+    running.steps.push(GoalRunStep {
+        id: "step-goal-operational-running-2".to_string(),
+        position: 1,
+        title: "Verify".to_string(),
+        instructions: "Verify projection".to_string(),
+        kind: GoalRunStepKind::Command,
+        success_criteria: "Projection verified".to_string(),
+        session_id: None,
+        status: GoalRunStepStatus::Pending,
+        task_id: None,
+        summary: None,
+        error: None,
+        started_at: None,
+        completed_at: None,
+    });
+    let mut completed = sample_goal_run_record("goal-operational-completed", 30);
+    completed.status = GoalRunStatus::Completed;
+
+    store.upsert_goal_run(&running).await?;
+    store.upsert_goal_run(&completed).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_events SET timestamp = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-operational-running"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_goal_run_operational_refs_for_statuses_limited(&[GoalRunStatus::Running], Some(3))
+        .await?;
+
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].id, "goal-operational-running");
+    assert_eq!(refs[0].title, "Run the focused projection");
+    assert_eq!(refs[0].status, GoalRunStatus::Running);
+    assert_eq!(refs[0].current_step_index, 1);
+    assert_eq!(refs[0].step_count, 2);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_goal_run_brief_refs_selects_morning_brief_fields_without_hydrating_events(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut running = sample_goal_run_record("goal-brief-running", 40);
+    running.title = "Pick up the useful work".to_string();
+    running.thread_id = Some("thread-brief".to_string());
+    running.current_step_index = 0;
+    let mut paused = sample_goal_run_record("goal-brief-paused", 30);
+    paused.status = GoalRunStatus::Paused;
+    paused.title = "Review paused work".to_string();
+    let mut completed = sample_goal_run_record("goal-brief-completed", 20);
+    completed.status = GoalRunStatus::Completed;
+
+    store.upsert_goal_run(&running).await?;
+    store.upsert_goal_run(&paused).await?;
+    store.upsert_goal_run(&completed).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_events SET timestamp = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-brief-running"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_goal_run_brief_refs_for_statuses(&[GoalRunStatus::Running, GoalRunStatus::Paused])
+        .await?;
+
+    assert_eq!(refs.len(), 2);
+    assert_eq!(refs[0].id, "goal-brief-running");
+    assert_eq!(refs[0].title, "Pick up the useful work");
+    assert_eq!(refs[0].status, GoalRunStatus::Running);
+    assert_eq!(refs[0].thread_id.as_deref(), Some("thread-brief"));
+    assert_eq!(refs[0].current_step_title.as_deref(), Some("Inspect"));
+    assert_eq!(refs[1].id, "goal-brief-paused");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_goal_run_stuck_check_refs_selects_check_fields_without_hydrating_events() -> Result<()>
+{
+    let (store, root) = make_test_store().await?;
+
+    let mut old_running = sample_goal_run_record("goal-stuck-running", 10);
+    old_running.status = GoalRunStatus::Running;
+    old_running.title = "Old running goal".to_string();
+    old_running.last_error = Some("provider stalled".to_string());
+    let mut old_awaiting = sample_goal_run_record("goal-stuck-awaiting", 20);
+    old_awaiting.status = GoalRunStatus::AwaitingApproval;
+    old_awaiting.title = "Old approval goal".to_string();
+    let mut fresh_running = sample_goal_run_record("goal-stuck-fresh", 100);
+    fresh_running.status = GoalRunStatus::Running;
+    let mut completed = sample_goal_run_record("goal-stuck-completed", 5);
+    completed.status = GoalRunStatus::Completed;
+
+    store.upsert_goal_run(&old_running).await?;
+    store.upsert_goal_run(&old_awaiting).await?;
+    store.upsert_goal_run(&fresh_running).await?;
+    store.upsert_goal_run(&completed).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_events SET timestamp = 'not-an-integer' WHERE goal_run_id IN (?1, ?2)",
+                params!["goal-stuck-running", "goal-stuck-awaiting"],
+            )?;
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id IN (?1, ?2)",
+                params!["goal-stuck-running", "goal-stuck-awaiting"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_goal_run_stuck_check_refs_updated_before(
+            &[
+                GoalRunStatus::Running,
+                GoalRunStatus::Planning,
+                GoalRunStatus::AwaitingApproval,
+            ],
+            50,
+        )
+        .await?;
+
+    assert_eq!(
+        refs.iter()
+            .map(|goal| {
+                (
+                    goal.id.as_str(),
+                    goal.status,
+                    goal.title.as_str(),
+                    goal.updated_at,
+                    goal.last_error.as_deref(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "goal-stuck-running",
+                GoalRunStatus::Running,
+                "Old running goal",
+                10,
+                Some("provider stalled"),
+            ),
+            (
+                "goal-stuck-awaiting",
+                GoalRunStatus::AwaitingApproval,
+                "Old approval goal",
+                20,
+                None,
+            ),
+        ]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_goal_run_quiet_recovery_refs_selects_recovery_fields_without_hydrating_events(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut running = sample_goal_run_record("goal-quiet-ref-running", 40);
+    running.status = GoalRunStatus::Running;
+    running.thread_id = Some("thread-quiet-root".to_string());
+    running.root_thread_id = Some("thread-quiet-root".to_string());
+    running.execution_thread_ids = vec!["thread-quiet-worker".to_string()];
+    running.active_task_id = Some("task-quiet-main".to_string());
+    running.current_step_index = 0;
+    running.current_step_title = None;
+    let mut completed = sample_goal_run_record("goal-quiet-ref-completed", 50);
+    completed.status = GoalRunStatus::Completed;
+
+    store.upsert_goal_run(&running).await?;
+    store.upsert_goal_run(&completed).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_events SET timestamp = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-quiet-ref-running"],
+            )?;
+            conn.execute(
+                "UPDATE goal_run_steps SET status = 'not-a-step-status' WHERE goal_run_id = ?1",
+                params!["goal-quiet-ref-running"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_goal_run_quiet_recovery_refs_for_statuses(&[GoalRunStatus::Running])
+        .await?;
+
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].id, "goal-quiet-ref-running");
+    assert_eq!(refs[0].status, GoalRunStatus::Running);
+    assert_eq!(refs[0].thread_id.as_deref(), Some("thread-quiet-root"));
+    assert_eq!(refs[0].root_thread_id.as_deref(), Some("thread-quiet-root"));
+    assert_eq!(refs[0].execution_thread_ids, vec!["thread-quiet-worker"]);
+    assert_eq!(refs[0].active_task_id.as_deref(), Some("task-quiet-main"));
+    assert_eq!(
+        refs[0].current_step_id.as_deref(),
+        Some("step-goal-quiet-ref-running")
+    );
+    assert_eq!(refs[0].current_step_title.as_deref(), Some("Inspect"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn list_agent_tasks_filtered_finds_active_subagent_children_in_sql() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
@@ -719,6 +1789,975 @@ async fn concierge_goal_context_loads_latest_goal_and_counts_in_sql() -> Result<
 }
 
 #[tokio::test]
+async fn list_goal_runs_for_statuses_limited_bounds_id_selection_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut old_running = sample_goal_run_record("goal-old-running", 10);
+    old_running.status = GoalRunStatus::Running;
+    let mut newest_paused = sample_goal_run_record("goal-newest-paused", 40);
+    newest_paused.status = GoalRunStatus::Paused;
+    let mut middle_running = sample_goal_run_record("goal-middle-running", 30);
+    middle_running.status = GoalRunStatus::Running;
+    let mut completed = sample_goal_run_record("goal-completed", 50);
+    completed.status = GoalRunStatus::Completed;
+
+    store.upsert_goal_run(&old_running).await?;
+    store.upsert_goal_run(&newest_paused).await?;
+    store.upsert_goal_run(&middle_running).await?;
+    store.upsert_goal_run(&completed).await?;
+
+    let rows = store
+        .list_goal_runs_for_statuses_limited(
+            &[GoalRunStatus::Running, GoalRunStatus::Paused],
+            Some(2),
+        )
+        .await?;
+
+    assert_eq!(
+        rows.iter().map(|goal| goal.id.as_str()).collect::<Vec<_>>(),
+        vec!["goal-newest-paused", "goal-middle-running"]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_goal_run_ids_for_statuses_selects_only_matching_ids_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut running = sample_goal_run_record("goal-id-running", 10);
+    running.status = GoalRunStatus::Running;
+    let mut paused = sample_goal_run_record("goal-id-paused", 30);
+    paused.status = GoalRunStatus::Paused;
+    let mut completed = sample_goal_run_record("goal-id-completed", 40);
+    completed.status = GoalRunStatus::Completed;
+
+    store.upsert_goal_run(&running).await?;
+    store.upsert_goal_run(&paused).await?;
+    store.upsert_goal_run(&completed).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-id-running"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let ids = store
+        .list_goal_run_ids_for_statuses(&[GoalRunStatus::Running, GoalRunStatus::Paused])
+        .await?;
+
+    assert_eq!(ids, vec!["goal-id-paused", "goal-id-running"]);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn pause_interrupted_goal_runs_on_restart_updates_status_and_events_without_hydrating(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut running = sample_goal_run_record("goal-restart-running", 10);
+    running.status = GoalRunStatus::Running;
+    let mut planning = sample_goal_run_record("goal-restart-planning", 20);
+    planning.status = GoalRunStatus::Planning;
+    let mut queued = sample_goal_run_record("goal-restart-queued", 30);
+    queued.status = GoalRunStatus::Queued;
+    let mut paused = sample_goal_run_record("goal-restart-paused", 40);
+    paused.status = GoalRunStatus::Paused;
+
+    store.upsert_goal_run(&running).await?;
+    store.upsert_goal_run(&planning).await?;
+    store.upsert_goal_run(&queued).await?;
+    store.upsert_goal_run(&paused).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id IN (?1, ?2)",
+                params!["goal-restart-running", "goal-restart-planning"],
+            )?;
+            conn.execute(
+                "UPDATE goal_run_events SET timestamp = 'not-an-integer' WHERE goal_run_id IN (?1, ?2)",
+                params!["goal-restart-running", "goal-restart-planning"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let paused_count = store.pause_interrupted_goal_runs_on_restart(500).await?;
+
+    assert_eq!(paused_count, 2);
+    let rows = store
+        .conn
+        .call(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, status FROM goal_runs \
+                 WHERE id LIKE 'goal-restart-%' \
+                 ORDER BY id ASC",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    assert_eq!(
+        rows,
+        vec![
+            ("goal-restart-paused".to_string(), "paused".to_string()),
+            ("goal-restart-planning".to_string(), "paused".to_string()),
+            ("goal-restart-queued".to_string(), "queued".to_string()),
+            ("goal-restart-running".to_string(), "paused".to_string()),
+        ]
+    );
+
+    let restart_events = store
+        .conn
+        .call(|conn| {
+            conn.query_row(
+                "SELECT COUNT(1) FROM goal_run_events \
+                 WHERE goal_run_id IN (?1, ?2) \
+                   AND phase = 'restart' \
+                   AND timestamp = ?3 \
+                   AND message = ?4 \
+                   AND deleted_at IS NULL",
+                params![
+                    "goal-restart-running",
+                    "goal-restart-planning",
+                    500_i64,
+                    "Daemon restarted; goal run paused for operator review.",
+                ],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(Into::into)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    assert_eq!(restart_events, 2);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn has_goal_run_id_checks_existence_without_hydrating_steps() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let running = sample_goal_run_record("goal-id-exists-fast", 10);
+    store.upsert_goal_run(&running).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-id-exists-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(store.has_goal_run_id("goal-id-exists-fast").await?);
+    assert!(!store.has_goal_run_id("goal-id-missing-fast").await?);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn goal_run_replan_count_selects_count_without_hydrating_steps() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut goal = sample_goal_run_record("goal-replan-count-fast", 10);
+    goal.replan_count = 7;
+    store.upsert_goal_run(&goal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-replan-count-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert_eq!(
+        store
+            .goal_run_replan_count("goal-replan-count-fast")
+            .await?,
+        Some(7)
+    );
+    assert_eq!(
+        store.goal_run_replan_count("goal-replan-missing").await?,
+        None
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn goal_run_task_context_selects_context_without_hydrating_steps() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut goal = sample_goal_run_record("goal-task-context-fast", 10);
+    goal.current_step_index = 2;
+    goal.session_id = Some("session-goal-context".to_string());
+    store.upsert_goal_run(&goal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-task-context-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let context = store
+        .goal_run_task_context("goal-task-context-fast")
+        .await?
+        .expect("goal context should exist");
+
+    assert_eq!(context.current_step_index, 2);
+    assert_eq!(context.session_id.as_deref(), Some("session-goal-context"));
+    assert!(store
+        .goal_run_task_context("goal-task-context-missing")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn goal_run_current_step_title_selects_title_without_hydrating_steps() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut goal = sample_goal_run_record("goal-current-title-fast", 10);
+    goal.current_step_title = None;
+    goal.steps[0].title = "Projected current step".to_string();
+    store.upsert_goal_run(&goal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET started_at = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-current-title-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert_eq!(
+        store
+            .goal_run_current_step_title("goal-current-title-fast")
+            .await?
+            .as_deref(),
+        Some("Projected current step")
+    );
+    assert!(store
+        .goal_run_current_step_title("goal-current-title-missing")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn goal_run_progress_metrics_counts_steps_without_hydrating_steps() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut goal = sample_goal_run_record("goal-progress-metrics-fast", 10);
+    goal.steps[0].status = GoalRunStepStatus::Completed;
+    let mut pending_step = goal.steps[0].clone();
+    pending_step.id = "step-goal-progress-metrics-fast-2".to_string();
+    pending_step.position = 1;
+    pending_step.title = "Continue".to_string();
+    pending_step.status = GoalRunStepStatus::InProgress;
+    goal.steps.push(pending_step);
+    store.upsert_goal_run(&goal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET started_at = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-progress-metrics-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let progress = store
+        .goal_run_progress_metrics("goal-progress-metrics-fast")
+        .await?
+        .expect("goal progress should exist");
+
+    assert_eq!(progress.steps_completed, 1);
+    assert_eq!(progress.steps_total, 2);
+    assert!(store
+        .goal_run_progress_metrics("goal-progress-metrics-missing")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn goal_run_policy_context_selects_prompt_fields_without_hydrating_steps() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut goal = sample_goal_run_record("goal-policy-context-fast", 10);
+    goal.goal = "Finish the policy context projection".to_string();
+    goal.title = "Policy context goal".to_string();
+    goal.current_step_title = None;
+    goal.steps[0].title = "Projected policy step".to_string();
+    goal.steps[0].status = GoalRunStepStatus::Completed;
+    let mut pending_step = goal.steps[0].clone();
+    pending_step.id = "step-goal-policy-context-fast-2".to_string();
+    pending_step.position = 1;
+    pending_step.title = "Continue policy context".to_string();
+    pending_step.status = GoalRunStepStatus::InProgress;
+    goal.steps.push(pending_step);
+    store.upsert_goal_run(&goal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET started_at = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-policy-context-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let context = store
+        .goal_run_policy_context("goal-policy-context-fast")
+        .await?
+        .expect("policy context should exist");
+
+    assert_eq!(context.goal, "Finish the policy context projection");
+    assert_eq!(context.title, "Policy context goal");
+    assert_eq!(
+        context.current_step_title.as_deref(),
+        Some("Projected policy step")
+    );
+    assert_eq!(context.steps_completed, 1);
+    assert_eq!(context.steps_total, 2);
+    assert!(store
+        .goal_run_policy_context("goal-policy-context-missing")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn goal_run_todo_context_selects_current_step_without_hydrating_goal() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut goal = sample_goal_run_record("goal-todo-context-fast", 10);
+    goal.current_step_index = 1;
+    goal.steps = vec![
+        GoalRunStep {
+            id: "step-todo-zero".to_string(),
+            position: 0,
+            title: "Zero".to_string(),
+            instructions: "Zero".to_string(),
+            kind: GoalRunStepKind::Research,
+            success_criteria: "Zero".to_string(),
+            session_id: None,
+            status: GoalRunStepStatus::Completed,
+            task_id: None,
+            summary: None,
+            error: None,
+            started_at: Some(1),
+            completed_at: Some(2),
+        },
+        GoalRunStep {
+            id: "step-todo-current".to_string(),
+            position: 1,
+            title: "Current".to_string(),
+            instructions: "Current".to_string(),
+            kind: GoalRunStepKind::Command,
+            success_criteria: "Current".to_string(),
+            session_id: None,
+            status: GoalRunStepStatus::InProgress,
+            task_id: None,
+            summary: None,
+            error: None,
+            started_at: Some(3),
+            completed_at: None,
+        },
+    ];
+    store.upsert_goal_run(&goal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET started_at = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-todo-context-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let context = store
+        .goal_run_todo_context("goal-todo-context-fast", None)
+        .await?
+        .expect("goal todo context should exist");
+
+    assert_eq!(context.step_index, 1);
+    assert_eq!(context.step_id.as_deref(), Some("step-todo-current"));
+    assert_eq!(context.step_status, Some(GoalRunStepStatus::InProgress));
+    let requested = store
+        .goal_run_todo_context("goal-todo-context-fast", Some("step-todo-zero"))
+        .await?
+        .expect("requested goal todo context should exist");
+    assert_eq!(requested.step_index, 0);
+    assert_eq!(requested.step_id.as_deref(), Some("step-todo-zero"));
+    assert_eq!(requested.step_status, Some(GoalRunStepStatus::Completed));
+    assert!(store
+        .goal_run_todo_context("goal-todo-context-missing", None)
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn goal_run_workspace_runtime_ref_selects_status_and_summaries_without_hydrating_steps(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut goal = sample_goal_run_record("goal-workspace-runtime-fast", 10);
+    goal.status = GoalRunStatus::Completed;
+    goal.last_error = Some("runtime failed before retry".to_string());
+    goal.reflection_summary = Some("Finished workspace goal".to_string());
+    goal.plan_summary = Some("Workspace plan".to_string());
+    store.upsert_goal_run(&goal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET started_at = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-workspace-runtime-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let runtime = store
+        .goal_run_workspace_runtime_ref("goal-workspace-runtime-fast")
+        .await?
+        .expect("workspace runtime ref should exist");
+
+    assert_eq!(runtime.id, "goal-workspace-runtime-fast");
+    assert_eq!(runtime.status, GoalRunStatus::Completed);
+    assert_eq!(
+        runtime.last_error.as_deref(),
+        Some("runtime failed before retry")
+    );
+    assert_eq!(
+        runtime.reflection_summary.as_deref(),
+        Some("Finished workspace goal")
+    );
+    assert_eq!(runtime.plan_summary.as_deref(), Some("Workspace plan"));
+    assert!(store
+        .goal_run_workspace_runtime_ref("goal-workspace-runtime-missing")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn goal_run_compaction_scope_ref_selects_snapshot_without_hydrating_goal() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut goal = sample_goal_run_record("goal-compaction-scope-fast", 20);
+    goal.title = "Compaction goal".to_string();
+    goal.goal = "Preserve compacted context".to_string();
+    goal.status = GoalRunStatus::Running;
+    goal.thread_id = Some("thread-compaction-root".to_string());
+    goal.root_thread_id = Some("thread-compaction-root".to_string());
+    goal.active_thread_id = Some("thread-compaction-active".to_string());
+    goal.execution_thread_ids = vec![
+        "thread-compaction-root".to_string(),
+        "thread-compaction-active".to_string(),
+    ];
+    goal.active_task_id = Some("task-compaction-active".to_string());
+    goal.current_step_index = 0;
+    goal.steps[0].title = "Inspect compacted state".to_string();
+    goal.steps[0].status = GoalRunStepStatus::InProgress;
+    goal.steps[0].summary = Some("Current inspection summary".to_string());
+    goal.plan_summary = Some("Compaction plan summary".to_string());
+    goal.last_error = Some("latest goal error".to_string());
+    goal.events = vec![GoalRunEvent {
+        id: "event-compaction-scope".to_string(),
+        timestamp: 21,
+        phase: "progress".to_string(),
+        message: "latest event message".to_string(),
+        details: None,
+        step_index: Some(0),
+        todo_snapshot: Vec::new(),
+    }];
+    store.upsert_goal_run(&goal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET started_at = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-compaction-scope-fast"],
+            )?;
+            conn.execute(
+                "UPDATE goal_run_events SET timestamp = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-compaction-scope-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let scope = store
+        .goal_run_compaction_scope_ref("goal-compaction-scope-fast")
+        .await?
+        .expect("compaction scope ref should exist");
+
+    assert_eq!(scope.id, "goal-compaction-scope-fast");
+    assert_eq!(
+        scope.active_task_id.as_deref(),
+        Some("task-compaction-active")
+    );
+    assert_eq!(scope.title, "Compaction goal");
+    assert_eq!(scope.goal, "Preserve compacted context");
+    assert_eq!(scope.status, GoalRunStatus::Running);
+    assert_eq!(
+        scope.root_thread_id.as_deref(),
+        Some("thread-compaction-root")
+    );
+    assert_eq!(
+        scope.active_thread_id.as_deref(),
+        Some("thread-compaction-active")
+    );
+    assert_eq!(
+        scope.execution_thread_ids,
+        vec!["thread-compaction-root", "thread-compaction-active"]
+    );
+    assert_eq!(
+        scope.current_step_title.as_deref(),
+        Some("Inspect compacted state")
+    );
+    assert_eq!(
+        scope.current_step_status,
+        Some(GoalRunStepStatus::InProgress)
+    );
+    assert_eq!(
+        scope.current_step_summary.as_deref(),
+        Some("Current inspection summary")
+    );
+    assert_eq!(
+        scope.plan_summary.as_deref(),
+        Some("Compaction plan summary")
+    );
+    assert_eq!(scope.latest_error.as_deref(), Some("latest goal error"));
+    assert_eq!(scope.recent_events, vec!["latest event message"]);
+    assert!(store
+        .goal_run_compaction_scope_ref("goal-compaction-scope-missing")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn goal_run_thread_id_selects_primary_thread_without_hydrating_steps() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut goal = sample_goal_run_record("goal-thread-id-fast", 10);
+    goal.thread_id = Some("thread-attention-target".to_string());
+    store.upsert_goal_run(&goal).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-thread-id-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert_eq!(
+        store.goal_run_thread_id("goal-thread-id-fast").await?,
+        Some("thread-attention-target".to_string())
+    );
+    assert_eq!(
+        store.goal_run_thread_id("goal-thread-id-missing").await?,
+        None
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_goal_run_status_reply_ref_selects_reply_fields_without_hydrating_steps(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut older = sample_goal_run_record("goal-status-reply-older", 10);
+    older.thread_id = Some("thread-status-reply".to_string());
+    older.title = "Older goal".to_string();
+    let mut newest = sample_goal_run_record("goal-status-reply-newest", 40);
+    newest.thread_id = Some("thread-other".to_string());
+    newest.execution_thread_ids = vec!["thread-status-reply".to_string()];
+    newest.title = "Newest gateway reply goal".to_string();
+    newest.status = GoalRunStatus::AwaitingApproval;
+    newest.current_step_title = None;
+    newest.plan_summary = Some("Awaiting approval for the next step".to_string());
+
+    store.upsert_goal_run(&older).await?;
+    store.upsert_goal_run(&newest).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-status-reply-newest"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let goal_run = store
+        .latest_goal_run_status_reply_ref_for_thread_ids(&["thread-status-reply".to_string()])
+        .await?
+        .expect("status reply ref should exist");
+
+    assert_eq!(goal_run.id, "goal-status-reply-newest");
+    assert_eq!(goal_run.title, "Newest gateway reply goal");
+    assert_eq!(goal_run.status, GoalRunStatus::AwaitingApproval);
+    assert_eq!(goal_run.updated_at, 40);
+    assert_eq!(goal_run.current_step_title, None);
+    assert_eq!(
+        goal_run.plan_summary.as_deref(),
+        Some("Awaiting approval for the next step")
+    );
+    assert!(store
+        .latest_goal_run_status_reply_ref_for_thread_ids(&["thread-missing".to_string()])
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_goal_run_status_refs_for_statuses_selects_ids_and_status_without_hydrating_steps(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut running = sample_goal_run_record("goal-status-ref-running", 20);
+    running.status = GoalRunStatus::Running;
+    let mut planning = sample_goal_run_record("goal-status-ref-planning", 40);
+    planning.status = GoalRunStatus::Planning;
+    let mut completed = sample_goal_run_record("goal-status-ref-completed", 60);
+    completed.status = GoalRunStatus::Completed;
+
+    store.upsert_goal_run(&running).await?;
+    store.upsert_goal_run(&planning).await?;
+    store.upsert_goal_run(&completed).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-status-ref-planning"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_goal_run_status_refs_for_statuses(&[GoalRunStatus::Running, GoalRunStatus::Planning])
+        .await?;
+
+    assert_eq!(
+        refs,
+        vec![
+            (
+                "goal-status-ref-planning".to_string(),
+                GoalRunStatus::Planning
+            ),
+            (
+                "goal-status-ref-running".to_string(),
+                GoalRunStatus::Running
+            ),
+        ]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_goal_run_goal_refs_for_statuses_selects_id_and_goal_without_hydrating_steps(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut running = sample_goal_run_record("goal-text-ref-running", 20);
+    running.status = GoalRunStatus::Running;
+    running.goal = "Keep the running goal moving".to_string();
+    let mut paused = sample_goal_run_record("goal-text-ref-paused", 40);
+    paused.status = GoalRunStatus::Paused;
+    paused.goal = "Paused goal text".to_string();
+
+    store.upsert_goal_run(&running).await?;
+    store.upsert_goal_run(&paused).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-text-ref-running"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_goal_run_goal_refs_for_statuses(&[GoalRunStatus::Running])
+        .await?;
+
+    assert_eq!(
+        refs,
+        vec![(
+            "goal-text-ref-running".to_string(),
+            "Keep the running goal moving".to_string()
+        )]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_goal_run_id_for_thread_ids_selects_newest_match_without_hydrating_steps(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut older_direct = sample_goal_run_record("goal-thread-direct", 10);
+    older_direct.thread_id = Some("thread-status".to_string());
+    let mut newest_execution = sample_goal_run_record("goal-thread-execution", 40);
+    newest_execution.thread_id = Some("thread-other".to_string());
+    newest_execution.execution_thread_ids = vec!["thread-status".to_string()];
+    let mut unrelated = sample_goal_run_record("goal-thread-unrelated", 50);
+    unrelated.thread_id = Some("thread-unrelated".to_string());
+
+    store.upsert_goal_run(&older_direct).await?;
+    store.upsert_goal_run(&newest_execution).await?;
+    store.upsert_goal_run(&unrelated).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-thread-execution"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let goal_run_id = store
+        .latest_goal_run_id_for_thread_ids(&["thread-status".to_string()])
+        .await?;
+
+    assert_eq!(goal_run_id.as_deref(), Some("goal-thread-execution"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_goal_run_id_for_thread_ids_and_statuses_filters_status_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut running = sample_goal_run_record("goal-thread-running", 20);
+    running.thread_id = Some("thread-cost".to_string());
+    running.status = GoalRunStatus::Running;
+    let mut paused_newer = sample_goal_run_record("goal-thread-paused", 50);
+    paused_newer.thread_id = Some("thread-cost".to_string());
+    paused_newer.status = GoalRunStatus::Paused;
+    let mut planning_execution = sample_goal_run_record("goal-thread-planning", 40);
+    planning_execution.thread_id = Some("thread-other".to_string());
+    planning_execution.execution_thread_ids = vec!["thread-cost".to_string()];
+    planning_execution.status = GoalRunStatus::Planning;
+
+    store.upsert_goal_run(&running).await?;
+    store.upsert_goal_run(&paused_newer).await?;
+    store.upsert_goal_run(&planning_execution).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-thread-planning"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let goal_run_id = store
+        .latest_goal_run_id_for_thread_ids_and_statuses(
+            &["thread-cost".to_string()],
+            &[GoalRunStatus::Running, GoalRunStatus::Planning],
+        )
+        .await?;
+
+    assert_eq!(goal_run_id.as_deref(), Some("goal-thread-planning"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_goal_run_thread_refs_for_thread_ids_selects_thread_metadata_without_hydrating_steps(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut direct = sample_goal_run_record("goal-thread-ref-direct", 20);
+    direct.thread_id = Some("thread-ref-scan".to_string());
+    direct.status = GoalRunStatus::Running;
+    let mut execution = sample_goal_run_record("goal-thread-ref-execution", 40);
+    execution.thread_id = Some("thread-other".to_string());
+    execution.execution_thread_ids = vec!["thread-ref-scan".to_string()];
+    execution.status = GoalRunStatus::Completed;
+    let mut unrelated = sample_goal_run_record("goal-thread-ref-unrelated", 60);
+    unrelated.thread_id = Some("thread-unrelated".to_string());
+
+    store.upsert_goal_run(&direct).await?;
+    store.upsert_goal_run(&execution).await?;
+    store.upsert_goal_run(&unrelated).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id IN (?1, ?2)",
+                params!["goal-thread-ref-direct", "goal-thread-ref-execution"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_goal_run_thread_refs_for_thread_ids(&["thread-ref-scan".to_string()])
+        .await?;
+
+    assert_eq!(
+        refs.iter()
+            .map(|entry| (entry.id.as_str(), entry.status, entry.updated_at))
+            .collect::<Vec<_>>(),
+        vec![
+            ("goal-thread-ref-execution", GoalRunStatus::Completed, 40),
+            ("goal-thread-ref-direct", GoalRunStatus::Running, 20),
+        ]
+    );
+    assert_eq!(refs[0].execution_thread_ids, vec!["thread-ref-scan"]);
+    assert_eq!(refs[1].thread_id.as_deref(), Some("thread-ref-scan"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_goal_run_thread_refs_for_statuses_selects_thread_metadata_without_hydrating_steps(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut running = sample_goal_run_record("goal-status-thread-ref-running", 20);
+    running.status = GoalRunStatus::Running;
+    running.thread_id = Some("thread-status-ref-running".to_string());
+    let mut paused = sample_goal_run_record("goal-status-thread-ref-paused", 40);
+    paused.status = GoalRunStatus::Paused;
+    paused.thread_id = Some("thread-status-ref-paused".to_string());
+    let mut completed = sample_goal_run_record("goal-status-thread-ref-completed", 60);
+    completed.status = GoalRunStatus::Completed;
+
+    store.upsert_goal_run(&running).await?;
+    store.upsert_goal_run(&paused).await?;
+    store.upsert_goal_run(&completed).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET ordinal = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-status-thread-ref-paused"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_goal_run_thread_refs_for_statuses(&[GoalRunStatus::Running, GoalRunStatus::Paused])
+        .await?;
+
+    assert_eq!(
+        refs.iter()
+            .map(|entry| (entry.id.as_str(), entry.status, entry.thread_id.as_deref()))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "goal-status-thread-ref-paused",
+                GoalRunStatus::Paused,
+                Some("thread-status-ref-paused"),
+            ),
+            (
+                "goal-status-thread-ref-running",
+                GoalRunStatus::Running,
+                Some("thread-status-ref-running"),
+            ),
+        ]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn list_goal_run_ids_page_applies_order_limit_and_offset_in_sql() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
@@ -753,6 +2792,74 @@ async fn list_goal_run_ids_page_applies_order_limit_and_offset_in_sql() -> Resul
 }
 
 #[tokio::test]
+async fn list_goal_runs_page_fetches_goal_rows_with_page_bounds_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .upsert_goal_run(&sample_goal_run_record("goal-oldest", 10))
+        .await?;
+    store
+        .upsert_goal_run(&sample_goal_run_record("goal-middle", 20))
+        .await?;
+    store
+        .upsert_goal_run(&sample_goal_run_record("goal-newest", 30))
+        .await?;
+
+    let (goal_runs, total) = store.list_goal_runs_page(1, 1).await?;
+
+    assert_eq!(total, 3);
+    assert_eq!(
+        goal_runs
+            .iter()
+            .map(|goal_run| goal_run.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["goal-middle"],
+    );
+    assert_eq!(
+        goal_runs[0]
+            .steps
+            .iter()
+            .map(|step| step.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["step-goal-middle"],
+        "paged goal run should include only its own persisted steps"
+    );
+    assert_eq!(
+        goal_runs[0]
+            .events
+            .iter()
+            .map(|event| event.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["event-goal-middle"],
+        "paged goal run should include only its own persisted events"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn count_goal_runs_counts_non_deleted_rows_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .upsert_goal_run(&sample_goal_run_record("goal-visible-a", 10))
+        .await?;
+    store
+        .upsert_goal_run(&sample_goal_run_record("goal-visible-b", 20))
+        .await?;
+    store
+        .upsert_goal_run(&sample_goal_run_record("goal-deleted", 30))
+        .await?;
+    store.delete_goal_run("goal-deleted").await?;
+
+    assert_eq!(store.count_goal_runs().await?, 2);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn latest_goal_run_for_thread_filters_thread_and_orders_in_sql() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
@@ -776,6 +2883,55 @@ async fn latest_goal_run_for_thread_filters_thread_and_orders_in_sql() -> Result
     assert_eq!(latest.session_id.as_deref(), Some("session-goal-newest"));
     assert!(store
         .latest_goal_run_for_thread("thread-missing")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_goal_run_repo_context_for_thread_selects_metadata_without_hydrating_steps(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut older = sample_goal_run_record("goal-repo-context-older", 10);
+    older.thread_id = Some("thread-repo-context-sql".to_string());
+    older.session_id = Some("session-older".to_string());
+    older.current_step_index = 0;
+    let mut newest = sample_goal_run_record("goal-repo-context-newest", 30);
+    newest.thread_id = Some("thread-repo-context-sql".to_string());
+    newest.session_id = Some("session-newest".to_string());
+    newest.current_step_index = 2;
+    let mut unrelated = sample_goal_run_record("goal-repo-context-other", 40);
+    unrelated.thread_id = Some("thread-other".to_string());
+    unrelated.session_id = Some("session-other".to_string());
+
+    store.upsert_goal_run(&older).await?;
+    store.upsert_goal_run(&newest).await?;
+    store.upsert_goal_run(&unrelated).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET started_at = 'not-an-integer' WHERE goal_run_id = ?1",
+                params!["goal-repo-context-newest"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let context = store
+        .latest_goal_run_repo_context_for_thread("thread-repo-context-sql")
+        .await?
+        .expect("repo context should exist");
+
+    assert_eq!(context.id, "goal-repo-context-newest");
+    assert_eq!(context.session_id.as_deref(), Some("session-newest"));
+    assert_eq!(context.current_step_index, 2);
+    assert!(store
+        .latest_goal_run_repo_context_for_thread("thread-missing")
         .await?
         .is_none());
 

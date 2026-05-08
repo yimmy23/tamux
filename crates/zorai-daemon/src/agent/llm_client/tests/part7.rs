@@ -1,3 +1,14 @@
+use super::part1::*;
+use super::part5_support::*;
+use super::*;
+use crate::agent::provider_auth_store;
+use crate::agent::types::{AgentMessage, MessageRole};
+use crate::test_support::EnvGuard;
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+use std::sync::Mutex;
+use tempfile::tempdir;
 #[test]
 fn anthropic_request_defaults_to_top_level_ephemeral_cache_control() {
     let client = reqwest::Client::new();
@@ -23,10 +34,10 @@ fn anthropic_request_defaults_to_top_level_ephemeral_cache_control() {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -47,7 +58,10 @@ fn anthropic_request_defaults_to_top_level_ephemeral_cache_control() {
     .expect("request should build");
 
     let body: serde_json::Value = serde_json::from_slice(
-        request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
     )
     .expect("json body");
     assert_eq!(body["cache_control"]["type"], "ephemeral");
@@ -79,10 +93,10 @@ fn anthropic_request_includes_sampling_and_stop_sequence_fields_when_configured(
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -103,7 +117,10 @@ fn anthropic_request_includes_sampling_and_stop_sequence_fields_when_configured(
     .expect("request should build");
 
     let body: serde_json::Value = serde_json::from_slice(
-        request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
     )
     .expect("json body");
     assert_eq!(body["stop_sequences"], serde_json::json!(["END", "DONE"]));
@@ -163,7 +180,10 @@ fn anthropic_request_includes_metadata_and_routing_fields_when_configured() {
     .expect("request should build");
 
     let body: serde_json::Value = serde_json::from_slice(
-        request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
     )
     .expect("json body");
     assert_eq!(body["metadata"]["user_id"], "operator-123");
@@ -224,7 +244,10 @@ fn anthropic_request_includes_top_level_cache_control_when_configured() {
     .expect("request should build");
 
     let body: serde_json::Value = serde_json::from_slice(
-        request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
     )
     .expect("json body");
     assert_eq!(body["cache_control"]["type"], "ephemeral");
@@ -256,10 +279,10 @@ fn anthropic_request_uses_configured_max_tokens() {
         max_tokens: Some(2048),
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -280,7 +303,10 @@ fn anthropic_request_uses_configured_max_tokens() {
     .expect("request should build");
 
     let body: serde_json::Value = serde_json::from_slice(
-        request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
     )
     .expect("json body");
     assert_eq!(body["max_tokens"], 2048);
@@ -345,7 +371,10 @@ fn anthropic_request_uses_configured_tool_choice_override() {
     .expect("request should build");
 
     let body: serde_json::Value = serde_json::from_slice(
-        request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
     )
     .expect("json body");
     assert_eq!(body["tool_choice"]["type"], "tool");
@@ -407,7 +436,10 @@ fn anthropic_request_includes_output_effort_when_configured() {
     .expect("request should build");
 
     let body: serde_json::Value = serde_json::from_slice(
-        request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
     )
     .expect("json body");
     assert_eq!(body["output_config"]["effort"], "low");
@@ -442,7 +474,7 @@ fn anthropic_request_includes_output_effort_without_schema() {
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_response_cache_enabled: false,
     };
     let request = build_anthropic_request(
         &client,
@@ -463,7 +495,10 @@ fn anthropic_request_includes_output_effort_without_schema() {
     .expect("request should build");
 
     let body: serde_json::Value = serde_json::from_slice(
-        request.body().and_then(|body| body.as_bytes()).expect("body bytes"),
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
     )
     .expect("json body");
     assert_eq!(body["output_config"]["effort"], "high");

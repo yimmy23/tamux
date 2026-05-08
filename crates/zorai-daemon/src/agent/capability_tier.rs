@@ -290,13 +290,19 @@ impl AgentEngine {
         drop(goal_runs);
         drop(inflight);
 
-        // Active thread: pick the most recently updated thread (heuristic).
-        let threads = self.threads.read().await;
-        let active_thread_id = threads
-            .values()
-            .max_by_key(|t| t.messages.last().map(|m| m.timestamp).unwrap_or(0))
-            .map(|t| t.id.clone());
-        drop(threads);
+        let active_thread_id = match self.history.latest_thread_id_by_message_timestamp().await {
+            Ok(active_thread_id) => active_thread_id,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted active thread for status snapshot; falling back to live thread heuristic: {error}"
+                );
+                let threads = self.threads.read().await;
+                threads
+                    .values()
+                    .max_by_key(|t| t.messages.last().map(|m| m.timestamp).unwrap_or(0))
+                    .map(|t| t.id.clone())
+            }
+        };
 
         // Provider health: serialize circuit breaker summaries with outage context.
         let provider_health_json = {

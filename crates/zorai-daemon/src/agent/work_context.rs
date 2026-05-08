@@ -1,10 +1,48 @@
 //! Work context tracking — TODOs, file artifacts, repo watching, and event emission.
 
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use super::*;
 
 const RAPID_REVERT_WINDOW_MS: u64 = 30_000;
+
+#[derive(Debug, Clone)]
+struct RepoMonitorScope {
+    include_roots: Vec<PathBuf>,
+    exclude_roots: Vec<PathBuf>,
+}
+
+fn normalize_monitor_root(base_root: &Path, value: &str) -> Option<PathBuf> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = Path::new(trimmed);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base_root.join(path)
+    };
+    Some(std::fs::canonicalize(&resolved).unwrap_or(resolved))
+}
+
+fn monitored_change_matches(
+    repo_root: &Path,
+    relative_path: &str,
+    scope: &RepoMonitorScope,
+) -> bool {
+    let absolute = repo_root.join(relative_path);
+    let included = scope
+        .include_roots
+        .iter()
+        .any(|root| absolute.starts_with(root));
+    included
+        && !scope
+            .exclude_roots
+            .iter()
+            .any(|root| absolute.starts_with(root))
+}
 
 /// Map a `GoalRunStatus` to an event-kind string for autonomy-level filtering.
 fn goal_run_status_to_event_kind(status: GoalRunStatus) -> &'static str {
@@ -44,6 +82,52 @@ fn mark_task_waiting_for_approval(
 }
 
 impl AgentEngine {
+    async fn resolve_repo_monitor_scope(&self, repo_root: &str) -> Option<RepoMonitorScope> {
+        let repo_root =
+            std::fs::canonicalize(repo_root).unwrap_or_else(|_| PathBuf::from(repo_root));
+        let settings = self.history.list_workspace_settings().await.ok()?;
+        let selected = settings
+            .into_iter()
+            .filter_map(|settings| {
+                let workspace_root = settings
+                    .workspace_root
+                    .as_deref()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| repo_root.clone());
+                let normalized_workspace_root =
+                    std::fs::canonicalize(&workspace_root).unwrap_or(workspace_root);
+                (repo_root.starts_with(&normalized_workspace_root)
+                    || normalized_workspace_root.starts_with(&repo_root)
+                    || settings.workspace_id == "main")
+                    .then_some((settings, normalized_workspace_root))
+            })
+            .max_by_key(|(_, workspace_root)| workspace_root.components().count());
+
+        let (settings, workspace_root) = selected?;
+        if !settings.repo_monitor_enabled || settings.repo_monitor_include_dirs.is_empty() {
+            return None;
+        }
+
+        let include_roots = settings
+            .repo_monitor_include_dirs
+            .iter()
+            .filter_map(|value| normalize_monitor_root(&workspace_root, value))
+            .collect::<Vec<_>>();
+        if include_roots.is_empty() {
+            return None;
+        }
+        let exclude_roots = settings
+            .repo_monitor_exclude_dirs
+            .iter()
+            .filter_map(|value| normalize_monitor_root(&workspace_root, value))
+            .collect::<Vec<_>>();
+
+        Some(RepoMonitorScope {
+            include_roots,
+            exclude_roots,
+        })
+    }
+
     pub(super) fn emit_task_update(&self, task: &AgentTask, message: Option<String>) {
         let _ = self.event_tx.send(AgentEvent::TaskUpdate {
             task_id: task.id.clone(),
@@ -283,58 +367,54 @@ impl AgentEngine {
             return (None, None, None);
         };
 
-        let task = match self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                id: Some(task_id.to_string()),
-                status: None,
-                statuses: Vec::new(),
-                source: None,
-                thread_id: None,
-                thread_ids: Vec::new(),
-                goal_run_id: None,
-                parent_task_id: None,
-                awaiting_approval_id: None,
-                supervisor_config_present: false,
-                exclude_terminal_statuses: false,
-                order_by_recent_activity_desc: false,
-                limit: Some(1),
-            })
-            .await
-            .into_iter()
-            .next()
-        {
-            Some(task) => Some(task),
-            None => {
-                let tasks = self.tasks.lock().await;
-                tasks.iter().find(|item| item.id == task_id).cloned()
-            }
-        };
+        let task = self.task_goal_context(task_id).await;
         let Some(task) = task else {
             return (None, None, None);
         };
 
-        let goal_run = if let Some(goal_run_id) = task.goal_run_id.as_deref() {
-            let memory_goal_run = {
+        let goal_context = if let Some(goal_run_id) = task.goal_run_id.as_deref() {
+            let memory_context = {
                 let goal_runs = self.goal_runs.lock().await;
                 goal_runs
                     .iter()
                     .find(|item| item.id == goal_run_id)
-                    .cloned()
+                    .map(|goal_run| crate::history::GoalRunTaskContextRef {
+                        current_step_index: goal_run.current_step_index,
+                        session_id: goal_run.session_id.clone(),
+                    })
             };
-            match memory_goal_run {
-                Some(goal_run) => Some(goal_run),
-                None => self.history.get_goal_run(goal_run_id).await.ok().flatten(),
+            match memory_context {
+                Some(context) => Some(context),
+                None => match self.history.goal_run_task_context(goal_run_id).await {
+                    Ok(context) => context,
+                    Err(error) => {
+                        tracing::warn!(
+                            goal_run_id,
+                            error = %error,
+                            "failed to query goal context projection"
+                        );
+                        self.history
+                            .get_goal_run(goal_run_id)
+                            .await
+                            .ok()
+                            .flatten()
+                            .map(|goal_run| crate::history::GoalRunTaskContextRef {
+                                current_step_index: goal_run.current_step_index,
+                                session_id: goal_run.session_id,
+                            })
+                    }
+                },
             }
         } else {
             None
         };
-        let step_index = goal_run.as_ref().map(|item| item.current_step_index);
+        let step_index = goal_context.as_ref().map(|item| item.current_step_index);
         (
             task.goal_run_id.clone(),
             step_index,
             task.session_id
                 .clone()
-                .or_else(|| goal_run.and_then(|item| item.session_id)),
+                .or_else(|| goal_context.and_then(|item| item.session_id)),
         )
     }
 
@@ -342,32 +422,7 @@ impl AgentEngine {
         &self,
         task_id: &str,
     ) -> Option<GoalTodoContext> {
-        let task = match self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                id: Some(task_id.to_string()),
-                status: None,
-                statuses: Vec::new(),
-                source: None,
-                thread_id: None,
-                thread_ids: Vec::new(),
-                goal_run_id: None,
-                parent_task_id: None,
-                awaiting_approval_id: None,
-                supervisor_config_present: false,
-                exclude_terminal_statuses: false,
-                order_by_recent_activity_desc: false,
-                limit: Some(1),
-            })
-            .await
-            .into_iter()
-            .next()
-        {
-            Some(task) => Some(task),
-            None => {
-                let tasks = self.tasks.lock().await;
-                tasks.iter().find(|task| task.id == task_id).cloned()
-            }
-        }?;
+        let task = self.task_goal_context(task_id).await?;
         let goal_run_id = task.goal_run_id.clone()?;
         let memory_goal_run = {
             let goal_runs = self.goal_runs.lock().await;
@@ -376,36 +431,88 @@ impl AgentEngine {
                 .find(|goal_run| goal_run.id == goal_run_id)
                 .cloned()
         };
-        let goal_run = match memory_goal_run {
-            Some(goal_run) => Some(goal_run),
-            None => self.history.get_goal_run(&goal_run_id).await.ok().flatten(),
-        }?;
         let task_goal_step_id = task.goal_step_id.clone();
-        let step_index = task_goal_step_id
-            .as_deref()
-            .and_then(|goal_step_id| {
-                goal_run
-                    .steps
-                    .iter()
-                    .position(|step| step.id == goal_step_id)
-            })
-            .unwrap_or(goal_run.current_step_index);
+        let (step_index, goal_step_id, step_status) = match memory_goal_run {
+            Some(goal_run) => {
+                let step_index = task_goal_step_id
+                    .as_deref()
+                    .and_then(|goal_step_id| {
+                        goal_run
+                            .steps
+                            .iter()
+                            .position(|step| step.id == goal_step_id)
+                    })
+                    .unwrap_or(goal_run.current_step_index);
+                (
+                    step_index,
+                    task_goal_step_id
+                        .or_else(|| goal_run.steps.get(step_index).map(|step| step.id.clone())),
+                    goal_run.steps.get(step_index).map(|step| step.status),
+                )
+            }
+            None => {
+                let context = match self
+                    .history
+                    .goal_run_todo_context(&goal_run_id, task_goal_step_id.as_deref())
+                    .await
+                {
+                    Ok(context) => context,
+                    Err(error) => {
+                        tracing::warn!(
+                            goal_run_id,
+                            error = %error,
+                            "failed to query persisted goal todo context"
+                        );
+                        None
+                    }
+                }?;
+                (
+                    context.step_index,
+                    task_goal_step_id.or(context.step_id),
+                    context.step_status,
+                )
+            }
+        };
 
         Some(GoalTodoContext {
             goal_run_id,
-            goal_step_id: task_goal_step_id
-                .or_else(|| goal_run.steps.get(step_index).map(|step| step.id.clone())),
+            goal_step_id,
             current_step_index: step_index,
-            step_status: goal_run.steps.get(step_index).map(|step| step.status),
+            step_status,
             authoritative: task.source == "goal_run" && task.parent_task_id.is_none(),
         })
+    }
+
+    async fn task_goal_context(
+        &self,
+        task_id: &str,
+    ) -> Option<crate::history::AgentTaskGoalContext> {
+        match self.history.agent_task_goal_context(task_id).await {
+            Ok(Some(context)) => Some(context),
+            Ok(None) | Err(_) => {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find(|task| task.id == task_id).map(|task| {
+                    crate::history::AgentTaskGoalContext {
+                        goal_run_id: task.goal_run_id.clone(),
+                        goal_step_id: task.goal_step_id.clone(),
+                        session_id: task.session_id.clone(),
+                        source: task.source.clone(),
+                        parent_task_id: task.parent_task_id.clone(),
+                    }
+                })
+            }
+        }
     }
 
     pub(super) async fn resolve_thread_repo_root(
         &self,
         thread_id: &str,
     ) -> Option<(String, Option<String>, Option<String>, Option<usize>)> {
-        let run = match self.history.latest_goal_run_for_thread(thread_id).await {
+        let run = match self
+            .history
+            .latest_goal_run_repo_context_for_thread(thread_id)
+            .await
+        {
             Ok(Some(run)) => Some(run),
             Ok(None) | Err(_) => {
                 let goal_runs = self.goal_runs.lock().await;
@@ -413,7 +520,7 @@ impl AgentEngine {
                     .iter()
                     .filter(|run| run.thread_id.as_deref() == Some(thread_id))
                     .max_by_key(|run| run.updated_at)
-                    .cloned()
+                    .map(crate::history::GoalRunRepoContextRef::from)
             }
         };
 
@@ -477,8 +584,26 @@ impl AgentEngine {
             return;
         };
 
+        let Some(monitor_scope) = self.resolve_repo_monitor_scope(&repo_root).await else {
+            self.remove_repo_watcher(thread_id).await;
+            self.merge_repo_scan_entries(thread_id, &repo_root, Vec::new())
+                .await;
+            return;
+        };
+
         self.ensure_repo_watcher(thread_id, &repo_root).await;
-        let changes = crate::git::list_git_changes(&repo_root);
+        let repo_root_path = PathBuf::from(&repo_root);
+        let changes = crate::git::list_git_changes(&repo_root)
+            .into_iter()
+            .filter(|entry| {
+                monitored_change_matches(&repo_root_path, &entry.path, &monitor_scope)
+                    || entry
+                        .previous_path
+                        .as_deref()
+                        .map(|path| monitored_change_matches(&repo_root_path, path, &monitor_scope))
+                        .unwrap_or(false)
+            })
+            .collect::<Vec<_>>();
         let now = now_millis();
         let entries = changes
             .into_iter()
@@ -660,26 +785,36 @@ impl AgentEngine {
         task_id: &str,
         items: &[TodoItem],
     ) -> Option<GoalRun> {
-        let goal_run_id = self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                id: Some(task_id.to_string()),
-                status: None,
-                statuses: Vec::new(),
-                source: None,
-                thread_id: None,
-                thread_ids: Vec::new(),
-                goal_run_id: None,
-                parent_task_id: None,
-                awaiting_approval_id: None,
-                supervisor_config_present: false,
-                exclude_terminal_statuses: false,
-                order_by_recent_activity_desc: false,
-                limit: Some(1),
-            })
-            .await
-            .into_iter()
-            .next()
-            .and_then(|task| task.goal_run_id)?;
+        let goal_run_id = match self.history.agent_task_goal_context(task_id).await {
+            Ok(Some(context)) => context.goal_run_id,
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(
+                    task_id,
+                    %error,
+                    "failed to query task goal context for todo snapshot"
+                );
+                self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
+                .await
+                .into_iter()
+                .next()
+                .and_then(|task| task.goal_run_id)
+            }
+        }?;
 
         let needs_persisted_goal = {
             let goal_runs = self.goal_runs.lock().await;

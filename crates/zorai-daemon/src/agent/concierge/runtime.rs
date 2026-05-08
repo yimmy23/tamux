@@ -32,7 +32,7 @@ impl ConciergeEngine {
             let mut investigations = self.recovery_investigations.lock().await;
             if let Some(existing_task_id) = investigations.get(&key).cloned() {
                 let still_running = agent
-                    .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    .count_tasks_filtered(&crate::history::AgentTaskListQuery {
                         id: Some(existing_task_id),
                         status: None,
                         statuses: Vec::new(),
@@ -43,16 +43,12 @@ impl ConciergeEngine {
                         parent_task_id: None,
                         awaiting_approval_id: None,
                         supervisor_config_present: false,
-                        exclude_terminal_statuses: false,
+                        exclude_terminal_statuses: true,
                         order_by_recent_activity_desc: false,
                         limit: Some(1),
                     })
                     .await
-                    .into_iter()
-                    .next()
-                    .is_some_and(|task| {
-                        !super::super::task_scheduler::is_task_terminal_status(task.status)
-                    });
+                    > 0;
                 if still_running {
                     return None;
                 }
@@ -161,7 +157,7 @@ impl ConciergeEngine {
             context.paused_goal_total
         );
         let (content, actions) = if let Some(existing) = self
-            .reuse_welcome_from_history(threads, detail_level, &context)
+            .reuse_welcome_from_history(threads, history, detail_level, &context)
             .await
         {
             tracing::info!("concierge: reusing persisted welcome payload");
@@ -204,7 +200,7 @@ impl ConciergeEngine {
 
         let context = self.gather_context(history, detail_level, &[]).await;
         let (content, actions) = if let Some(existing) = self
-            .reuse_welcome_from_history(threads, detail_level, &context)
+            .reuse_welcome_from_history(threads, history, detail_level, &context)
             .await
         {
             existing
@@ -285,25 +281,48 @@ impl ConciergeEngine {
     pub(super) async fn reuse_welcome_from_history(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
+        history: &crate::history::HistoryStore,
         detail_level: ConciergeDetailLevel,
         context: &WelcomeContext,
     ) -> Option<(String, Vec<ConciergeAction>)> {
-        let threads_guard = threads.read().await;
-        let concierge_thread = threads_guard.get(CONCIERGE_THREAD_ID)?;
-        let latest_welcome = concierge_thread.messages.iter().rev().find(|msg| {
-            msg.role == MessageRole::Assistant && msg.provider.as_deref() == Some("concierge")
-        })?;
+        let latest_welcome = {
+            let threads_guard = threads.read().await;
+            let concierge_thread = threads_guard.get(CONCIERGE_THREAD_ID)?;
+            concierge_thread
+                .messages
+                .iter()
+                .rev()
+                .find(|msg| {
+                    msg.role == MessageRole::Assistant
+                        && msg.provider.as_deref() == Some("concierge")
+                })
+                .cloned()?
+        };
 
         let now = super::super::now_millis();
         if now.saturating_sub(latest_welcome.timestamp) >= WELCOME_REUSE_WINDOW_MS {
             return None;
         }
 
-        let has_user_message_after_welcome = threads_guard
-            .values()
-            .filter(|thread| !is_heartbeat_thread(thread))
-            .flat_map(|thread| thread.messages.iter())
-            .any(|msg| msg.role == MessageRole::User && msg.timestamp > latest_welcome.timestamp);
+        let has_user_message_after_welcome = match history
+            .has_non_heartbeat_user_message_after(latest_welcome.timestamp)
+            .await
+        {
+            Ok(has_message) => has_message,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query user activity after concierge welcome from history: {error}"
+                );
+                let threads_guard = threads.read().await;
+                threads_guard
+                    .values()
+                    .filter(|thread| !is_heartbeat_thread(thread))
+                    .flat_map(|thread| thread.messages.iter())
+                    .any(|msg| {
+                        msg.role == MessageRole::User && msg.timestamp > latest_welcome.timestamp
+                    })
+            }
+        };
         if has_user_message_after_welcome {
             return None;
         }

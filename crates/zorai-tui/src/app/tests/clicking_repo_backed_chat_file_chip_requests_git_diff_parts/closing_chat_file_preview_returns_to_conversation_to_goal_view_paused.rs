@@ -447,10 +447,19 @@ fn goal_view_related_tasks_use_status_checkbox_without_duplicate_status_text() {
     let plain = render_task_view(&mut model);
 
     assert!(plain.contains("[~] Collect and index sources"), "{plain}");
-    assert!(plain.contains("[x] Ground the user's background"), "{plain}");
+    assert!(
+        plain.contains("[x] Ground the user's background"),
+        "{plain}"
+    );
     assert!(plain.contains("[!] Review plan"), "{plain}");
-    assert!(!plain.contains("Collect and index sources running"), "{plain}");
-    assert!(!plain.contains("Ground the user's background done"), "{plain}");
+    assert!(
+        !plain.contains("Collect and index sources running"),
+        "{plain}"
+    );
+    assert!(
+        !plain.contains("Ground the user's background done"),
+        "{plain}"
+    );
     assert!(!plain.contains("Review plan blocked"), "{plain}");
 }
 
@@ -505,7 +514,9 @@ fn goal_view_paused_restart_renders_review_guidance() {
     let plain = render_task_view(&mut model);
 
     assert!(plain.contains("Run timeline"), "{plain}");
-    assert!(plain.contains("Daemon restarted; goal run paused"), "{plain}");
+    assert!(
+        plain.contains("Daemon restarted; goal run paused"),
+        "{plain}"
+    );
     assert!(plain.contains("operator review."), "{plain}");
 }
-

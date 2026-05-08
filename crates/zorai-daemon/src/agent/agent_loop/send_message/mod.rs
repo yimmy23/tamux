@@ -208,6 +208,25 @@ impl AgentEngine {
         task_id: Option<&str>,
     ) -> String {
         if let Some(current_task_id) = task_id {
+            match self
+                .history
+                .agent_task_override_system_prompt(current_task_id)
+                .await
+            {
+                Ok(Some(Some(prompt))) => {
+                    return crate::agent::agent_identity::extract_persona_id(Some(&prompt))
+                        .unwrap_or_else(|| MAIN_AGENT_ID.to_string());
+                }
+                Ok(Some(None)) => return MAIN_AGENT_ID.to_string(),
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        task_id = current_task_id,
+                        %error,
+                        "failed to query task scope prompt from history"
+                    );
+                }
+            }
             let task = self.task_by_id_for_turn_scope(current_task_id).await;
             return agent_scope_id_for_task(task.as_ref());
         }

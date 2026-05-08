@@ -236,6 +236,21 @@ where
                 })
                 .await?;
         }
+        AgentBridgeCommand::SetWorkspaceRepoMonitor {
+            workspace_id,
+            repo_monitor_enabled,
+            repo_monitor_include_dirs,
+            repo_monitor_exclude_dirs,
+        } => {
+            framed
+                .send(ClientMessage::AgentSetWorkspaceRepoMonitor {
+                    workspace_id,
+                    repo_monitor_enabled,
+                    repo_monitor_include_dirs,
+                    repo_monitor_exclude_dirs,
+                })
+                .await?;
+        }
         AgentBridgeCommand::CreateWorkspaceTask { request } => {
             framed
                 .send(ClientMessage::AgentCreateWorkspaceTask { request })

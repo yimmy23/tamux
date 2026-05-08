@@ -1,9 +1,11 @@
 use super::*;
-use crate::state::*;
-use crate::app::*;
-use crate::app::config_io::helpers::{normalize_compliance_mode, normalize_provider_auth_source, normalize_provider_transport};
+use crate::app::config_io::helpers::{
+    normalize_compliance_mode, normalize_provider_auth_source, normalize_provider_transport,
+};
 use crate::app::TuiModel;
+use crate::app::*;
 use crate::state::DaemonCommand;
+use crate::state::*;
 use crate::test_support::{env_var_lock, EnvVarGuard, ZORAI_DATA_DIR_ENV};
 use rusqlite::Connection;
 use std::sync::mpsc;
@@ -299,4 +301,3 @@ fn apply_config_json_preserves_azure_openai_base_url() {
     assert_eq!(model.config.model, "my-deployment");
     assert_eq!(model.config.api_transport, "responses");
 }
-

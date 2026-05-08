@@ -1,4 +1,6 @@
+use super::*;
 use crate::session_manager::SessionManager;
+use tempfile::tempdir;
 
 #[tokio::test]
 async fn goal_projection_writes_files_on_create_and_refresh() {
@@ -30,8 +32,14 @@ async fn goal_projection_writes_files_on_create_and_refresh() {
 
     assert!(projection_dir.exists(), "projection directory should exist");
     assert!(dossier_path.exists(), "dossier projection should exist");
-    assert!(proof_ledger_path.exists(), "proof ledger projection should exist");
-    assert!(goal_md_path.exists(), "goal markdown projection should exist");
+    assert!(
+        proof_ledger_path.exists(),
+        "proof ledger projection should exist"
+    );
+    assert!(
+        goal_md_path.exists(),
+        "goal markdown projection should exist"
+    );
     assert!(inventory_dir.exists(), "inventory directory should exist");
     assert!(specs_dir.exists(), "specs directory should exist");
     assert!(plans_dir.exists(), "plans directory should exist");

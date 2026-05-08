@@ -42,23 +42,41 @@ pub struct WelesHealthStatus {
     pub checked_at: u64,
 }
 
-include!("provider_basics.rs");
-include!("provider_catalog_a.rs");
-include!("provider_catalog_b.rs");
-include!("custom_provider_catalog.rs");
-include!("custom_provider_runtime.rs");
-include!("provider_registry.rs");
-include!("config_core.rs");
-include!("config_skill.rs");
-include!("runtime_config.rs");
-include!("runtime_profiles.rs");
-include!("browser_profiles.rs");
-include!("agent_event.rs");
-include!("thread_message_types.rs");
-include!("task_types.rs");
-include!("goal_dossier.rs");
-include!("goal_types.rs");
-include!("heartbeat_misc.rs");
+mod agent_event;
+mod browser_profiles;
+mod config_core;
+mod config_skill;
+mod custom_provider_catalog;
+mod custom_provider_runtime;
+mod goal_dossier;
+mod goal_types;
+mod heartbeat_misc;
+mod provider_basics;
+mod provider_catalog_a;
+mod provider_catalog_b;
+mod provider_registry;
+mod runtime_config;
+mod runtime_profiles;
+mod task_types;
+mod thread_message_types;
+
+pub use agent_event::*;
+pub use browser_profiles::*;
+pub use config_core::*;
+pub use config_skill::*;
+pub use custom_provider_catalog::*;
+pub use custom_provider_runtime::*;
+pub use goal_dossier::*;
+pub use goal_types::*;
+pub use heartbeat_misc::*;
+pub use provider_basics::*;
+pub use provider_catalog_a::*;
+pub use provider_catalog_b::*;
+pub use provider_registry::*;
+pub use runtime_config::*;
+pub use runtime_profiles::*;
+pub use task_types::*;
+pub use thread_message_types::*;
 
 #[cfg(test)]
 mod tests;

@@ -1,3 +1,5 @@
+use super::tests_part2::tests_part2_support::*;
+use super::*;
 #[test]
 fn unknown_operator_profile_session_errors_are_stale_fetches() {
     let error = anyhow::anyhow!("unknown operator profile session: ops_done");
@@ -268,7 +270,9 @@ async fn run_goal_plan_review_connection_liveness_test(subscribe: bool) {
         let approval_resolved = timeout(Duration::from_secs(1), async {
             loop {
                 match conn.recv().await {
-                    DaemonMessage::ApprovalResolved { approval_id: got, .. } => return got,
+                    DaemonMessage::ApprovalResolved {
+                        approval_id: got, ..
+                    } => return got,
                     DaemonMessage::AgentEvent { .. } => continue,
                     other => panic!("expected ApprovalResolved, got {other:?}"),
                 }
@@ -279,7 +283,9 @@ async fn run_goal_plan_review_connection_liveness_test(subscribe: bool) {
         assert_eq!(approval_resolved, approval_id);
     } else {
         match conn.recv().await {
-            DaemonMessage::ApprovalResolved { approval_id: got, .. } => {
+            DaemonMessage::ApprovalResolved {
+                approval_id: got, ..
+            } => {
                 assert_eq!(got, approval_id);
             }
             other => panic!("expected ApprovalResolved, got {other:?}"),
@@ -1308,7 +1314,10 @@ async fn github_copilot_login_provider_without_token_uses_browser_auth_flow() {
         .find(|state| state.provider_id == "github-copilot")
         .expect("github copilot provider state should be present");
     assert!(copilot.authenticated);
-    assert_eq!(copilot.auth_source, crate::agent::types::AuthSource::GithubCopilot);
+    assert_eq!(
+        copilot.auth_source,
+        crate::agent::types::AuthSource::GithubCopilot
+    );
 
     conn.shutdown().await;
 }

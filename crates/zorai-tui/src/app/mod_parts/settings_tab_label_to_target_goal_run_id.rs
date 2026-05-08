@@ -35,4 +35,3 @@ pub(crate) fn target_goal_run_id(model: &TuiModel, target: &SidebarItemTarget) -
             .and_then(|task| task.goal_run_id.clone()),
     }
 }
-

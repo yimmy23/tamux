@@ -70,15 +70,6 @@ pub(crate) fn pinned_for_compaction_budget_chars(
         .saturating_div(PINNED_CONTEXT_BUDGET_DENOMINATOR as u32) as usize
 }
 
-pub(crate) fn pinned_for_compaction_chars_used(thread: &AgentThread) -> usize {
-    thread
-        .messages
-        .iter()
-        .filter(|message| message.pinned_for_compaction && !message_is_compaction_summary(message))
-        .map(pinned_for_compaction_message_chars)
-        .sum()
-}
-
 pub(crate) fn owner_only_pins(thread: &AgentThread) -> Vec<AgentMessage> {
     if current_agent_scope_id() != MAIN_AGENT_ID {
         return Vec::new();
@@ -111,86 +102,4 @@ pub(crate) fn owner_only_pins_within_budget(
     }
 
     included
-}
-
-pub(crate) fn pin_thread_message_for_compaction(
-    thread: &mut AgentThread,
-    message_id: &str,
-    config: &AgentConfig,
-    provider_config: &ProviderConfig,
-) -> ThreadMessagePinMutationResult {
-    let budget_chars = pinned_for_compaction_budget_chars(config, provider_config);
-    let current_chars = pinned_for_compaction_chars_used(thread);
-
-    let Some(message_index) = thread
-        .messages
-        .iter()
-        .position(|message| message.id == message_id)
-    else {
-        return ThreadMessagePinMutationResult::failure(
-            &thread.id,
-            message_id,
-            "message_not_found",
-            current_chars,
-            budget_chars,
-            None,
-        );
-    };
-
-    if thread.messages[message_index].pinned_for_compaction {
-        return ThreadMessagePinMutationResult::success(
-            &thread.id,
-            message_id,
-            current_chars,
-            budget_chars,
-        );
-    }
-
-    let candidate_chars = current_chars.saturating_add(pinned_for_compaction_message_chars(
-        &thread.messages[message_index],
-    ));
-    if candidate_chars > budget_chars {
-        return ThreadMessagePinMutationResult::failure(
-            &thread.id,
-            message_id,
-            "pinned_budget_exceeded",
-            current_chars,
-            budget_chars,
-            Some(candidate_chars),
-        );
-    }
-
-    thread.messages[message_index].pinned_for_compaction = true;
-    ThreadMessagePinMutationResult::success(&thread.id, message_id, candidate_chars, budget_chars)
-}
-
-pub(crate) fn unpin_thread_message_for_compaction(
-    thread: &mut AgentThread,
-    message_id: &str,
-    config: &AgentConfig,
-    provider_config: &ProviderConfig,
-) -> ThreadMessagePinMutationResult {
-    let budget_chars = pinned_for_compaction_budget_chars(config, provider_config);
-    let Some(message_index) = thread
-        .messages
-        .iter()
-        .position(|message| message.id == message_id)
-    else {
-        return ThreadMessagePinMutationResult::failure(
-            &thread.id,
-            message_id,
-            "message_not_found",
-            pinned_for_compaction_chars_used(thread),
-            budget_chars,
-            None,
-        );
-    };
-
-    thread.messages[message_index].pinned_for_compaction = false;
-    ThreadMessagePinMutationResult::success(
-        &thread.id,
-        message_id,
-        pinned_for_compaction_chars_used(thread),
-        budget_chars,
-    )
 }

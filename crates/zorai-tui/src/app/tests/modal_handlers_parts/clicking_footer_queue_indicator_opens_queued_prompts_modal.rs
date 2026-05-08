@@ -1,9 +1,9 @@
-use tokio::sync::mpsc::unbounded_channel;
-use std::sync::mpsc;
-use zorai_shared::providers::*;
 use super::whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings::*;
-use crate::state::*;
 use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn clicking_footer_queue_indicator_opens_queued_prompts_modal() {
     let (mut model, _daemon_rx) = make_model();
@@ -493,4 +493,3 @@ fn notifications_modal_tab_switches_between_header_and_row_actions() {
     );
     assert_eq!(model.notifications.selected_row_action_index(), None);
 }
-

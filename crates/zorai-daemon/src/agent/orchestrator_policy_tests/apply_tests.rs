@@ -195,6 +195,20 @@ async fn apply_pivot_routes_into_existing_strategy_refresh_behavior() {
     seed_runtime(&engine, thread_id).await;
     engine.persist_tasks().await;
     engine.tasks.lock().await.clear();
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+    engine
+        .history
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET started_at = 'not-an-integer' WHERE goal_run_id = ?1",
+                rusqlite::params!["goal-1"],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("corrupt hydration-only step column");
     let decision = PolicyDecision {
         action: PolicyAction::Pivot,
         reason: "The repeated failures justify a different strategy.".to_string(),

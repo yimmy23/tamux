@@ -1,24 +1,26 @@
 use super::*;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
-use crate::widgets;
 use crate::providers;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use zorai_shared::providers::*;
 
-#[path = "embedding_dimensions.rs"]
-mod embedding_dimensions;
-#[path = "image_remote_model_fetch_output_modalities_to_fetched_model_supports.rs"]
-mod image_remote_model_fetch_output_modalities_to_fetched_model_supports;
+#[path = "activate_feature_settings_field_to_settings_field_click_uses_toggle.rs"]
+mod activate_feature_settings_field_to_settings_field_click_uses_toggle;
 #[path = "commit_subagent_editor_to_run_subagent_action.rs"]
 mod commit_subagent_editor_to_run_subagent_action;
+#[path = "embedding_dimensions.rs"]
+mod embedding_dimensions;
 #[path = "handle_honcho_settings_key_to_handle_subagent_settings_key.rs"]
 mod handle_honcho_settings_key_to_handle_subagent_settings_key;
+#[path = "image_remote_model_fetch_output_modalities_to_fetched_model_supports.rs"]
+mod image_remote_model_fetch_output_modalities_to_fetched_model_supports;
 #[path = "openrouter_endpoint_url_for_to_activate_settings_field.rs"]
 mod openrouter_endpoint_url_for_to_activate_settings_field;
 #[path = "toggle_settings_field_to_handle_plugins_settings_key.rs"]
 mod toggle_settings_field_to_handle_plugins_settings_key;
-#[path = "activate_feature_settings_field_to_settings_field_click_uses_toggle.rs"]
-mod activate_feature_settings_field_to_settings_field_click_uses_toggle;
 
 #[cfg(test)]
 mod tests {
@@ -83,7 +85,11 @@ mod tests {
         .expect("create auth schema");
     }
 
-    pub(crate) fn write_provider_auth_row(path: &std::path::Path, provider_id: &str, auth_mode: &str) {
+    pub(crate) fn write_provider_auth_row(
+        path: &std::path::Path,
+        provider_id: &str,
+        auth_mode: &str,
+    ) {
         init_provider_auth_db(path);
         let conn = Connection::open(path).expect("open auth db");
         conn.execute(
@@ -99,7 +105,11 @@ mod tests {
         .expect("insert auth row");
     }
 
-    pub(crate) fn has_provider_auth_row(path: &std::path::Path, provider_id: &str, auth_mode: &str) -> bool {
+    pub(crate) fn has_provider_auth_row(
+        path: &std::path::Path,
+        provider_id: &str,
+        auth_mode: &str,
+    ) -> bool {
         init_provider_auth_db(path);
         let conn = Connection::open(path).expect("open auth db");
         conn.query_row(
@@ -118,12 +128,12 @@ mod tests {
         std::env::temp_dir().join(format!("zorai-{name}-{nanos}.sqlite"))
     }
 
-    #[path = "whatsapp_link_device_probes_status_before_starting_link_flow.rs"]
-mod whatsapp_link_device_probes_status_before_starting_link_flow;
-    #[path = "operator_model_inspect_field_requests_operator_model_snapshot_to_chat.rs"]
-mod operator_model_inspect_field_requests_operator_model_snapshot_to_chat;
     #[path = "collaboration_sessions_inspect_field_requests_collaboration_snapshot.rs"]
-mod collaboration_sessions_inspect_field_requests_collaboration_snapshot;
+    mod collaboration_sessions_inspect_field_requests_collaboration_snapshot;
+    #[path = "operator_model_inspect_field_requests_operator_model_snapshot_to_chat.rs"]
+    mod operator_model_inspect_field_requests_operator_model_snapshot_to_chat;
     #[path = "tests_audio.rs"]
-mod tests_audio;
+    mod tests_audio;
+    #[path = "whatsapp_link_device_probes_status_before_starting_link_flow.rs"]
+    mod whatsapp_link_device_probes_status_before_starting_link_flow;
 }

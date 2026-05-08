@@ -7,7 +7,7 @@ use super::concierge::ConciergeEngine;
 use super::*;
 use std::time::Duration;
 
-mod helpers;
+pub(crate) mod helpers;
 pub(in crate::agent) use helpers::aline_available;
 use helpers::build_agent_http_client;
 pub(in crate::agent) use helpers::{

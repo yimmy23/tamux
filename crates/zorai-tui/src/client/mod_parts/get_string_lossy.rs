@@ -15,4 +15,3 @@ pub(crate) fn get_string_lossy(value: &Value, key: &str) -> String {
         None => String::new(),
     }
 }
-

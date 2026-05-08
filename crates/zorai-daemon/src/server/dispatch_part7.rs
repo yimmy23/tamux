@@ -1,5 +1,28 @@
-if matches!(
-        &msg,
+use super::*;
+use crate::agent::AgentEngine;
+use crate::session_manager::SessionManager;
+use anyhow::Result;
+use futures::SinkExt;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
+
+pub(crate) async fn dispatch_part7<S>(
+    msg: &ClientMessage,
+    agent: &Arc<AgentEngine>,
+    framed: &mut Framed<S, DaemonCodec>,
+    background_daemon_queues: &mut BackgroundSubsystemQueues,
+    background_daemon_pending: &mut BackgroundPendingCounts,
+    last_concierge_welcome_fingerprint: &mut Option<String>,
+    agent_event_rx: &mut Option<tokio::sync::broadcast::Receiver<crate::agent::types::AgentEvent>>,
+) -> Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    if !matches!(
+        msg,
         ClientMessage::AgentValidateProvider{ .. } |
         ClientMessage::AgentSetSubAgent{ .. } |
         ClientMessage::AgentRemoveSubAgent{ .. } |
@@ -17,6 +40,10 @@ if matches!(
         ClientMessage::SkillDiscover{ .. } |
         ClientMessage::GuidelineDiscover{ .. }
     ) {
+        return Ok(false);
+    }
+    let msg = msg.clone();
+
         match msg {
                 ClientMessage::AgentValidateProvider {
                     provider_id,
@@ -88,7 +115,7 @@ if matches!(
                                 message: "provider_io background queue is full".to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(true);
                     }
 
                     let operation = operation_registry().accept_operation(
@@ -114,7 +141,7 @@ if matches!(
                         BackgroundSubsystem::ProviderIo,
                         operation_id,
                         background_daemon_tx,
-                        &mut background_daemon_pending,
+                        background_daemon_pending,
                         async move {
                             let (valid, error) =
                                 match crate::agent::llm_client::validate_provider_connection(
@@ -161,7 +188,7 @@ if matches!(
                                             .to_string(),
                                     })
                                     .await?;
-                                continue;
+                                return Ok(true);
                             }
 
                             let operation = operation_registry().accept_operation(
@@ -190,7 +217,7 @@ if matches!(
                                 BackgroundSubsystem::ConfigReconcile,
                                 Some(operation.operation_id.clone()),
                                 background_daemon_tx,
-                                &mut background_daemon_pending,
+                                background_daemon_pending,
                                 Box::pin(async move {
                                     match agent.set_sub_agent(def).await {
                                         Ok(()) => {
@@ -238,7 +265,7 @@ if matches!(
                                     .to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(true);
                     }
 
                     let operation = operation_registry().accept_operation(
@@ -263,7 +290,7 @@ if matches!(
                         BackgroundSubsystem::ConfigReconcile,
                         Some(operation.operation_id.clone()),
                         background_daemon_tx,
-                        &mut background_daemon_pending,
+                        background_daemon_pending,
                         async move {
                             match agent.remove_sub_agent(&sub_agent_id_for_task).await {
                                 Ok(_) => BackgroundOperationOutput::Completed(
@@ -326,7 +353,7 @@ if matches!(
                                 message: "concierge_work background queue is full".to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(true);
                     }
 
                     let operation = operation_registry().accept_operation(
@@ -344,7 +371,7 @@ if matches!(
                         .await?;
 
                     if agent_event_rx.is_none() {
-                        agent_event_rx = Some(agent.subscribe());
+                        *agent_event_rx = Some(agent.subscribe());
                     }
 
                     let agent = agent.clone();
@@ -355,7 +382,7 @@ if matches!(
                         BackgroundSubsystem::ConciergeWork,
                         operation_id,
                         background_daemon_tx,
-                        &mut background_daemon_pending,
+                        background_daemon_pending,
                         async move {
                             agent.request_concierge_welcome().await;
                             BackgroundSideEffectOutcome::Completed
@@ -368,7 +395,7 @@ if matches!(
                     agent
                         .persist_thread_by_id(crate::agent::concierge::CONCIERGE_THREAD_ID)
                         .await;
-                    last_concierge_welcome_fingerprint = None;
+                    *last_concierge_welcome_fingerprint = None;
                     framed
                         .send(DaemonMessage::AgentConciergeWelcomeDismissed)
                         .await?;
@@ -711,5 +738,5 @@ if matches!(
 
             _ => unreachable!("message chunk should be exhaustive"),
         }
-        continue;
-    }
+    Ok(true)
+}

@@ -1,6 +1,6 @@
-use super::*;
 use super::spawned_agents;
 use super::tab_layout::*;
+use super::*;
 use crate::app::RecentActionVm;
 use crate::state::chat::{ChatState, GatewayStatusVm, MessageRole};
 use crate::state::sidebar::{SidebarState, SidebarTab};
@@ -163,7 +163,10 @@ thread_local! {
 
 pub(crate) type PinnedSidebarRows = Vec<crate::state::chat::PinnedThreadMessage>;
 
-pub(crate) fn file_entry_matches(entry: &crate::state::task::WorkContextEntry, filter: &str) -> bool {
+pub(crate) fn file_entry_matches(
+    entry: &crate::state::task::WorkContextEntry,
+    filter: &str,
+) -> bool {
     let query = filter.trim();
     if query.is_empty() {
         return true;
@@ -217,7 +220,10 @@ pub(crate) fn hash_message_role<H: Hasher>(hasher: &mut H, role: MessageRole) {
     }
 }
 
-pub(crate) fn hash_task_status<H: Hasher>(hasher: &mut H, status: Option<crate::state::task::TaskStatus>) {
+pub(crate) fn hash_task_status<H: Hasher>(
+    hasher: &mut H,
+    status: Option<crate::state::task::TaskStatus>,
+) {
     match status {
         Some(crate::state::task::TaskStatus::Queued) => 0u8.hash(hasher),
         Some(crate::state::task::TaskStatus::InProgress) => 1u8.hash(hasher),

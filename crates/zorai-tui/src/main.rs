@@ -866,6 +866,19 @@ fn start_daemon_bridge(
                             } => {
                                 let _ = client.set_workspace_operator(workspace_id, operator);
                             }
+                            DaemonCommand::SetWorkspaceRepoMonitor {
+                                workspace_id,
+                                repo_monitor_enabled,
+                                repo_monitor_include_dirs,
+                                repo_monitor_exclude_dirs,
+                            } => {
+                                let _ = client.set_workspace_repo_monitor(
+                                    workspace_id,
+                                    repo_monitor_enabled,
+                                    repo_monitor_include_dirs,
+                                    repo_monitor_exclude_dirs,
+                                );
+                            }
                             DaemonCommand::CreateWorkspaceTask(request) => {
                                 let _ = client.create_workspace_task(request);
                             }

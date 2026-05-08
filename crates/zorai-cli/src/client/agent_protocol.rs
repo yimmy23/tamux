@@ -122,6 +122,14 @@ pub(super) enum AgentBridgeCommand {
         workspace_id: String,
         operator: zorai_protocol::WorkspaceOperator,
     },
+    SetWorkspaceRepoMonitor {
+        workspace_id: String,
+        repo_monitor_enabled: bool,
+        #[serde(default)]
+        repo_monitor_include_dirs: Vec<String>,
+        #[serde(default)]
+        repo_monitor_exclude_dirs: Vec<String>,
+    },
     CreateWorkspaceTask {
         request: zorai_protocol::WorkspaceTaskCreate,
     },

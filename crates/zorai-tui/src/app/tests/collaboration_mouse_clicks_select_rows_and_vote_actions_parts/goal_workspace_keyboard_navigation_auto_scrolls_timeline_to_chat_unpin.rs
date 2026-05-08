@@ -34,7 +34,8 @@ fn goal_workspace_keyboard_navigation_auto_scrolls_timeline() {
         },
     ));
     model.focus = FocusArea::Chat;
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_focused_pane(goal_workspace::GoalWorkspacePane::Timeline);
 
     for _ in 0..20 {
@@ -447,4 +448,3 @@ fn chat_unpin_updates_pinned_sidebar_without_waiting_for_thread_refresh() {
         } if thread_id == "thread-1" && message_id == "message-1"
     ));
 }
-

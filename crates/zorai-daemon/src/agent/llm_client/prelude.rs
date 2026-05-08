@@ -1,18 +1,19 @@
-use anyhow::{Context, Result};
-use futures::Stream;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::fmt;
-use std::pin::Pin;
-use std::task::Poll;
-use std::time::Duration;
-use tokio::sync::mpsc;
+use super::*;
+pub(crate) use anyhow::{Context, Result};
+pub(crate) use futures::Stream;
+pub(crate) use serde::{Deserialize, Serialize};
+pub(crate) use std::collections::HashMap;
+pub(crate) use std::fmt;
+pub(crate) use std::pin::Pin;
+pub(crate) use std::task::Poll;
+pub(crate) use std::time::Duration;
+pub(crate) use tokio::sync::mpsc;
 
-use super::task_prompt::now_millis;
-use super::types::{
-    get_provider_api_type, get_provider_definition, reload_custom_provider_catalog_from_default_path,
-    ApiTransport, ApiType, AuthMethod, AuthSource, CompletionChunk, ProviderConfig, ToolCall,
-    ToolDefinition, ToolFunction,
+pub(crate) use crate::agent::task_prompt::now_millis;
+pub(crate) use crate::agent::types::{
+    get_provider_api_type, get_provider_definition,
+    reload_custom_provider_catalog_from_default_path, ApiTransport, ApiType, AuthMethod,
+    AuthSource, CompletionChunk, ProviderConfig, ToolCall, ToolDefinition, ToolFunction,
 };
 
 pub(crate) const UPSTREAM_DIAGNOSTICS_MARKER: &str = "\n\n[zorai-upstream-diagnostics]";
@@ -29,7 +30,7 @@ pub(crate) enum UpstreamFailureClass {
 }
 
 impl UpstreamFailureClass {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::RequestInvalid => "request_invalid",
             Self::AuthConfiguration => "auth_configuration",
@@ -50,14 +51,14 @@ pub(crate) struct StructuredUpstreamFailure {
 }
 
 #[derive(Debug)]
-struct UpstreamFailureError {
-    class: UpstreamFailureClass,
-    summary: String,
-    diagnostics: serde_json::Value,
+pub(crate) struct UpstreamFailureError {
+    pub(crate) class: UpstreamFailureClass,
+    pub(crate) summary: String,
+    pub(crate) diagnostics: serde_json::Value,
 }
 
 impl UpstreamFailureError {
-    fn new(
+    pub(crate) fn new(
         class: UpstreamFailureClass,
         summary: impl Into<String>,
         diagnostics: serde_json::Value,
@@ -69,7 +70,7 @@ impl UpstreamFailureError {
         }
     }
 
-    fn structured(&self) -> StructuredUpstreamFailure {
+    pub(crate) fn structured(&self) -> StructuredUpstreamFailure {
         StructuredUpstreamFailure {
             class: self.class.as_str().to_string(),
             summary: self.summary.clone(),
@@ -77,7 +78,7 @@ impl UpstreamFailureError {
         }
     }
 
-    fn operator_message(&self) -> String {
+    pub(crate) fn operator_message(&self) -> String {
         format!(
             "{}{}{}",
             self.summary,
@@ -162,13 +163,13 @@ pub struct ApiToolCallFunction {
 // ---------------------------------------------------------------------------
 
 pub struct CompletionStream {
-    rx: mpsc::Receiver<Result<CompletionChunk>>,
+    pub(crate) rx: mpsc::Receiver<Result<CompletionChunk>>,
 }
 
 #[derive(Debug)]
-struct RateLimitError {
-    provider: String,
-    details: String,
+pub(crate) struct RateLimitError {
+    pub(crate) provider: String,
+    pub(crate) details: String,
 }
 
 impl fmt::Display for RateLimitError {
@@ -180,12 +181,12 @@ impl fmt::Display for RateLimitError {
 impl std::error::Error for RateLimitError {}
 
 #[derive(Debug, Clone)]
-struct OpenAICodexRequestAuth {
-    access_token: String,
-    account_id: String,
+pub(crate) struct OpenAICodexRequestAuth {
+    pub(crate) access_token: String,
+    pub(crate) account_id: String,
 }
 
-fn summarize_upstream_body(body_text: &str) -> String {
+pub(crate) fn summarize_upstream_body(body_text: &str) -> String {
     let trimmed = body_text.trim();
     if trimmed.is_empty() {
         "upstream returned an empty error body".to_string()
@@ -194,15 +195,23 @@ fn summarize_upstream_body(body_text: &str) -> String {
     }
 }
 
-fn raw_upstream_message(body_text: &str) -> String {
+pub(crate) fn raw_upstream_message(body_text: &str) -> String {
     serde_json::from_str::<serde_json::Value>(body_text)
         .ok()
         .and_then(|value| {
             value
                 .pointer("/error/metadata/raw")
                 .and_then(|value| value.as_str())
-                .or_else(|| value.pointer("/metadata/raw").and_then(|value| value.as_str()))
-                .or_else(|| value.pointer("/error/message").and_then(|value| value.as_str()))
+                .or_else(|| {
+                    value
+                        .pointer("/metadata/raw")
+                        .and_then(|value| value.as_str())
+                })
+                .or_else(|| {
+                    value
+                        .pointer("/error/message")
+                        .and_then(|value| value.as_str())
+                })
                 .or_else(|| value.get("message").and_then(|value| value.as_str()))
                 .map(ToOwned::to_owned)
         })

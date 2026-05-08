@@ -303,9 +303,12 @@ fn file_preview_scrollbar_thumb_drags_detail_scroll() {
                 .is_some_and(|cell| cell.symbol() == "█")
         })
         .expect("expected draggable scrollbar thumb to be visible");
-    let drag_row = thumb_row
-        .saturating_add(6)
-        .min(chat_area.y.saturating_add(chat_area.height).saturating_sub(1));
+    let drag_row = thumb_row.saturating_add(6).min(
+        chat_area
+            .y
+            .saturating_add(chat_area.height)
+            .saturating_sub(1),
+    );
 
     let initial_scroll = model.task_view_scroll;
 
@@ -336,7 +339,6 @@ fn file_preview_scrollbar_thumb_drags_detail_scroll() {
 
 #[test]
 fn file_preview_view_renders_image_preview_instead_of_binary_placeholder() {
-
     let mut model = build_model();
     model.focus = FocusArea::Chat;
     model.show_sidebar_override = Some(false);
@@ -462,4 +464,3 @@ fn file_preview_view_uses_available_height_for_image_preview() {
         "expected image preview to use more than the old 20-row cap, got {image_rows} rows"
     );
 }
-

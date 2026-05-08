@@ -1,4 +1,5 @@
-async fn execute_read_terminal(
+use super::*;
+pub(crate) async fn execute_read_terminal(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
 ) -> Result<String> {
@@ -56,7 +57,7 @@ async fn execute_read_terminal(
     }
 }
 
-async fn execute_run_terminal_command(
+pub(crate) async fn execute_run_terminal_command(
     args: &serde_json::Value,
     agent: &AgentEngine,
     task_id: Option<&str>,
@@ -106,7 +107,7 @@ async fn execute_run_terminal_command(
     }
 }
 
-async fn execute_bash_command(
+pub(crate) async fn execute_bash_command(
     args: &serde_json::Value,
     agent: &AgentEngine,
     task_id: Option<&str>,
@@ -166,7 +167,7 @@ async fn execute_bash_command(
 
 const TUI_HEADLESS_FOREGROUND_GRACE_SECS: u64 = 1;
 
-fn tool_waits_for_completion(args: &serde_json::Value) -> bool {
+pub(crate) fn tool_waits_for_completion(args: &serde_json::Value) -> bool {
     args.get("wait_for_completion")
         .and_then(|value| value.as_bool())
         .or_else(|| {
@@ -176,7 +177,7 @@ fn tool_waits_for_completion(args: &serde_json::Value) -> bool {
         .unwrap_or(true)
 }
 
-fn bash_command_should_force_background(args: &serde_json::Value) -> bool {
+pub(crate) fn bash_command_should_force_background(args: &serde_json::Value) -> bool {
     let wait_for_completion = tool_waits_for_completion(args);
     if !wait_for_completion {
         return false;
@@ -204,7 +205,7 @@ fn bash_command_args_with_wait_false(args: &serde_json::Value) -> serde_json::Va
     serde_json::Value::Object(mapped)
 }
 
-fn bash_command_can_wait_for_completion(args: &serde_json::Value) -> bool {
+pub(crate) fn bash_command_can_wait_for_completion(args: &serde_json::Value) -> bool {
     if !tool_waits_for_completion(args) {
         return false;
     }
@@ -246,7 +247,11 @@ fn shell_command_should_start_in_background(command: &str) -> bool {
         return true;
     }
 
-    if trimmed.contains('\n') || trimmed.contains('|') || trimmed.contains('`') || trimmed.contains("$(") {
+    if trimmed.contains('\n')
+        || trimmed.contains('|')
+        || trimmed.contains('`')
+        || trimmed.contains("$(")
+    {
         return true;
     }
 
@@ -272,15 +277,12 @@ fn shell_command_segment_should_start_in_background(segment: &str) -> bool {
                 .skip(1)
                 .any(|arg| matches!(arg.as_str(), "--version" | "-V" | "-v" | "--help" | "-h"))
         }
-        "npm" | "pnpm" | "yarn" => shell_words(segment)
-            .iter()
-            .skip(1)
-            .any(|arg| {
-                matches!(
-                    arg.as_str(),
-                    "run" | "dev" | "start" | "test" | "build" | "install" | "ci" | "watch"
-                )
-            }),
+        "npm" | "pnpm" | "yarn" => shell_words(segment).iter().skip(1).any(|arg| {
+            matches!(
+                arg.as_str(),
+                "run" | "dev" | "start" | "test" | "build" | "install" | "ci" | "watch"
+            )
+        }),
         "cargo" => shell_words(segment).iter().skip(1).any(|arg| {
             matches!(
                 arg.as_str(),
@@ -359,14 +361,14 @@ fn shell_command_segment_is_known_quick(segment: &str) -> bool {
     )
 }
 
-fn headless_foreground_detach_after_for_surface(
+pub(crate) fn headless_foreground_detach_after_for_surface(
     client_surface: Option<zorai_protocol::ClientSurface>,
 ) -> Option<std::time::Duration> {
     matches!(client_surface, Some(zorai_protocol::ClientSurface::Tui))
         .then(|| std::time::Duration::from_secs(TUI_HEADLESS_FOREGROUND_GRACE_SECS))
 }
 
-async fn resolve_shell_tool_client_surface(
+pub(crate) async fn resolve_shell_tool_client_surface(
     agent: &AgentEngine,
     thread_id: &str,
     task_id: Option<&str>,
@@ -404,11 +406,11 @@ async fn resolve_shell_tool_client_surface(
     None
 }
 
-fn should_use_managed_execution(args: &serde_json::Value) -> bool {
+pub(crate) fn should_use_managed_execution(args: &serde_json::Value) -> bool {
     should_use_managed_execution_for_surface(None, args)
 }
 
-fn should_use_managed_execution_for_surface(
+pub(crate) fn should_use_managed_execution_for_surface(
     client_surface: Option<zorai_protocol::ClientSurface>,
     args: &serde_json::Value,
 ) -> bool {
@@ -519,7 +521,7 @@ fn can_run_headless_when_terminal_unavailable(args: &serde_json::Value) -> bool 
     matches!(security_level, Some("yolo")) || !command_matches_policy_risk(command)
 }
 
-fn command_matches_policy_risk(command: &str) -> bool {
+pub(crate) fn command_matches_policy_risk(command: &str) -> bool {
     if command.trim().is_empty() {
         return false;
     }
@@ -539,7 +541,7 @@ fn command_matches_policy_risk(command: &str) -> bool {
     )
 }
 
-fn command_requires_managed_state(command: &str) -> bool {
+pub(crate) fn command_requires_managed_state(command: &str) -> bool {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return false;
@@ -585,7 +587,7 @@ fn command_has_followup_work(command: &str) -> bool {
     })
 }
 
-fn command_looks_interactive(command: &str) -> bool {
+pub(crate) fn command_looks_interactive(command: &str) -> bool {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return false;
@@ -625,12 +627,12 @@ fn compact_background_output(raw: &[u8], max_chars: usize) -> String {
     format!("... truncated ...\n{tail}")
 }
 
-struct HeadlessOutputCapture {
-    buffer: Arc<std::sync::Mutex<Vec<u8>>>,
-    task: tokio::task::JoinHandle<Result<(), std::io::Error>>,
+pub(crate) struct HeadlessOutputCapture {
+    pub(crate) buffer: Arc<std::sync::Mutex<Vec<u8>>>,
+    pub(crate) task: tokio::task::JoinHandle<Result<(), std::io::Error>>,
 }
 
-fn spawn_headless_output_capture<R>(stream: R) -> HeadlessOutputCapture
+pub(crate) fn spawn_headless_output_capture<R>(stream: R) -> HeadlessOutputCapture
 where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
@@ -654,7 +656,7 @@ where
     HeadlessOutputCapture { buffer, task }
 }
 
-async fn collect_headless_output_capture(
+pub(crate) async fn collect_headless_output_capture(
     mut capture: HeadlessOutputCapture,
     max_chars: usize,
     drain_grace: std::time::Duration,
@@ -675,7 +677,7 @@ async fn collect_headless_output_capture(
     Some(compact_background_output(&bytes, max_chars)).filter(|value| !value.is_empty())
 }
 
-async fn execute_headless_shell_command(
+pub(crate) async fn execute_headless_shell_command(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,

@@ -1,4 +1,5 @@
-fn build_search_files_rg_args(request: &SearchFilesRequest) -> Vec<String> {
+use super::*;
+pub(crate) fn build_search_files_rg_args(request: &SearchFilesRequest) -> Vec<String> {
     let mut cmd_args = vec![
         "--line-number".to_string(),
         "--with-filename".to_string(),
@@ -19,7 +20,7 @@ fn build_search_files_rg_args(request: &SearchFilesRequest) -> Vec<String> {
     cmd_args
 }
 
-fn web_search_request(args: &serde_json::Value) -> Result<WebSearchRequest> {
+pub(crate) fn web_search_request(args: &serde_json::Value) -> Result<WebSearchRequest> {
     let query = args
         .get("query")
         .and_then(|v| v.as_str())
@@ -44,7 +45,7 @@ fn web_search_request(args: &serde_json::Value) -> Result<WebSearchRequest> {
     })
 }
 
-fn fetch_url_request(args: &serde_json::Value) -> Result<FetchUrlRequest> {
+pub(crate) fn fetch_url_request(args: &serde_json::Value) -> Result<FetchUrlRequest> {
     let url = args
         .get("url")
         .and_then(|v| v.as_str())
@@ -80,7 +81,7 @@ fn fetch_url_request(args: &serde_json::Value) -> Result<FetchUrlRequest> {
     })
 }
 
-async fn run_search_files_subprocess(
+pub(crate) async fn run_search_files_subprocess(
     request: SearchFilesRequest,
 ) -> Result<SearchFilesCommandOutput> {
     let mut command = tokio::process::Command::new(SEARCH_FILES_PROGRAM);
@@ -132,7 +133,7 @@ fn search_files_success_exit_status() -> std::process::ExitStatus {
     }
 }
 
-async fn run_search_files_command_bounded(
+pub(crate) async fn run_search_files_command_bounded(
     mut command: tokio::process::Command,
     max_results: u64,
 ) -> Result<SearchFilesCommandOutput> {
@@ -294,7 +295,7 @@ where
     Ok(buffer)
 }
 
-fn resolve_search_files_path(path: &str) -> Result<String> {
+pub(crate) fn resolve_search_files_path(path: &str) -> Result<String> {
     let path = PathBuf::from(path);
     if path.is_absolute() {
         return Ok(path.to_string_lossy().into_owned());
@@ -316,7 +317,7 @@ fn render_search_files_lines(lines: &[Vec<u8>]) -> Vec<u8> {
         .into_bytes()
 }
 
-async fn run_search_files_command(
+pub(crate) async fn run_search_files_command(
     mut command: tokio::process::Command,
 ) -> Result<std::process::Output> {
     command
@@ -331,7 +332,7 @@ async fn run_search_files_command(
     child.wait_with_output().await.map_err(Into::into)
 }
 
-async fn execute_search_files_with_runner<F, Fut>(
+pub(crate) async fn execute_search_files_with_runner<F, Fut>(
     args: &serde_json::Value,
     runner: F,
 ) -> Result<String>
@@ -425,7 +426,7 @@ fn search_files_stderr_looks_like_invalid_regex(stderr: &str) -> bool {
         || lower.contains("error parsing regex")
 }
 
-async fn run_onecontext_search_subprocess(
+pub(crate) async fn run_onecontext_search_subprocess(
     request: OnecontextSearchRequest,
 ) -> Result<std::process::Output> {
     let mut cmd = tokio::process::Command::new("aline");

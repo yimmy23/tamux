@@ -21,6 +21,32 @@ fn map_trigger_fire_history_row(
     })
 }
 
+fn map_event_trigger_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventTriggerRow> {
+    Ok(EventTriggerRow {
+        id: row.get(0)?,
+        event_family: row.get(1)?,
+        event_kind: row.get(2)?,
+        agent_id: row.get(3)?,
+        target_state: row.get(4)?,
+        thread_id: row.get(5)?,
+        enabled: row.get::<_, i64>(6)? != 0,
+        cooldown_secs: row.get::<_, i64>(7)?.max(0) as u64,
+        risk_label: row.get(8)?,
+        notification_kind: row.get(9)?,
+        prompt_template: row.get(10)?,
+        tool_name: row.get(11)?,
+        tool_payload_json: row.get(12)?,
+        title_template: row.get(13)?,
+        body_template: row.get(14)?,
+        created_at: row.get::<_, i64>(15)?.max(0) as u64,
+        updated_at: row.get::<_, i64>(16)?.max(0) as u64,
+        last_fired_at: row
+            .get::<_, Option<i64>>(17)?
+            .map(|value| value.max(0) as u64),
+        max_retries: row.get::<_, i64>(18)?.max(0) as u32,
+    })
+}
+
 impl HistoryStore {
     pub async fn upsert_event_trigger(&self, row: &EventTriggerRow) -> Result<()> {
         let row = row.clone();
@@ -61,32 +87,6 @@ impl HistoryStore {
         event_family: Option<&str>,
         event_kind: Option<&str>,
     ) -> Result<Vec<EventTriggerRow>> {
-        fn map_event_trigger_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EventTriggerRow> {
-            Ok(EventTriggerRow {
-                id: row.get(0)?,
-                event_family: row.get(1)?,
-                event_kind: row.get(2)?,
-                agent_id: row.get(3)?,
-                target_state: row.get(4)?,
-                thread_id: row.get(5)?,
-                enabled: row.get::<_, i64>(6)? != 0,
-                cooldown_secs: row.get::<_, i64>(7)?.max(0) as u64,
-                risk_label: row.get(8)?,
-                notification_kind: row.get(9)?,
-                prompt_template: row.get(10)?,
-                tool_name: row.get(11)?,
-                tool_payload_json: row.get(12)?,
-                title_template: row.get(13)?,
-                body_template: row.get(14)?,
-                created_at: row.get::<_, i64>(15)?.max(0) as u64,
-                updated_at: row.get::<_, i64>(16)?.max(0) as u64,
-                last_fired_at: row
-                    .get::<_, Option<i64>>(17)?
-                    .map(|value| value.max(0) as u64),
-                max_retries: row.get::<_, i64>(18)?.max(0) as u32,
-            })
-        }
-
         let event_family = event_family.map(str::to_string);
         let event_kind = event_kind.map(str::to_string);
         self.read_conn
@@ -124,6 +124,40 @@ impl HistoryStore {
                         .collect::<std::result::Result<Vec<_>, _>>()
                         .map_err(Into::into),
                 }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_event_triggers_for_fire(
+        &self,
+        event_family: &str,
+        event_kind: &str,
+        state: Option<&str>,
+        thread_id: Option<&str>,
+    ) -> Result<Vec<EventTriggerRow>> {
+        let event_family = event_family.to_string();
+        let event_kind = event_kind.to_string();
+        let state = state.map(str::to_string);
+        let thread_id = thread_id.map(str::to_string);
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, event_family, event_kind, agent_id, target_state, thread_id, enabled, cooldown_secs, risk_label, notification_kind, prompt_template, tool_name, tool_payload_json, title_template, body_template, created_at, updated_at, last_fired_at, max_retries \
+                     FROM event_triggers \
+                     WHERE event_family = ?1 \
+                       AND event_kind = ?2 \
+                       AND enabled = 1 \
+                       AND (target_state IS NULL OR target_state = ?3) \
+                       AND (thread_id IS NULL OR thread_id = ?4) \
+                     ORDER BY updated_at DESC, id ASC",
+                )?;
+                let rows = stmt.query_map(
+                    params![event_family, event_kind, state, thread_id],
+                    map_event_trigger_row,
+                )?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
@@ -283,6 +317,35 @@ impl HistoryStore {
                 )?;
                 rows.collect::<std::result::Result<Vec<_>, _>>()
                     .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn count_recent_trigger_fire_history(
+        &self,
+        trigger_id: &str,
+        status: &str,
+        limit: usize,
+    ) -> Result<u64> {
+        let trigger_id = trigger_id.to_string();
+        let status = status.to_string();
+        let limit = limit.max(1) as i64;
+        self.read_conn
+            .call(move |conn| {
+                let count: i64 = conn.query_row(
+                    "SELECT COUNT(*) \
+                     FROM ( \
+                         SELECT 1 \
+                         FROM trigger_fire_history \
+                         WHERE trigger_id = ?1 AND status = ?2 \
+                         ORDER BY fired_at_ms DESC, id DESC \
+                         LIMIT ?3 \
+                     )",
+                    params![trigger_id, status, limit],
+                    |row| row.get(0),
+                )?;
+                Ok(count.max(0) as u64)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))

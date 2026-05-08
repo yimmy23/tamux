@@ -8,12 +8,12 @@ mod model_catalog;
 
 mod context;
 
-#[path = "providers_parts/providers.rs"]
-mod providers;
-#[path = "providers_parts/normalize_model_lookup_value_to_default_model_for_provider_auth.rs"]
-mod normalize_model_lookup_value_to_default_model_for_provider_auth;
 #[path = "providers_parts/known_models_for_provider_auth.rs"]
 mod known_models_for_provider_auth;
+#[path = "providers_parts/normalize_model_lookup_value_to_default_model_for_provider_auth.rs"]
+mod normalize_model_lookup_value_to_default_model_for_provider_auth;
+#[path = "providers_parts/providers.rs"]
+mod providers;
 
 pub use known_models_for_provider_auth::*;
 pub use normalize_model_lookup_value_to_default_model_for_provider_auth::*;

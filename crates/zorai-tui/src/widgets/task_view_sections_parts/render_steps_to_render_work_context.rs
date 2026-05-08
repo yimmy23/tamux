@@ -1,9 +1,9 @@
 use super::super::*;
+use super::super::{push_section_title, RenderRow};
 use crate::state::task::{AgentTask, GoalRun, GoalRunStatus, GoalRunStep, TaskState, TaskStatus};
 use crate::theme::ThemeTokens;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use super::super::{push_section_title, RenderRow};
 
 pub(crate) fn render_steps(
     rows: &mut Vec<RenderRow>,

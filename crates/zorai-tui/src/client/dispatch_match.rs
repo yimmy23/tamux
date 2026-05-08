@@ -1,14 +1,18 @@
 use super::*;
-use crate::client::DaemonClient;
 use crate::client::get_string_lossy::{get_string, get_string_lossy};
+use crate::client::ClientEvent;
+use crate::client::DaemonClient;
+use crate::wire::*;
 use serde_json::Value;
 use tokio::sync::mpsc;
-use crate::client::ClientEvent;
-use crate::wire::*;
 use tracing::warn;
 
 impl DaemonClient {
-    pub(crate) async fn dispatch_match_arms(kind: &str, event: Value, event_tx: &mpsc::Sender<ClientEvent>) {
+    pub(crate) async fn dispatch_match_arms(
+        kind: &str,
+        event: Value,
+        event_tx: &mpsc::Sender<ClientEvent>,
+    ) {
         match kind {
             "thread_created" => {
                 let title =
@@ -508,6 +512,7 @@ impl DaemonClient {
                     .to_string();
                 let _ = event_tx.send(ClientEvent::TierChanged { new_tier }).await;
             }
-            _ => {}}
+            _ => {}
+        }
     }
 }

@@ -364,6 +364,15 @@ fn tool_execution_hot_path_boxes_large_futures() {
         thread_participants_production.contains("Box::pin(self.continue_visible_thread_as_agent("),
         "deferred continuation helper should box the oversized continuation future"
     );
+    let continue_visible_thread_prelude = thread_participants_production
+        .split("async fn continue_visible_thread_as_agent(")
+        .nth(1)
+        .and_then(|source| source.split("if force_compaction {").next())
+        .expect("continue_visible_thread_as_agent prelude should be present");
+    assert!(
+        continue_visible_thread_prelude.contains("ensure_thread_messages_loaded(thread_id).await"),
+        "visible-thread continuation should hydrate persisted messages before checking live thread state"
+    );
     assert!(
         execute_tool_production.contains("pub fn execute_tool<'a>("),
         "execute_tool should return an explicitly boxed future instead of an inline async fn"

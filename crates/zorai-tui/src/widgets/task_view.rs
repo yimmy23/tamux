@@ -3,16 +3,16 @@ mod sections;
 #[path = "task_view_selection.rs"]
 mod selection;
 
-#[path = "task_view_parts/task_view.rs"]
-mod task_view;
+#[path = "task_view_parts/build_rows_to_selection_point_from_mouse.rs"]
+mod build_rows_to_selection_point_from_mouse;
 #[path = "task_view_parts/content_inner_to_render_goal_summary.rs"]
 mod content_inner_to_render_goal_summary;
 #[path = "task_view_parts/render_goal_controls_to_render_goal_agents.rs"]
 mod render_goal_controls_to_render_goal_agents;
-#[path = "task_view_parts/build_rows_to_selection_point_from_mouse.rs"]
-mod build_rows_to_selection_point_from_mouse;
 #[path = "task_view_parts/selected_text_to_scrollbar_layout.rs"]
 mod selected_text_to_scrollbar_layout;
+#[path = "task_view_parts/task_view.rs"]
+mod task_view;
 
 pub(crate) use build_rows_to_selection_point_from_mouse::*;
 pub(crate) use content_inner_to_render_goal_summary::*;

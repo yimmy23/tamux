@@ -1,10 +1,10 @@
-use tokio::sync::mpsc::unbounded_channel;
-use std::sync::mpsc;
-use zorai_shared::providers::*;
-use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
 use super::done_event_persists_final_reasoning_into_chat_message_to_mission_control::*;
-use crate::state::*;
+use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
 use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn header_usage_summary_caps_target_by_custom_compaction_window() {
     let mut model = make_model();
@@ -466,4 +466,3 @@ fn hidden_handoff_thread_detail_is_ignored() {
         "hidden handoff thread detail should not populate visible chat state"
     );
 }
-

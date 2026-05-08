@@ -1,7 +1,7 @@
-use super::*;
-use super::task_status_to_task_state::*;
-use super::new_to_reduce::*;
 use super::merge_goal_run_dossier::*;
+use super::new_to_reduce::*;
+use super::task_status_to_task_state::*;
+use super::*;
 pub(super) fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
     let mut thread_ids = Vec::new();
     let mut task_ids = Vec::new();
@@ -277,7 +277,11 @@ pub(super) fn merge_range_vec<T: Clone>(
     (union_start, union_end, merged)
 }
 
-pub(super) fn merge_optional_field<T>(existing: &mut Option<T>, incoming: Option<T>, preserve_existing: bool) {
+pub(super) fn merge_optional_field<T>(
+    existing: &mut Option<T>,
+    incoming: Option<T>,
+    preserve_existing: bool,
+) {
     if preserve_existing {
         if incoming.is_some() {
             *existing = incoming;
@@ -287,38 +291,57 @@ pub(super) fn merge_optional_field<T>(existing: &mut Option<T>, incoming: Option
     }
 }
 
-pub(super) fn merge_vec_field<T>(existing: &mut Vec<T>, incoming: Vec<T>, preserve_existing_when_empty: bool) {
+pub(super) fn merge_vec_field<T>(
+    existing: &mut Vec<T>,
+    incoming: Vec<T>,
+    preserve_existing_when_empty: bool,
+) {
     if preserve_existing_when_empty && incoming.is_empty() {
         return;
     }
     *existing = incoming;
 }
 
-pub(super) fn merge_string_field(existing: &mut String, incoming: String, preserve_existing_when_empty: bool) {
+pub(super) fn merge_string_field(
+    existing: &mut String,
+    incoming: String,
+    preserve_existing_when_empty: bool,
+) {
     if preserve_existing_when_empty && incoming.is_empty() {
         return;
     }
     *existing = incoming;
 }
 
-pub(super) fn merge_u32_field(existing: &mut u32, incoming: u32, preserve_existing_when_zero: bool) {
+pub(super) fn merge_u32_field(
+    existing: &mut u32,
+    incoming: u32,
+    preserve_existing_when_zero: bool,
+) {
     if preserve_existing_when_zero && incoming == 0 && *existing != 0 {
         return;
     }
     *existing = incoming;
 }
 
-pub(super) fn merge_u64_field(existing: &mut u64, incoming: u64, preserve_existing_when_zero: bool) {
+pub(super) fn merge_u64_field(
+    existing: &mut u64,
+    incoming: u64,
+    preserve_existing_when_zero: bool,
+) {
     if preserve_existing_when_zero && incoming == 0 && *existing != 0 {
         return;
     }
     *existing = incoming;
 }
 
-pub(super) fn merge_usize_field(existing: &mut usize, incoming: usize, preserve_existing_when_zero: bool) {
+pub(super) fn merge_usize_field(
+    existing: &mut usize,
+    incoming: usize,
+    preserve_existing_when_zero: bool,
+) {
     if preserve_existing_when_zero && incoming == 0 && *existing != 0 {
         return;
     }
     *existing = incoming;
 }
-

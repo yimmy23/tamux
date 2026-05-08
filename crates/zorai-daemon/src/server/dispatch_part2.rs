@@ -1,5 +1,25 @@
-if matches!(
-        &msg,
+use super::*;
+use crate::agent::AgentEngine;
+use crate::session_manager::SessionManager;
+use anyhow::Result;
+use futures::SinkExt;
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
+
+pub(crate) async fn dispatch_part2<S>(
+    msg: &ClientMessage,
+    agent: &Arc<AgentEngine>,
+    framed: &mut Framed<S, DaemonCodec>,
+    manager: &Arc<SessionManager>,
+    attached_rxs: &mut Vec<(zorai_protocol::SessionId, tokio::sync::broadcast::Receiver<DaemonMessage>)>,
+) -> Result<DispatchOutcome>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    if !matches!(
+        msg,
         ClientMessage::KillSession{ .. } |
         ClientMessage::Input{ .. } |
         ClientMessage::ExecuteManagedCommand{ .. } |
@@ -21,6 +41,10 @@ if matches!(
         ClientMessage::DeleteAgentMessages{ .. } |
         ClientMessage::RestoreAgentMessages{ .. }
     ) {
+        return Ok(DispatchOutcome::NotMatched);
+    }
+    let msg = msg.clone();
+
         match msg {
                 ClientMessage::KillSession { id } => {
                     attached_rxs.retain(|(sid, _)| *sid != id);
@@ -82,7 +106,7 @@ if matches!(
                                 message: "managed terminal execution is reserved for Electron clients".to_string(),
                             })
                             .await?;
-                        return Ok(());
+                        return Ok(DispatchOutcome::Terminate);
                     }
                     match manager.execute_managed_command(id, request).await {
                         Ok(message) => {
@@ -387,7 +411,13 @@ if matches!(
                     }
                 }
 
-                ClientMessage::ListAgentThreads => match manager.list_agent_threads().await {
+                ClientMessage::ListAgentThreads => match manager
+                    .list_agent_threads_filtered(&crate::history::AgentThreadListQuery {
+                        limit: Some(AGENT_DB_THREAD_LIST_WINDOW),
+                        ..crate::history::AgentThreadListQuery::default()
+                    })
+                    .await
+                {
                     Ok(threads) => {
                         let threads_json = serde_json::to_string(&threads).unwrap_or_default();
                         framed
@@ -411,10 +441,18 @@ if matches!(
                         Ok(thread) => {
                             let messages = if include_deleted {
                                 manager
-                                    .list_agent_messages_with_deleted(&thread_id, None)
+                                    .list_agent_messages_with_deleted(
+                                        &thread_id,
+                                        Some(AGENT_DB_THREAD_DETAIL_MESSAGE_WINDOW),
+                                    )
                                     .await?
                             } else {
-                                manager.list_agent_messages(&thread_id, None).await?
+                                manager
+                                    .list_agent_messages(
+                                        &thread_id,
+                                        Some(AGENT_DB_THREAD_DETAIL_MESSAGE_WINDOW),
+                                    )
+                                    .await?
                             };
                             let ((thread_json, messages_json), truncated) =
                                 cap_agent_db_thread_detail_for_ipc(thread, messages);
@@ -509,5 +547,5 @@ if matches!(
 
             _ => unreachable!("message chunk should be exhaustive"),
         }
-        continue;
-    }
+    Ok(DispatchOutcome::Continue)
+}

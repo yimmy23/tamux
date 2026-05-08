@@ -1,4 +1,35 @@
-{        // Drain agent events if subscribed.
+use super::*;
+use crate::agent::AgentEngine;
+use anyhow::Result;
+use futures::SinkExt;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::{broadcast, mpsc};
+use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage, SessionId};
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn pre_dispatch<S>(
+    agent: &Arc<AgentEngine>,
+    framed: &mut Framed<S, DaemonCodec>,
+    plugin_manager: &Arc<crate::plugin::PluginManager>,
+    attached_rxs: &mut Vec<(SessionId, broadcast::Receiver<DaemonMessage>)>,
+    client_agent_threads: &mut HashSet<String>,
+    last_concierge_welcome_fingerprint: &mut Option<String>,
+    agent_event_rx: &mut Option<broadcast::Receiver<crate::agent::types::AgentEvent>>,
+    background_daemon_queues: &mut BackgroundSubsystemQueues,
+    background_daemon_pending: &mut BackgroundPendingCounts,
+    whatsapp_link_rx: &mut Option<broadcast::Receiver<crate::agent::types::WhatsAppLinkRuntimeEvent>>,
+    whatsapp_link_snapshot_replayed: &mut bool,
+    gateway_ipc_rx: &mut Option<mpsc::UnboundedReceiver<DaemonMessage>>,
+    gateway_connection_state: &GatewayConnectionState,
+) -> Result<PreDispatchOutcome>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let msg = {
+        // Drain agent events if subscribed.
         if let Some(ref mut rx) = agent_event_rx {
             loop {
                 match rx.try_recv() {
@@ -10,7 +41,7 @@
                                 {
                                     continue;
                                 }
-                                last_concierge_welcome_fingerprint = Some(fingerprint);
+                                *last_concierge_welcome_fingerprint = Some(fingerprint);
                             }
                             if let Some((json, truncated)) = cap_agent_event_for_ipc(&event) {
                                 if truncated {
@@ -58,8 +89,8 @@
                                 has_error = snapshot.last_error.is_some(),
                                 "forwarding whatsapp runtime status to client"
                             );
-                            if !whatsapp_link_snapshot_replayed {
-                                whatsapp_link_snapshot_replayed = true;
+                            if !*whatsapp_link_snapshot_replayed {
+                                *whatsapp_link_snapshot_replayed = true;
                                 framed
                                     .send(DaemonMessage::AgentWhatsAppLinkStatus {
                                         state: snapshot.state,
@@ -178,7 +209,7 @@
                             .record_gateway_ipc_loss("gateway connection closed")
                             .await;
                     }
-                    return Ok(()); // client disconnected
+                    return Ok(PreDispatchOutcome::Terminate); // client disconnected
                 }
             }
         } else {
@@ -239,11 +270,12 @@
                             .record_gateway_ipc_loss("gateway connection closed")
                             .await;
                     }
-                    return Ok(());
+                    return Ok(PreDispatchOutcome::Terminate);
                 }
                 Err(_) => None, // timeout — loop back to drain output
             }
         };
-
-    msg
+        msg
+    };
+    Ok(PreDispatchOutcome::Msg(msg))
 }

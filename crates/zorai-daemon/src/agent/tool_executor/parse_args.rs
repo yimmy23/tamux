@@ -1,4 +1,5 @@
-fn normalize_tool_dispatch(
+use super::*;
+pub(crate) fn normalize_tool_dispatch(
     tool_name: &str,
     args: &serde_json::Value,
 ) -> (String, serde_json::Value) {
@@ -169,7 +170,7 @@ pub(crate) fn get_explicit_cwd_arg<'a>(args: &'a serde_json::Value) -> Option<&'
         .filter(|value| !value.is_empty())
 }
 
-fn get_file_content_arg(args: &serde_json::Value) -> Result<String> {
+pub(crate) fn get_file_content_arg(args: &serde_json::Value) -> Result<String> {
     if let Some(value) = get_string_arg(args, &["content", "contents", "text", "data", "body"]) {
         return Ok(value.to_string());
     }

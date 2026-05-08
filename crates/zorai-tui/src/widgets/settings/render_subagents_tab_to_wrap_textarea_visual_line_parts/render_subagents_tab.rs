@@ -1,8 +1,8 @@
-use super::*;
 use super::super::advanced_single_line_edit_layout_to_subagent_row_action_offsets::*;
+use super::super::render_advanced_value_to_render_advanced_tab::*;
 use super::super::render_edit_buffer_with_cursor_to_editing_cursor_hit_test_to_content::*;
 use super::super::wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render::*;
-use super::super::render_advanced_value_to_render_advanced_tab::*;
+use super::*;
 use crate::providers;
 use crate::state::concierge::ConciergeState;
 use crate::state::config::ConfigState;
@@ -228,7 +228,10 @@ pub(crate) fn render_subagents_tab<'a>(
             for rendered in prompt_lines {
                 lines.push(Line::from(vec![
                     Span::styled("  │ ", theme.fg_dim),
-                    Span::styled(pad_visual_width(&rendered, prompt_inner_width), theme.fg_active),
+                    Span::styled(
+                        pad_visual_width(&rendered, prompt_inner_width),
+                        theme.fg_active,
+                    ),
                     Span::styled(" │", theme.fg_dim),
                 ]));
             }

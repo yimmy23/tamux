@@ -1,8 +1,8 @@
-use super::*;
 use super::super::advanced_single_line_edit_layout_to_subagent_row_action_offsets::*;
+use super::super::render_advanced_value_to_render_advanced_tab::*;
 use super::super::render_edit_buffer_with_cursor_to_editing_cursor_hit_test_to_content::*;
 use super::super::wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render::*;
-use super::super::render_advanced_value_to_render_advanced_tab::*;
+use super::*;
 use crate::providers;
 use crate::state::concierge::ConciergeState;
 use crate::state::config::ConfigState;
@@ -247,6 +247,7 @@ pub(crate) fn settings_field_can_activate(settings: &SettingsState, config: &Con
             | "auto_compact_context"
             | "auto_retry"
             | "snapshot_auto_cleanup"
+            | "workspace_repo_monitor_enabled"
             | "feat_check_stale_todos"
             | "feat_check_stuck_goals"
             | "feat_check_unreplied_messages"
@@ -294,6 +295,7 @@ pub(crate) fn settings_field_can_toggle(settings: &SettingsState, config: &Confi
             | "compaction_custom_reasoning_effort"
             | "auto_retry"
             | "snapshot_auto_cleanup"
+            | "workspace_repo_monitor_enabled"
             | "feat_tier_override"
             | "feat_security_level"
             | "feat_check_stale_todos"
@@ -377,7 +379,11 @@ pub(crate) fn hit_test(
     }
 }
 
-pub(crate) fn tab_hit_test(tab_area: Rect, active_tab: SettingsTab, mouse_x: u16) -> Option<SettingsTab> {
+pub(crate) fn tab_hit_test(
+    tab_area: Rect,
+    active_tab: SettingsTab,
+    mouse_x: u16,
+) -> Option<SettingsTab> {
     visible_tabs(tab_area, active_tab_index(active_tab))
         .into_iter()
         .find(|tab| mouse_x >= tab.start_x && mouse_x < tab.end_x)
@@ -491,7 +497,7 @@ pub(crate) fn editing_cursor_hit_test(
     let rel_x = mouse.x.saturating_sub(content_area.x) as usize;
 
     if settings.is_textarea() {
-        let (text_start_row, text_start_col) = textarea_edit_layout(settings, field)?;
+        let (text_start_row, text_start_col) = textarea_edit_layout(settings, config, field)?;
         let line_count = settings.edit_buffer().split('\n').count().max(1);
         let row_end = text_start_row + line_count;
         if row < text_start_row || row > row_end {

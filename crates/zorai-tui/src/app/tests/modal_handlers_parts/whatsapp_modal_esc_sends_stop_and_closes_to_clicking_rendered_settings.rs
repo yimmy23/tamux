@@ -1,8 +1,8 @@
 use super::clicking_footer_queue_indicator_opens_queued_prompts_modal::sample_notification;
 use super::thread_picker_playgrounds_new_row_is_browse_only_to_slash_effort_updates::seed_active_weles_thread;
 use super::*;
-use crate::state::*;
 use crate::app::*;
+use crate::state::*;
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
@@ -476,4 +476,3 @@ pub(super) fn clicking_rendered_settings_tab_switches_tabs() {
 
     assert_eq!(model.settings.active_tab(), SettingsTab::Chat);
 }
-

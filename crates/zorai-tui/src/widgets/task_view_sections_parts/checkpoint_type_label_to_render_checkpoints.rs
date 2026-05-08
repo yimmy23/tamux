@@ -1,9 +1,9 @@
 use super::super::*;
+use super::super::{push_section_title, RenderRow};
 use crate::state::task::{AgentTask, GoalRun, GoalRunStatus, GoalRunStep, TaskState, TaskStatus};
 use crate::theme::ThemeTokens;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use super::super::{push_section_title, RenderRow};
 
 fn checkpoint_type_label(raw: &str) -> &'static str {
     match raw {

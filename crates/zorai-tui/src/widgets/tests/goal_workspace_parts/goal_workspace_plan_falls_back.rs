@@ -443,4 +443,3 @@ fn goal_workspace_plan_falls_back_to_goal_task_thread_when_run_thread_ids_are_mi
     assert!(plain.contains("Main agent"), "{plain}");
     assert!(plain.contains("thread-worker"), "{plain}");
 }
-

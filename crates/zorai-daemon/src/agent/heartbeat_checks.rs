@@ -62,13 +62,22 @@ impl AgentEngine {
         let cutoff = now.saturating_sub(threshold_ms);
         let mut goal_runs = match self
             .history
-            .list_goal_runs_for_statuses_updated_before(&stuck_statuses, cutoff)
+            .list_goal_run_stuck_check_refs_updated_before(&stuck_statuses, cutoff)
             .await
         {
             Ok(goal_runs) => goal_runs,
             Err(error) => {
-                tracing::warn!("failed to query persisted stuck goal runs: {error}");
-                Vec::new()
+                tracing::warn!("failed to query persisted stuck goal run refs: {error}");
+                self.history
+                    .list_goal_runs_for_statuses_updated_before(&stuck_statuses, cutoff)
+                    .await
+                    .map(|goal_runs| {
+                        goal_runs
+                            .iter()
+                            .map(crate::history::GoalRunStuckCheckRef::from)
+                            .collect()
+                    })
+                    .unwrap_or_default()
             }
         };
         let mut seen_goal_ids = goal_runs
@@ -82,7 +91,7 @@ impl AgentEngine {
                     && now.saturating_sub(goal_run.updated_at) >= threshold_ms
             }) {
                 if seen_goal_ids.insert(goal_run.id.clone()) {
-                    goal_runs.push(goal_run.clone());
+                    goal_runs.push(crate::history::GoalRunStuckCheckRef::from(goal_run));
                 }
             }
         }
@@ -475,19 +484,16 @@ impl AgentEngine {
             let _ = self.upsert_inbox_notification(notification.clone()).await;
         }
 
-        let active_ids: std::collections::HashSet<&str> = active_notifications
+        let active_ids = active_notifications
             .iter()
-            .map(|notification| notification.id.as_str())
-            .collect();
-
-        for mut notification in existing.into_iter().filter(|notification| {
-            notification.archived_at.is_none()
-                && notification.deleted_at.is_none()
-                && !active_ids.contains(notification.id.as_str())
-        }) {
-            notification.archived_at = Some(now);
-            notification.updated_at = now;
-            let _ = self.upsert_inbox_notification(notification).await;
+            .map(|notification| notification.id.clone())
+            .collect::<Vec<_>>();
+        if let Err(error) = self
+            .history
+            .archive_notifications_by_source_except_ids("plugin_auth", &active_ids, now)
+            .await
+        {
+            tracing::warn!(%error, "failed to archive stale plugin auth notifications");
         }
     }
 }

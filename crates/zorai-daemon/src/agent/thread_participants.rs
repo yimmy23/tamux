@@ -126,12 +126,34 @@ fn is_participant_remove_action(action: &str) -> bool {
 }
 
 impl AgentEngine {
+    async fn ensure_thread_shell_live_or_persisted(&self, thread_id: &str) -> Result<bool> {
+        if self.threads.read().await.contains_key(thread_id) {
+            return Ok(true);
+        }
+
+        let Some(restored) = self.restore_thread_from_db(thread_id).await else {
+            return Ok(false);
+        };
+        self.threads
+            .write()
+            .await
+            .insert(thread_id.to_string(), restored);
+        Ok(true)
+    }
+
     async fn set_thread_participant_always_auto_response(
         &self,
         thread_id: &str,
         target_agent_id: &str,
         enabled: bool,
     ) -> Result<bool> {
+        if !self
+            .ensure_thread_shell_live_or_persisted(thread_id)
+            .await?
+        {
+            anyhow::bail!("thread not found: {thread_id}");
+        }
+
         let mut participants = self.thread_participants.write().await;
         let Some(entry) = participants.get_mut(thread_id) else {
             anyhow::bail!("thread not found: {thread_id}");
@@ -224,26 +246,25 @@ impl AgentEngine {
             return false;
         }
         let target_agent_id = canonical_agent_id(&continuation.agent_id);
-        let threads = self.threads.read().await;
-        let Some(thread) = threads.get(thread_id) else {
-            return false;
-        };
-        let saw_tool_progress_after_queue = thread.messages.iter().any(|message| {
-            message.role == MessageRole::Tool
-                && message.timestamp >= continuation.queued_at_ms
-                && !message.content.trim().is_empty()
-        });
-        saw_tool_progress_after_queue
-            && thread.messages.iter().any(|message| {
-                message.role == MessageRole::Assistant
-                    && message.timestamp >= continuation.queued_at_ms
-                    && !message.content.trim().is_empty()
-                    && message
-                        .author_agent_id
-                        .as_deref()
-                        .map(|agent_id| canonical_agent_id(agent_id) == target_agent_id)
-                        .unwrap_or(true)
-            })
+        match self
+            .history
+            .visible_continuation_obsoleted_by_progress(
+                thread_id,
+                continuation.queued_at_ms,
+                target_agent_id,
+            )
+            .await
+        {
+            Ok(obsoleted) => obsoleted,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    target_agent_id,
+                    "failed to query visible continuation obsolescence from history: {error}"
+                );
+                false
+            }
+        }
     }
 
     async fn clear_thread_participant_suggestions_for_agent(
@@ -323,42 +344,40 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<String> {
-        let threads = self.threads.read().await;
-        threads.get(thread_id).and_then(|thread| {
-            thread
-                .messages
-                .iter()
-                .rev()
-                .find(|message| message.role == MessageRole::User)
-                .map(|message| message.content.clone())
-        })
+        match self.history.latest_user_message_content(thread_id).await {
+            Ok(message) => message,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    "failed to load latest visible user message from history: {error}"
+                );
+                None
+            }
+        }
     }
 
     async fn latest_visible_participant_message(
         &self,
         thread_id: &str,
     ) -> Option<(String, String, String)> {
-        let threads = self.threads.read().await;
-        threads.get(thread_id).and_then(|thread| {
-            thread.messages.iter().rev().find_map(|message| {
-                if message.role != MessageRole::Assistant {
-                    return None;
-                }
-                let participant_id = message.author_agent_id.as_ref()?;
-                let content = message.content.trim();
-                if content.is_empty() {
-                    return None;
-                }
-                Some((
-                    participant_id.clone(),
-                    message
-                        .author_agent_name
-                        .clone()
-                        .unwrap_or_else(|| canonical_agent_name(participant_id).to_string()),
-                    content.to_string(),
-                ))
-            })
-        })
+        let (participant_id, participant_name, content) = match self
+            .history
+            .latest_participant_assistant_message(thread_id)
+            .await
+        {
+            Ok(Some(message)) => message,
+            Ok(None) => return None,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    "failed to load latest visible participant message from history: {error}"
+                );
+                return None;
+            }
+        };
+        let participant_name =
+            participant_name.unwrap_or_else(|| canonical_agent_name(&participant_id).to_string());
+        Some((participant_id, participant_name, content))
     }
 
     pub(in crate::agent) async fn build_internal_delegate_payload(
@@ -380,34 +399,64 @@ impl AgentEngine {
                     "no"
                 }
             ));
-            if request_visible_thread_continuation {
-                payload.push_str("Do not continue work in this internal DM thread.\n");
-            }
             payload.push('\n');
-            if let Some(thread) = self.get_thread(thread_id).await {
-                payload.push_str(&format!("Visible thread title: {}\n", thread.title.trim()));
-                let recent_messages = thread
-                    .messages
-                    .iter()
-                    .rev()
-                    .take(8)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .collect::<Vec<_>>();
-                if !recent_messages.is_empty() {
-                    payload.push_str("Recent visible thread messages:\n");
-                    for message in recent_messages {
-                        let role = match message.role {
-                            MessageRole::Assistant => "assistant",
-                            MessageRole::System => "system",
-                            MessageRole::Tool => "tool",
-                            _ => "user",
-                        };
-                        payload.push_str(&format!("- {role}: {}\n", message.content.trim()));
+            let loaded_projected_context = match self
+                .history
+                .thread_delegate_payload_context(thread_id, 8)
+                .await
+            {
+                Ok(Some(context)) => {
+                    payload.push_str(&format!("Visible thread title: {}\n", context.title.trim()));
+                    if !context.messages.is_empty() {
+                        payload.push_str("Recent visible thread messages:\n");
+                        for message in context.messages {
+                            let role = match message.role.as_str() {
+                                "assistant" => "assistant",
+                                "system" => "system",
+                                "tool" => "tool",
+                                _ => "user",
+                            };
+                            payload.push_str(&format!("- {role}: {}\n", message.content.trim()));
+                        }
+                        payload.push('\n');
                     }
-                    payload.push('\n');
+                    true
+                }
+                Ok(None) => false,
+                Err(error) => {
+                    tracing::warn!(
+                        thread_id = %thread_id,
+                        "failed to load visible thread delegate context from history: {error}"
+                    );
+                    false
+                }
+            };
+            if !loaded_projected_context {
+                if let Some(thread) = self.get_thread(thread_id).await {
+                    payload.push_str(&format!("Visible thread title: {}\n", thread.title.trim()));
+                    let recent_messages = thread
+                        .messages
+                        .iter()
+                        .rev()
+                        .take(8)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .rev()
+                        .collect::<Vec<_>>();
+                    if !recent_messages.is_empty() {
+                        payload.push_str("Recent visible thread messages:\n");
+                        for message in recent_messages {
+                            let role = match message.role {
+                                MessageRole::Assistant => "assistant",
+                                MessageRole::System => "system",
+                                MessageRole::Tool => "tool",
+                                _ => "user",
+                            };
+                            payload.push_str(&format!("- {role}: {}\n", message.content.trim()));
+                        }
+                        payload.push('\n');
+                    }
                 }
             }
         }
@@ -431,14 +480,14 @@ impl AgentEngine {
             .unwrap_or_default();
         if latest_operator_request.trim().is_empty() {
             format!(
-                "Continue the visible operator thread as {}. This continuation was explicitly requested in an internal DM from {}. Internal DMs are discussion-only; do not continue work there.\n\nInternal delegation request:\n{}",
+                "Continue the visible operator thread as {}. This continuation was explicitly requested in an internal DM from {}. The internal DM may continue hidden coordination or tool execution in parallel if needed.\n\nInternal delegation request:\n{}",
                 target_agent_name,
                 sender_name,
                 content.trim()
             )
         } else {
             format!(
-                "Continue the visible operator thread as {}. This continuation was explicitly requested in an internal DM from {}. Internal DMs are discussion-only; do not continue work there.\n\nInternal delegation request:\n{}\n\nLatest operator request already on this thread:\n{}",
+                "Continue the visible operator thread as {}. This continuation was explicitly requested in an internal DM from {}. The internal DM may continue hidden coordination or tool execution in parallel if needed.\n\nInternal delegation request:\n{}\n\nLatest operator request already on this thread:\n{}",
                 target_agent_name,
                 sender_name,
                 content.trim(),
@@ -498,26 +547,36 @@ impl AgentEngine {
                     .and_then(|value| value.as_str().map(ToOwned::to_owned))
             })
             .collect::<Vec<_>>();
-            continuation.task_id = self
-                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                    id: None,
-                    status: None,
-                    statuses: active_statuses,
-                    source: None,
-                    thread_id: Some(thread_id.to_string()),
-                    thread_ids: Vec::new(),
-                    goal_run_id: None,
-                    parent_task_id: None,
-                    awaiting_approval_id: None,
-                    supervisor_config_present: false,
-                    exclude_terminal_statuses: false,
-                    order_by_recent_activity_desc: true,
-                    limit: Some(1),
-                })
-                .await
-                .into_iter()
-                .next()
-                .map(|task| task.id);
+            let query = crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: active_statuses,
+                source: None,
+                thread_id: Some(thread_id.to_string()),
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: true,
+                limit: Some(1),
+            };
+            continuation.task_id = match self.history.list_agent_task_refs_filtered(&query).await {
+                Ok(task_refs) => task_refs.into_iter().next().map(|(task_id, _, _)| task_id),
+                Err(error) => {
+                    tracing::warn!(
+                        thread_id,
+                        %error,
+                        "failed to query continuation task id from history"
+                    );
+                    self.list_tasks_filtered(&query)
+                        .await
+                        .into_iter()
+                        .next()
+                        .map(|task| task.id)
+                }
+            };
         }
         let mut queued = self.deferred_visible_thread_continuations.lock().await;
         let entry = queued.entry(thread_id.to_string()).or_default();
@@ -628,7 +687,7 @@ impl AgentEngine {
         force_compaction: bool,
         rerun_participant_observers_after_turn: bool,
     ) -> Result<SendMessageOutcome> {
-        if !self.threads.read().await.contains_key(thread_id) {
+        if !self.ensure_thread_messages_loaded(thread_id).await {
             anyhow::bail!("thread not found: {thread_id}");
         }
 
@@ -742,28 +801,38 @@ impl AgentEngine {
         &self,
         task_id: &str,
     ) -> Option<(String, Option<String>)> {
-        self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
-            id: Some(task_id.to_string()),
-            status: None,
-            statuses: Vec::new(),
-            source: None,
-            thread_id: None,
-            thread_ids: Vec::new(),
-            goal_run_id: None,
-            parent_task_id: None,
-            awaiting_approval_id: None,
-            supervisor_config_present: false,
-            exclude_terminal_statuses: false,
-            order_by_recent_activity_desc: false,
-            limit: Some(1),
-        })
-        .await
-        .into_iter()
-        .next()
-        .and_then(|task| {
-            task.override_provider
-                .map(|provider_id| (provider_id, task.override_model))
-        })
+        match self.history.agent_task_provider_override(task_id).await {
+            Ok(provider_override) => provider_override,
+            Err(error) => {
+                tracing::warn!(
+                    task_id,
+                    %error,
+                    "failed to query task provider override from history"
+                );
+                self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                })
+                .await
+                .into_iter()
+                .next()
+                .and_then(|task| {
+                    task.override_provider
+                        .map(|provider_id| (provider_id, task.override_model))
+                })
+            }
+        }
     }
 
     pub async fn list_thread_participants(&self, thread_id: &str) -> Vec<ThreadParticipantState> {
@@ -897,7 +966,10 @@ impl AgentEngine {
         auto_send_at: Option<u64>,
         source_message_timestamp: Option<u64>,
     ) -> Result<ThreadParticipantSuggestion> {
-        if !self.threads.read().await.contains_key(thread_id) {
+        if !self
+            .ensure_thread_shell_live_or_persisted(thread_id)
+            .await?
+        {
             anyhow::bail!("thread not found: {thread_id}");
         }
 
@@ -984,7 +1056,10 @@ impl AgentEngine {
         thread_id: &str,
         suggestion_id: &str,
     ) -> Result<bool> {
-        if !self.threads.read().await.contains_key(thread_id) {
+        if !self
+            .ensure_thread_shell_live_or_persisted(thread_id)
+            .await?
+        {
             anyhow::bail!("thread not found: {thread_id}");
         }
 
@@ -1043,7 +1118,10 @@ impl AgentEngine {
         suggestion_id: &str,
         error: &str,
     ) -> Result<Option<ThreadParticipantSuggestion>> {
-        if !self.threads.read().await.contains_key(thread_id) {
+        if !self
+            .ensure_thread_shell_live_or_persisted(thread_id)
+            .await?
+        {
             anyhow::bail!("thread not found: {thread_id}");
         }
 
@@ -1101,7 +1179,10 @@ impl AgentEngine {
         suggestion_id: &str,
         _preferred_session_hint: Option<&str>,
     ) -> Result<bool> {
-        if !self.threads.read().await.contains_key(thread_id) {
+        if !self
+            .ensure_thread_shell_live_or_persisted(thread_id)
+            .await?
+        {
             anyhow::bail!("thread not found: {thread_id}");
         }
 
@@ -1443,7 +1524,10 @@ impl AgentEngine {
         target_agent_id: &str,
         instruction: &str,
     ) -> Result<ThreadParticipantState> {
-        if !self.threads.read().await.contains_key(thread_id) {
+        if !self
+            .ensure_thread_shell_live_or_persisted(thread_id)
+            .await?
+        {
             anyhow::bail!("thread not found: {thread_id}");
         }
 
@@ -1501,7 +1585,10 @@ impl AgentEngine {
         thread_id: &str,
         target_agent_id: &str,
     ) -> Result<Option<ThreadParticipantState>> {
-        if !self.threads.read().await.contains_key(thread_id) {
+        if !self
+            .ensure_thread_shell_live_or_persisted(thread_id)
+            .await?
+        {
             anyhow::bail!("thread not found: {thread_id}");
         }
 
@@ -1543,7 +1630,10 @@ impl AgentEngine {
         thread_id: &str,
         target_agent_id: &str,
     ) -> Result<Option<ThreadParticipantState>> {
-        if !self.threads.read().await.contains_key(thread_id) {
+        if !self
+            .ensure_thread_shell_live_or_persisted(thread_id)
+            .await?
+        {
             anyhow::bail!("thread not found: {thread_id}");
         }
 
@@ -1665,10 +1755,9 @@ impl AgentEngine {
                 );
             }
             let budget_exceeded_task = self.budget_exceeded_task_for_thread(thread_id).await;
-            if let Some(task) = budget_exceeded_task {
+            if let Some(task_id) = budget_exceeded_task {
                 anyhow::bail!(
-                    "thread {thread_id} is locked because task {} exhausted its execution budget",
-                    task.id
+                    "thread {thread_id} is locked because task {task_id} exhausted its execution budget"
                 );
             }
         }
@@ -1703,7 +1792,7 @@ impl AgentEngine {
         target_agent_id: &str,
         content: &str,
     ) -> Result<()> {
-        if !self.threads.read().await.contains_key(thread_id) {
+        if !self.ensure_thread_messages_loaded(thread_id).await {
             anyhow::bail!("thread not found: {thread_id}");
         }
 
@@ -1799,7 +1888,7 @@ impl AgentEngine {
         _preferred_session_hint: Option<&str>,
         content: &str,
     ) -> Result<()> {
-        if !self.threads.read().await.contains_key(thread_id) {
+        if !self.ensure_thread_messages_loaded(thread_id).await {
             anyhow::bail!("thread not found: {thread_id}");
         }
 

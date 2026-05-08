@@ -1,7 +1,9 @@
 use super::*;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
-use crate::widgets;
 use crate::providers;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use zorai_shared::providers::*;
 impl TuiModel {
@@ -180,16 +182,14 @@ impl TuiModel {
                 .get("reasoning_effort")
                 .and_then(|v| v.as_str())
                 .map(ToString::to_string),
-            openrouter_provider_order:
-                crate::state::subagents::openrouter_provider_list_from_json(
-                    &raw,
-                    "openrouter_provider_order",
-                ),
-            openrouter_provider_ignore:
-                crate::state::subagents::openrouter_provider_list_from_json(
-                    &raw,
-                    "openrouter_provider_ignore",
-                ),
+            openrouter_provider_order: crate::state::subagents::openrouter_provider_list_from_json(
+                &raw,
+                "openrouter_provider_order",
+            ),
+            openrouter_provider_ignore: crate::state::subagents::openrouter_provider_list_from_json(
+                &raw,
+                "openrouter_provider_ignore",
+            ),
             openrouter_allow_fallbacks: raw
                 .get("openrouter_allow_fallbacks")
                 .and_then(|v| v.as_bool())
@@ -253,7 +253,10 @@ impl TuiModel {
         self.modal.set_picker_item_count(6);
     }
 
-    pub(crate) fn open_subagent_openrouter_provider_picker(&mut self, target: SettingsPickerTarget) {
+    pub(crate) fn open_subagent_openrouter_provider_picker(
+        &mut self,
+        target: SettingsPickerTarget,
+    ) {
         let Some(editor) = self.subagents.editor.as_ref() else {
             return;
         };
@@ -277,7 +280,8 @@ impl TuiModel {
             "reasoning_effort": self.concierge.reasoning_effort,
             "auto_cleanup_on_navigate": self.concierge.auto_cleanup_on_navigate,
         });
-        if self.concierge.provider.as_deref() == Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER)
+        if self.concierge.provider.as_deref()
+            == Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER)
         {
             config["openrouter_provider_order"] =
                 crate::state::subagents::openrouter_provider_list_to_json(
@@ -294,7 +298,10 @@ impl TuiModel {
         self.send_daemon_command(DaemonCommand::GetConciergeConfig);
     }
 
-    pub(crate) fn open_concierge_openrouter_provider_picker(&mut self, target: SettingsPickerTarget) {
+    pub(crate) fn open_concierge_openrouter_provider_picker(
+        &mut self,
+        target: SettingsPickerTarget,
+    ) {
         if self.concierge.provider.as_deref()
             != Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER)
         {

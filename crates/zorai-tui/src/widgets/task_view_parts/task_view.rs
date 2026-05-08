@@ -1,9 +1,9 @@
-use super::*;
-use super::sections::*;
-use crate::state::task::*;
 use super::sections;
+use super::sections::*;
 use super::selection;
+use super::*;
 use crate::state::sidebar::{SidebarItemTarget, SidebarTab};
+use crate::state::task::*;
 use crate::theme::ThemeTokens;
 use ratatui::layout::{Position, Rect};
 use ratatui::prelude::*;

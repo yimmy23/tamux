@@ -48,7 +48,7 @@ impl AgentEngine {
     pub(super) async fn running_goal_trajectory_targets(&self) -> Vec<(String, String)> {
         let mut running_goal_runs = match self
             .history
-            .list_goal_runs_for_statuses(&[GoalRunStatus::Running])
+            .list_goal_run_goal_refs_for_statuses(&[GoalRunStatus::Running])
             .await
         {
             Ok(goal_runs) => goal_runs,
@@ -61,7 +61,7 @@ impl AgentEngine {
         };
         let mut seen_goal_ids = running_goal_runs
             .iter()
-            .map(|goal_run| goal_run.id.clone())
+            .map(|(goal_run_id, _)| goal_run_id.clone())
             .collect::<HashSet<_>>();
         {
             let live_goal_runs = self.goal_runs.lock().await;
@@ -70,15 +70,12 @@ impl AgentEngine {
                 .filter(|goal_run| goal_run.status == GoalRunStatus::Running)
             {
                 if seen_goal_ids.insert(goal_run.id.clone()) {
-                    running_goal_runs.push(goal_run.clone());
+                    running_goal_runs.push((goal_run.id.clone(), goal_run.goal.clone()));
                 }
             }
         }
 
         running_goal_runs
-            .iter()
-            .map(|goal_run| (goal_run.id.clone(), goal_run.goal.clone()))
-            .collect()
     }
 
     /// Run the structured heartbeat (backward-compatible wrapper).
@@ -437,17 +434,17 @@ impl AgentEngine {
             .await
         {
             Ok(thread_id) => {
-                let threads = self.threads.read().await;
-                let response = threads
-                    .get(&thread_id)
-                    .and_then(|t| {
-                        t.messages
-                            .iter()
-                            .rev()
-                            .find(|m| m.role == MessageRole::Assistant)
-                            .map(|m| m.content.clone())
-                    })
-                    .unwrap_or_default();
+                let response = match self.history.latest_assistant_message(&thread_id).await {
+                    Ok(Some(message)) => message.content,
+                    Ok(None) => String::new(),
+                    Err(error) => {
+                        tracing::warn!(
+                            thread_id = %thread_id,
+                            "failed to load persisted heartbeat synthesis response: {error}"
+                        );
+                        String::new()
+                    }
+                };
 
                 let actionable = response.contains("ACTIONABLE: true");
                 let digest = response

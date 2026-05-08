@@ -30,7 +30,10 @@ fn goal_composer_add_agent_hotkey_creates_another_role_assignment() {
 
     assert!(!handled);
     assert_eq!(model.goal_mission_control.role_assignments.len(), 2);
-    assert_eq!(model.goal_mission_control.selected_runtime_assignment_index, 1);
+    assert_eq!(
+        model.goal_mission_control.selected_runtime_assignment_index,
+        1
+    );
 }
 
 #[test]
@@ -71,7 +74,9 @@ fn goal_composer_launch_sends_preflight_role_assignments() {
             ],
             "Previous goal snapshot",
         );
-    model.goal_mission_control.set_prompt_text("Ship the next release");
+    model
+        .goal_mission_control
+        .set_prompt_text("Ship the next release");
 
     model.start_goal_run_from_mission_control();
 
@@ -126,7 +131,9 @@ fn goal_composer_role_picker_allows_custom_researcher_assignment() {
             ],
             "Main agent inheritance",
         );
-    model.goal_mission_control.set_selected_runtime_assignment_index(1);
+    model
+        .goal_mission_control
+        .set_selected_runtime_assignment_index(1);
     model.main_pane_view = MainPaneView::GoalComposer;
     model.focus = FocusArea::Chat;
 
@@ -145,7 +152,10 @@ fn goal_composer_role_picker_allows_custom_researcher_assignment() {
         modal::ModalKind::RolePicker,
     );
     assert!(!handled);
-    assert_eq!(model.settings.editing_field(), Some("mission_control_assignment_role"));
+    assert_eq!(
+        model.settings.editing_field(),
+        Some("mission_control_assignment_role")
+    );
 
     model.settings.reduce(SettingsAction::InsertChar('e'));
     model.settings.reduce(SettingsAction::InsertChar('r'));
@@ -195,7 +205,9 @@ fn goal_composer_custom_role_edit_keeps_typing_in_inline_editor() {
             ],
             "Main agent inheritance",
         );
-    model.goal_mission_control.set_selected_runtime_assignment_index(1);
+    model
+        .goal_mission_control
+        .set_selected_runtime_assignment_index(1);
     model.main_pane_view = MainPaneView::GoalComposer;
     model.focus = FocusArea::Input;
 
@@ -213,7 +225,10 @@ fn goal_composer_custom_role_edit_keeps_typing_in_inline_editor() {
     let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
     assert!(!handled);
     assert_eq!(model.modal.top(), Some(modal::ModalKind::Settings));
-    assert_eq!(model.settings.editing_field(), Some("mission_control_assignment_role"));
+    assert_eq!(
+        model.settings.editing_field(),
+        Some("mission_control_assignment_role")
+    );
 
     let handled = model.handle_key(KeyCode::Char('e'), KeyModifiers::NONE);
     assert!(!handled);
@@ -264,7 +279,9 @@ fn goal_composer_role_picker_allows_builtin_persona_assignment() {
             ],
             "Main agent inheritance",
         );
-    model.goal_mission_control.set_selected_runtime_assignment_index(1);
+    model
+        .goal_mission_control
+        .set_selected_runtime_assignment_index(1);
     model.main_pane_view = MainPaneView::GoalComposer;
     model.focus = FocusArea::Chat;
 
@@ -299,7 +316,9 @@ fn goal_composer_launch_includes_attached_text_files_in_goal_prompt() {
     model.connected = true;
     model.main_pane_view = MainPaneView::GoalComposer;
     model.focus = FocusArea::Chat;
-    model.goal_mission_control.set_prompt_text("analyze".to_string());
+    model
+        .goal_mission_control
+        .set_prompt_text("analyze".to_string());
     model.attachments.push(Attachment {
         filename: "plan.md".to_string(),
         size_bytes: 18,
@@ -363,7 +382,9 @@ fn mission_control_model_picker_fetches_models_for_selected_assignment_provider(
             ],
             "Main agent inheritance",
         );
-    model.goal_mission_control.set_selected_runtime_assignment_index(1);
+    model
+        .goal_mission_control
+        .set_selected_runtime_assignment_index(1);
     model.config.agent_config_raw = Some(serde_json::json!({
         "providers": {
             zorai_shared::providers::PROVIDER_ID_CHUTES: {
@@ -408,13 +429,15 @@ fn mission_control_custom_model_entry_updates_selected_assignment_not_global_mod
     model.config.model = "gpt-5.4".to_string();
     model
         .config
-        .reduce(config::ConfigAction::ModelsFetched(vec![config::FetchedModel {
-            id: "gpt-5.4-mini".to_string(),
-            name: Some("GPT-5.4 Mini".to_string()),
-            context_window: Some(128_000),
-            pricing: None,
-            metadata: None,
-        }]));
+        .reduce(config::ConfigAction::ModelsFetched(vec![
+            config::FetchedModel {
+                id: "gpt-5.4-mini".to_string(),
+                name: Some("GPT-5.4 Mini".to_string()),
+                context_window: Some(128_000),
+                pricing: None,
+                metadata: None,
+            },
+        ]));
     model.goal_mission_control =
         goal_mission_control::GoalMissionControlState::from_main_assignment(
             task::GoalAgentAssignment {
@@ -445,7 +468,9 @@ fn mission_control_custom_model_entry_updates_selected_assignment_not_global_mod
             ],
             "Main agent inheritance",
         );
-    model.goal_mission_control.set_selected_runtime_assignment_index(1);
+    model
+        .goal_mission_control
+        .set_selected_runtime_assignment_index(1);
 
     let opened = model.stage_mission_control_assignment_modal_edit(
         goal_mission_control::RuntimeAssignmentEditField::Model,
@@ -465,7 +490,10 @@ fn mission_control_custom_model_entry_updates_selected_assignment_not_global_mod
     );
 
     assert!(!handled);
-    assert_eq!(model.settings.editing_field(), Some("mission_control_assignment_model"));
+    assert_eq!(
+        model.settings.editing_field(),
+        Some("mission_control_assignment_model")
+    );
     model.settings.reduce(SettingsAction::InsertChar('x'));
 
     let handled = model.handle_key_modal(

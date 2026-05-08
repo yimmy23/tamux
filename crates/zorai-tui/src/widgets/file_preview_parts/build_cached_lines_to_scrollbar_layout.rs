@@ -199,7 +199,9 @@ pub(super) fn selection_line<'a>(
     if row < snapshot.header_lines.len() {
         snapshot.header_lines.get(row)
     } else {
-        snapshot.body_lines.get(row.saturating_sub(snapshot.header_lines.len()))
+        snapshot
+            .body_lines
+            .get(row.saturating_sub(snapshot.header_lines.len()))
     }
 }
 

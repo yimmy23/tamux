@@ -1,4 +1,5 @@
-fn default_task_title(description: &str, command: Option<&str>) -> String {
+use super::*;
+pub(crate) fn default_task_title(description: &str, command: Option<&str>) -> String {
     let source = command.unwrap_or(description).trim();
     if source.is_empty() {
         return "Queued task".to_string();
@@ -12,7 +13,7 @@ fn default_task_title(description: &str, command: Option<&str>) -> String {
     title
 }
 
-fn parse_scheduled_at(args: &serde_json::Value) -> Result<Option<u64>> {
+pub(crate) fn parse_scheduled_at(args: &serde_json::Value) -> Result<Option<u64>> {
     if let Some(timestamp) = args.get("scheduled_at").and_then(|value| value.as_u64()) {
         return Ok(Some(timestamp));
     }
@@ -40,7 +41,7 @@ fn parse_scheduled_at(args: &serde_json::Value) -> Result<Option<u64>> {
     Ok(None)
 }
 
-async fn execute_type_in_terminal(
+pub(crate) async fn execute_type_in_terminal(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
 ) -> Result<String> {

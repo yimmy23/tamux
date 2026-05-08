@@ -1,3 +1,4 @@
+use super::*;
 // ---------------------------------------------------------------------------
 // Gateway messaging — execute via CLI subprocess
 // ---------------------------------------------------------------------------
@@ -10,7 +11,7 @@ fn now_epoch_millis() -> u64 {
         .as_millis() as u64
 }
 
-fn should_use_linked_whatsapp_transport(
+pub(crate) fn should_use_linked_whatsapp_transport(
     wa_link_state: &str,
     has_native_client: bool,
     has_sidecar_process: bool,
@@ -19,7 +20,9 @@ fn should_use_linked_whatsapp_transport(
 }
 
 fn gateway_channel_key(platform: &str, channel_id: &str) -> Option<String> {
-    Some(crate::agent::gateway::gateway_channel_key(platform, channel_id))
+    Some(crate::agent::gateway::gateway_channel_key(
+        platform, channel_id,
+    ))
 }
 
 async fn block_if_duplicate_gateway_message(
@@ -186,13 +189,8 @@ pub(in crate::agent) async fn execute_gateway_message(
                     .cloned()
                     .unwrap_or_else(|| target_channel.clone())
             };
-            block_if_duplicate_gateway_message(
-                agent,
-                "discord",
-                &reply_context_channel,
-                message,
-            )
-            .await?;
+            block_if_duplicate_gateway_message(agent, "discord", &reply_context_channel, message)
+                .await?;
 
             // Thread context: auto-inject message_reference from reply_contexts or agent args
             let reply_msg_id = args
@@ -367,12 +365,12 @@ pub(in crate::agent) async fn execute_gateway_message(
 // Workspace/snippet tools — read/write persistence files
 // ---------------------------------------------------------------------------
 
-async fn execute_workspace_tool(
+pub(crate) async fn execute_workspace_tool(
     tool_name: &str,
     args: &serde_json::Value,
     event_tx: &broadcast::Sender<AgentEvent>,
 ) -> Result<String> {
-    let data_dir = super::agent_data_dir()
+    let data_dir = super::super::task_prompt::agent_data_dir()
         .parent()
         .unwrap_or(std::path::Path::new("."))
         .to_path_buf();
@@ -480,7 +478,7 @@ fn strip_ansi_codes(text: &str) -> String {
     result
 }
 
-fn strip_html_tags(html: &str) -> String {
+pub(crate) fn strip_html_tags(html: &str) -> String {
     let mut result = String::with_capacity(html.len());
     let mut in_tag = false;
     let mut in_script = false;
@@ -532,7 +530,7 @@ fn strip_html_tags(html: &str) -> String {
 }
 
 // Minimal URL encoding (only used for web_search query)
-mod urlencoding {
+pub(crate) mod urlencoding {
     pub fn encode(s: &str) -> String {
         let mut result = String::new();
         for byte in s.bytes() {

@@ -25,13 +25,45 @@ use crate::agent::skill_registry::{to_community_entry, RegistryClient};
 use crate::agent::AgentEngine;
 use crate::session_manager::SessionManager;
 
-include!("server/helpers_part1.rs");
-include!("server/helpers_part2.rs");
-include!("server/operations.rs");
-include!("server/subsystem_queue.rs");
-include!("server/subsystem_metrics.rs");
-include!("server/operation_retention.rs");
-include!("server/operations_registry.rs");
+pub(crate) const AGENT_DB_THREAD_DETAIL_MESSAGE_WINDOW: usize = 64;
+
+/// Outcome of a dispatch helper that may also terminate the connection loop.
+pub(crate) enum DispatchOutcome {
+    NotMatched,
+    Continue,
+    Terminate,
+}
+
+/// Outcome of the pre-dispatch loop step that drains async events before
+/// reading the next ClientMessage.
+pub(crate) enum PreDispatchOutcome {
+    Terminate,
+    Msg(Option<ClientMessage>),
+}
+pub(crate) const AGENT_DB_THREAD_LIST_WINDOW: usize = 128;
+pub(crate) const AGENT_DB_INDEX_LIST_WINDOW: usize = 128;
+
+#[path = "server/helpers_part1.rs"]
+mod helpers_part1;
+#[path = "server/helpers_part2.rs"]
+mod helpers_part2;
+#[path = "server/operation_retention.rs"]
+mod operation_retention;
+#[path = "server/operations.rs"]
+mod operations;
+#[path = "server/operations_registry.rs"]
+mod operations_registry;
+#[path = "server/subsystem_metrics.rs"]
+mod subsystem_metrics;
+#[path = "server/subsystem_queue.rs"]
+mod subsystem_queue;
+pub(crate) use helpers_part1::*;
+pub(crate) use helpers_part2::*;
+pub(crate) use operation_retention::*;
+pub(crate) use operations::*;
+pub(crate) use operations_registry::*;
+pub(crate) use subsystem_metrics::*;
+pub(crate) use subsystem_queue::*;
 
 fn is_unknown_operator_profile_session_error(error: &anyhow::Error) -> bool {
     error
@@ -40,16 +72,37 @@ fn is_unknown_operator_profile_session_error(error: &anyhow::Error) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    include!("server/tests_part1.rs");
-    include!("server/tests_part2.rs");
-    include!("server/tests_part3.rs");
-}
+mod tests;
 
-include!("server/post_tests.rs");
+#[path = "server/post_tests.rs"]
+mod post_tests;
+pub(crate) use post_tests::*;
+
+#[path = "server/connection_pre_dispatch.rs"]
+mod connection_pre_dispatch;
+#[path = "server/dispatch_part1.rs"]
+mod dispatch_part1;
+#[path = "server/dispatch_part2.rs"]
+mod dispatch_part2;
+#[path = "server/dispatch_part3.rs"]
+mod dispatch_part3;
+#[path = "server/dispatch_part4.rs"]
+mod dispatch_part4;
+#[path = "server/dispatch_part5.rs"]
+mod dispatch_part5;
+#[path = "server/dispatch_part6.rs"]
+mod dispatch_part6;
+#[path = "server/dispatch_part7.rs"]
+mod dispatch_part7;
+#[path = "server/dispatch_part8.rs"]
+mod dispatch_part8;
+#[path = "server/dispatch_part9.rs"]
+mod dispatch_part9;
+#[path = "server/dispatch_part10.rs"]
+mod dispatch_part10;
 
 #[derive(Clone)]
-struct StartupReadiness {
+pub(crate) struct StartupReadiness {
     ready: Arc<AtomicBool>,
     notify: Arc<tokio::sync::Notify>,
 }
@@ -177,7 +230,7 @@ mod startup_readiness_tests {
     }
 }
 
-async fn handle_connection<S>(
+pub(crate) async fn handle_connection<S>(
     stream: S,
     manager: Arc<SessionManager>,
     agent: Arc<AgentEngine>,
@@ -208,22 +261,145 @@ where
     let mut gateway_connection_state = GatewayConnectionState::Unregistered;
 
     loop {
-        let msg = include!("server/connection_pre_dispatch.rs");
+        let msg = match connection_pre_dispatch::pre_dispatch(
+            &agent,
+            &mut framed,
+            &plugin_manager,
+            &mut attached_rxs,
+            &mut client_agent_threads,
+            &mut last_concierge_welcome_fingerprint,
+            &mut agent_event_rx,
+            &mut background_daemon_queues,
+            &mut background_daemon_pending,
+            &mut whatsapp_link_rx,
+            &mut whatsapp_link_snapshot_replayed,
+            &mut gateway_ipc_rx,
+            &gateway_connection_state,
+        )
+        .await?
+        {
+            PreDispatchOutcome::Terminate => return Ok(()),
+            PreDispatchOutcome::Msg(m) => m,
+        };
 
         if let Some(msg) = msg {
             if client_message_requires_startup_readiness(&msg) {
                 startup_readiness.wait_until_ready().await;
             }
-            include!("server/dispatch_part1.rs");
-            include!("server/dispatch_part2.rs");
-            include!("server/dispatch_part3.rs");
-            include!("server/dispatch_part4.rs");
-            include!("server/dispatch_part5.rs");
-            include!("server/dispatch_part6.rs");
-            include!("server/dispatch_part7.rs");
-            include!("server/dispatch_part8.rs");
-            include!("server/dispatch_part9.rs");
-            include!("server/dispatch_part10.rs");
+            match dispatch_part1::dispatch_part1(
+                &msg,
+                &agent,
+                &mut framed,
+                &manager,
+                &mut attached_rxs,
+                &mut gateway_connection_state,
+                &mut gateway_ipc_rx,
+            )
+            .await?
+            {
+                DispatchOutcome::NotMatched => {}
+                DispatchOutcome::Continue => continue,
+                DispatchOutcome::Terminate => return Ok(()),
+            }
+            match dispatch_part2::dispatch_part2(
+                &msg,
+                &agent,
+                &mut framed,
+                &manager,
+                &mut attached_rxs,
+            )
+            .await?
+            {
+                DispatchOutcome::NotMatched => {}
+                DispatchOutcome::Continue => continue,
+                DispatchOutcome::Terminate => return Ok(()),
+            }
+            if dispatch_part3::dispatch_part3(
+                &msg,
+                &agent,
+                &mut framed,
+                &manager,
+                &mut client_agent_threads,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part4::dispatch_part4(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut background_daemon_queues,
+                &mut background_daemon_pending,
+                &mut client_agent_threads,
+                &mut agent_event_rx,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part5::dispatch_part5(&msg, &agent, &mut framed).await? {
+                continue;
+            }
+            if dispatch_part6::dispatch_part6(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut background_daemon_queues,
+                &mut background_daemon_pending,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part7::dispatch_part7(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut background_daemon_queues,
+                &mut background_daemon_pending,
+                &mut last_concierge_welcome_fingerprint,
+                &mut agent_event_rx,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part8::dispatch_part8(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut background_daemon_queues,
+                &mut background_daemon_pending,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part9::dispatch_part9(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut background_daemon_queues,
+                &mut background_daemon_pending,
+                &plugin_manager,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part10::dispatch_whatsapp_link(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut whatsapp_link_subscriber_guard,
+                &mut whatsapp_link_rx,
+                &mut whatsapp_link_snapshot_replayed,
+            )
+            .await?
+            {
+                continue;
+            }
         }
     }
 }

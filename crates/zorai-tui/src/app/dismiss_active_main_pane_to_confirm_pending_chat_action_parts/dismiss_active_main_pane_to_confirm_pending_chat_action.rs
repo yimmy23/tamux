@@ -4,7 +4,9 @@ use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear};
 use std::process::Child;
@@ -183,7 +185,11 @@ impl TuiModel {
         }
     }
 
-    pub(crate) fn execute_concierge_message_action(&mut self, message_index: usize, action_index: usize) {
+    pub(crate) fn execute_concierge_message_action(
+        &mut self,
+        message_index: usize,
+        action_index: usize,
+    ) {
         let Some(action) = self
             .chat
             .active_thread()
@@ -307,16 +313,16 @@ impl TuiModel {
     }
 
     pub(crate) fn cancel_chat_action_confirm(&mut self) {
-        let clears_runtime_confirmation = self
-            .pending_chat_action_confirm
-            .as_ref()
-            .is_some_and(|pending| {
-                matches!(
-                    pending,
-                    PendingConfirmAction::ReuseModelAsStt { model_id }
-                        if model_id.starts_with("__mission_control__:")
-                )
-            });
+        let clears_runtime_confirmation =
+            self.pending_chat_action_confirm
+                .as_ref()
+                .is_some_and(|pending| {
+                    matches!(
+                        pending,
+                        PendingConfirmAction::ReuseModelAsStt { model_id }
+                            if model_id.starts_with("__mission_control__:")
+                    )
+                });
         self.close_chat_action_confirm();
         if clears_runtime_confirmation {
             self.goal_mission_control.clear_runtime_change();
@@ -454,5 +460,4 @@ impl TuiModel {
             }
         }
     }
-
 }

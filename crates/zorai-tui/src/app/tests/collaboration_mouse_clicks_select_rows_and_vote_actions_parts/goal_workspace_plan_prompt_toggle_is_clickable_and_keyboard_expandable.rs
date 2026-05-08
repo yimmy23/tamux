@@ -32,7 +32,8 @@ fn goal_workspace_plan_prompt_toggle_is_clickable_and_keyboard_expandable() {
     let mut model = goal_sidebar_model();
     model.focus = FocusArea::Chat;
     model.goal_workspace.set_selected_plan_row(0);
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_selected_plan_item(Some(goal_workspace::GoalPlanSelection::PromptToggle));
 
     let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
@@ -65,13 +66,20 @@ fn goal_workspace_plan_step_is_clickable_and_keyboard_expandable() {
     let plain = render_chat_plain(&mut model);
     assert!(plain.contains("[~] Draft outline"), "{plain}");
     assert!(plain.contains("[ ] Verify sources"), "{plain}");
-    assert!(!plain.contains("Ground the user's background before planning"), "{plain}");
-    assert!(!plain.contains("Gather current experience and constraints first."), "{plain}");
+    assert!(
+        !plain.contains("Ground the user's background before planning"),
+        "{plain}"
+    );
+    assert!(
+        !plain.contains("Gather current experience and constraints first."),
+        "{plain}"
+    );
 
     let mut model = goal_sidebar_model();
     model.focus = FocusArea::Chat;
     model.goal_workspace.set_selected_plan_row(2);
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_selected_plan_item(Some(goal_workspace::GoalPlanSelection::Step {
             step_id: "step-1".to_string(),
         }));
@@ -126,7 +134,10 @@ fn goal_workspace_step_footer_actions_are_clickable() {
         modifiers: KeyModifiers::NONE,
     });
 
-    assert_eq!(model.modal.top(), Some(modal::ModalKind::GoalStepActionPicker));
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::GoalStepActionPicker)
+    );
 }
 
 #[test]
@@ -165,7 +176,10 @@ fn goal_workspace_prompt_footer_actions_are_clickable_when_goal_has_no_steps() {
         modifiers: KeyModifiers::NONE,
     });
 
-    assert_eq!(model.modal.top(), Some(modal::ModalKind::GoalStepActionPicker));
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::GoalStepActionPicker)
+    );
     let items = model.goal_action_picker_items();
     assert!(items.contains(&crate::app::commands::GoalActionPickerItem::RetryStep));
     assert!(items.contains(&crate::app::commands::GoalActionPickerItem::RerunFromStep));
@@ -174,7 +188,8 @@ fn goal_workspace_prompt_footer_actions_are_clickable_when_goal_has_no_steps() {
 #[test]
 fn goal_workspace_progress_mode_restores_checkpoint_and_dossier_views() {
     let mut model = goal_sidebar_model();
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_mode(goal_workspace::GoalWorkspaceMode::Progress);
 
     let plain = render_chat_plain(&mut model);
@@ -187,7 +202,8 @@ fn goal_workspace_progress_mode_restores_checkpoint_and_dossier_views() {
 #[test]
 fn goal_workspace_active_agent_mode_restores_assignments_and_threads() {
     let mut model = goal_sidebar_model();
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_mode(goal_workspace::GoalWorkspaceMode::ActiveAgent);
 
     let plain = render_chat_plain(&mut model);
@@ -201,7 +217,8 @@ fn goal_workspace_active_agent_mode_restores_assignments_and_threads() {
 #[test]
 fn goal_workspace_threads_mode_lists_clickable_threads() {
     let mut model = goal_sidebar_model();
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_mode(goal_workspace::GoalWorkspaceMode::Threads);
 
     let plain = render_chat_plain(&mut model);
@@ -217,9 +234,11 @@ fn goal_workspace_threads_mode_lists_clickable_threads() {
 fn goal_workspace_threads_mode_enter_opens_selected_thread() {
     let mut model = goal_sidebar_model();
     model.focus = FocusArea::Chat;
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_mode(goal_workspace::GoalWorkspaceMode::Threads);
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_focused_pane(goal_workspace::GoalWorkspacePane::Timeline);
     model.goal_workspace.set_selected_timeline_row(0);
 
@@ -237,19 +256,23 @@ fn goal_workspace_threads_mode_pins_and_opens_spawned_goal_descendant() {
         thread_id: "thread-spawned".to_string(),
         title: "Spawned worker".to_string(),
     });
-    model.tasks.reduce(task::TaskAction::TaskUpdate(task::AgentTask {
-        id: "task-spawned".to_string(),
-        title: "Spawned worker".to_string(),
-        thread_id: Some("thread-spawned".to_string()),
-        parent_thread_id: Some("thread-exec".to_string()),
-        goal_run_id: None,
-        created_at: 30,
-        ..Default::default()
-    }));
+    model
+        .tasks
+        .reduce(task::TaskAction::TaskUpdate(task::AgentTask {
+            id: "task-spawned".to_string(),
+            title: "Spawned worker".to_string(),
+            thread_id: Some("thread-spawned".to_string()),
+            parent_thread_id: Some("thread-exec".to_string()),
+            goal_run_id: None,
+            created_at: 30,
+            ..Default::default()
+        }));
     model.focus = FocusArea::Chat;
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_mode(goal_workspace::GoalWorkspaceMode::Threads);
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_focused_pane(goal_workspace::GoalWorkspacePane::Timeline);
 
     let targets = crate::widgets::goal_workspace::timeline_targets(
@@ -268,7 +291,9 @@ fn goal_workspace_threads_mode_pins_and_opens_spawned_goal_descendant() {
             _ => None,
         })
         .expect("spawned descendant should be pinned into goal threads");
-    model.goal_workspace.set_selected_timeline_row(spawned_index);
+    model
+        .goal_workspace
+        .set_selected_timeline_row(spawned_index);
 
     let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
@@ -280,14 +305,18 @@ fn goal_workspace_threads_mode_pins_and_opens_spawned_goal_descendant() {
 #[test]
 fn goal_workspace_needs_attention_mode_restores_non_empty_attention_surface() {
     let mut model = goal_sidebar_model();
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_mode(goal_workspace::GoalWorkspaceMode::NeedsAttention);
 
     let plain = render_chat_plain(&mut model);
 
     assert!(plain.contains("Approvals"), "{plain}");
     assert!(plain.contains("Last error"), "{plain}");
-    assert!(plain.contains("upstream returned an empty error"), "{plain}");
+    assert!(
+        plain.contains("upstream returned an empty error"),
+        "{plain}"
+    );
 }
 
 #[test]
@@ -345,29 +374,30 @@ fn goal_sidebar_task_back_to_goal_row_click_returns_to_goal() {
     ));
 
     let chat_area = rendered_chat_area(&model);
-    let back_pos = (chat_area.y..chat_area.y.saturating_add(chat_area.height)).find_map(|row| {
-        (chat_area.x..chat_area.x.saturating_add(chat_area.width)).find_map(|column| {
-            let pos = Position::new(column, row);
-            match widgets::task_view::hit_test(
-                chat_area,
-                &model.tasks,
-                match &model.main_pane_view {
-                    MainPaneView::Task(target) => target,
-                    _ => return None,
-                },
-                &model.theme,
-                model.task_view_scroll,
-                model.task_show_live_todos,
-                model.task_show_timeline,
-                model.task_show_files,
-                pos,
-            ) {
-                Some(widgets::task_view::TaskViewHitTarget::BackToGoal) => Some(pos),
-                _ => None,
-            }
+    let back_pos = (chat_area.y..chat_area.y.saturating_add(chat_area.height))
+        .find_map(|row| {
+            (chat_area.x..chat_area.x.saturating_add(chat_area.width)).find_map(|column| {
+                let pos = Position::new(column, row);
+                match widgets::task_view::hit_test(
+                    chat_area,
+                    &model.tasks,
+                    match &model.main_pane_view {
+                        MainPaneView::Task(target) => target,
+                        _ => return None,
+                    },
+                    &model.theme,
+                    model.task_view_scroll,
+                    model.task_show_live_todos,
+                    model.task_show_timeline,
+                    model.task_show_files,
+                    pos,
+                ) {
+                    Some(widgets::task_view::TaskViewHitTarget::BackToGoal) => Some(pos),
+                    _ => None,
+                }
+            })
         })
-    })
-    .expect("task view should expose a clickable back-to-goal row");
+        .expect("task view should expose a clickable back-to-goal row");
 
     model.handle_mouse(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
@@ -390,8 +420,7 @@ fn goal_sidebar_task_back_to_goal_row_click_returns_to_goal() {
 
 #[test]
 fn mission_control_thread_router_open_active_thread_prefers_active_thread_id() {
-    let mut model =
-        mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
+    let mut model = mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
 
     let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
 
@@ -429,8 +458,7 @@ fn mission_control_thread_router_ignores_open_thread_shortcut_when_unavailable()
 
 #[test]
 fn threads_return_to_goal_exposes_return_to_goal_affordance_when_opened_from_mission_control() {
-    let mut model =
-        mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
+    let mut model = mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
 
     let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
 
@@ -438,4 +466,3 @@ fn threads_return_to_goal_exposes_return_to_goal_affordance_when_opened_from_mis
     let plain = render_chat_plain(&mut model);
     assert!(plain.contains("Return to goal"), "{plain}");
 }
-

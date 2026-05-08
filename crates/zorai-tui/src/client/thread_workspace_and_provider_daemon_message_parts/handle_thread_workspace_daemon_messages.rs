@@ -1,6 +1,11 @@
-use crate::client::{DaemonClient, ClientEvent};
-use crate::client::ThreadDetailChunkBuffer;
 use super::*;
+use crate::client::ThreadDetailChunkBuffer;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::{
+    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
+    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
+    ThreadWorkContext,
+};
 use anyhow::Result;
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -12,11 +17,6 @@ use tokio::time::{Instant, MissedTickBehavior};
 use tokio_util::codec::Framed;
 use tracing::{debug, error, info, warn};
 use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
-use crate::wire::{
-    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
-    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
-    ThreadWorkContext,
-};
 impl DaemonClient {
     pub(crate) async fn handle_thread_workspace_daemon_messages(
         message: DaemonMessage,
@@ -86,7 +86,9 @@ impl DaemonClient {
                 }
             }
             DaemonMessage::AgentWorkspaceSettings { settings } => {
-                let _ = event_tx.send(ClientEvent::WorkspaceSettings(settings)).await;
+                let _ = event_tx
+                    .send(ClientEvent::WorkspaceSettings(settings))
+                    .await;
             }
             DaemonMessage::AgentWorkspaceSettingsList { settings } => {
                 let _ = event_tx
@@ -175,19 +177,17 @@ impl DaemonClient {
             DaemonMessage::AgentCheckpointList {
                 goal_run_id,
                 checkpoints_json,
-            } => {
-                match serde_json::from_str::<Vec<CheckpointSummary>>(&checkpoints_json) {
-                    Ok(checkpoints) => {
-                        let _ = event_tx
-                            .send(ClientEvent::GoalRunCheckpoints {
-                                goal_run_id,
-                                checkpoints,
-                            })
-                            .await;
-                    }
-                    Err(err) => warn!("Failed to parse checkpoint list: {}", err),
+            } => match serde_json::from_str::<Vec<CheckpointSummary>>(&checkpoints_json) {
+                Ok(checkpoints) => {
+                    let _ = event_tx
+                        .send(ClientEvent::GoalRunCheckpoints {
+                            goal_run_id,
+                            checkpoints,
+                        })
+                        .await;
                 }
-            }
+                Err(err) => warn!("Failed to parse checkpoint list: {}", err),
+            },
             DaemonMessage::AgentCheckpointRestored { outcome_json } => {
                 match serde_json::from_str::<RestoreOutcome>(&outcome_json) {
                     Ok(outcome) => {
@@ -367,5 +367,4 @@ impl DaemonClient {
             _ => unreachable!("thread/workspace daemon message dispatch should be exhaustive"),
         }
     }
-
 }

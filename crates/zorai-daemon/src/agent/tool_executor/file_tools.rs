@@ -1,4 +1,5 @@
-async fn execute_list_files(
+use super::*;
+pub(crate) async fn execute_list_files(
     args: &serde_json::Value,
     _session_manager: &Arc<SessionManager>,
     _preferred_session_id: Option<SessionId>,
@@ -23,7 +24,7 @@ async fn execute_list_files(
     }
 }
 
-async fn execute_read_file(args: &serde_json::Value) -> Result<String> {
+pub(crate) async fn execute_read_file(args: &serde_json::Value) -> Result<String> {
     let path = args
         .get("path")
         .and_then(|v| v.as_str())
@@ -53,7 +54,7 @@ async fn execute_read_file(args: &serde_json::Value) -> Result<String> {
     Ok(result)
 }
 
-async fn execute_get_git_line_statuses(args: &serde_json::Value) -> Result<String> {
+pub(crate) async fn execute_get_git_line_statuses(args: &serde_json::Value) -> Result<String> {
     let path = args
         .get("path")
         .and_then(|v| v.as_str())
@@ -88,7 +89,7 @@ async fn execute_get_git_line_statuses(args: &serde_json::Value) -> Result<Strin
     serde_json::to_string_pretty(&report).map_err(Into::into)
 }
 
-async fn execute_create_file(args: &serde_json::Value) -> Result<String> {
+pub(crate) async fn execute_create_file(args: &serde_json::Value) -> Result<String> {
     let raw_path = get_file_path_arg(args)
         .ok_or_else(|| anyhow::anyhow!("missing 'path' or 'filename' argument"))?;
     validate_write_path(raw_path)?;
@@ -111,7 +112,7 @@ async fn execute_create_file(args: &serde_json::Value) -> Result<String> {
     ))
 }
 
-async fn execute_append_to_file(args: &serde_json::Value) -> Result<String> {
+pub(crate) async fn execute_append_to_file(args: &serde_json::Value) -> Result<String> {
     let path = get_file_path_arg(args).ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
     validate_write_path(path)?;
     let content = get_file_content_arg(args)?;
@@ -138,7 +139,7 @@ async fn execute_append_to_file(args: &serde_json::Value) -> Result<String> {
     Ok(format!("Appended {} bytes to {path}", content.len()))
 }
 
-async fn execute_replace_in_file(args: &serde_json::Value) -> Result<String> {
+pub(crate) async fn execute_replace_in_file(args: &serde_json::Value) -> Result<String> {
     let path = get_file_path_arg(args).ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
     validate_write_path(path)?;
     let old_text = get_string_arg(args, &["old_text", "search", "find"])
@@ -157,7 +158,7 @@ async fn execute_replace_in_file(args: &serde_json::Value) -> Result<String> {
     .await
 }
 
-async fn execute_apply_file_patch(args: &serde_json::Value) -> Result<String> {
+pub(crate) async fn execute_apply_file_patch(args: &serde_json::Value) -> Result<String> {
     let path = get_file_path_arg(args).ok_or_else(|| anyhow::anyhow!("missing 'path' argument"))?;
     validate_write_path(path)?;
     let edits = args
@@ -214,9 +215,9 @@ enum HarnessPatchAction {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct StagedHarnessPatchFile {
-    path: String,
-    original_content: Option<String>,
-    desired_content: Option<String>,
+    pub(crate) path: String,
+    pub(crate) original_content: Option<String>,
+    pub(crate) desired_content: Option<String>,
 }
 
 pub(crate) fn extract_apply_patch_paths(input: &str) -> Result<Vec<String>> {
@@ -234,7 +235,7 @@ pub(crate) fn extract_apply_patch_paths(input: &str) -> Result<Vec<String>> {
     Ok(paths)
 }
 
-async fn execute_apply_patch(args: &serde_json::Value) -> Result<String> {
+pub(crate) async fn execute_apply_patch(args: &serde_json::Value) -> Result<String> {
     if get_apply_patch_text_arg(args).is_none() {
         return execute_apply_file_patch(args).await;
     }
@@ -665,7 +666,7 @@ async fn remove_staged_patch_file(path: &str) -> Result<()> {
     }
 }
 
-async fn execute_write_file(
+pub(crate) async fn execute_write_file(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
     preferred_session_id: Option<SessionId>,
@@ -685,7 +686,7 @@ async fn execute_write_file(
     ))
 }
 
-fn validate_write_path(path: &str) -> Result<()> {
+pub(crate) fn validate_write_path(path: &str) -> Result<()> {
     if path.is_empty() {
         return Err(anyhow::anyhow!("'path' must not be empty"));
     }
@@ -706,7 +707,7 @@ fn validate_write_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_read_path(path: &str) -> Result<()> {
+pub(crate) fn validate_read_path(path: &str) -> Result<()> {
     if path.is_empty() {
         return Err(anyhow::anyhow!("'path' must not be empty"));
     }
@@ -727,7 +728,7 @@ fn validate_read_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-async fn resolve_tool_cwd(
+pub(crate) async fn resolve_tool_cwd(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
     preferred_session_id: Option<SessionId>,
@@ -772,7 +773,7 @@ pub(crate) fn resolve_tool_path(path: &str, base_dir: Option<&Path>) -> PathBuf 
     }
 }
 
-fn build_write_file_command(path: &str, content: &str) -> String {
+pub(crate) fn build_write_file_command(path: &str, content: &str) -> String {
     let path_b64 = base64::engine::general_purpose::STANDARD.encode(path.as_bytes());
     let content_b64 = base64::engine::general_purpose::STANDARD.encode(content.as_bytes());
     let script = build_write_file_script(&path_b64, &content_b64);
@@ -787,7 +788,7 @@ fn build_write_file_command(path: &str, content: &str) -> String {
     )
 }
 
-fn build_write_file_script(path_b64: &str, content_b64: &str) -> String {
+pub(crate) fn build_write_file_script(path_b64: &str, content_b64: &str) -> String {
     let mut script = vec![
         "import base64, pathlib".to_string(),
         format!("p = pathlib.Path(base64.b64decode('{path_b64}').decode('utf-8'))"),
@@ -805,7 +806,7 @@ fn build_write_file_script(path_b64: &str, content_b64: &str) -> String {
     script
 }
 
-fn build_list_files_script(path_b64: &str, token: &str) -> String {
+pub(crate) fn build_list_files_script(path_b64: &str, token: &str) -> String {
     let mut script = vec![
         "import base64, pathlib, sys".to_string(),
         format!("p = pathlib.Path(base64.b64decode('{path_b64}').decode('utf-8'))"),

@@ -431,21 +431,12 @@ impl AgentEngine {
     ) -> Result<usize> {
         let rows = self
             .history
-            .list_event_triggers(Some(event_family), Some(event_kind))
+            .list_event_triggers_for_fire(event_family, event_kind, state, thread_id)
             .await?;
         let now = now_millis();
         let mut fired = 0usize;
 
         for row in rows {
-            if !row.enabled {
-                continue;
-            }
-            if row.target_state.as_deref().is_some() && row.target_state.as_deref() != state {
-                continue;
-            }
-            if row.thread_id.as_deref().is_some() && row.thread_id.as_deref() != thread_id {
-                continue;
-            }
             if let Some(last_fired_at) = row.last_fired_at {
                 let cooldown_ms = row.cooldown_secs.saturating_mul(1000);
                 if now < last_fired_at.saturating_add(cooldown_ms) {
@@ -479,12 +470,11 @@ impl AgentEngine {
             }
 
             // Determine retry count from recent failed attempts for this trigger + event context
-            let recent_attempts = self
+            let retry_count = self
                 .history
-                .list_trigger_fire_history(Some(&row.id), Some("failed"), 10)
+                .count_recent_trigger_fire_history(&row.id, "failed", 10)
                 .await
-                .unwrap_or_default();
-            let retry_count = recent_attempts.len() as u64;
+                .unwrap_or(0);
             let is_dead = retry_count >= row.max_retries as u64;
 
             if is_dead {

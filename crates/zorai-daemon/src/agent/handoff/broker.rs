@@ -345,19 +345,21 @@ impl AgentEngine {
         }
 
         // 2. Parent context summary: last few messages from the thread
-        {
-            let threads = self.threads.read().await;
-            if let Some(thread) = threads.get(thread_id) {
-                let recent: Vec<&str> = thread
-                    .messages
+        match self.history.list_messages(thread_id, Some(3)).await {
+            Ok(recent_messages) => {
+                let joined = recent_messages
                     .iter()
-                    .rev()
-                    .take(3)
-                    .map(|m| m.content.as_str())
-                    .collect();
-                let joined = recent.into_iter().rev().collect::<Vec<_>>().join(" | ");
+                    .map(|message| message.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" | ");
                 bundle.parent_context_summary =
                     crate::agent::goal_parsing::summarize_text(&joined, 500);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    "failed to load persisted parent context summary for handoff: {error}"
+                );
             }
         }
 
@@ -413,26 +415,43 @@ impl AgentEngine {
                     .and_then(|value| value.as_str().map(ToOwned::to_owned))
             })
             .collect::<Vec<_>>();
-        let occupied_specialists = self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                id: None,
-                status: None,
-                statuses: occupied_statuses,
-                source: Some("handoff".to_string()),
-                thread_id: None,
-                thread_ids: Vec::new(),
-                goal_run_id: None,
-                parent_task_id: None,
-                awaiting_approval_id: None,
-                supervisor_config_present: false,
-                exclude_terminal_statuses: false,
-                order_by_recent_activity_desc: false,
-                limit: None,
-            })
+        let occupied_query = crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: occupied_statuses,
+            source: Some("handoff".to_string()),
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+        };
+        let occupied_titles = match self
+            .history
+            .list_agent_task_titles_filtered(&occupied_query)
             .await
+        {
+            Ok(titles) => titles
+                .into_iter()
+                .map(|(_, title)| title)
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                tracing::warn!("failed to query occupied handoff task titles: {error}");
+                self.list_tasks_filtered(&occupied_query)
+                    .await
+                    .into_iter()
+                    .map(|task| task.title)
+                    .collect::<Vec<_>>()
+            }
+        };
+        let occupied_specialists = occupied_titles
             .into_iter()
-            .filter_map(|task| {
-                task.title
+            .filter_map(|title| {
+                title
                     .strip_prefix('[')
                     .and_then(|rest| rest.split(']').next())
                     .map(str::trim)

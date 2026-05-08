@@ -293,7 +293,47 @@ impl AgentEngine {
         }
     }
 
-    async fn active_subagent_children_for_dispatcher(&self, task_id: &str) -> Vec<AgentTask> {
+    async fn active_subagent_child_ids_for_dispatcher(&self, task_id: &str) -> Vec<String> {
+        let mut active_child_ids = self
+            .history
+            .list_agent_task_ids_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: Some("subagent".to_string()),
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: Some(task_id.to_string()),
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: true,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(
+                    parent_task_id = task_id,
+                    "failed to query active subagent child ids for dispatcher: {error}"
+                );
+                Vec::new()
+            });
+
+        let tasks = self.tasks.lock().await;
+        for task in tasks.iter().filter(|entry| {
+            entry.source == "subagent"
+                && entry.parent_task_id.as_deref() == Some(task_id)
+                && !is_task_terminal_status(entry.status)
+        }) {
+            if !active_child_ids.iter().any(|child_id| child_id == &task.id) {
+                active_child_ids.push(task.id.clone());
+            }
+        }
+        active_child_ids
+    }
+
+    async fn active_subagent_child_tasks_for_dispatcher(&self, task_id: &str) -> Vec<AgentTask> {
         let mut active_children = self
             .list_tasks_filtered(&crate::history::AgentTaskListQuery {
                 id: None,
@@ -763,13 +803,10 @@ impl AgentEngine {
         ];
         let mut goal_run_statuses = match self
             .history
-            .list_goal_runs_for_statuses(&active_goal_statuses)
+            .list_goal_run_status_refs_for_statuses(&active_goal_statuses)
             .await
         {
-            Ok(goal_runs) => goal_runs
-                .into_iter()
-                .map(|goal_run| (goal_run.id, goal_run.status))
-                .collect::<HashMap<_, _>>(),
+            Ok(goal_runs) => goal_runs.into_iter().collect::<HashMap<_, _>>(),
             Err(error) => {
                 tracing::warn!(
                     "failed to query persisted active goal runs for dispatcher selection: {error}"
@@ -914,11 +951,9 @@ impl AgentEngine {
             Ok(outcome) if outcome.interrupted_for_approval => Ok(()),
             Ok(outcome) => {
                 let now = now_millis();
-                let active_children = self.active_subagent_children_for_dispatcher(&task.id).await;
-                let active_child_ids = active_children
-                    .iter()
-                    .map(|child| child.id.clone())
-                    .collect::<Vec<_>>();
+                let active_child_ids = self
+                    .active_subagent_child_ids_for_dispatcher(&task.id)
+                    .await;
                 let updated_live_task = {
                     let mut tasks = self.tasks.lock().await;
                     if let Some(current) = tasks.iter_mut().find(|entry| entry.id == task.id) {
@@ -953,6 +988,9 @@ impl AgentEngine {
                                 "failed to persist dispatched task success update: {error}"
                             );
                         }
+                        let active_children = self
+                            .active_subagent_child_tasks_for_dispatcher(&task.id)
+                            .await;
                         let mut tasks = self.tasks.lock().await;
                         for active_child in active_children {
                             if !tasks.iter().any(|entry| entry.id == active_child.id) {

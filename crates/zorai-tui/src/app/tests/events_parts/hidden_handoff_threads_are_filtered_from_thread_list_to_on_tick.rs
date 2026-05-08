@@ -1,10 +1,10 @@
-use tokio::sync::mpsc::unbounded_channel;
-use std::sync::mpsc;
-use zorai_shared::providers::*;
-use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
 use super::done_event_persists_final_reasoning_into_chat_message_to_mission_control::*;
-use crate::state::*;
+use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
 use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn hidden_handoff_threads_are_filtered_from_thread_list() {
     let mut model = make_model();
@@ -478,7 +478,9 @@ fn pending_older_thread_fetch_retries_after_cooldown_without_response() {
     model
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
-    model.chat.reduce(chat::ChatAction::ScrollChat(i32::MAX / 2));
+    model
+        .chat
+        .reduce(chat::ChatAction::ScrollChat(i32::MAX / 2));
 
     model.on_tick();
     assert!(

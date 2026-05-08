@@ -5,4 +5,3 @@ pub(crate) struct PendingWorkspaceActorPicker {
     pub(crate) task_id: String,
     pub(crate) mode: workspace_actor_picker::WorkspaceActorPickerMode,
 }
-

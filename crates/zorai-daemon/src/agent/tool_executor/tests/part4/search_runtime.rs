@@ -1,3 +1,4 @@
+use super::super::part1::{exit_status_with_code, successful_exit_status};
 use super::*;
 
 #[test]

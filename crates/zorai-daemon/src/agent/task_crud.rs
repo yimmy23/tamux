@@ -712,15 +712,26 @@ impl AgentEngine {
                 continue;
             }
 
-            if self
-                .history
-                .get_goal_run(&candidate)
-                .await
-                .ok()
-                .flatten()
-                .is_some()
-            {
-                continue;
+            match self.history.has_goal_run_id(&candidate).await {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        goal_run_id = %candidate,
+                        %error,
+                        "failed to check persisted goal-run id conflict"
+                    );
+                    if self
+                        .history
+                        .get_goal_run(&candidate)
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some()
+                    {
+                        continue;
+                    }
+                }
             }
 
             return candidate;
@@ -1163,17 +1174,11 @@ impl AgentEngine {
         limit: usize,
         offset: usize,
     ) -> (Vec<GoalRun>, usize) {
-        match self.history.list_goal_run_ids_page(limit, offset).await {
-            Ok((goal_run_ids, total)) => {
-                let mut page = Vec::with_capacity(goal_run_ids.len());
-                for goal_run_id in goal_run_ids {
-                    match self.history.get_goal_run(&goal_run_id).await {
-                        Ok(Some(goal_run)) => page.push(self.project_goal_run(goal_run).await),
-                        Ok(None) => {}
-                        Err(error) => {
-                            tracing::warn!(goal_run_id = %goal_run_id, error = %error, "failed to load paged goal run");
-                        }
-                    }
+        match self.history.list_goal_runs_page(limit, offset).await {
+            Ok((goal_runs, total)) => {
+                let mut page = Vec::with_capacity(goal_runs.len());
+                for goal_run in goal_runs {
+                    page.push(self.project_goal_run(goal_run).await);
                 }
                 (page, total)
             }
@@ -1201,21 +1206,11 @@ impl AgentEngine {
     ) -> (Vec<GoalRun>, bool) {
         let offset = offset.unwrap_or(0);
         let limit = limit.unwrap_or(i64::MAX as usize);
-        let projected = match self.history.list_goal_run_ids_page(limit, offset).await {
-            Ok((goal_run_ids, total)) if total > 0 => {
-                let mut projected = Vec::with_capacity(goal_run_ids.len());
-                for goal_run_id in goal_run_ids {
-                    match self.history.get_goal_run(&goal_run_id).await {
-                        Ok(Some(goal_run)) => projected.push(self.project_goal_run(goal_run).await),
-                        Ok(None) => {}
-                        Err(error) => {
-                            tracing::warn!(
-                                goal_run_id = %goal_run_id,
-                                error = %error,
-                                "failed to load paged IPC goal run"
-                            );
-                        }
-                    }
+        let projected = match self.history.list_goal_runs_page(limit, offset).await {
+            Ok((goal_runs, total)) if total > 0 => {
+                let mut projected = Vec::with_capacity(goal_runs.len());
+                for goal_run in goal_runs {
+                    projected.push(self.project_goal_run(goal_run).await);
                 }
                 projected
             }
@@ -1404,8 +1399,8 @@ impl AgentEngine {
     }
 
     pub(super) async fn goal_run_has_active_tasks(&self, goal_run_id: &str) -> bool {
-        !self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+        let active_count = self
+            .count_tasks_filtered(&crate::history::AgentTaskListQuery {
                 id: None,
                 status: None,
                 statuses: Vec::new(),
@@ -1420,8 +1415,28 @@ impl AgentEngine {
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
             })
-            .await
-            .is_empty()
+            .await;
+        active_count > 0
+    }
+
+    async fn list_task_refs_for_goal_relation(
+        &self,
+        query: crate::history::AgentTaskListQuery,
+    ) -> Vec<(String, Option<String>, Option<String>)> {
+        match self.history.list_agent_task_refs_filtered(&query).await {
+            Ok(refs) => refs,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "failed to query lightweight task refs; falling back to hydrated task rows"
+                );
+                self.list_tasks_filtered(&query)
+                    .await
+                    .into_iter()
+                    .map(|task| (task.id, task.thread_id, task.parent_thread_id))
+                    .collect()
+            }
+        }
     }
 
     async fn goal_related_task_ids(&self, goal_run: &GoalRun) -> Vec<String> {
@@ -1430,8 +1445,8 @@ impl AgentEngine {
 
         loop {
             let mut changed = false;
-            let mut related_tasks = self
-                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            let mut related_task_refs = self
+                .list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
                     id: None,
                     status: None,
                     statuses: Vec::new(),
@@ -1448,8 +1463,8 @@ impl AgentEngine {
                 })
                 .await;
             if !thread_ids.is_empty() {
-                related_tasks.extend(
-                    self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                related_task_refs.extend(
+                    self.list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
                         id: None,
                         status: None,
                         statuses: Vec::new(),
@@ -1468,8 +1483,8 @@ impl AgentEngine {
                 );
             }
             for task_id in task_ids.clone() {
-                related_tasks.extend(
-                    self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                related_task_refs.extend(
+                    self.list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
                         id: Some(task_id.clone()),
                         status: None,
                         statuses: Vec::new(),
@@ -1486,8 +1501,8 @@ impl AgentEngine {
                     })
                     .await,
                 );
-                related_tasks.extend(
-                    self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                related_task_refs.extend(
+                    self.list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
                         id: None,
                         status: None,
                         statuses: Vec::new(),
@@ -1505,12 +1520,12 @@ impl AgentEngine {
                     .await,
                 );
             }
-            for task in related_tasks {
-                changed |= push_unique_string(&mut task_ids, &task.id);
-                if let Some(thread_id) = task.thread_id.as_deref() {
+            for (task_id, thread_id, parent_thread_id) in related_task_refs {
+                changed |= push_unique_string(&mut task_ids, &task_id);
+                if let Some(thread_id) = thread_id.as_deref() {
                     changed |= push_unique_string(&mut thread_ids, thread_id);
                 }
-                if let Some(parent_thread_id) = task.parent_thread_id.as_deref() {
+                if let Some(parent_thread_id) = parent_thread_id.as_deref() {
                     changed |= push_unique_string(&mut thread_ids, parent_thread_id);
                 }
             }
@@ -1837,8 +1852,8 @@ impl AgentEngine {
             });
             removed_ids
         };
-        for task in self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+        for (task_id, _, _) in self
+            .list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
                 id: None,
                 status: None,
                 statuses: Vec::new(),
@@ -1855,29 +1870,14 @@ impl AgentEngine {
             })
             .await
         {
-            push_unique_string(&mut related_task_ids, &task.id);
+            push_unique_string(&mut related_task_ids, &task_id);
         }
         for child_task_id in &removed_goal.child_task_ids {
             if self
-                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                    id: Some(child_task_id.clone()),
-                    status: None,
-                    statuses: Vec::new(),
-                    source: None,
-                    thread_id: None,
-                    thread_ids: Vec::new(),
-                    goal_run_id: None,
-                    parent_task_id: None,
-                    awaiting_approval_id: None,
-                    supervisor_config_present: false,
-                    exclude_terminal_statuses: false,
-                    order_by_recent_activity_desc: false,
-                    limit: Some(1),
-                })
+                .history
+                .has_agent_task_id(child_task_id)
                 .await
-                .into_iter()
-                .next()
-                .is_some()
+                .unwrap_or(false)
             {
                 push_unique_string(&mut related_task_ids, child_task_id);
             }

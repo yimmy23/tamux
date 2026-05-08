@@ -470,5 +470,4 @@ impl TuiModel {
         self.subagents.editor = Some(editor);
         self.subagents.actions_focused = false;
     }
-
 }

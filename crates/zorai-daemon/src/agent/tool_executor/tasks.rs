@@ -1,4 +1,5 @@
-async fn execute_list_subagents(
+use super::*;
+pub(crate) async fn execute_list_subagents(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -61,9 +62,11 @@ async fn execute_list_subagents(
     } else {
         None
     };
-    let fallback_parent_task_id = current_task
-        .as_ref()
-        .and_then(|task| task.parent_task_id.clone().or_else(|| Some(task.id.clone())));
+    let fallback_parent_task_id = current_task.as_ref().and_then(|task| {
+        task.parent_task_id
+            .clone()
+            .or_else(|| Some(task.id.clone()))
+    });
 
     let status_filter = args
         .get("status")
@@ -211,7 +214,7 @@ async fn execute_list_subagents(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_broadcast_contribution(
+pub(crate) async fn execute_broadcast_contribution(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -306,7 +309,7 @@ async fn execute_broadcast_contribution(
     Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_read_peer_memory(
+pub(crate) async fn execute_read_peer_memory(
     args: &serde_json::Value,
     agent: &AgentEngine,
     task_id: Option<&str>,
@@ -344,7 +347,7 @@ async fn execute_read_peer_memory(
     Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_vote_on_disagreement(
+pub(crate) async fn execute_vote_on_disagreement(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -404,7 +407,7 @@ async fn execute_vote_on_disagreement(
     Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_dispatch_via_bid_protocol(
+pub(crate) async fn execute_dispatch_via_bid_protocol(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -461,7 +464,7 @@ async fn execute_dispatch_via_bid_protocol(
     Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_collaboration_sessions(
+pub(crate) async fn execute_list_collaboration_sessions(
     args: &serde_json::Value,
     agent: &AgentEngine,
     task_id: Option<&str>,
@@ -489,7 +492,10 @@ async fn execute_list_collaboration_sessions(
     Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_enqueue_task(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_enqueue_task(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let description = args
         .get("description")
         .and_then(|value| value.as_str())
@@ -558,7 +564,7 @@ async fn execute_enqueue_task(args: &serde_json::Value, agent: &AgentEngine) -> 
     Ok(serde_json::to_string_pretty(&task).unwrap_or_else(|_| format!("queued task {}", task.id)))
 }
 
-async fn execute_start_goal_run(
+pub(crate) async fn execute_start_goal_run(
     args: &serde_json::Value,
     agent: &AgentEngine,
     current_thread_id: &str,
@@ -689,7 +695,10 @@ fn required_assignment_string(
         })
 }
 
-async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_tasks(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let status_filter = args
         .get("status")
         .and_then(|value| value.as_str())
@@ -720,13 +729,19 @@ async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Re
     Ok(serde_json::to_string_pretty(&tasks).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_list_goal_runs(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_goal_runs(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let limit = args
         .get("limit")
         .and_then(|value| value.as_u64())
         .unwrap_or(20)
         .clamp(1, 100) as usize;
-    let offset = args.get("offset").and_then(|value| value.as_u64()).unwrap_or(0) as usize;
+    let offset = args
+        .get("offset")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as usize;
     let (items, total) = agent.list_goal_runs_paginated_for_tool(limit, offset).await;
     let returned = items.len();
     let next_offset = offset.saturating_add(returned);
@@ -744,7 +759,7 @@ async fn execute_list_goal_runs(args: &serde_json::Value, agent: &AgentEngine) -
     .unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_submit_goal_step_verdict(
+pub(crate) async fn execute_submit_goal_step_verdict(
     args: &serde_json::Value,
     agent: &AgentEngine,
     current_task_id: Option<&str>,
@@ -798,7 +813,7 @@ async fn execute_submit_goal_step_verdict(
     let task = task_by_id_for_tool_scope(agent, task_id)
         .await
         .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
-    if task.source != super::GOAL_VERIFICATION_SOURCE {
+    if task.source != super::super::GOAL_VERIFICATION_SOURCE {
         anyhow::bail!(
             "submit_goal_step_verdict can only be used by goal verification tasks; current task source is '{}'.",
             task.source
@@ -869,7 +884,7 @@ async fn execute_submit_goal_step_verdict(
     agent
         .history
         .set_consolidation_state(
-            &super::goal_step_verdict_state_key(task_id),
+            &super::super::goal_planner::goal_step_verdict_state_key(task_id),
             &record_json,
             record.submitted_at,
         )
@@ -918,23 +933,35 @@ async fn execute_submit_goal_step_verdict(
     Ok(serde_json::to_string_pretty(&record).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_triggers(_args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_triggers(
+    _args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     agent.ensure_default_event_triggers().await?;
     let payload = agent.list_event_triggers_json().await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_create_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_create_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let payload = agent.create_routine_from_args(args).await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_routines(_args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_routines(
+    _args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let payload = agent.list_routines_json().await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_get_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_get_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -945,7 +972,10 @@ async fn execute_get_routine(args: &serde_json::Value, agent: &AgentEngine) -> R
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_preview_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_preview_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -961,12 +991,18 @@ async fn execute_preview_routine(args: &serde_json::Value, agent: &AgentEngine) 
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_update_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_update_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let payload = agent.update_routine_from_args(args).await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_run_routine_now(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_run_routine_now(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -977,7 +1013,10 @@ async fn execute_run_routine_now(args: &serde_json::Value, agent: &AgentEngine) 
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_routine_history(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_routine_history(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -993,7 +1032,10 @@ async fn execute_list_routine_history(args: &serde_json::Value, agent: &AgentEng
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_rerun_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_rerun_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let run_id = args
         .get("run_id")
         .and_then(|value| value.as_str())
@@ -1004,7 +1046,10 @@ async fn execute_rerun_routine(args: &serde_json::Value, agent: &AgentEngine) ->
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_pause_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_pause_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -1015,7 +1060,10 @@ async fn execute_pause_routine(args: &serde_json::Value, agent: &AgentEngine) ->
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_resume_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_resume_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -1026,7 +1074,10 @@ async fn execute_resume_routine(args: &serde_json::Value, agent: &AgentEngine) -
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_delete_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_delete_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -1037,7 +1088,7 @@ async fn execute_delete_routine(args: &serde_json::Value, agent: &AgentEngine) -
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_run_workflow_pack(
+pub(crate) async fn execute_run_workflow_pack(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1052,7 +1103,7 @@ async fn execute_run_workflow_pack(
     ))
 }
 
-async fn execute_whatsapp_link_start(
+pub(crate) async fn execute_whatsapp_link_start(
     _args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1068,7 +1119,7 @@ async fn execute_whatsapp_link_start(
     .to_string())
 }
 
-async fn execute_whatsapp_link_stop(
+pub(crate) async fn execute_whatsapp_link_stop(
     _args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1086,7 +1137,7 @@ async fn execute_whatsapp_link_stop(
     .to_string())
 }
 
-async fn execute_whatsapp_link_reset(
+pub(crate) async fn execute_whatsapp_link_reset(
     _args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1111,7 +1162,7 @@ async fn execute_whatsapp_link_reset(
     .to_string())
 }
 
-async fn execute_whatsapp_link_status(
+pub(crate) async fn execute_whatsapp_link_status(
     _args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1124,7 +1175,7 @@ async fn execute_whatsapp_link_status(
     .to_string())
 }
 
-async fn execute_ingest_webhook_event(
+pub(crate) async fn execute_ingest_webhook_event(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1133,12 +1184,15 @@ async fn execute_ingest_webhook_event(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_add_trigger(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_add_trigger(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let payload = agent.add_event_trigger_from_args(args).await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_trigger_fire_history(
+pub(crate) async fn execute_list_trigger_fire_history(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1186,7 +1240,7 @@ async fn execute_list_trigger_fire_history(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_get_cost_summary(
+pub(crate) async fn execute_get_cost_summary(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1199,7 +1253,7 @@ async fn execute_get_cost_summary(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_browser_profiles(
+pub(crate) async fn execute_list_browser_profiles(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1241,7 +1295,7 @@ async fn execute_list_browser_profiles(
     Ok(serde_json::to_string_pretty(&filtered).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_create_browser_profile(
+pub(crate) async fn execute_create_browser_profile(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1311,7 +1365,7 @@ async fn execute_create_browser_profile(
     .unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_update_browser_profile_health(
+pub(crate) async fn execute_update_browser_profile_health(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1397,7 +1451,10 @@ async fn execute_update_browser_profile_health(
     .unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_show_dreams(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_show_dreams(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let limit = args
         .get("limit")
         .and_then(|value| value.as_u64())
@@ -1407,7 +1464,7 @@ async fn execute_show_dreams(args: &serde_json::Value, agent: &AgentEngine) -> R
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_show_harness_state(
+pub(crate) async fn execute_show_harness_state(
     args: &serde_json::Value,
     agent: &AgentEngine,
     current_thread_id: &str,
@@ -1492,7 +1549,7 @@ async fn execute_show_harness_state(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_show_import_report(
+pub(crate) async fn execute_show_import_report(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1511,7 +1568,7 @@ async fn execute_show_import_report(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_import_external_runtime(
+pub(crate) async fn execute_import_external_runtime(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1545,7 +1602,7 @@ async fn execute_import_external_runtime(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_preview_shadow_run(
+pub(crate) async fn execute_preview_shadow_run(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1560,7 +1617,7 @@ async fn execute_preview_shadow_run(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_get_todos(
+pub(crate) async fn execute_get_todos(
     args: &serde_json::Value,
     agent: &AgentEngine,
     current_task_id: Option<&str>,
@@ -1596,7 +1653,10 @@ async fn execute_get_todos(
     .to_string())
 }
 
-async fn execute_cancel_task(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_cancel_task(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let task_id = args
         .get("task_id")
         .and_then(|value| value.as_str())

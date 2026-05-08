@@ -91,9 +91,8 @@ impl<'a> SendMessageRunner<'a> {
             return false;
         };
 
-        !self
-            .engine
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+        self.engine
+            .count_tasks_filtered(&crate::history::AgentTaskListQuery {
                 id: None,
                 status: None,
                 statuses: Vec::new(),
@@ -109,7 +108,7 @@ impl<'a> SendMessageRunner<'a> {
                 limit: Some(1),
             })
             .await
-            .is_empty()
+            > 0
     }
 
     async fn handle_metacognitive_intervention(

@@ -1,5 +1,27 @@
-if matches!(
-        &msg,
+use super::*;
+use crate::agent::AgentEngine;
+use crate::session_manager::SessionManager;
+use anyhow::Result;
+use futures::SinkExt;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
+
+pub(crate) async fn dispatch_part9<S>(
+    msg: &ClientMessage,
+    agent: &Arc<AgentEngine>,
+    framed: &mut Framed<S, DaemonCodec>,
+    background_daemon_queues: &mut BackgroundSubsystemQueues,
+    background_daemon_pending: &mut BackgroundPendingCounts,
+    plugin_manager: &Arc<crate::plugin::PluginManager>,
+) -> Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    if !matches!(
+        msg,
         ClientMessage::SkillPublish{ .. } |
         ClientMessage::AgentStatusQuery |
         ClientMessage::AgentStatisticsQuery{ .. } |
@@ -20,6 +42,10 @@ if matches!(
         ClientMessage::AgentExplainAction{ .. } |
         ClientMessage::AgentStartDivergentSession{ .. }
     ) {
+        return Ok(false);
+    }
+    let msg = msg.clone();
+
         match msg {
                 ClientMessage::SkillPublish { identifier } => {
                     let variant = match agent.history.get_skill_variant(&identifier).await {
@@ -64,7 +90,7 @@ if matches!(
                                         message: "plugin_io background queue is full".to_string(),
                                     })
                                     .await?;
-                                continue;
+                                return Ok(true);
                             }
 
                             let operation = operation_registry().accept_operation(
@@ -96,7 +122,7 @@ if matches!(
                                 BackgroundSubsystem::PluginIo,
                                 operation_id,
                                 background_daemon_tx,
-                                &mut background_daemon_pending,
+                                background_daemon_pending,
                                 async move {
                                     let skill_dir = skill_root.join(
                                         Path::new(&v.relative_path)
@@ -354,7 +380,7 @@ if matches!(
                                 message: "plugin_io background queue is full".to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(true);
                     }
 
                     match plugin_manager.start_oauth_flow_for_plugin(&name).await {
@@ -391,7 +417,7 @@ if matches!(
                                 BackgroundSubsystem::PluginIo,
                                 operation_id,
                                 background_daemon_tx,
-                                &mut background_daemon_pending,
+                                background_daemon_pending,
                                 async move {
                                     match plugin_manager
                                         .complete_oauth_flow(&name, &mut flow_state)
@@ -447,7 +473,7 @@ if matches!(
                                 message: "plugin_io background queue is full".to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(true);
                     }
 
                     let params_json: serde_json::Value = serde_json::from_str(&params)
@@ -480,7 +506,7 @@ if matches!(
                         BackgroundSubsystem::PluginIo,
                         operation_id,
                         background_daemon_tx,
-                        &mut background_daemon_pending,
+                        background_daemon_pending,
                         async move {
                             #[cfg(test)]
                             if let Some(delay) = plugin_manager.test_api_call_delay().await {
@@ -595,7 +621,7 @@ if matches!(
                                 message: "agent_work background queue is full".to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(true);
                     }
 
                     let operation = operation_registry().accept_operation(
@@ -621,7 +647,7 @@ if matches!(
                         BackgroundSubsystem::AgentWork,
                         operation_id,
                         background_daemon_tx,
-                        &mut background_daemon_pending,
+                        background_daemon_pending,
                         async move {
                             let explanation = agent.handle_explain_action(&action_id, step_index).await;
                             let json = serde_json::to_string(&explanation).unwrap_or_default();
@@ -645,7 +671,7 @@ if matches!(
                                 message: "agent_work background queue is full".to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(true);
                     }
 
                     // Parse optional custom framings from JSON
@@ -698,7 +724,7 @@ if matches!(
                         BackgroundSubsystem::AgentWork,
                         operation_id,
                         background_daemon_tx,
-                        &mut background_daemon_pending,
+                        background_daemon_pending,
                         async move {
                             match agent
                                 .start_divergent_session(
@@ -731,5 +757,5 @@ if matches!(
                 }
             _ => unreachable!("message chunk should be exhaustive"),
         }
-        continue;
-    }
+    Ok(true)
+}

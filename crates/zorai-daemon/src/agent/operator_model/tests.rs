@@ -2627,6 +2627,7 @@ async fn emergent_protocols_summary_visible_for_pending_proposals_and_registry_e
         .await
         .expect("proposal acceptance should succeed");
     assert_eq!(response["status"].as_str(), Some("accepted"));
+    engine.threads.write().await.clear();
 
     let snapshot = engine.status_diagnostics_snapshot().await;
     let protocols = &snapshot["emergent_protocols"];

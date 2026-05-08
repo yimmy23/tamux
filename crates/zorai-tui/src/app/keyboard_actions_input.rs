@@ -4,7 +4,9 @@ use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear};
 use std::process::Child;
@@ -20,20 +22,20 @@ impl TuiModel {
         match code {
             KeyCode::Char('j') if ctrl && self.focus == FocusArea::Input => {
                 {
-                self.input.reduce(input::InputAction::InsertNewline);
-            };
+                    self.input.reduce(input::InputAction::InsertNewline);
+                };
                 Some(false)
             }
             KeyCode::Char('l') if ctrl && self.focus == FocusArea::Input => {
                 {
-                self.toggle_voice_capture();
-            };
+                    self.toggle_voice_capture();
+                };
                 Some(false)
             }
             KeyCode::Char('p') if ctrl && self.focus == FocusArea::Chat => {
                 {
-                self.speak_latest_assistant_message();
-            };
+                    self.speak_latest_assistant_message();
+                };
                 Some(false)
             }
             KeyCode::Enter => {
@@ -41,53 +43,53 @@ impl TuiModel {
             }
             KeyCode::Backspace if ctrl => {
                 {
-                if self.focus == FocusArea::Input {
-                    self.input.reduce(input::InputAction::DeleteWord);
-                }
-            };
+                    if self.focus == FocusArea::Input {
+                        self.input.reduce(input::InputAction::DeleteWord);
+                    }
+                };
                 Some(false)
             }
             KeyCode::Char('h') if ctrl && self.focus == FocusArea::Input => {
                 {
-                self.input.reduce(input::InputAction::DeleteWord);
-            };
+                    self.input.reduce(input::InputAction::DeleteWord);
+                };
                 Some(false)
             }
             KeyCode::Backspace => {
                 {
-                if self.focus == FocusArea::Input {
-                    self.input.reduce(input::InputAction::Backspace);
-                    if self.modal.top() == Some(modal::ModalKind::CommandPalette) {
-                        self.modal.reduce(modal::ModalAction::SetQuery(
-                            self.input.buffer().to_string(),
-                        ));
+                    if self.focus == FocusArea::Input {
+                        self.input.reduce(input::InputAction::Backspace);
+                        if self.modal.top() == Some(modal::ModalKind::CommandPalette) {
+                            self.modal.reduce(modal::ModalAction::SetQuery(
+                                self.input.buffer().to_string(),
+                            ));
+                        }
                     }
-                }
-            };
+                };
                 Some(false)
             }
             KeyCode::Delete => {
                 {
-                if self.focus == FocusArea::Chat {
-                    if let Some(sel) = self.chat.selected_message() {
-                        self.request_delete_message(sel);
+                    if self.focus == FocusArea::Chat {
+                        if let Some(sel) = self.chat.selected_message() {
+                            self.request_delete_message(sel);
+                        }
                     }
-                }
-            };
+                };
                 Some(false)
             }
             KeyCode::Char('/') if self.focus != FocusArea::Input => {
                 {
-                self.input.set_mode(input::InputMode::Insert);
-                self.focus = FocusArea::Input;
-                self.open_command_palette(None);
-            };
+                    self.input.set_mode(input::InputMode::Insert);
+                    self.focus = FocusArea::Input;
+                    self.open_command_palette(None);
+                };
                 Some(false)
             }
             KeyCode::Char('w') if ctrl && self.focus == FocusArea::Input => {
                 {
-                self.input.reduce(input::InputAction::DeleteWord);
-            };
+                    self.input.reduce(input::InputAction::DeleteWord);
+                };
                 Some(false)
             }
             KeyCode::Char('v' | 'V') if ctrl => {
@@ -100,41 +102,42 @@ impl TuiModel {
             }
             KeyCode::Insert if modifiers.contains(KeyModifiers::SHIFT) => {
                 {
-                self.paste_from_clipboard();
-            };
+                    self.paste_from_clipboard();
+                };
                 Some(false)
             }
             KeyCode::Char('c')
-                if self.focus == FocusArea::Chat && self.chat.selected_message().is_some() => {
+                if self.focus == FocusArea::Chat && self.chat.selected_message().is_some() =>
+            {
                 {
-                if let Some(sel) = self.chat.selected_message() {
-                    self.copy_message(sel);
-                }
-            };
+                    if let Some(sel) = self.chat.selected_message() {
+                        self.copy_message(sel);
+                    }
+                };
                 Some(false)
             }
             KeyCode::Char(c) => {
                 {
-                if self.focus == FocusArea::Input {
-                    if c == '/'
-                        && self.input.buffer().is_empty()
-                        && self.modal.top() != Some(modal::ModalKind::CommandPalette)
-                    {
-                        self.open_command_palette(None);
-                    } else {
-                        self.input.reduce(input::InputAction::InsertChar(c));
-                        if self.modal.top() == Some(modal::ModalKind::CommandPalette) {
-                            self.modal.reduce(modal::ModalAction::SetQuery(
-                                self.input.buffer().to_string(),
-                            ));
+                    if self.focus == FocusArea::Input {
+                        if c == '/'
+                            && self.input.buffer().is_empty()
+                            && self.modal.top() != Some(modal::ModalKind::CommandPalette)
+                        {
+                            self.open_command_palette(None);
+                        } else {
+                            self.input.reduce(input::InputAction::InsertChar(c));
+                            if self.modal.top() == Some(modal::ModalKind::CommandPalette) {
+                                self.modal.reduce(modal::ModalAction::SetQuery(
+                                    self.input.buffer().to_string(),
+                                ));
+                            }
                         }
+                    } else {
+                        self.focus = FocusArea::Input;
+                        self.input.set_mode(input::InputMode::Insert);
+                        self.input.reduce(input::InputAction::InsertChar(c));
                     }
-                } else {
-                    self.focus = FocusArea::Input;
-                    self.input.set_mode(input::InputMode::Insert);
-                    self.input.reduce(input::InputAction::InsertChar(c));
-                }
-            };
+                };
                 Some(false)
             }
             _ => None,

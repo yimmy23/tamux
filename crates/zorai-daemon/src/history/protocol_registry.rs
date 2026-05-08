@@ -179,6 +179,38 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn list_emergent_protocols(&self) -> Result<Vec<EmergentProtocolRow>> {
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT protocol_id, token, description, agent_a, agent_b, thread_id, normalized_pattern, signal_kind, context_signature_json, created_at, activated_at, last_used_at, usage_count, success_rate, source_candidate_id FROM emergent_protocols ORDER BY activated_at DESC",
+                )?;
+                let rows = stmt.query_map([], |row| {
+                    Ok(EmergentProtocolRow {
+                        protocol_id: row.get(0)?,
+                        token: row.get(1)?,
+                        description: row.get(2)?,
+                        agent_a: row.get(3)?,
+                        agent_b: row.get(4)?,
+                        thread_id: row.get(5)?,
+                        normalized_pattern: row.get(6)?,
+                        signal_kind: row.get(7)?,
+                        context_signature_json: row.get(8)?,
+                        created_at: row.get::<_, i64>(9)?.max(0) as u64,
+                        activated_at: row.get::<_, i64>(10)?.max(0) as u64,
+                        last_used_at: row.get::<_, Option<i64>>(11)?.map(|v| v.max(0) as u64),
+                        usage_count: row.get::<_, i64>(12)?.max(0) as u64,
+                        success_rate: row.get(13)?,
+                        source_candidate_id: row.get(14)?,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn replace_protocol_steps(
         &self,
         protocol_id: &str,

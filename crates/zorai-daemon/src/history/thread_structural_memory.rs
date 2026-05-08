@@ -9,6 +9,20 @@ pub struct ThreadStructuralMemoryRow {
     pub updated_at: u64,
 }
 
+fn map_thread_structural_memory_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<ThreadStructuralMemoryRow> {
+    let state_json_raw = row.get::<_, String>(1)?;
+    let state_json = serde_json::from_str(&state_json_raw).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(error))
+    })?;
+    Ok(ThreadStructuralMemoryRow {
+        thread_id: row.get(0)?,
+        state_json,
+        updated_at: row.get::<_, i64>(2)?.max(0) as u64,
+    })
+}
+
 impl HistoryStore {
     pub async fn upsert_thread_structural_memory(
         &self,
@@ -41,24 +55,50 @@ impl HistoryStore {
                 conn.query_row(
                     "SELECT thread_id, state_json, updated_at FROM thread_structural_memory WHERE thread_id = ?1 AND deleted_at IS NULL",
                     params![thread_id],
-                    |row| {
-                        let state_json_raw = row.get::<_, String>(1)?;
-                        let state_json = serde_json::from_str(&state_json_raw).map_err(|error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                1,
-                                rusqlite::types::Type::Text,
-                                Box::new(error),
-                            )
-                        })?;
-                        Ok(ThreadStructuralMemoryRow {
-                            thread_id: row.get(0)?,
-                            state_json,
-                            updated_at: row.get::<_, i64>(2)?.max(0) as u64,
-                        })
-                    },
+                    map_thread_structural_memory_row,
                 )
                 .optional()
                 .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_thread_structural_memory_for_threads(
+        &self,
+        thread_ids: &[String],
+    ) -> Result<Vec<ThreadStructuralMemoryRow>> {
+        let mut thread_ids = thread_ids
+            .iter()
+            .map(|thread_id| thread_id.trim())
+            .filter(|thread_id| !thread_id.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        thread_ids.sort();
+        thread_ids.dedup();
+        if thread_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let placeholders = std::iter::repeat_n("?", thread_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT thread_id, state_json, updated_at \
+             FROM thread_structural_memory \
+             WHERE deleted_at IS NULL AND thread_id IN ({placeholders}) \
+             ORDER BY thread_id ASC"
+        );
+
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(
+                    rusqlite::params_from_iter(thread_ids.iter()),
+                    map_thread_structural_memory_row,
+                )?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))

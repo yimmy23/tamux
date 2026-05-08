@@ -1,23 +1,23 @@
-use crate::client::{DaemonClient, ClientEvent};
-#[cfg(unix)]
-use tokio::net::UnixStream;
 use super::*;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::{
+    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
+    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
+    ThreadWorkContext,
+};
 use anyhow::Result;
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Mutex;
 use std::time::Duration;
+#[cfg(unix)]
+use tokio::net::UnixStream;
 use tokio::sync::mpsc;
 use tokio::time::{Instant, MissedTickBehavior};
 use tokio_util::codec::Framed;
 use tracing::{debug, error, info, warn};
 use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
-use crate::wire::{
-    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
-    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
-    ThreadWorkContext,
-};
 impl DaemonClient {
     fn daemon_message_kind(message: &DaemonMessage) -> &'static str {
         match message {
@@ -223,7 +223,8 @@ impl DaemonClient {
                     }
                 }
 
-                bootstrap_attempted = Self::next_bootstrap_attempted(bootstrap_attempted, connected);
+                bootstrap_attempted =
+                    Self::next_bootstrap_attempted(bootstrap_attempted, connected);
 
                 if !connected && !bootstrap_attempted {
                     bootstrap_attempted = true;
@@ -423,5 +424,4 @@ impl DaemonClient {
 
         let _ = event_tx.send(ClientEvent::Disconnected).await;
     }
-
 }

@@ -117,25 +117,12 @@ impl AgentEngine {
         };
         let collaboration_context = if let Some(task_id) = task_id {
             let parent_task_id = match self
-                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                    id: Some(task_id.to_string()),
-                    status: None,
-                    statuses: Vec::new(),
-                    source: None,
-                    thread_id: None,
-                    thread_ids: Vec::new(),
-                    goal_run_id: None,
-                    parent_task_id: None,
-                    awaiting_approval_id: None,
-                    supervisor_config_present: false,
-                    exclude_terminal_statuses: false,
-                    order_by_recent_activity_desc: false,
-                    limit: Some(1),
-                })
+                .history
+                .agent_task_goal_context(task_id)
                 .await
-                .into_iter()
-                .next()
-                .and_then(|task| task.parent_task_id.clone())
+                .ok()
+                .flatten()
+                .and_then(|task| task.parent_task_id)
             {
                 Some(parent_task_id) => Some(parent_task_id),
                 None => {

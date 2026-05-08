@@ -1,12 +1,12 @@
-use tokio::sync::mpsc;
-use zorai_protocol::DaemonMessage;
 use crate::client::{ClientEvent, DaemonClient};
 use crate::wire::*;
-#[path = "list_notifications_sends_agent_event_query_to_whatsapp_parts/whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task.rs"]
-mod whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task;
+use tokio::sync::mpsc;
+use zorai_protocol::DaemonMessage;
 #[path = "list_notifications_sends_agent_event_query_to_whatsapp_parts/list_notifications_sends_agent_event_query.rs"]
 mod list_notifications_sends_agent_event_query;
 #[path = "list_notifications_sends_agent_event_query_to_whatsapp_parts/notification_inbox_upsert_event_is_forwarded.rs"]
 mod notification_inbox_upsert_event_is_forwarded;
+#[path = "list_notifications_sends_agent_event_query_to_whatsapp_parts/whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task.rs"]
+mod whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task;
 
 pub(super) use whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task::handle_daemon_message_for_test;

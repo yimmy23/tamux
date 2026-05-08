@@ -764,9 +764,6 @@ impl<'a> SendMessageRunner<'a> {
         };
         let internal_dm_thread = is_internal_dm_thread(&tid);
         let participant_playground_thread = is_participant_playground_thread(&tid);
-        if internal_dm_thread && !participant_playground_thread {
-            task_tool_filter = Some(crate::agent::subagent::tool_filter::ToolFilter::deny_all());
-        }
         let workspace_task_context = current_task_snapshot
             .as_ref()
             .is_some_and(is_workspace_agent_task)
@@ -775,7 +772,7 @@ impl<'a> SendMessageRunner<'a> {
                 .get_workspace_task_by_thread_id(&tid)
                 .await?
                 .is_some();
-        if workspace_task_context && !(internal_dm_thread && !participant_playground_thread) {
+        if workspace_task_context {
             if let Some(filter) = task_tool_filter.as_mut() {
                 allow_workspace_task_tools(filter);
             }

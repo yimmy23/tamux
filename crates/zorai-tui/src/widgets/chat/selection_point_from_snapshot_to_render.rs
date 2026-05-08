@@ -1,8 +1,10 @@
-use super::*;
-use super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
-use super::render_streaming_markdown_to_message_block_style_to_message_action::*;
 use super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
-use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode};
+use super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
+use super::*;
+use crate::state::chat::{
+    AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode,
+};
 use crate::theme::ThemeTokens;
 use crate::widgets::message::wrap_text;
 use ratatui::prelude::*;
@@ -165,13 +167,14 @@ pub(crate) fn hit_test_snapshot(
                     if action_col < yes_width {
                         Some(ChatHitTarget::RetryStartNow)
                     } else {
-                    let no_start = yes_width.saturating_add(1);
-                    let no_width = UnicodeWidthStr::width("[No]");
-                    if action_col >= no_start && action_col < no_start.saturating_add(no_width) {
-                        Some(ChatHitTarget::RetryStop)
-                    } else {
-                        None
-                    }
+                        let no_start = yes_width.saturating_add(1);
+                        let no_width = UnicodeWidthStr::width("[No]");
+                        if action_col >= no_start && action_col < no_start.saturating_add(no_width)
+                        {
+                            Some(ChatHitTarget::RetryStop)
+                        } else {
+                            None
+                        }
                     }
                 }
             }
@@ -211,9 +214,9 @@ pub(crate) fn hit_test_snapshot(
         | RenderedLineKind::ImageAttachment
         | RenderedLineKind::ReasoningContent
         | RenderedLineKind::ToolDetail => Some(ChatHitTarget::Message(hit.message_index?)),
-        RenderedLineKind::Padding
-        | RenderedLineKind::Streaming
-        | RenderedLineKind::RetryStatus => None,
+        RenderedLineKind::Padding | RenderedLineKind::Streaming | RenderedLineKind::RetryStatus => {
+            None
+        }
     }
 }
 

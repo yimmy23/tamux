@@ -154,6 +154,116 @@ async fn event_trigger_registry_round_trips_weles_health_trigger() -> Result<()>
     Ok(())
 }
 
+#[tokio::test]
+async fn list_event_triggers_for_fire_filters_enabled_state_and_thread_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    for mut row in [
+        EventTriggerRow {
+            id: "global-match".to_string(),
+            event_family: "health".to_string(),
+            event_kind: "subagent_health".to_string(),
+            agent_id: Some("weles".to_string()),
+            target_state: None,
+            thread_id: None,
+            enabled: true,
+            cooldown_secs: 0,
+            risk_label: "medium".to_string(),
+            notification_kind: "global".to_string(),
+            prompt_template: None,
+            tool_name: None,
+            tool_payload_json: None,
+            title_template: "global".to_string(),
+            body_template: "global".to_string(),
+            created_at: 100,
+            updated_at: 100,
+            last_fired_at: None,
+            max_retries: 3,
+        },
+        EventTriggerRow {
+            id: "exact-match".to_string(),
+            event_family: "health".to_string(),
+            event_kind: "subagent_health".to_string(),
+            agent_id: Some("weles".to_string()),
+            target_state: Some("stuck".to_string()),
+            thread_id: Some("thread-a".to_string()),
+            enabled: true,
+            cooldown_secs: 0,
+            risk_label: "medium".to_string(),
+            notification_kind: "exact".to_string(),
+            prompt_template: None,
+            tool_name: None,
+            tool_payload_json: None,
+            title_template: "exact".to_string(),
+            body_template: "exact".to_string(),
+            created_at: 100,
+            updated_at: 120,
+            last_fired_at: None,
+            max_retries: 3,
+        },
+        EventTriggerRow {
+            id: "state-mismatch".to_string(),
+            event_family: "health".to_string(),
+            event_kind: "subagent_health".to_string(),
+            agent_id: Some("weles".to_string()),
+            target_state: Some("healthy".to_string()),
+            thread_id: None,
+            enabled: true,
+            cooldown_secs: 0,
+            risk_label: "low".to_string(),
+            notification_kind: "state-mismatch".to_string(),
+            prompt_template: None,
+            tool_name: None,
+            tool_payload_json: None,
+            title_template: "state-mismatch".to_string(),
+            body_template: "state-mismatch".to_string(),
+            created_at: 100,
+            updated_at: 130,
+            last_fired_at: None,
+            max_retries: 3,
+        },
+        EventTriggerRow {
+            id: "thread-mismatch".to_string(),
+            event_family: "health".to_string(),
+            event_kind: "subagent_health".to_string(),
+            agent_id: Some("weles".to_string()),
+            target_state: None,
+            thread_id: Some("thread-b".to_string()),
+            enabled: true,
+            cooldown_secs: 0,
+            risk_label: "low".to_string(),
+            notification_kind: "thread-mismatch".to_string(),
+            prompt_template: None,
+            tool_name: None,
+            tool_payload_json: None,
+            title_template: "thread-mismatch".to_string(),
+            body_template: "thread-mismatch".to_string(),
+            created_at: 100,
+            updated_at: 140,
+            last_fired_at: None,
+            max_retries: 3,
+        },
+    ] {
+        store.upsert_event_trigger(&row).await?;
+        row.enabled = false;
+        row.id = format!("disabled-{}", row.id);
+        row.updated_at += 1;
+        store.upsert_event_trigger(&row).await?;
+    }
+
+    let rows = store
+        .list_event_triggers_for_fire("health", "subagent_health", Some("stuck"), Some("thread-a"))
+        .await?;
+
+    assert_eq!(
+        rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        vec!["exact-match", "global-match"]
+    );
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 fn sample_trigger_fire(id: &str, fired_at_ms: u64) -> TriggerFireHistoryRow {
     TriggerFireHistoryRow {
         id: id.to_string(),
@@ -190,6 +300,32 @@ async fn list_trigger_fire_history_since_filters_in_sql() -> Result<()> {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].id, "newest");
     assert!(rows.iter().all(|row| row.fired_at_ms >= 250));
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn count_recent_trigger_fire_history_filters_status_and_limit_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    for (id, status, fired_at_ms) in [
+        ("failed-old", "failed", 100),
+        ("failed-middle", "failed", 200),
+        ("failed-new", "failed", 300),
+        ("succeeded-new", "succeeded", 400),
+    ] {
+        let mut row = sample_trigger_fire(id, fired_at_ms);
+        row.trigger_id = "trigger-shared".to_string();
+        row.status = status.to_string();
+        store.insert_trigger_fire_history(&row).await?;
+    }
+
+    let count = store
+        .count_recent_trigger_fire_history("trigger-shared", "failed", 2)
+        .await?;
+
+    assert_eq!(count, 2);
 
     std::fs::remove_dir_all(root)?;
     Ok(())

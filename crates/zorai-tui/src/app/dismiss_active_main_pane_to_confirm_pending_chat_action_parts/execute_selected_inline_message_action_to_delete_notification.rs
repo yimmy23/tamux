@@ -4,7 +4,9 @@ use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear};
 use std::process::Child;
@@ -295,10 +297,12 @@ impl TuiModel {
 
     pub(crate) fn sync_contextual_approval_overlay(&mut self) {
         let Some(approval_id) = self.active_contextual_approval_id() else {
-            self.modal
-                .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::GoalApprovalRejectPrompt));
-            self.modal
-                .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::ApprovalOverlay));
+            self.modal.reduce(modal::ModalAction::RemoveAll(
+                modal::ModalKind::GoalApprovalRejectPrompt,
+            ));
+            self.modal.reduce(modal::ModalAction::RemoveAll(
+                modal::ModalKind::ApprovalOverlay,
+            ));
             return;
         };
 
@@ -307,9 +311,8 @@ impl TuiModel {
         if self.modal.top() != Some(modal::ModalKind::ApprovalOverlay)
             && self.modal.top() != Some(modal::ModalKind::GoalApprovalRejectPrompt)
         {
-            self.modal.reduce(modal::ModalAction::Push(
-                modal::ModalKind::ApprovalOverlay,
-            ));
+            self.modal
+                .reduce(modal::ModalAction::Push(modal::ModalKind::ApprovalOverlay));
         }
     }
 
@@ -331,12 +334,15 @@ impl TuiModel {
     }
 
     fn close_goal_approval_decision_modals(&mut self) {
-        self.modal
-            .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::GoalApprovalRejectPrompt));
-        self.modal
-            .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::ApprovalOverlay));
-        self.modal
-            .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::ApprovalCenter));
+        self.modal.reduce(modal::ModalAction::RemoveAll(
+            modal::ModalKind::GoalApprovalRejectPrompt,
+        ));
+        self.modal.reduce(modal::ModalAction::RemoveAll(
+            modal::ModalKind::ApprovalOverlay,
+        ));
+        self.modal.reduce(modal::ModalAction::RemoveAll(
+            modal::ModalKind::ApprovalCenter,
+        ));
     }
 
     pub(crate) fn handle_reject_selected_approval(&mut self, approval_id: String) {
@@ -403,10 +409,7 @@ impl TuiModel {
             return "No active goal approval is available.\n\nPress Esc to return.".to_string();
         };
 
-        let step_label = context
-            .step_title
-            .as_deref()
-            .unwrap_or("current goal step");
+        let step_label = context.step_title.as_deref().unwrap_or("current goal step");
         format!(
             "Approval for \"{}\" was rejected.\n\nChoose what to do next for {}:\n\n[R] Rewrite with guidance\nType guidance in the input box on the next step, then press Enter.\n\n[S] Stop goal\nImmediately stop this goal run after rejecting the approval.\n\n[Esc] Back to approval",
             context.goal_title, step_label
@@ -497,5 +500,4 @@ impl TuiModel {
         notification.updated_at = now;
         self.upsert_notification_local(notification);
     }
-
 }

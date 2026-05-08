@@ -1,3 +1,9 @@
+use super::*;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
+
 // ---------------------------------------------------------------------------
 // Agent configuration (persisted in the daemon SQLite config store)
 // ---------------------------------------------------------------------------
@@ -267,13 +273,13 @@ pub struct AgentConfig {
     pub tier: TierConfig,
     /// Episodic memory configuration (Phase v3.0).
     #[serde(default)]
-    pub episodic: super::episodic::EpisodicConfig,
+    pub episodic: super::super::episodic::EpisodicConfig,
     /// Uncertainty quantification configuration (Phase v3.0: UNCR-01 through UNCR-08).
     #[serde(default)]
-    pub uncertainty: super::uncertainty::UncertaintyConfig,
+    pub uncertainty: super::super::uncertainty::UncertaintyConfig,
     /// Cost tracking configuration (Phase v3.0: COST-01 through COST-04).
     #[serde(default)]
-    pub cost: super::cost::CostConfig,
+    pub cost: super::super::cost::CostConfig,
     /// Additional persisted agent settings used by richer frontends and the TUI.
     #[serde(flatten)]
     pub extra: HashMap<String, Value>,

@@ -1,5 +1,27 @@
-if matches!(
-        &msg,
+use super::*;
+use crate::agent::AgentEngine;
+use crate::session_manager::SessionManager;
+use anyhow::Result;
+use futures::SinkExt;
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
+
+pub(crate) async fn dispatch_part1<S>(
+    msg: &ClientMessage,
+    agent: &Arc<AgentEngine>,
+    framed: &mut Framed<S, DaemonCodec>,
+    manager: &Arc<SessionManager>,
+    attached_rxs: &mut Vec<(zorai_protocol::SessionId, tokio::sync::broadcast::Receiver<DaemonMessage>)>,
+    gateway_connection_state: &mut GatewayConnectionState,
+    gateway_ipc_rx: &mut Option<tokio::sync::mpsc::UnboundedReceiver<DaemonMessage>>,
+) -> Result<DispatchOutcome>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    if !matches!(
+        msg,
         ClientMessage::Ping |
         ClientMessage::GatewayRegister{ .. } |
         ClientMessage::GatewayAck{ .. } |
@@ -14,6 +36,10 @@ if matches!(
         ClientMessage::AttachSession{ .. } |
         ClientMessage::DetachSession{ .. }
     ) {
+        return Ok(DispatchOutcome::NotMatched);
+    }
+    let msg = msg.clone();
+
         match msg {
                 ClientMessage::Ping => {
                     framed.send(DaemonMessage::Pong).await?;
@@ -30,7 +56,7 @@ if matches!(
                                     .to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(DispatchOutcome::Continue);
                     }
                     if registration.protocol_version != GATEWAY_IPC_PROTOCOL_VERSION {
                         framed
@@ -41,7 +67,7 @@ if matches!(
                                 ),
                             })
                             .await?;
-                        return Ok(());
+                        return Ok(DispatchOutcome::Terminate);
                     }
                     tracing::info!(
                         gateway_id = %registration.gateway_id,
@@ -56,11 +82,11 @@ if matches!(
                             .await;
                     let (gateway_tx, gateway_rx) = mpsc::unbounded_channel();
                     agent.set_gateway_ipc_sender(Some(gateway_tx)).await;
-                    gateway_ipc_rx = Some(gateway_rx);
+                    *gateway_ipc_rx = Some(gateway_rx);
                     framed
                         .send(DaemonMessage::GatewayBootstrap { payload })
                         .await?;
-                    gateway_connection_state = GatewayConnectionState::AwaitingBootstrapAck {
+                    *gateway_connection_state = GatewayConnectionState::AwaitingBootstrapAck {
                         registration,
                         bootstrap_correlation_id,
                     };
@@ -77,7 +103,7 @@ if matches!(
                             correlation_id = %ack.correlation_id,
                             "gateway runtime bootstrap acknowledged"
                         );
-                        gateway_connection_state = GatewayConnectionState::Active {
+                        *gateway_connection_state = GatewayConnectionState::Active {
                             registration: registration.clone(),
                         };
                     }
@@ -113,7 +139,7 @@ if matches!(
                                         .to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(DispatchOutcome::Continue);
                     }
                     if let Err(error) = enqueue_gateway_incoming_event(&agent, event).await {
                         framed
@@ -133,7 +159,7 @@ if matches!(
                                         .to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(DispatchOutcome::Continue);
                     }
                     if let Err(error) = agent
                         .history
@@ -160,7 +186,7 @@ if matches!(
                                 message: "gateway thread binding updates require a registered gateway connection".to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(DispatchOutcome::Continue);
                     }
                     let result = match update.thread_id.as_deref() {
                         Some(thread_id) => {
@@ -205,7 +231,7 @@ if matches!(
                                         .to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(DispatchOutcome::Continue);
                     }
                     let result = agent
                         .history
@@ -240,7 +266,7 @@ if matches!(
                                         .to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(DispatchOutcome::Continue);
                     }
                     tracing::debug!(
                         correlation_id = %result.correlation_id,
@@ -300,7 +326,7 @@ if matches!(
                                         .to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(DispatchOutcome::Continue);
                     }
                     let snapshot = update;
                     let status_label = match snapshot.status {
@@ -324,7 +350,7 @@ if matches!(
                                 message: format!("failed to persist gateway health: {error}"),
                             })
                             .await?;
-                        continue;
+                        return Ok(DispatchOutcome::Continue);
                     }
                 }
 
@@ -415,5 +441,5 @@ if matches!(
 
             _ => unreachable!("message chunk should be exhaustive"),
         }
-        continue;
-    }
+    Ok(DispatchOutcome::Continue)
+}

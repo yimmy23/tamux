@@ -39,6 +39,94 @@ fn preserve_notification_lifecycle_state(
     notification.deleted_at = notification.deleted_at.or(existing.deleted_at);
 }
 
+fn append_agent_task_query_filters(
+    task_sql: &mut String,
+    task_values: &mut Vec<rusqlite::types::Value>,
+    query: &AgentTaskListQuery,
+) {
+    if let Some(id) = query.id.as_deref().filter(|value| !value.is_empty()) {
+        task_sql.push_str(" AND id = ?");
+        task_values.push(rusqlite::types::Value::Text(id.to_string()));
+    }
+    if let Some(status) = query.status.as_deref().filter(|value| !value.is_empty()) {
+        task_sql.push_str(" AND status = ?");
+        task_values.push(rusqlite::types::Value::Text(status.to_string()));
+    }
+    let statuses = query
+        .statuses
+        .iter()
+        .map(|status| status.trim())
+        .filter(|status| !status.is_empty())
+        .collect::<Vec<_>>();
+    if !statuses.is_empty() {
+        let placeholders = std::iter::repeat("?")
+            .take(statuses.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        task_sql.push_str(&format!(" AND status IN ({placeholders})"));
+        for status in statuses {
+            task_values.push(rusqlite::types::Value::Text(status.to_string()));
+        }
+    }
+    if let Some(source) = query.source.as_deref().filter(|value| !value.is_empty()) {
+        task_sql.push_str(" AND source = ?");
+        task_values.push(rusqlite::types::Value::Text(source.to_string()));
+    }
+    if let Some(thread_id) = query.thread_id.as_deref().filter(|value| !value.is_empty()) {
+        task_sql.push_str(" AND thread_id = ?");
+        task_values.push(rusqlite::types::Value::Text(thread_id.to_string()));
+    }
+    let thread_ids = query
+        .thread_ids
+        .iter()
+        .map(|thread_id| thread_id.trim())
+        .filter(|thread_id| !thread_id.is_empty())
+        .collect::<Vec<_>>();
+    if !thread_ids.is_empty() {
+        let placeholders = std::iter::repeat("?")
+            .take(thread_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        task_sql.push_str(&format!(" AND thread_id IN ({placeholders})"));
+        for thread_id in thread_ids {
+            task_values.push(rusqlite::types::Value::Text(thread_id.to_string()));
+        }
+    }
+    if let Some(goal_run_id) = query
+        .goal_run_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        task_sql.push_str(" AND goal_run_id = ?");
+        task_values.push(rusqlite::types::Value::Text(goal_run_id.to_string()));
+    }
+    if let Some(parent_task_id) = query
+        .parent_task_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        task_sql.push_str(" AND parent_task_id = ?");
+        task_values.push(rusqlite::types::Value::Text(parent_task_id.to_string()));
+    }
+    if let Some(approval_id) = query
+        .awaiting_approval_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        task_sql.push_str(" AND awaiting_approval_id = ?");
+        task_values.push(rusqlite::types::Value::Text(approval_id.to_string()));
+    }
+    if query.supervisor_config_present {
+        task_sql.push_str(
+            " AND supervisor_config_json IS NOT NULL AND TRIM(supervisor_config_json) <> ''",
+        );
+    }
+    if query.exclude_terminal_statuses {
+        task_sql
+            .push_str(" AND status NOT IN ('completed', 'budget_exceeded', 'failed', 'cancelled')");
+    }
+}
+
 impl HistoryStore {
     pub async fn upsert_notification(
         &self,
@@ -151,6 +239,57 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn archive_notifications_by_source_except_ids(
+        &self,
+        source: &str,
+        active_ids: &[String],
+        archived_at: i64,
+    ) -> Result<usize> {
+        let source = source.to_string();
+        let mut active_ids = active_ids
+            .iter()
+            .map(|id| id.trim())
+            .filter(|id| !id.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        active_ids.sort();
+        active_ids.dedup();
+
+        self.conn
+            .call(move |conn| {
+                let mut sql = "UPDATE agent_events
+                     SET payload_json = json_set(payload_json, '$.archived_at', ?, '$.updated_at', ?),
+                         timestamp = ?
+                     WHERE category = ?
+                       AND json_valid(payload_json)
+                       AND json_extract(payload_json, '$.source') = ?
+                       AND json_extract(payload_json, '$.archived_at') IS NULL
+                       AND json_extract(payload_json, '$.deleted_at') IS NULL"
+                    .to_string();
+                let mut values = vec![
+                    rusqlite::types::Value::Integer(archived_at),
+                    rusqlite::types::Value::Integer(archived_at),
+                    rusqlite::types::Value::Integer(archived_at),
+                    rusqlite::types::Value::Text(
+                        crate::notifications::NOTIFICATION_CATEGORY.to_string(),
+                    ),
+                    rusqlite::types::Value::Text(source),
+                ];
+                if !active_ids.is_empty() {
+                    let placeholders = std::iter::repeat("?")
+                        .take(active_ids.len())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    sql.push_str(&format!(" AND id NOT IN ({placeholders})"));
+                    values.extend(active_ids.into_iter().map(rusqlite::types::Value::Text));
+                }
+                conn.execute(&sql, rusqlite::params_from_iter(values.iter()))
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
         let mut entry = entry.clone();
         if let Some(mut notification) = crate::notifications::parse_notification_row(&entry) {
@@ -226,6 +365,60 @@ impl HistoryStore {
         };
         Ok(rows.filter_map(|row| row.ok()).collect())
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn agent_event_recall_matches(
+        &self,
+        category: &str,
+        tokens: &[String],
+        limit: usize,
+    ) -> Result<Vec<AgentEventRow>> {
+        let category = category.to_string();
+        let tokens = tokens
+            .iter()
+            .map(|token| token.trim().to_ascii_lowercase())
+            .filter(|token| !token.is_empty())
+            .collect::<Vec<_>>();
+        if tokens.is_empty() {
+            return Ok(Vec::new());
+        }
+        let limit = limit.max(1) as i64;
+
+        self.read_conn
+            .call(move |conn| {
+                let clauses = std::iter::repeat_n(
+                    "(lower(kind) LIKE ? OR lower(payload_json) LIKE ?)",
+                    tokens.len(),
+                )
+                .collect::<Vec<_>>()
+                .join(" OR ");
+                let sql = format!(
+                    "SELECT id, category, kind, pane_id, workspace_id, surface_id, session_id, payload_json, timestamp \
+                     FROM agent_events \
+                     WHERE category = ? \
+                       AND ({clauses}) \
+                     ORDER BY timestamp DESC, id DESC \
+                     LIMIT ?"
+                );
+                let mut values = Vec::<rusqlite::types::Value>::new();
+                values.push(rusqlite::types::Value::Text(category));
+                for token in tokens {
+                    let pattern = format!("%{token}%");
+                    values.push(rusqlite::types::Value::Text(pattern.clone()));
+                    values.push(rusqlite::types::Value::Text(pattern));
+                }
+                values.push(rusqlite::types::Value::Integer(limit));
+
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(
+                    rusqlite::params_from_iter(values.iter()),
+                    map_agent_event_row,
+                )?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn upsert_agent_task(&self, task: &AgentTask) -> Result<()> {
@@ -357,6 +550,33 @@ impl HistoryStore {
             .await
     }
 
+    pub(crate) async fn count_agent_tasks_filtered(
+        &self,
+        query: &AgentTaskListQuery,
+    ) -> Result<usize> {
+        let query = query.clone();
+        self.read_conn
+            .call(move |conn| {
+                let mut task_sql = "SELECT 1 FROM agent_tasks WHERE deleted_at IS NULL".to_string();
+                let mut task_values = Vec::<rusqlite::types::Value>::new();
+                append_agent_task_query_filters(&mut task_sql, &mut task_values, &query);
+                if let Some(limit) = query.limit {
+                    task_sql.push_str(" LIMIT ?");
+                    task_values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+
+                let count_sql = format!("SELECT COUNT(1) FROM ({task_sql})");
+                let count = conn.query_row(
+                    &count_sql,
+                    rusqlite::params_from_iter(task_values.iter()),
+                    |row| row.get::<_, i64>(0),
+                )?;
+                Ok(count.max(0) as usize)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub(crate) async fn list_agent_tasks_filtered(
         &self,
         query: &AgentTaskListQuery,
@@ -366,88 +586,7 @@ impl HistoryStore {
         let mut task_sql = "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json \
              FROM agent_tasks WHERE deleted_at IS NULL".to_string();
         let mut task_values = Vec::<rusqlite::types::Value>::new();
-        if let Some(id) = query.id.as_deref().filter(|value| !value.is_empty()) {
-            task_sql.push_str(" AND id = ?");
-            task_values.push(rusqlite::types::Value::Text(id.to_string()));
-        }
-        if let Some(status) = query.status.as_deref().filter(|value| !value.is_empty()) {
-            task_sql.push_str(" AND status = ?");
-            task_values.push(rusqlite::types::Value::Text(status.to_string()));
-        }
-        let statuses = query
-            .statuses
-            .iter()
-            .map(|status| status.trim())
-            .filter(|status| !status.is_empty())
-            .collect::<Vec<_>>();
-        if !statuses.is_empty() {
-            let placeholders = std::iter::repeat("?")
-                .take(statuses.len())
-                .collect::<Vec<_>>()
-                .join(", ");
-            task_sql.push_str(&format!(" AND status IN ({placeholders})"));
-            for status in statuses {
-                task_values.push(rusqlite::types::Value::Text(status.to_string()));
-            }
-        }
-        if let Some(source) = query.source.as_deref().filter(|value| !value.is_empty()) {
-            task_sql.push_str(" AND source = ?");
-            task_values.push(rusqlite::types::Value::Text(source.to_string()));
-        }
-        if let Some(thread_id) = query.thread_id.as_deref().filter(|value| !value.is_empty()) {
-            task_sql.push_str(" AND thread_id = ?");
-            task_values.push(rusqlite::types::Value::Text(thread_id.to_string()));
-        }
-        let thread_ids = query
-            .thread_ids
-            .iter()
-            .map(|thread_id| thread_id.trim())
-            .filter(|thread_id| !thread_id.is_empty())
-            .collect::<Vec<_>>();
-        if !thread_ids.is_empty() {
-            let placeholders = std::iter::repeat("?")
-                .take(thread_ids.len())
-                .collect::<Vec<_>>()
-                .join(", ");
-            task_sql.push_str(&format!(" AND thread_id IN ({placeholders})"));
-            for thread_id in thread_ids {
-                task_values.push(rusqlite::types::Value::Text(thread_id.to_string()));
-            }
-        }
-        if let Some(goal_run_id) = query
-            .goal_run_id
-            .as_deref()
-            .filter(|value| !value.is_empty())
-        {
-            task_sql.push_str(" AND goal_run_id = ?");
-            task_values.push(rusqlite::types::Value::Text(goal_run_id.to_string()));
-        }
-        if let Some(parent_task_id) = query
-            .parent_task_id
-            .as_deref()
-            .filter(|value| !value.is_empty())
-        {
-            task_sql.push_str(" AND parent_task_id = ?");
-            task_values.push(rusqlite::types::Value::Text(parent_task_id.to_string()));
-        }
-        if let Some(approval_id) = query
-            .awaiting_approval_id
-            .as_deref()
-            .filter(|value| !value.is_empty())
-        {
-            task_sql.push_str(" AND awaiting_approval_id = ?");
-            task_values.push(rusqlite::types::Value::Text(approval_id.to_string()));
-        }
-        if query.supervisor_config_present {
-            task_sql.push_str(
-                " AND supervisor_config_json IS NOT NULL AND TRIM(supervisor_config_json) <> ''",
-            );
-        }
-        if query.exclude_terminal_statuses {
-            task_sql.push_str(
-                " AND status NOT IN ('completed', 'budget_exceeded', 'failed', 'cancelled')",
-            );
-        }
+        append_agent_task_query_filters(&mut task_sql, &mut task_values, &query);
         if query.order_by_recent_activity_desc {
             task_sql.push_str(
                 " ORDER BY COALESCE(completed_at, started_at, created_at) DESC, created_at DESC",
@@ -611,6 +750,369 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub(crate) async fn list_agent_task_refs_filtered(
+        &self,
+        query: &AgentTaskListQuery,
+    ) -> Result<Vec<(String, Option<String>, Option<String>)>> {
+        let query = query.clone();
+        self.read_conn
+            .call(move |conn| {
+                let mut task_sql =
+                    "SELECT id, thread_id, parent_thread_id FROM agent_tasks WHERE deleted_at IS NULL"
+                        .to_string();
+                let mut task_values = Vec::<rusqlite::types::Value>::new();
+                append_agent_task_query_filters(&mut task_sql, &mut task_values, &query);
+                if query.order_by_recent_activity_desc {
+                    task_sql.push_str(
+                        " ORDER BY COALESCE(completed_at, started_at, created_at) DESC, created_at DESC",
+                    );
+                } else {
+                    task_sql.push_str(" ORDER BY id ASC");
+                }
+                if let Some(limit) = query.limit {
+                    task_sql.push_str(" LIMIT ?");
+                    task_values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+
+                let mut stmt = conn.prepare(&task_sql)?;
+                let rows = stmt.query_map(
+                    rusqlite::params_from_iter(task_values.iter()),
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_agent_task_ids_filtered(
+        &self,
+        query: &AgentTaskListQuery,
+    ) -> Result<Vec<String>> {
+        let query = query.clone();
+        self.read_conn
+            .call(move |conn| {
+                let mut task_sql =
+                    "SELECT id FROM agent_tasks WHERE deleted_at IS NULL".to_string();
+                let mut task_values = Vec::<rusqlite::types::Value>::new();
+                append_agent_task_query_filters(&mut task_sql, &mut task_values, &query);
+                if query.order_by_recent_activity_desc {
+                    task_sql.push_str(
+                        " ORDER BY COALESCE(completed_at, started_at, created_at) DESC, created_at DESC",
+                    );
+                } else {
+                    task_sql.push_str(" ORDER BY id ASC");
+                }
+                if let Some(limit) = query.limit {
+                    task_sql.push_str(" LIMIT ?");
+                    task_values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+
+                let mut stmt = conn.prepare(&task_sql)?;
+                let rows =
+                    stmt.query_map(rusqlite::params_from_iter(task_values.iter()), |row| {
+                        row.get::<_, String>(0)
+                    })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_agent_task_titles_filtered(
+        &self,
+        query: &AgentTaskListQuery,
+    ) -> Result<Vec<(String, String)>> {
+        let query = query.clone();
+        self.read_conn
+            .call(move |conn| {
+                let mut task_sql =
+                    "SELECT id, title FROM agent_tasks WHERE deleted_at IS NULL".to_string();
+                let mut task_values = Vec::<rusqlite::types::Value>::new();
+                append_agent_task_query_filters(&mut task_sql, &mut task_values, &query);
+                if query.order_by_recent_activity_desc {
+                    task_sql.push_str(
+                        " ORDER BY COALESCE(completed_at, started_at, created_at) DESC, created_at DESC",
+                    );
+                } else {
+                    task_sql.push_str(" ORDER BY id ASC");
+                }
+                if let Some(limit) = query.limit {
+                    task_sql.push_str(" LIMIT ?");
+                    task_values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+
+                let mut stmt = conn.prepare(&task_sql)?;
+                let rows =
+                    stmt.query_map(rusqlite::params_from_iter(task_values.iter()), |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_agent_task_operational_refs_filtered(
+        &self,
+        query: &AgentTaskListQuery,
+    ) -> Result<Vec<AgentTaskOperationalRef>> {
+        let query = query.clone();
+        self.read_conn
+            .call(move |conn| {
+                let mut task_sql =
+                    "SELECT id, title, status, progress, awaiting_approval_id FROM agent_tasks WHERE deleted_at IS NULL"
+                        .to_string();
+                let mut task_values = Vec::<rusqlite::types::Value>::new();
+                append_agent_task_query_filters(&mut task_sql, &mut task_values, &query);
+                if query.order_by_recent_activity_desc {
+                    task_sql.push_str(
+                        " ORDER BY COALESCE(completed_at, started_at, created_at) DESC, created_at DESC",
+                    );
+                } else {
+                    task_sql.push_str(" ORDER BY id ASC");
+                }
+                if let Some(limit) = query.limit {
+                    task_sql.push_str(" LIMIT ?");
+                    task_values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+
+                let mut stmt = conn.prepare(&task_sql)?;
+                let rows =
+                    stmt.query_map(rusqlite::params_from_iter(task_values.iter()), |row| {
+                        Ok(AgentTaskOperationalRef {
+                            id: row.get(0)?,
+                            title: row.get(1)?,
+                            status: parse_task_status(&row.get::<_, String>(2)?),
+                            progress: row.get::<_, i64>(3)? as u8,
+                            awaiting_approval_id: row.get(4)?,
+                        })
+                    })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_agent_task_summary_refs_filtered(
+        &self,
+        query: &AgentTaskListQuery,
+    ) -> Result<Vec<AgentTaskSummaryRef>> {
+        let query = query.clone();
+        self.read_conn
+            .call(move |conn| {
+                let mut task_sql =
+                    "SELECT id, title, status, priority FROM agent_tasks WHERE deleted_at IS NULL"
+                        .to_string();
+                let mut task_values = Vec::<rusqlite::types::Value>::new();
+                append_agent_task_query_filters(&mut task_sql, &mut task_values, &query);
+                if query.order_by_recent_activity_desc {
+                    task_sql.push_str(
+                        " ORDER BY COALESCE(completed_at, started_at, created_at) DESC, created_at DESC",
+                    );
+                } else {
+                    task_sql.push_str(" ORDER BY id ASC");
+                }
+                if let Some(limit) = query.limit {
+                    task_sql.push_str(" LIMIT ?");
+                    task_values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+
+                let mut stmt = conn.prepare(&task_sql)?;
+                let rows =
+                    stmt.query_map(rusqlite::params_from_iter(task_values.iter()), |row| {
+                        Ok(AgentTaskSummaryRef {
+                            id: row.get(0)?,
+                            title: row.get(1)?,
+                            status: parse_task_status(&row.get::<_, String>(2)?),
+                            priority: parse_task_priority(&row.get::<_, String>(3)?),
+                        })
+                    })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_agent_task_quiet_recovery_refs_filtered(
+        &self,
+        query: &AgentTaskListQuery,
+    ) -> Result<Vec<AgentTaskQuietRecoveryRef>> {
+        let query = query.clone();
+        self.read_conn
+            .call(move |conn| {
+                let mut task_sql = "SELECT id, source, status, progress, created_at, started_at, goal_run_id, parent_task_id, thread_id FROM agent_tasks WHERE deleted_at IS NULL"
+                    .to_string();
+                let mut task_values = Vec::<rusqlite::types::Value>::new();
+                append_agent_task_query_filters(&mut task_sql, &mut task_values, &query);
+                if query.order_by_recent_activity_desc {
+                    task_sql.push_str(
+                        " ORDER BY COALESCE(completed_at, started_at, created_at) DESC, created_at DESC",
+                    );
+                } else {
+                    task_sql.push_str(" ORDER BY id ASC");
+                }
+                if let Some(limit) = query.limit {
+                    task_sql.push_str(" LIMIT ?");
+                    task_values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+
+                let mut stmt = conn.prepare(&task_sql)?;
+                let rows =
+                    stmt.query_map(rusqlite::params_from_iter(task_values.iter()), |row| {
+                        Ok(AgentTaskQuietRecoveryRef {
+                            id: row.get(0)?,
+                            source: row.get(1)?,
+                            status: parse_task_status(&row.get::<_, String>(2)?),
+                            progress: row.get::<_, i64>(3)? as u8,
+                            created_at: row.get::<_, i64>(4)? as u64,
+                            started_at: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+                            goal_run_id: row.get(6)?,
+                            parent_task_id: row.get(7)?,
+                            thread_id: row.get(8)?,
+                        })
+                    })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_agent_task_subagent_hierarchy_refs_filtered(
+        &self,
+        query: &AgentTaskListQuery,
+    ) -> Result<Vec<AgentTaskSubagentHierarchyRef>> {
+        let query = query.clone();
+        self.read_conn
+            .call(move |conn| {
+                let mut task_sql =
+                    "SELECT id, parent_task_id, containment_scope FROM agent_tasks WHERE deleted_at IS NULL"
+                        .to_string();
+                let mut task_values = Vec::<rusqlite::types::Value>::new();
+                append_agent_task_query_filters(&mut task_sql, &mut task_values, &query);
+                if query.order_by_recent_activity_desc {
+                    task_sql.push_str(
+                        " ORDER BY COALESCE(completed_at, started_at, created_at) DESC, created_at DESC",
+                    );
+                } else {
+                    task_sql.push_str(" ORDER BY id ASC");
+                }
+                if let Some(limit) = query.limit {
+                    task_sql.push_str(" LIMIT ?");
+                    task_values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+
+                let mut stmt = conn.prepare(&task_sql)?;
+                let rows =
+                    stmt.query_map(rusqlite::params_from_iter(task_values.iter()), |row| {
+                        Ok(AgentTaskSubagentHierarchyRef {
+                            id: row.get(0)?,
+                            parent_task_id: row.get(1)?,
+                            containment_scope: row.get(2)?,
+                        })
+                    })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn agent_task_goal_context(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<AgentTaskGoalContext>> {
+        let task_id = task_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT goal_run_id, goal_step_id, session_id, source, parent_task_id
+                     FROM agent_tasks
+                     WHERE deleted_at IS NULL
+                       AND id = ?1
+                     LIMIT 1",
+                    params![task_id],
+                    |row| {
+                        Ok(AgentTaskGoalContext {
+                            goal_run_id: row.get(0)?,
+                            goal_step_id: row.get(1)?,
+                            session_id: row.get(2)?,
+                            source: row.get(3)?,
+                            parent_task_id: row.get(4)?,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn agent_task_provider_override(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<(String, Option<String>)>> {
+        let task_id = task_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let row = conn
+                    .query_row(
+                        "SELECT override_provider, override_model
+                         FROM agent_tasks
+                         WHERE deleted_at IS NULL
+                           AND id = ?1
+                         LIMIT 1",
+                        params![task_id],
+                        |row| {
+                            Ok((
+                                row.get::<_, Option<String>>(0)?,
+                                row.get::<_, Option<String>>(1)?,
+                            ))
+                        },
+                    )
+                    .optional()?;
+                Ok(row.and_then(|(provider, model)| provider.map(|provider| (provider, model))))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn agent_task_override_system_prompt(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<Option<String>>> {
+        let task_id = task_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT override_system_prompt
+                     FROM agent_tasks
+                     WHERE deleted_at IS NULL
+                       AND id = ?1
+                     LIMIT 1",
+                    params![task_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub(crate) async fn latest_agent_task_session_for_thread(
         &self,
         thread_id: &str,
@@ -626,6 +1128,72 @@ impl HistoryStore {
                        AND session_id IS NOT NULL
                        AND TRIM(session_id) <> ''
                      ORDER BY created_at DESC, id DESC
+                     LIMIT 1",
+                    params![thread_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn has_agent_task_for_thread(&self, thread_id: &str) -> Result<bool> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let exists: i64 = conn.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1
+                        FROM agent_tasks
+                        WHERE deleted_at IS NULL
+                          AND thread_id = ?1
+                     )",
+                    params![thread_id],
+                    |row| row.get(0),
+                )?;
+                Ok(exists != 0)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn has_agent_task_id(&self, task_id: &str) -> Result<bool> {
+        let task_id = task_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let exists: i64 = conn.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1
+                        FROM agent_tasks
+                        WHERE deleted_at IS NULL
+                          AND id = ?1
+                     )",
+                    params![task_id],
+                    |row| row.get(0),
+                )?;
+                Ok(exists != 0)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn latest_agent_task_approval_id_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<String>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT awaiting_approval_id
+                     FROM agent_tasks
+                     WHERE deleted_at IS NULL
+                       AND thread_id = ?1
+                       AND awaiting_approval_id IS NOT NULL
+                       AND TRIM(awaiting_approval_id) <> ''
+                     ORDER BY COALESCE(completed_at, started_at, created_at) DESC, created_at DESC
                      LIMIT 1",
                     params![thread_id],
                     |row| row.get::<_, String>(0),

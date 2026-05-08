@@ -1,5 +1,5 @@
-use super::super::*;
 use super::super::super::*;
+use super::super::*;
 
 impl TuiModel {
     pub(in crate::app) fn is_placeholder_goal_run_detail(

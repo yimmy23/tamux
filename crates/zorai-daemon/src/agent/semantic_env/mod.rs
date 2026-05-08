@@ -94,7 +94,7 @@ pub(super) fn scan_workspace_package_summaries_for_memory_graph(
         .collect())
 }
 
-pub(super) async fn execute_semantic_query(
+pub(crate) async fn execute_semantic_query(
     args: &Value,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
@@ -143,7 +143,7 @@ pub(super) async fn execute_semantic_query(
     }
 }
 
-pub(super) fn infer_workspace_context_tags(root: &Path) -> Vec<String> {
+pub(crate) fn infer_workspace_context_tags(root: &Path) -> Vec<String> {
     let graph = scan_workspace_semantics(root).unwrap_or_default();
     let mut tags = BTreeSet::new();
 

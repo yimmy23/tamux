@@ -1,10 +1,18 @@
+use super::part1::*;
+use super::part5_support::*;
+use super::*;
+use crate::agent::provider_auth_store;
+use crate::agent::types::{AgentMessage, MessageRole};
+use crate::test_support::EnvGuard;
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+use std::sync::Mutex;
+use tempfile::tempdir;
 #[tokio::test]
 async fn provider_auth_states_respect_codex_helper_state() {
     let _lock = crate::agent::provider_auth_store::provider_auth_test_env_lock();
-    let _guard = EnvGuard::new(&[
-        "ZORAI_PROVIDER_AUTH_DB_PATH",
-        "ZORAI_CODEX_CLI_AUTH_PATH",
-    ]);
+    let _guard = EnvGuard::new(&["ZORAI_PROVIDER_AUTH_DB_PATH", "ZORAI_CODEX_CLI_AUTH_PATH"]);
     let root = tempdir().unwrap();
     set_test_auth_env(root.path(), &root.path().join("missing-codex-auth.json"));
     reset_openai_codex_auth_runtime_for_tests();
@@ -42,7 +50,8 @@ async fn provider_auth_states_respect_codex_helper_state() {
             openrouter_response_cache_enabled: false,
         },
     );
-    let engine: std::sync::Arc<AgentEngine> = AgentEngine::new_test(manager, config, root.path()).await;
+    let engine: std::sync::Arc<AgentEngine> =
+        AgentEngine::new_test(manager, config, root.path()).await;
 
     begin_openai_codex_auth_login().expect("login should start");
     let pending = engine
@@ -80,10 +89,7 @@ async fn provider_auth_states_respect_codex_helper_state() {
 #[tokio::test]
 async fn provider_auth_states_use_codex_cli_auth_when_storage_is_empty() {
     let _lock = crate::agent::provider_auth_store::provider_auth_test_env_lock();
-    let _guard = EnvGuard::new(&[
-        "ZORAI_PROVIDER_AUTH_DB_PATH",
-        "ZORAI_CODEX_CLI_AUTH_PATH",
-    ]);
+    let _guard = EnvGuard::new(&["ZORAI_PROVIDER_AUTH_DB_PATH", "ZORAI_CODEX_CLI_AUTH_PATH"]);
     let root = tempdir().unwrap();
     let codex_auth_path = prepare_openai_auth_test(root.path(), "codex-auth.json");
     write_codex_cli_auth_fixture(&codex_auth_path);
@@ -122,7 +128,8 @@ async fn provider_auth_states_use_codex_cli_auth_when_storage_is_empty() {
             openrouter_response_cache_enabled: false,
         },
     );
-    let engine: std::sync::Arc<AgentEngine> = AgentEngine::new_test(manager, config, root.path()).await;
+    let engine: std::sync::Arc<AgentEngine> =
+        AgentEngine::new_test(manager, config, root.path()).await;
 
     assert!(read_stored_openai_codex_auth().is_none());
     let openai = engine

@@ -1,13 +1,14 @@
+use super::*;
 #[derive(Clone)]
-struct AllocatedTerminalLane {
-    source_session_id: SessionId,
-    source_active_command: Option<String>,
-    workspace_id: String,
-    session_id: SessionId,
-    pane_name: String,
+pub(crate) struct AllocatedTerminalLane {
+    pub(crate) source_session_id: SessionId,
+    pub(crate) source_active_command: Option<String>,
+    pub(crate) workspace_id: String,
+    pub(crate) session_id: SessionId,
+    pub(crate) pane_name: String,
 }
 
-async fn allocate_terminal_lane(
+pub(crate) async fn allocate_terminal_lane(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
     preferred_session_id: Option<SessionId>,
@@ -89,7 +90,7 @@ async fn allocate_terminal_lane(
     })
 }
 
-async fn execute_allocate_terminal(
+pub(crate) async fn execute_allocate_terminal(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
     preferred_session_id: Option<SessionId>,
@@ -141,7 +142,7 @@ async fn execute_allocate_terminal(
     ))
 }
 
-fn normalize_task_runtime(value: Option<&str>) -> Result<String> {
+pub(crate) fn normalize_task_runtime(value: Option<&str>) -> Result<String> {
     match value.unwrap_or("daemon").trim() {
         "" | "daemon" => Ok("daemon".to_string()),
         "hermes" => Ok("hermes".to_string()),

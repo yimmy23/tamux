@@ -1,9 +1,11 @@
-use super::super::*;
-use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
-use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
 use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
 use super::super::selection_point_from_snapshot_to_render::*;
-use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode};
+use super::super::*;
+use crate::state::chat::{
+    AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode,
+};
 use crate::theme::ThemeTokens;
 use crate::widgets::message;
 use crate::widgets::message::wrap_text;
@@ -224,7 +226,10 @@ pub(crate) fn resolve_skill_path_for_preview(skills_root: Option<String>, path: 
         .to_string()
 }
 
-pub(crate) fn resolve_guideline_path_for_preview(guidelines_root: Option<String>, path: &str) -> String {
+pub(crate) fn resolve_guideline_path_for_preview(
+    guidelines_root: Option<String>,
+    path: &str,
+) -> String {
     if Path::new(path).is_absolute() {
         return path.to_string();
     }
@@ -384,7 +389,10 @@ pub(crate) fn render_cache_key(
     }
 }
 
-pub(crate) fn transcript_metrics_cache_key(area: Rect, chat: &ChatState) -> TranscriptMetricsCacheKey {
+pub(crate) fn transcript_metrics_cache_key(
+    area: Rect,
+    chat: &ChatState,
+) -> TranscriptMetricsCacheKey {
     TranscriptMetricsCacheKey {
         inner: content_inner(area),
         transcript_metrics_revision: chat.transcript_metrics_revision(),
@@ -435,7 +443,11 @@ pub(crate) fn rendered_line_content_bounds(rendered: &RenderedChatLine) -> (Stri
     (plain, content_start, content_end)
 }
 
-pub(crate) fn pad_message_line(mut line: Line<'static>, width: usize, style: Style) -> Line<'static> {
+pub(crate) fn pad_message_line(
+    mut line: Line<'static>,
+    width: usize,
+    style: Style,
+) -> Line<'static> {
     let mut spans = Vec::new();
     let left = " ".repeat(MESSAGE_PADDING_X);
     spans.push(Span::styled(left, style));

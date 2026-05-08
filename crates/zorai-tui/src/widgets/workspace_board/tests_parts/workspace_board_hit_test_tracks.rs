@@ -1,9 +1,9 @@
 use super::super::*;
 use crate::state::workspace::WorkspaceState;
 use crate::theme::ThemeTokens;
+use ratatui::backend::TestBackend;
 use ratatui::layout::{Position, Rect};
 use ratatui::Terminal;
-use ratatui::backend::TestBackend;
 use zorai_protocol::{
     WorkspaceActor, WorkspaceNotice, WorkspacePriority, WorkspaceSettings, WorkspaceTask,
     WorkspaceTaskStatus, WorkspaceTaskType,
@@ -103,6 +103,9 @@ pub(super) fn workspace_with_task() -> WorkspaceState {
         workspace_id: "main".to_string(),
         workspace_root: None,
         operator: zorai_protocol::WorkspaceOperator::User,
+        repo_monitor_enabled: false,
+        repo_monitor_include_dirs: Vec::new(),
+        repo_monitor_exclude_dirs: Vec::new(),
         created_at: 1,
         updated_at: 1,
     });
@@ -119,6 +122,9 @@ pub(super) fn workspace_with_assigned_task() -> WorkspaceState {
         workspace_id: "main".to_string(),
         workspace_root: None,
         operator: zorai_protocol::WorkspaceOperator::User,
+        repo_monitor_enabled: false,
+        repo_monitor_include_dirs: Vec::new(),
+        repo_monitor_exclude_dirs: Vec::new(),
         created_at: 1,
         updated_at: 1,
     });
@@ -328,6 +334,9 @@ fn workspace_board_colors_failed_and_done_cards() {
         operator: zorai_protocol::WorkspaceOperator::User,
         created_at: 1,
         updated_at: 1,
+        repo_monitor_enabled: false,
+        repo_monitor_include_dirs: Vec::new(),
+        repo_monitor_exclude_dirs: Vec::new(),
     });
     let mut failed = task("workspace-task-failed", WorkspaceTaskStatus::InProgress);
     failed.title = "Failed task".to_string();
@@ -437,4 +446,3 @@ fn workspace_board_hit_test_tracks_collapsed_open_and_actions_toggle() {
         })
     );
 }
-

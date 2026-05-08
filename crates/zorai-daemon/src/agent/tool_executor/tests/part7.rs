@@ -1,4 +1,40 @@
-fn make_thread(
+use super::super::*;
+use super::super::{
+    adapted_timeout_override_for_mode, build_list_files_script, build_write_file_command,
+    build_write_file_script, command_looks_interactive, command_matches_policy_risk,
+    command_requires_managed_state, daemon_tool_timeout_seconds, default_timeout_seconds_for_tool,
+    execute_apply_patch, execute_create_file, execute_fetch_url_with_runner,
+    execute_gateway_message, execute_get_debate_session, execute_get_divergent_session,
+    execute_get_git_line_statuses, execute_headless_shell_command,
+    execute_onecontext_search_with_runner, execute_read_file, execute_run_debate,
+    execute_search_files_with_runner, execute_tool, execute_web_search_with_runner,
+    get_available_tools, get_file_path_arg, managed_alias_args, parse_capture_output,
+    parse_tool_args, resolve_skill_path, run_search_files_command,
+    should_use_linked_whatsapp_transport, should_use_managed_execution, validate_read_path,
+    validate_write_path, wait_for_managed_command_outcome,
+};
+use crate::agent::{
+    types::{AgentConfig, AgentEvent, ToolCall, ToolFunction},
+    AgentEngine,
+};
+use crate::history::SkillVariantRecord;
+use crate::session_manager::SessionManager;
+use base64::Engine;
+use std::fs;
+use std::sync::{Arc, Mutex};
+use tempfile::tempdir;
+use tokio::sync::broadcast;
+use tokio::time::{timeout, Duration};
+use tokio_util::sync::CancellationToken;
+use zorai_protocol::tool_names;
+use zorai_protocol::{DaemonMessage, GatewaySendResult, SessionId};
+
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
+#[cfg(windows)]
+use std::os::windows::process::ExitStatusExt;
+
+pub(super) fn make_thread(
     id: &str,
     agent_name: Option<&str>,
     title: &str,
@@ -25,7 +61,7 @@ fn make_thread(
     }
 }
 
-fn weles_internal_message(ts: u64) -> crate::agent::types::AgentMessage {
+pub(super) fn weles_internal_message(ts: u64) -> crate::agent::types::AgentMessage {
     let mut message = crate::agent::types::AgentMessage::user(
         crate::agent::agent_identity::build_weles_persona_prompt(
             crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE,
@@ -36,7 +72,7 @@ fn weles_internal_message(ts: u64) -> crate::agent::types::AgentMessage {
     message
 }
 
-fn write_scope_memory_files(
+pub(super) fn write_scope_memory_files(
     agent_data_dir: &std::path::Path,
     scope_id: &str,
     soul: &str,
@@ -54,7 +90,7 @@ fn write_scope_memory_files(
     paths
 }
 
-async fn current_scope_memory(
+pub(super) async fn current_scope_memory(
     agent_data_dir: &std::path::Path,
 ) -> crate::agent::types::AgentMemory {
     let paths = crate::agent::task_prompt::memory_paths_for_scope(
@@ -74,7 +110,7 @@ async fn current_scope_memory(
     }
 }
 
-fn build_matching_injection_state(
+pub(super) fn build_matching_injection_state(
     memory: &crate::agent::types::AgentMemory,
     paths: &crate::agent::task_prompt::MemoryPaths,
 ) -> crate::agent::memory_context::PromptMemoryInjectionState {
@@ -83,7 +119,7 @@ fn build_matching_injection_state(
     crate::agent::memory_context::build_prompt_memory_injection_state(&summary, false)
 }
 
-fn sample_task_with_scope(
+pub(super) fn sample_task_with_scope(
     id: &str,
     thread_id: Option<&str>,
     scope_id: &str,

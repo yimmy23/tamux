@@ -1,9 +1,11 @@
-use super::super::*;
-use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
-use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
 use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
 use super::super::selection_point_from_snapshot_to_render::*;
-use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode};
+use super::super::*;
+use crate::state::chat::{
+    AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode,
+};
 use crate::theme::ThemeTokens;
 use crate::widgets::message;
 use crate::widgets::message::wrap_text;
@@ -419,7 +421,9 @@ pub(crate) fn estimated_message_content_line_count(
     let image_line_count = message_image_preview_path(msg).map_or(0, |_| 12);
 
     match mode {
-        TranscriptMode::Tools => usize::from(msg.role == MessageRole::Tool || msg.tool_name.is_some()),
+        TranscriptMode::Tools => {
+            usize::from(msg.role == MessageRole::Tool || msg.tool_name.is_some())
+        }
         TranscriptMode::Compact | TranscriptMode::Full => {
             let tools_expanded =
                 matches!(mode, TranscriptMode::Full) || expanded_tools.contains(&msg_index);
@@ -449,8 +453,8 @@ pub(crate) fn estimated_message_content_line_count(
                 let mut count = 1usize;
                 if reasoning_expanded {
                     let detail_width = content_width.saturating_sub(2).max(1);
-                    let detail =
-                        crate::widgets::message::collapsible_system_notice_detail(msg).unwrap_or_default();
+                    let detail = crate::widgets::message::collapsible_system_notice_detail(msg)
+                        .unwrap_or_default();
                     count = count.saturating_add(wrap_text(&detail, detail_width).len().max(1));
                 }
                 return count;
@@ -475,9 +479,12 @@ pub(crate) fn estimated_message_content_line_count(
                 if reasoning_expanded {
                     let reasoning_width = content_width.saturating_sub(2).max(1);
                     count = count.saturating_add(
-                        wrap_text(msg.reasoning.as_deref().unwrap_or_default(), reasoning_width)
-                            .len()
-                            .max(1),
+                        wrap_text(
+                            msg.reasoning.as_deref().unwrap_or_default(),
+                            reasoning_width,
+                        )
+                        .len()
+                        .max(1),
                     );
                 }
             }
@@ -820,8 +827,10 @@ pub(crate) fn overlay_intersecting_lines(
     let estimated_len = block_end.saturating_sub(block_start).max(1);
     for absolute_row in start..end {
         let local_estimated = absolute_row.saturating_sub(block_start);
-        let mut actual_idx = actual_row_for_estimated_row(local_estimated, estimated_len, block.len());
-        if estimated_len > block.len() && matches!(block[actual_idx].kind, RenderedLineKind::Padding)
+        let mut actual_idx =
+            actual_row_for_estimated_row(local_estimated, estimated_len, block.len());
+        if estimated_len > block.len()
+            && matches!(block[actual_idx].kind, RenderedLineKind::Padding)
         {
             actual_idx = nearest_non_padding_line(block, actual_idx).unwrap_or(actual_idx);
         }
@@ -1028,7 +1037,9 @@ pub(crate) struct HandoffResponderEvent {
     pub(crate) to_agent_name: Option<String>,
 }
 
-pub(crate) fn assistant_responder_labels(thread: &crate::state::chat::AgentThread) -> Vec<Option<String>> {
+pub(crate) fn assistant_responder_labels(
+    thread: &crate::state::chat::AgentThread,
+) -> Vec<Option<String>> {
     #[cfg(test)]
     ASSISTANT_RESPONDER_LABELS_CALLS.with(|calls| calls.set(calls.get() + 1));
 
@@ -1118,7 +1129,9 @@ pub(crate) fn initial_responder_name(thread: &crate::state::chat::AgentThread) -
         .or_else(|| Some(zorai_protocol::AGENT_NAME_SWAROG.to_string()))
 }
 
-pub(crate) fn handoff_responder_event_for_message(msg: &AgentMessage) -> Option<HandoffResponderEvent> {
+pub(crate) fn handoff_responder_event_for_message(
+    msg: &AgentMessage,
+) -> Option<HandoffResponderEvent> {
     if msg.role != MessageRole::System {
         return None;
     }
@@ -1170,18 +1183,18 @@ pub fn cached_snapshot_matches_render_key(
     snapshot.0.metrics_key == transcript_metrics_cache_key(area, chat)
 }
 
-pub(crate) fn snapshot_covers_visible_window(snapshot: &SelectionSnapshot, chat: &ChatState) -> bool {
+pub(crate) fn snapshot_covers_visible_window(
+    snapshot: &SelectionSnapshot,
+    chat: &ChatState,
+) -> bool {
     let scroll = resolved_scroll(
         chat,
         snapshot.total_lines,
         snapshot.inner.height as usize,
         &snapshot.message_line_ranges,
     );
-    let (_, start_idx, end_idx) = visible_window_bounds(
-        snapshot.total_lines,
-        snapshot.inner.height as usize,
-        scroll,
-    );
+    let (_, start_idx, end_idx) =
+        visible_window_bounds(snapshot.total_lines, snapshot.inner.height as usize, scroll);
 
     start_idx >= snapshot.rendered_start_idx && end_idx <= snapshot_rendered_end_idx(snapshot)
 }
@@ -1297,7 +1310,9 @@ pub fn selected_text_from_cached_snapshot(
         } else {
             (end, start)
         };
-    let start_row = start_point.row.min(snapshot.0.total_lines.saturating_sub(1));
+    let start_row = start_point
+        .row
+        .min(snapshot.0.total_lines.saturating_sub(1));
     let end_row = end_point.row.min(snapshot.0.total_lines.saturating_sub(1));
     let start_col = start_point.col;
     let end_col = end_point.col;
@@ -1367,11 +1382,8 @@ pub(crate) fn build_visible_window_from_snapshot(
         snapshot.inner.height as usize,
         &snapshot.message_line_ranges,
     );
-    let (padding, start_idx, end_idx) = visible_window_bounds(
-        snapshot.total_lines,
-        snapshot.inner.height as usize,
-        scroll,
-    );
+    let (padding, start_idx, end_idx) =
+        visible_window_bounds(snapshot.total_lines, snapshot.inner.height as usize, scroll);
 
     let mut visible = Vec::with_capacity(snapshot.inner.height as usize);
     for _ in 0..padding {

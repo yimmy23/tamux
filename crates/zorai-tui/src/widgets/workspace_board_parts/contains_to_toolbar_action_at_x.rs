@@ -55,7 +55,10 @@ pub(crate) fn action_at_x(
     }
 }
 
-pub(crate) fn collapsed_controls_action_at_x(body_x: u16, position_x: u16) -> Option<WorkspaceBoardAction> {
+pub(crate) fn collapsed_controls_action_at_x(
+    body_x: u16,
+    position_x: u16,
+) -> Option<WorkspaceBoardAction> {
     let x = position_x.saturating_sub(body_x);
     match x {
         0..=5 => Some(WorkspaceBoardAction::OpenRuntime),
@@ -64,7 +67,10 @@ pub(crate) fn collapsed_controls_action_at_x(body_x: u16, position_x: u16) -> Op
     }
 }
 
-pub(crate) fn expanded_footer_action_at_x(body_x: u16, position_x: u16) -> Option<WorkspaceBoardAction> {
+pub(crate) fn expanded_footer_action_at_x(
+    body_x: u16,
+    position_x: u16,
+) -> Option<WorkspaceBoardAction> {
     let x = position_x.saturating_sub(body_x);
     match x {
         0..=5 => Some(WorkspaceBoardAction::OpenRuntime),
@@ -73,7 +79,10 @@ pub(crate) fn expanded_footer_action_at_x(body_x: u16, position_x: u16) -> Optio
     }
 }
 
-pub(crate) fn toolbar_action_at_x(body_x: u16, position_x: u16) -> Option<WorkspaceBoardToolbarAction> {
+pub(crate) fn toolbar_action_at_x(
+    body_x: u16,
+    position_x: u16,
+) -> Option<WorkspaceBoardToolbarAction> {
     let x = position_x.saturating_sub(body_x);
     match x {
         0..=9 => Some(WorkspaceBoardToolbarAction::NewTask),

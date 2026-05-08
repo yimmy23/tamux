@@ -70,6 +70,12 @@ async fn workspace_settings_round_trip() -> Result<()> {
         workspace_id: "workspace-main".to_string(),
         workspace_root: Some("/tmp/workspace-main".to_string()),
         operator: WorkspaceOperator::Svarog,
+        repo_monitor_enabled: true,
+        repo_monitor_include_dirs: vec![
+            "frontend/src".to_string(),
+            "crates/zorai-daemon".to_string(),
+        ],
+        repo_monitor_exclude_dirs: vec!["target".to_string()],
         created_at: 1,
         updated_at: 2,
     };
@@ -95,24 +101,30 @@ async fn workspace_settings_operator_filter_ignores_unrelated_malformed_rows() -
         .call(|conn| {
             conn.execute(
                 "INSERT INTO workspace_settings \
-                 (workspace_id, workspace_root, operator, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                 (workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 rusqlite::params![
                     "workspace-svarog",
                     "/tmp/workspace-svarog",
                     "svarog",
+                    1i64,
+                    "[\"frontend\"]",
+                    "[\"target\"]",
                     1i64,
                     2i64
                 ],
             )?;
             conn.execute(
                 "INSERT INTO workspace_settings \
-                 (workspace_id, workspace_root, operator, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                 (workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 rusqlite::params![
                     "workspace-user",
                     "/tmp/workspace-user",
                     "user",
+                    0i64,
+                    "[]",
+                    "[]",
                     1i64,
                     "not-an-integer"
                 ],

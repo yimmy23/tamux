@@ -64,6 +64,38 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn list_thread_protocol_candidates(
+        &self,
+    ) -> Result<Vec<ThreadProtocolCandidatesRow>> {
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT thread_id, state_json, updated_at
+                     FROM thread_protocol_candidates
+                     ORDER BY updated_at DESC",
+                )?;
+                let rows = stmt.query_map([], |row| {
+                    let state_json_raw = row.get::<_, String>(1)?;
+                    let state_json = serde_json::from_str(&state_json_raw).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            1,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?;
+                    Ok(ThreadProtocolCandidatesRow {
+                        thread_id: row.get(0)?,
+                        state_json,
+                        updated_at: row.get::<_, i64>(2)?.max(0) as u64,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn upsert_thread_protocol_candidates_state<T: Serialize>(
         &self,
         thread_id: &str,

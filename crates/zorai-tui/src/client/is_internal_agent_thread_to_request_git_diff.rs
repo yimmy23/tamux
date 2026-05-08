@@ -1,14 +1,14 @@
-use crate::client::{DaemonClient, ClientEvent};
-use anyhow::Result;
-use zorai_protocol::ClientMessage;
+use super::*;
 use crate::client::get_string_lossy::{get_string, get_string_lossy};
 use crate::client::OpenAICodexAuthStatusVm;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::*;
+use anyhow::Result;
 use serde_json::Value;
 use tokio::sync::mpsc;
-use zorai_protocol::DaemonMessage;
 use tracing::warn;
-use crate::wire::*;
-use super::*;
+use zorai_protocol::ClientMessage;
+use zorai_protocol::DaemonMessage;
 
 impl DaemonClient {
     fn is_internal_agent_thread(thread_id: Option<&str>, title: Option<&str>) -> bool {
@@ -53,7 +53,11 @@ impl DaemonClient {
     }
 
     pub(crate) async fn dispatch_agent_event(event: Value, event_tx: &mpsc::Sender<ClientEvent>) {
-        let Some(kind) = event.get("type").and_then(Value::as_str).map(ToOwned::to_owned) else {
+        let Some(kind) = event
+            .get("type")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+        else {
             return;
         };
 
@@ -238,5 +242,4 @@ impl DaemonClient {
             file_path,
         })
     }
-
 }

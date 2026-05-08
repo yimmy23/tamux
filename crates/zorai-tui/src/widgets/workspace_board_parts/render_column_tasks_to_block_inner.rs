@@ -345,7 +345,10 @@ impl TaskActionRows {
     }
 }
 
-pub(crate) fn task_action_rows(task: &zorai_protocol::WorkspaceTask, card_body_width: u16) -> TaskActionRows {
+pub(crate) fn task_action_rows(
+    task: &zorai_protocol::WorkspaceTask,
+    card_body_width: u16,
+) -> TaskActionRows {
     let offset = title_row_count(&task.title, card_body_width).saturating_sub(1);
     TaskActionRows {
         primary: TASK_PRIMARY_ACTION_ROW.saturating_add(offset),

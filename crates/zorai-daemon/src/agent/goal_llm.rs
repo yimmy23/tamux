@@ -251,41 +251,19 @@ impl AgentEngine {
         let (recent_message_count, avg_gap_secs) = if let Some(thread_id) = thread_id {
             let now = super::now_millis();
             let window_ms = 5 * 60 * 1000;
-            let threads = self.threads.read().await;
-            if let Some(thread) = threads.get(thread_id) {
-                let recent_message_count = thread
-                    .messages
-                    .iter()
-                    .filter(|m| {
-                        matches!(m.role, MessageRole::User)
-                            && now.saturating_sub(m.timestamp) <= window_ms
-                    })
-                    .count() as u32;
-
-                let mut last_user_timestamps: Vec<u64> = thread
-                    .messages
-                    .iter()
-                    .filter(|m| matches!(m.role, MessageRole::User))
-                    .rev()
-                    .take(5)
-                    .map(|m| m.timestamp)
-                    .collect();
-                last_user_timestamps.reverse();
-
-                let avg_gap_secs = if last_user_timestamps.len() < 2 {
-                    0
-                } else {
-                    let gap_sum_ms: u64 = last_user_timestamps
-                        .windows(2)
-                        .map(|pair| pair[1].saturating_sub(pair[0]))
-                        .sum();
-                    let avg_gap_ms = gap_sum_ms / (last_user_timestamps.len() as u64 - 1);
-                    avg_gap_ms / 1000
-                };
-
-                (recent_message_count, avg_gap_secs)
-            } else {
-                (0, 0)
+            match self
+                .history
+                .thread_user_pacing(thread_id, now, window_ms, 5)
+                .await
+            {
+                Ok(pacing) => (pacing.recent_message_count, pacing.avg_gap_secs),
+                Err(error) => {
+                    tracing::warn!(
+                        thread_id = %thread_id,
+                        "failed to load persisted thread user pacing for confidence annotation: {error}"
+                    );
+                    (0, 0)
+                }
             }
         } else {
             (0, 0)

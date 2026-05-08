@@ -4,7 +4,9 @@ use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear};
 use std::process::Child;
@@ -234,7 +236,11 @@ impl TuiModel {
             })
     }
 
-    pub(crate) fn sync_goal_mission_control_from_run(&mut self, run: &task::GoalRun, preserve_pending: bool) {
+    pub(crate) fn sync_goal_mission_control_from_run(
+        &mut self,
+        run: &task::GoalRun,
+        preserve_pending: bool,
+    ) {
         let (assignments, uses_fallback) = self.runtime_assignments_for_goal_run(run);
         let active_index = self.active_runtime_assignment_index_for_run(run, &assignments);
         let preserved_pending = preserve_pending
@@ -504,5 +510,4 @@ impl TuiModel {
                 ),
         }
     }
-
 }

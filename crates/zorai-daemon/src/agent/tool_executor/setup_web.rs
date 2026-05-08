@@ -1,6 +1,7 @@
-async fn execute_setup_web_browsing(
+use super::*;
+pub(crate) async fn execute_setup_web_browsing(
     args: &serde_json::Value,
-    agent: &super::engine::AgentEngine,
+    agent: &super::super::engine::AgentEngine,
 ) -> Result<String> {
     let action = args
         .get("action")

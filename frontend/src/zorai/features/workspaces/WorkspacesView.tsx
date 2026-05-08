@@ -563,7 +563,7 @@ function Info({ label, value }: { label: string; value: string }) {
 
 function ensureMainWorkspace(settings: WorkspaceSettings[]): WorkspaceSettings[] {
   if (settings.some((workspace) => workspace.workspace_id === DEFAULT_WORKSPACE_ID)) return settings;
-  return [{ workspace_id: DEFAULT_WORKSPACE_ID, workspace_root: null, operator: "user", created_at: 0, updated_at: 0 }, ...settings];
+  return [{ workspace_id: DEFAULT_WORKSPACE_ID, workspace_root: null, operator: "user", repo_monitor_enabled: false, repo_monitor_include_dirs: [], repo_monitor_exclude_dirs: [], created_at: 0, updated_at: 0 }, ...settings];
 }
 
 function upsertTask(tasks: WorkspaceTask[], task: WorkspaceTask): WorkspaceTask[] {

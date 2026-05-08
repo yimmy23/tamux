@@ -239,8 +239,8 @@ impl AgentEngine {
                 .and_then(|value| value.as_str().map(ToOwned::to_owned))
         })
         .collect::<Vec<_>>();
-        let health_tasks = self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+        let active_tasks = self
+            .count_tasks_filtered(&crate::history::AgentTaskListQuery {
                 id: None,
                 status: None,
                 statuses: health_task_statuses,
@@ -256,11 +256,23 @@ impl AgentEngine {
                 limit: None,
             })
             .await;
-        let active_tasks = health_tasks.len();
-        let awaiting_approval_tasks = health_tasks
-            .iter()
-            .filter(|task| task.status == TaskStatus::AwaitingApproval)
-            .count();
+        let awaiting_approval_tasks = self
+            .count_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: Some("awaiting_approval".to_string()),
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+            })
+            .await;
         let active_goal_statuses = [
             GoalRunStatus::Queued,
             GoalRunStatus::Planning,
@@ -268,22 +280,22 @@ impl AgentEngine {
             GoalRunStatus::AwaitingApproval,
             GoalRunStatus::Paused,
         ];
-        let mut active_goal_runs = match self
+        let mut active_goal_run_ids = match self
             .history
-            .list_goal_runs_for_statuses(&active_goal_statuses)
+            .list_goal_run_ids_for_statuses(&active_goal_statuses)
             .await
         {
-            Ok(goal_runs) => goal_runs,
+            Ok(goal_run_ids) => goal_run_ids,
             Err(error) => {
                 tracing::warn!(
-                    "failed to query persisted active goal runs for health snapshot: {error}"
+                    "failed to query persisted active goal run ids for health snapshot: {error}"
                 );
                 Vec::new()
             }
         };
-        let mut seen_goal_ids = active_goal_runs
+        let mut seen_goal_ids = active_goal_run_ids
             .iter()
-            .map(|goal_run| goal_run.id.clone())
+            .cloned()
             .collect::<std::collections::HashSet<_>>();
         {
             let live_goal_runs = self.goal_runs.lock().await;
@@ -292,11 +304,11 @@ impl AgentEngine {
                 .filter(|goal_run| active_goal_statuses.contains(&goal_run.status))
             {
                 if seen_goal_ids.insert(goal_run.id.clone()) {
-                    active_goal_runs.push(goal_run.clone());
+                    active_goal_run_ids.push(goal_run.id.clone());
                 }
             }
         }
-        let active_goal_runs = active_goal_runs.len();
+        let active_goal_runs = active_goal_run_ids.len();
 
         let latest = self
             .history
@@ -411,18 +423,15 @@ impl AgentEngine {
             let streams = self.stream_cancellations.lock().await;
             streams.get(thread_id).map(|entry| entry.retry_now.clone())
         };
-        let last_user_content = {
-            let threads = self.threads.read().await;
-            threads.get(thread_id).and_then(|thread| {
-                thread
-                    .messages
-                    .iter()
-                    .rev()
-                    .find(|message| {
-                        message.role == MessageRole::User && !message.content.trim().is_empty()
-                    })
-                    .map(|message| message.content.clone())
-            })
+        let last_user_content = match self.history.latest_user_message_content(thread_id).await {
+            Ok(message) => message.filter(|content| !content.trim().is_empty()),
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    "failed to load latest user message for retry-now: {error}"
+                );
+                None
+            }
         };
 
         if let Some(content) = last_user_content {

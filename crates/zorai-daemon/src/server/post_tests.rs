@@ -1,4 +1,5 @@
-fn should_forward_agent_event(
+use super::*;
+pub(crate) fn should_forward_agent_event(
     event: &crate::agent::types::AgentEvent,
     client_threads: &HashSet<String>,
 ) -> bool {
@@ -38,7 +39,9 @@ fn should_forward_agent_event(
     }
 }
 
-fn concierge_welcome_fingerprint(event: &crate::agent::types::AgentEvent) -> Option<String> {
+pub(crate) fn concierge_welcome_fingerprint(
+    event: &crate::agent::types::AgentEvent,
+) -> Option<String> {
     match event {
         crate::agent::types::AgentEvent::ConciergeWelcome {
             thread_id,
@@ -495,8 +498,9 @@ mod shutdown_signal_tests {
     #[test]
     fn daemon_unix_shutdown_path_handles_sigterm_and_sighup() {
         let root = crate::test_support::repo_root();
-        let source = std::fs::read_to_string(root.join("crates/zorai-daemon/src/server/post_tests.rs"))
-            .expect("read server startup source");
+        let source =
+            std::fs::read_to_string(root.join("crates/zorai-daemon/src/server/post_tests.rs"))
+                .expect("read server startup source");
 
         assert!(
             source.contains("SignalKind::terminate()"),

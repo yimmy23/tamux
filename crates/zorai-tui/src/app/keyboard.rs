@@ -4,12 +4,12 @@ use super::*;
 mod enter;
 #[path = "keyboard_actions_global.rs"]
 mod keyboard_actions_global;
-#[path = "keyboard_actions_navigation.rs"]
-mod keyboard_actions_navigation;
 #[path = "keyboard_actions_goal_task.rs"]
 mod keyboard_actions_goal_task;
 #[path = "keyboard_actions_input.rs"]
 mod keyboard_actions_input;
+#[path = "keyboard_actions_navigation.rs"]
+mod keyboard_actions_navigation;
 
 #[path = "keyboard_shortcuts.rs"]
 mod keyboard_shortcuts;

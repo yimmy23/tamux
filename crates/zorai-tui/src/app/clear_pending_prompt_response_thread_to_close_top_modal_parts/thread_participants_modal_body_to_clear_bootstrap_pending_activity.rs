@@ -4,7 +4,9 @@ use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear};
 use std::process::Child;
@@ -478,7 +480,11 @@ impl TuiModel {
             .or(self.agent_activity.as_deref())
     }
 
-    pub(crate) fn set_agent_activity_for(&mut self, thread_id: Option<String>, activity: impl Into<String>) {
+    pub(crate) fn set_agent_activity_for(
+        &mut self,
+        thread_id: Option<String>,
+        activity: impl Into<String>,
+    ) {
         let activity = activity.into();
         if let Some(thread_id) = thread_id {
             if activity != "thinking" {
@@ -500,11 +506,11 @@ impl TuiModel {
     }
 
     pub(crate) fn mark_pending_prompt_response_thread(&mut self, thread_id: impl Into<String>) {
-        self.pending_prompt_response_threads.insert(thread_id.into());
+        self.pending_prompt_response_threads
+            .insert(thread_id.into());
     }
 
     pub(crate) fn clear_bootstrap_pending_activity_thread(&mut self, thread_id: &str) {
         self.bootstrap_pending_activity_threads.remove(thread_id);
     }
-
 }

@@ -1,5 +1,26 @@
-if matches!(
-        &msg,
+use super::*;
+use crate::agent::AgentEngine;
+use crate::session_manager::SessionManager;
+use anyhow::Result;
+use futures::SinkExt;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
+
+pub(crate) async fn dispatch_part6<S>(
+    msg: &ClientMessage,
+    agent: &Arc<AgentEngine>,
+    framed: &mut Framed<S, DaemonCodec>,
+    background_daemon_queues: &mut BackgroundSubsystemQueues,
+    background_daemon_pending: &mut BackgroundPendingCounts,
+) -> Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    if !matches!(
+        msg,
         ClientMessage::AgentSetOperatorProfileConsent{ .. } |
         ClientMessage::AgentGetOperatorModel |
         ClientMessage::AgentResetOperatorModel |
@@ -29,6 +50,10 @@ if matches!(
         ClientMessage::AgentLoginOpenAICodex |
         ClientMessage::AgentLogoutOpenAICodex
     ) {
+        return Ok(false);
+    }
+    let msg = msg.clone();
+
         match msg {
                 ClientMessage::AgentSetOperatorProfileConsent {
                     consent_key,
@@ -593,7 +618,7 @@ if matches!(
                             })
                             .await
                             .ok();
-                        continue;
+                        return Ok(true);
                     }
 
                     let operation = operation_registry().accept_operation(
@@ -620,7 +645,7 @@ if matches!(
                         BackgroundSubsystem::AgentWork,
                         operation_id,
                         background_daemon_tx,
-                        &mut background_daemon_pending,
+                        background_daemon_pending,
                         async move {
                             #[cfg(test)]
                             if let Some(delay) = agent.take_test_synthesize_tool_delay().await {
@@ -791,7 +816,7 @@ if matches!(
                                     .await?;
                             }
                         }
-                        continue;
+                        return Ok(true);
                     }
 
                     // Surgical update: modify only the target provider's key.
@@ -979,5 +1004,5 @@ if matches!(
 
             _ => unreachable!("message chunk should be exhaustive"),
         }
-        continue;
-    }
+    Ok(true)
+}

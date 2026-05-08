@@ -890,6 +890,12 @@ pub struct WorkspaceSettings {
     #[serde(default)]
     pub workspace_root: Option<String>,
     pub operator: WorkspaceOperator,
+    #[serde(default)]
+    pub repo_monitor_enabled: bool,
+    #[serde(default)]
+    pub repo_monitor_include_dirs: Vec<String>,
+    #[serde(default)]
+    pub repo_monitor_exclude_dirs: Vec<String>,
     pub created_at: u64,
     pub updated_at: u64,
 }

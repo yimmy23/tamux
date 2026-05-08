@@ -138,28 +138,28 @@ pub(super) fn parse_workspace_actor_field(
     }
 }
 
-#[path = "commands_parts/mission_control_navigation_state_to_collapse_goal_workspace_selection.rs"]
-mod mission_control_navigation_state_to_collapse_goal_workspace_selection;
-#[path = "commands_parts/focus_next_goal_workspace_pane_to_select_goal_sidebar_row.rs"]
-mod focus_next_goal_workspace_pane_to_select_goal_sidebar_row;
-#[path = "commands_parts/active_goal_sidebar_item_to_speak_latest_assistant_message.rs"]
-mod active_goal_sidebar_item_to_speak_latest_assistant_message;
-#[path = "commands_parts/known_agent_directive_aliases_to_selected_runtime_assignment_preview.rs"]
-mod known_agent_directive_aliases_to_selected_runtime_assignment_preview;
-#[path = "commands_parts/stage_mission_control_assignment_modal_edit_to_open_selected_spawned.rs"]
-mod stage_mission_control_assignment_modal_edit_to_open_selected_spawned;
-#[path = "commands_parts/go_back_thread_to_execute_selected_queued_prompt_action.rs"]
-mod go_back_thread_to_execute_selected_queued_prompt_action;
-#[path = "commands_parts/open_new_goal_view_to_delete_workspace_task_from_args.rs"]
-mod open_new_goal_view_to_delete_workspace_task_from_args;
-#[path = "commands_parts/move_workspace_task_from_args_to_activate_workspace_board_target.rs"]
-mod move_workspace_task_from_args_to_activate_workspace_board_target;
 #[path = "commands_parts/activate_workspace_toolbar_action_to_submit_image_prompt.rs"]
 mod activate_workspace_toolbar_action_to_submit_image_prompt;
-#[path = "commands_parts/submit_prompt_to_copy_message.rs"]
-mod submit_prompt_to_copy_message;
+#[path = "commands_parts/active_goal_sidebar_item_to_speak_latest_assistant_message.rs"]
+mod active_goal_sidebar_item_to_speak_latest_assistant_message;
 #[path = "commands_parts/copy_work_context_content_to_regenerate_from_message.rs"]
 mod copy_work_context_content_to_regenerate_from_message;
+#[path = "commands_parts/focus_next_goal_workspace_pane_to_select_goal_sidebar_row.rs"]
+mod focus_next_goal_workspace_pane_to_select_goal_sidebar_row;
+#[path = "commands_parts/go_back_thread_to_execute_selected_queued_prompt_action.rs"]
+mod go_back_thread_to_execute_selected_queued_prompt_action;
+#[path = "commands_parts/known_agent_directive_aliases_to_selected_runtime_assignment_preview.rs"]
+mod known_agent_directive_aliases_to_selected_runtime_assignment_preview;
+#[path = "commands_parts/mission_control_navigation_state_to_collapse_goal_workspace_selection.rs"]
+mod mission_control_navigation_state_to_collapse_goal_workspace_selection;
+#[path = "commands_parts/move_workspace_task_from_args_to_activate_workspace_board_target.rs"]
+mod move_workspace_task_from_args_to_activate_workspace_board_target;
+#[path = "commands_parts/open_new_goal_view_to_delete_workspace_task_from_args.rs"]
+mod open_new_goal_view_to_delete_workspace_task_from_args;
+#[path = "commands_parts/stage_mission_control_assignment_modal_edit_to_open_selected_spawned.rs"]
+mod stage_mission_control_assignment_modal_edit_to_open_selected_spawned;
+#[path = "commands_parts/submit_prompt_to_copy_message.rs"]
+mod submit_prompt_to_copy_message;
 
 fn builtin_participant_display_name(agent_alias: &str) -> Option<String> {
     let normalized = agent_alias.trim().to_ascii_lowercase();

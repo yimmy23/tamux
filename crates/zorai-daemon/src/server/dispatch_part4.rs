@@ -1,5 +1,27 @@
-if matches!(
-        &msg,
+use super::*;
+use crate::agent::AgentEngine;
+use anyhow::Result;
+use futures::SinkExt;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::Framed;
+use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
+
+pub(crate) async fn dispatch_part4<S>(
+    msg: &ClientMessage,
+    agent: &Arc<AgentEngine>,
+    framed: &mut Framed<S, DaemonCodec>,
+    background_daemon_queues: &mut BackgroundSubsystemQueues,
+    background_daemon_pending: &mut BackgroundPendingCounts,
+    client_agent_threads: &mut HashSet<String>,
+    agent_event_rx: &mut Option<tokio::sync::broadcast::Receiver<crate::agent::types::AgentEvent>>,
+) -> Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    if !matches!(
+        msg,
         ClientMessage::AgentRecordAttention{ .. } |
         ClientMessage::AgentListThreads{ .. } |
         ClientMessage::AgentGetThread{ .. } |
@@ -65,6 +87,10 @@ if matches!(
         ClientMessage::AgentSubmitWorkspaceReview{ .. } |
         ClientMessage::AgentListWorkspaceNotices{ .. }
     ) {
+        return Ok(false);
+    }
+    let msg = msg.clone();
+
         match msg {
                 ClientMessage::AgentRecordAttention {
                     surface,
@@ -93,8 +119,9 @@ if matches!(
                     offset,
                     include_internal,
                 } => {
+                    let effective_limit = limit.or(Some(AGENT_DB_THREAD_LIST_WINDOW));
                     let threads = agent
-                        .list_threads_paginated(limit, offset.unwrap_or(0), include_internal)
+                        .list_threads_paginated(effective_limit, offset.unwrap_or(0), include_internal)
                         .await;
                     let (threads, truncated) = cap_agent_thread_list_for_ipc(threads);
                     if truncated {
@@ -647,7 +674,7 @@ if matches!(
                                     message: "config_reconcile background queue is full".to_string(),
                                 })
                                 .await?;
-                            continue;
+                            return Ok(true);
                         }
 
                         if let Err(e) = agent
@@ -660,7 +687,7 @@ if matches!(
                                     message: format!("Invalid config item: {e}"),
                                 })
                                 .await?;
-                            continue;
+                            return Ok(true);
                         }
 
                         let operation = operation_registry().accept_operation(
@@ -684,7 +711,7 @@ if matches!(
                             BackgroundSubsystem::ConfigReconcile,
                             Some(operation.operation_id.clone()),
                             background_daemon_tx,
-                            &mut background_daemon_pending,
+                            background_daemon_pending,
                             async move {
                                 match agent.reconcile_config_runtime_after_commit().await {
                                     Ok(()) => BackgroundSideEffectOutcome::Completed,
@@ -713,7 +740,7 @@ if matches!(
                                         message: "config_reconcile background queue is full".to_string(),
                                     })
                                     .await?;
-                                continue;
+                                return Ok(true);
                             }
 
                             agent.persist_prepared_provider_model_json(merged).await;
@@ -743,7 +770,7 @@ if matches!(
                                 BackgroundSubsystem::ConfigReconcile,
                                 Some(operation.operation_id.clone()),
                                 background_daemon_tx,
-                                &mut background_daemon_pending,
+                                background_daemon_pending,
                                 async move {
                                     match agent.reconcile_config_runtime_after_commit().await {
                                         Ok(()) => BackgroundSideEffectOutcome::Completed,
@@ -784,7 +811,7 @@ if matches!(
                                             .to_string(),
                                     })
                                     .await?;
-                                continue;
+                                return Ok(true);
                             }
 
                             agent.persist_prepared_provider_model_json(merged).await;
@@ -815,7 +842,7 @@ if matches!(
                                 BackgroundSubsystem::ConfigReconcile,
                                 Some(operation.operation_id.clone()),
                                 background_daemon_tx,
-                                &mut background_daemon_pending,
+                                background_daemon_pending,
                                 async move {
                                     match agent.reconcile_config_runtime_after_commit().await {
                                         Ok(()) => BackgroundSideEffectOutcome::Completed,
@@ -863,7 +890,7 @@ if matches!(
                                             .to_string(),
                                     })
                                     .await?;
-                                continue;
+                                return Ok(true);
                             }
 
                             agent.persist_prepared_provider_model_json(merged).await;
@@ -893,7 +920,7 @@ if matches!(
                                 BackgroundSubsystem::ConfigReconcile,
                                 Some(operation.operation_id.clone()),
                                 background_daemon_tx,
-                                &mut background_daemon_pending,
+                                background_daemon_pending,
                                 async move {
                                     match agent.reconcile_config_runtime_after_commit().await {
                                         Ok(()) => BackgroundSideEffectOutcome::Completed,
@@ -966,7 +993,7 @@ if matches!(
                                 message: "provider_io background queue is full".to_string(),
                             })
                             .await?;
-                        continue;
+                        return Ok(true);
                     }
 
                     let operation = operation_registry().accept_operation(
@@ -995,7 +1022,7 @@ if matches!(
                         BackgroundSubsystem::ProviderIo,
                         operation_id,
                         background_daemon_tx,
-                        &mut background_daemon_pending,
+                        background_daemon_pending,
                         async move {
                             let result = crate::agent::llm_client::fetch_models(
                                 &provider_id,
@@ -1134,7 +1161,7 @@ if matches!(
                 }
 
                 ClientMessage::AgentSubscribe => {
-                    agent_event_rx = Some(agent.subscribe());
+                    *agent_event_rx = Some(agent.subscribe());
                     tracing::info!("client subscribed to agent events");
                     let subscribed_agent = agent.clone();
                     tokio::spawn(async move {
@@ -1147,7 +1174,7 @@ if matches!(
                 }
 
                 ClientMessage::AgentUnsubscribe => {
-                    agent_event_rx = None;
+                    *agent_event_rx = None;
                     tracing::info!("client unsubscribed from agent events");
                 }
 
@@ -1226,7 +1253,7 @@ if matches!(
                                 })
                                 .await
                                 .ok();
-                            continue;
+                            return Ok(true);
                         }
                     };
                     framed
@@ -1253,7 +1280,7 @@ if matches!(
                                 })
                                 .await
                                 .ok();
-                            continue;
+                            return Ok(true);
                         }
                     };
                     framed
@@ -1277,7 +1304,7 @@ if matches!(
                                 })
                                 .await
                                 .ok();
-                            continue;
+                            return Ok(true);
                         }
                     };
                     framed
@@ -1333,6 +1360,34 @@ if matches!(
                     operator,
                 } => match agent
                     .set_workspace_operator_deferred_auto_start(&workspace_id, operator)
+                    .await
+                {
+                    Ok(settings) => {
+                        framed
+                            .send(DaemonMessage::AgentWorkspaceSettings { settings })
+                            .await?;
+                    }
+                    Err(error) => {
+                        framed
+                            .send(DaemonMessage::AgentWorkspaceError {
+                                message: error.to_string(),
+                            })
+                            .await?;
+                    }
+                },
+
+                ClientMessage::AgentSetWorkspaceRepoMonitor {
+                    workspace_id,
+                    repo_monitor_enabled,
+                    repo_monitor_include_dirs,
+                    repo_monitor_exclude_dirs,
+                } => match agent
+                    .set_workspace_repo_monitor(
+                        &workspace_id,
+                        repo_monitor_enabled,
+                        repo_monitor_include_dirs,
+                        repo_monitor_exclude_dirs,
+                    )
                     .await
                 {
                     Ok(settings) => {
@@ -1594,5 +1649,5 @@ if matches!(
 
             _ => unreachable!("message chunk should be exhaustive"),
         }
-        continue;
-    }
+    Ok(true)
+}

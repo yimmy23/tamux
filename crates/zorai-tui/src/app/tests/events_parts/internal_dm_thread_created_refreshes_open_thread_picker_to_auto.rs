@@ -1,10 +1,10 @@
-use tokio::sync::mpsc::unbounded_channel;
-use std::sync::mpsc;
-use zorai_shared::providers::*;
-use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
 use super::done_event_persists_final_reasoning_into_chat_message_to_mission_control::*;
-use crate::state::*;
+use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
 use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn internal_dm_thread_created_refreshes_open_thread_picker() {
     let mut model = make_model();
@@ -446,4 +446,3 @@ fn auto_compaction_workflow_notice_invalidates_header_context_usage() {
         Some((thread_id, Some(101), Some(0))) if thread_id == "thread-compaction"
     ));
 }
-

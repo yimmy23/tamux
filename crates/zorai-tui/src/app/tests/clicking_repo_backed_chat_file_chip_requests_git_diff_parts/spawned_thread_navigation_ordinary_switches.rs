@@ -271,7 +271,9 @@ fn spawned_thread_navigation_enter_on_disabled_row_does_nothing() {
             .is_none()
         })
         .expect("disabled row should map to a spawned sidebar index");
-    model.sidebar.select(disabled_index, model.sidebar_item_count());
+    model
+        .sidebar
+        .select(disabled_index, model.sidebar_item_count());
 
     let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
@@ -438,4 +440,3 @@ fn spawned_thread_navigation_ordinary_thread_switches_do_not_mutate_stack() {
         "direct thread selection should preserve existing spawned thread history"
     );
 }
-

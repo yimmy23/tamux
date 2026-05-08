@@ -1,9 +1,9 @@
-use tokio::sync::mpsc::unbounded_channel;
-use std::sync::mpsc;
-use zorai_shared::providers::*;
 use super::whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings::*;
-use crate::state::*;
 use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn selected_goal_step_r_opens_retry_confirmation() {
     let (mut model, _daemon_rx) = make_model();
@@ -496,4 +496,3 @@ fn goal_run_task_view_bracket_keys_cycle_selected_step() {
         }) if goal_run_id == "goal-1" && step_id == "step-2"
     ));
 }
-

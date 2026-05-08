@@ -1,7 +1,9 @@
 use super::*;
-use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind};
-use crate::widgets;
 use crate::providers;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::*;
 use zorai_shared::providers::*;
 impl TuiModel {
@@ -37,6 +39,10 @@ impl TuiModel {
             "auto_retry" => {
                 self.config.auto_retry = !self.config.auto_retry;
                 self.sync_config_to_daemon();
+            }
+            "workspace_repo_monitor_enabled" => {
+                let requested_enabled = !self.config.workspace_repo_monitor_enabled;
+                self.sync_workspace_repo_monitor_to_daemon(requested_enabled);
             }
             "enable_conversation_memory" => {
                 self.config.enable_conversation_memory = !self.config.enable_conversation_memory;

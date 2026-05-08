@@ -43,6 +43,108 @@ fn deserialize_goal_run_thread_ids(
     execution_thread_ids
 }
 
+fn map_goal_run_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GoalRun> {
+    let id: String = row.get(0)?;
+    let thread_id: Option<String> = row.get(10)?;
+    let root_thread_id: Option<String> = row.get(12)?;
+    let active_thread_id: Option<String> = row.get(13)?;
+    let execution_thread_ids_json: Option<String> = row.get(14)?;
+    let memory_updates_json: String = row.get(20)?;
+    let dossier_json: Option<String> = row.get(36)?;
+    let child_task_ids_json: String = row.get(25)?;
+    let model_usage_json: String = row.get(40)?;
+    let planner_owner_profile_json: Option<String> = row.get(43)?;
+    let current_step_owner_profile_json: Option<String> = row.get(44)?;
+    let launch_assignment_snapshot_json: Option<String> = row.get(45)?;
+    let runtime_assignment_list_json: Option<String> = row.get(46)?;
+    let child_task_ids = serde_json::from_str(&child_task_ids_json).unwrap_or_default();
+    let root_thread_id = root_thread_id.or_else(|| thread_id.clone());
+    let active_thread_id = active_thread_id.or_else(|| thread_id.clone());
+    Ok(GoalRun {
+        id,
+        title: row.get(1)?,
+        goal: row.get(2)?,
+        client_request_id: row.get(3)?,
+        status: parse_goal_run_status(&row.get::<_, String>(4)?),
+        priority: parse_task_priority(&row.get::<_, String>(5)?),
+        created_at: row.get::<_, i64>(6)? as u64,
+        updated_at: row.get::<_, i64>(7)? as u64,
+        started_at: row.get::<_, Option<i64>>(8)?.map(|value| value as u64),
+        completed_at: row.get::<_, Option<i64>>(9)?.map(|value| value as u64),
+        thread_id: thread_id.clone(),
+        root_thread_id,
+        active_thread_id,
+        execution_thread_ids: deserialize_goal_run_thread_ids(
+            &thread_id,
+            execution_thread_ids_json,
+        ),
+        session_id: row.get(11)?,
+        current_step_index: row.get::<_, i64>(15)? as usize,
+        current_step_title: None,
+        current_step_kind: None,
+        launch_assignment_snapshot: deserialize_goal_agent_assignments(
+            launch_assignment_snapshot_json,
+        ),
+        runtime_assignment_list: deserialize_goal_agent_assignments(runtime_assignment_list_json),
+        planner_owner_profile: deserialize_goal_runtime_owner_profile(planner_owner_profile_json),
+        current_step_owner_profile: deserialize_goal_runtime_owner_profile(
+            current_step_owner_profile_json,
+        ),
+        replan_count: row.get::<_, i64>(16)? as u32,
+        max_replans: row.get::<_, i64>(17)? as u32,
+        plan_summary: row.get(18)?,
+        reflection_summary: row.get(19)?,
+        memory_updates: serde_json::from_str(&memory_updates_json).unwrap_or_default(),
+        generated_skill_path: row.get(21)?,
+        last_error: row.get(22)?,
+        failure_cause: row.get(23)?,
+        stopped_reason: row.get(24)?,
+        child_task_ids,
+        child_task_count: row.get::<_, i64>(26)? as u32,
+        approval_count: row.get::<_, i64>(27)? as u32,
+        awaiting_approval_id: row.get(28)?,
+        policy_fingerprint: row.get(29)?,
+        approval_expires_at: row.get::<_, Option<i64>>(30)?.map(|value| value as u64),
+        containment_scope: row.get(31)?,
+        compensation_status: row.get(32)?,
+        compensation_summary: row.get(33)?,
+        active_task_id: row.get(34)?,
+        duration_ms: row.get::<_, Option<i64>>(35)?.map(|value| value as u64),
+        steps: Vec::new(),
+        events: Vec::new(),
+        dossier: dossier_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str(json).ok()),
+        total_prompt_tokens: row.get::<_, i64>(37)? as u64,
+        total_completion_tokens: row.get::<_, i64>(38)? as u64,
+        estimated_cost_usd: row.get(39)?,
+        model_usage: serde_json::from_str(&model_usage_json).unwrap_or_default(),
+        autonomy_level: parse_autonomy_level(&row.get::<_, String>(41)?),
+        authorship_tag: row
+            .get::<_, Option<String>>(42)?
+            .map(|value| parse_authorship_tag(&value)),
+    })
+}
+
+fn map_goal_run_thread_ref_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GoalRunThreadRef> {
+    let thread_id: Option<String> = row.get(3)?;
+    let root_thread_id: Option<String> = row.get(4)?;
+    let active_thread_id: Option<String> = row.get(5)?;
+    let execution_thread_ids_json: Option<String> = row.get(6)?;
+    Ok(GoalRunThreadRef {
+        id: row.get(0)?,
+        status: parse_goal_run_status(&row.get::<_, String>(1)?),
+        updated_at: row.get::<_, i64>(2)?.max(0) as u64,
+        root_thread_id: root_thread_id.or_else(|| thread_id.clone()),
+        active_thread_id: active_thread_id.or_else(|| thread_id.clone()),
+        execution_thread_ids: deserialize_goal_run_thread_ids(
+            &thread_id,
+            execution_thread_ids_json,
+        ),
+        thread_id,
+    })
+}
+
 impl HistoryStore {
     pub async fn upsert_goal_run(&self, goal_run: &GoalRun) -> Result<()> {
         let goal_run = goal_run.clone();
@@ -185,38 +287,18 @@ impl HistoryStore {
         &self,
         statuses: &[GoalRunStatus],
     ) -> Result<Vec<GoalRun>> {
-        if statuses.is_empty() {
-            return Ok(Vec::new());
-        }
-        let status_values = statuses
-            .iter()
-            .map(|status| goal_run_status_to_str(*status).to_string())
-            .collect::<Vec<_>>();
-        let goal_run_ids = self
-            .read_conn
-            .call(move |conn| {
-                let placeholders = std::iter::repeat("?")
-                    .take(status_values.len())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let sql = format!(
-                    "SELECT id FROM goal_runs \
-                     WHERE deleted_at IS NULL AND status IN ({placeholders}) \
-                     ORDER BY updated_at DESC"
-                );
-                let mut stmt = conn.prepare(&sql)?;
-                let rows = stmt
-                    .query_map(rusqlite::params_from_iter(status_values.iter()), |row| {
-                        row.get::<_, String>(0)
-                    })?;
-                let mut ids = Vec::new();
-                for row in rows {
-                    ids.push(row?);
-                }
-                Ok(ids)
-            })
+        self.list_goal_runs_for_statuses_limited(statuses, None)
             .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+    }
+
+    pub(crate) async fn list_goal_runs_for_statuses_limited(
+        &self,
+        statuses: &[GoalRunStatus],
+        limit: Option<usize>,
+    ) -> Result<Vec<GoalRun>> {
+        let goal_run_ids = self
+            .list_goal_run_ids_for_statuses_limited(statuses, limit)
+            .await?;
 
         let mut goal_runs = Vec::with_capacity(goal_run_ids.len());
         for goal_run_id in goal_run_ids {
@@ -225,6 +307,827 @@ impl HistoryStore {
             }
         }
         Ok(goal_runs)
+    }
+
+    pub(crate) async fn list_goal_run_ids_for_statuses(
+        &self,
+        statuses: &[GoalRunStatus],
+    ) -> Result<Vec<String>> {
+        self.list_goal_run_ids_for_statuses_limited(statuses, None)
+            .await
+    }
+
+    pub(crate) async fn list_goal_run_ids_for_statuses_limited(
+        &self,
+        statuses: &[GoalRunStatus],
+        limit: Option<usize>,
+    ) -> Result<Vec<String>> {
+        if statuses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let status_values = statuses
+            .iter()
+            .map(|status| goal_run_status_to_str(*status).to_string())
+            .collect::<Vec<_>>();
+        let limit = limit.map(|value| value.max(1) as i64);
+        let goal_run_ids = self
+            .read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(status_values.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let mut sql = format!(
+                    "SELECT id FROM goal_runs \
+                     WHERE deleted_at IS NULL AND status IN ({placeholders}) \
+                     ORDER BY updated_at DESC"
+                );
+                if limit.is_some() {
+                    sql.push_str(" LIMIT ?");
+                }
+                let mut stmt = conn.prepare(&sql)?;
+                let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = status_values
+                    .into_iter()
+                    .map(|status| Box::new(status) as Box<dyn rusqlite::types::ToSql>)
+                    .collect();
+                if let Some(limit) = limit {
+                    params.push(Box::new(limit));
+                }
+                let param_refs = params
+                    .iter()
+                    .map(|param| param.as_ref())
+                    .collect::<Vec<&dyn rusqlite::types::ToSql>>();
+                let rows = stmt.query_map(param_refs.as_slice(), |row| row.get::<_, String>(0))?;
+                let mut ids = Vec::new();
+                for row in rows {
+                    ids.push(row?);
+                }
+                Ok(ids)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(goal_run_ids)
+    }
+
+    pub(crate) async fn pause_interrupted_goal_runs_on_restart(
+        &self,
+        now_ms: u64,
+    ) -> Result<usize> {
+        self.conn
+            .call(move |conn| {
+                let transaction = conn.transaction()?;
+                let mut stmt = transaction.prepare(
+                    "SELECT id FROM goal_runs \
+                     WHERE deleted_at IS NULL AND status IN (?1, ?2)",
+                )?;
+                let rows = stmt.query_map(
+                    params![
+                        goal_run_status_to_str(GoalRunStatus::Running),
+                        goal_run_status_to_str(GoalRunStatus::Planning),
+                    ],
+                    |row| row.get::<_, String>(0),
+                )?;
+                let goal_run_ids = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+                drop(stmt);
+                if goal_run_ids.is_empty() {
+                    transaction.commit()?;
+                    return Ok(0);
+                }
+
+                let placeholders = std::iter::repeat("?")
+                    .take(goal_run_ids.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let update_sql = format!(
+                    "UPDATE goal_runs SET status = ? \
+                     WHERE deleted_at IS NULL AND id IN ({placeholders})"
+                );
+                let mut update_values = vec![rusqlite::types::Value::Text(
+                    goal_run_status_to_str(GoalRunStatus::Paused).to_string(),
+                )];
+                update_values.extend(goal_run_ids.iter().cloned().map(rusqlite::types::Value::Text));
+                transaction.execute(&update_sql, rusqlite::params_from_iter(update_values.iter()))?;
+
+                for goal_run_id in &goal_run_ids {
+                    transaction.execute(
+                        "INSERT INTO goal_run_events \
+                         (id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json, deleted_at) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, NULL, NULL, ?6, NULL)",
+                        params![
+                            uuid::Uuid::new_v4().to_string(),
+                            goal_run_id,
+                            now_ms as i64,
+                            "restart",
+                            "Daemon restarted; goal run paused for operator review.",
+                            "[]",
+                        ],
+                    )?;
+                }
+
+                transaction.commit()?;
+                Ok(goal_run_ids.len())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn has_goal_run_id(&self, goal_run_id: &str) -> Result<bool> {
+        let goal_run_id = goal_run_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT 1 FROM goal_runs WHERE id = ?1 AND deleted_at IS NULL LIMIT 1",
+                )?;
+                match stmt.query_row(params![goal_run_id], |_| Ok(())) {
+                    Ok(()) => Ok(true),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+                    Err(error) => Err(error.into()),
+                }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn goal_run_replan_count(&self, goal_run_id: &str) -> Result<Option<u32>> {
+        let goal_run_id = goal_run_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT replan_count FROM goal_runs WHERE id = ?1 AND deleted_at IS NULL LIMIT 1",
+                )?;
+                match stmt.query_row(params![goal_run_id], |row| row.get::<_, i64>(0)) {
+                    Ok(value) => Ok(Some(value.max(0) as u32)),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                    Err(error) => Err(error.into()),
+                }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn goal_run_thread_id(&self, goal_run_id: &str) -> Result<Option<String>> {
+        let goal_run_id = goal_run_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT thread_id FROM goal_runs WHERE id = ?1 AND deleted_at IS NULL LIMIT 1",
+                )?;
+                stmt.query_row(params![goal_run_id], |row| row.get(0))
+                    .optional()
+                    .map(Option::flatten)
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn goal_run_task_context(
+        &self,
+        goal_run_id: &str,
+    ) -> Result<Option<GoalRunTaskContextRef>> {
+        let goal_run_id = goal_run_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT current_step_index, session_id FROM goal_runs WHERE id = ?1 AND deleted_at IS NULL LIMIT 1",
+                )?;
+                match stmt.query_row(params![goal_run_id], |row| {
+                    Ok(GoalRunTaskContextRef {
+                        current_step_index: row.get::<_, i64>(0)?.max(0) as usize,
+                        session_id: row.get(1)?,
+                    })
+                }) {
+                    Ok(context) => Ok(Some(context)),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                    Err(error) => Err(error.into()),
+                }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn goal_run_current_step_title(
+        &self,
+        goal_run_id: &str,
+    ) -> Result<Option<String>> {
+        let goal_run_id = goal_run_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT (SELECT title FROM goal_run_steps
+                               WHERE goal_run_steps.goal_run_id = goal_runs.id
+                                 AND goal_run_steps.deleted_at IS NULL
+                                 AND goal_run_steps.ordinal = goal_runs.current_step_index
+                               LIMIT 1) AS current_step_title
+                       FROM goal_runs
+                      WHERE id = ?1 AND deleted_at IS NULL
+                      LIMIT 1",
+                    params![goal_run_id],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map(|value| value.flatten())
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn goal_run_progress_metrics(
+        &self,
+        goal_run_id: &str,
+    ) -> Result<Option<GoalRunProgressMetricsRef>> {
+        let goal_run_id = goal_run_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT
+                         COUNT(goal_run_steps.id) AS steps_total,
+                         SUM(CASE WHEN goal_run_steps.status = ?2 THEN 1 ELSE 0 END) AS steps_completed
+                       FROM goal_runs
+                       LEFT JOIN goal_run_steps
+                         ON goal_run_steps.goal_run_id = goal_runs.id
+                        AND goal_run_steps.deleted_at IS NULL
+                      WHERE goal_runs.id = ?1
+                        AND goal_runs.deleted_at IS NULL
+                      GROUP BY goal_runs.id
+                      LIMIT 1",
+                    params![goal_run_id, goal_run_step_status_to_str(GoalRunStepStatus::Completed)],
+                    |row| {
+                        Ok(GoalRunProgressMetricsRef {
+                            steps_total: row.get::<_, i64>(0)?.max(0) as usize,
+                            steps_completed: row.get::<_, i64>(1)?.max(0) as usize,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn goal_run_policy_context(
+        &self,
+        goal_run_id: &str,
+    ) -> Result<Option<GoalRunPolicyContextRef>> {
+        let goal_run_id = goal_run_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT
+                         goal_runs.goal,
+                         goal_runs.title,
+                         (SELECT title FROM goal_run_steps current_step
+                           WHERE current_step.goal_run_id = goal_runs.id
+                             AND current_step.deleted_at IS NULL
+                             AND current_step.ordinal = goal_runs.current_step_index
+                           LIMIT 1) AS current_step_title,
+                         COUNT(all_steps.id) AS steps_total,
+                         SUM(CASE WHEN all_steps.status = ?2 THEN 1 ELSE 0 END) AS steps_completed
+                       FROM goal_runs
+                       LEFT JOIN goal_run_steps all_steps
+                         ON all_steps.goal_run_id = goal_runs.id
+                        AND all_steps.deleted_at IS NULL
+                      WHERE goal_runs.id = ?1
+                        AND goal_runs.deleted_at IS NULL
+                      GROUP BY goal_runs.id
+                      LIMIT 1",
+                    params![
+                        goal_run_id,
+                        goal_run_step_status_to_str(GoalRunStepStatus::Completed)
+                    ],
+                    |row| {
+                        Ok(GoalRunPolicyContextRef {
+                            goal: row.get(0)?,
+                            title: row.get(1)?,
+                            current_step_title: row.get(2)?,
+                            steps_total: row.get::<_, i64>(3)?.max(0) as usize,
+                            steps_completed: row.get::<_, i64>(4)?.max(0) as usize,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn goal_run_todo_context(
+        &self,
+        goal_run_id: &str,
+        goal_step_id: Option<&str>,
+    ) -> Result<Option<GoalRunTodoContextRef>> {
+        let goal_run_id = goal_run_id.to_string();
+        let goal_step_id = goal_step_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        self.read_conn
+            .call(move |conn| {
+                let Some(current_step_index) = conn
+                    .query_row(
+                        "SELECT current_step_index
+                         FROM goal_runs
+                         WHERE id = ?1 AND deleted_at IS NULL
+                         LIMIT 1",
+                        params![&goal_run_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()?
+                else {
+                    return Ok(None);
+                };
+                let current_step_index = current_step_index.max(0);
+
+                let requested_step = match goal_step_id.as_deref() {
+                    Some(goal_step_id) => conn
+                        .query_row(
+                            "SELECT ordinal, id, status
+                             FROM goal_run_steps
+                             WHERE goal_run_id = ?1
+                               AND id = ?2
+                               AND deleted_at IS NULL
+                             LIMIT 1",
+                            params![&goal_run_id, goal_step_id],
+                            |row| {
+                                Ok((
+                                    row.get::<_, i64>(0)?.max(0) as usize,
+                                    row.get::<_, String>(1)?,
+                                    row.get::<_, String>(2)?,
+                                ))
+                            },
+                        )
+                        .optional()?,
+                    None => None,
+                };
+
+                let selected_step = match requested_step {
+                    Some(step) => Some(step),
+                    None => conn
+                        .query_row(
+                            "SELECT ordinal, id, status
+                             FROM goal_run_steps
+                             WHERE goal_run_id = ?1
+                               AND ordinal = ?2
+                               AND deleted_at IS NULL
+                             LIMIT 1",
+                            params![&goal_run_id, current_step_index],
+                            |row| {
+                                Ok((
+                                    row.get::<_, i64>(0)?.max(0) as usize,
+                                    row.get::<_, String>(1)?,
+                                    row.get::<_, String>(2)?,
+                                ))
+                            },
+                        )
+                        .optional()?,
+                };
+
+                Ok(Some(match selected_step {
+                    Some((step_index, step_id, status)) => GoalRunTodoContextRef {
+                        step_index,
+                        step_id: Some(step_id),
+                        step_status: Some(parse_goal_run_step_status(&status)),
+                    },
+                    None => GoalRunTodoContextRef {
+                        step_index: current_step_index as usize,
+                        step_id: None,
+                        step_status: None,
+                    },
+                }))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn goal_run_workspace_runtime_ref(
+        &self,
+        goal_run_id: &str,
+    ) -> Result<Option<GoalRunWorkspaceRuntimeRef>> {
+        let goal_run_id = goal_run_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT id, status, last_error, reflection_summary, plan_summary
+                     FROM goal_runs
+                     WHERE id = ?1 AND deleted_at IS NULL
+                     LIMIT 1",
+                    params![goal_run_id],
+                    |row| {
+                        Ok(GoalRunWorkspaceRuntimeRef {
+                            id: row.get(0)?,
+                            status: parse_goal_run_status(&row.get::<_, String>(1)?),
+                            last_error: row.get(2)?,
+                            reflection_summary: row.get(3)?,
+                            plan_summary: row.get(4)?,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn goal_run_compaction_scope_ref(
+        &self,
+        goal_run_id: &str,
+    ) -> Result<Option<GoalRunCompactionScopeRef>> {
+        let goal_run_id = goal_run_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut scope = match conn
+                    .query_row(
+                        "SELECT g.id, g.active_task_id, g.title, g.goal, g.status, \
+                                g.root_thread_id, g.active_thread_id, g.execution_thread_ids_json, \
+                                s.title, s.status, s.summary, g.plan_summary, g.last_error, \
+                                g.failure_cause
+                         FROM goal_runs g
+                         LEFT JOIN goal_run_steps s
+                           ON s.goal_run_id = g.id
+                          AND s.ordinal = g.current_step_index
+                          AND s.deleted_at IS NULL
+                         WHERE g.id = ?1 AND g.deleted_at IS NULL
+                         LIMIT 1",
+                        params![&goal_run_id],
+                        |row| {
+                            let execution_thread_ids_json: Option<String> = row.get(7)?;
+                            let last_error: Option<String> = row.get(12)?;
+                            let failure_cause: Option<String> = row.get(13)?;
+                            let step_status: Option<String> = row.get(9)?;
+                            Ok(GoalRunCompactionScopeRef {
+                                id: row.get(0)?,
+                                active_task_id: row.get(1)?,
+                                title: row.get(2)?,
+                                goal: row.get(3)?,
+                                status: parse_goal_run_status(&row.get::<_, String>(4)?),
+                                root_thread_id: row.get(5)?,
+                                active_thread_id: row.get(6)?,
+                                execution_thread_ids: execution_thread_ids_json
+                                    .as_deref()
+                                    .and_then(|json| serde_json::from_str(json).ok())
+                                    .unwrap_or_default(),
+                                current_step_title: row.get(8)?,
+                                current_step_status: step_status
+                                    .as_deref()
+                                    .map(parse_goal_run_step_status),
+                                current_step_summary: row.get(10)?,
+                                plan_summary: row.get(11)?,
+                                latest_error: last_error.or(failure_cause),
+                                recent_events: Vec::new(),
+                            })
+                        },
+                    )
+                    .optional()?
+                {
+                    Some(scope) => scope,
+                    None => return Ok(None),
+                };
+
+                let mut event_stmt = conn.prepare(
+                    "SELECT message
+                     FROM (
+                         SELECT message, timestamp
+                         FROM goal_run_events
+                         WHERE goal_run_id = ?1 AND deleted_at IS NULL
+                         ORDER BY timestamp DESC
+                         LIMIT 3
+                     )
+                     ORDER BY timestamp ASC",
+                )?;
+                let event_rows = event_stmt.query_map(params![&goal_run_id], |row| row.get(0))?;
+                let mut recent_events = Vec::new();
+                for row in event_rows {
+                    recent_events.push(row?);
+                }
+                scope.recent_events = recent_events;
+                Ok(Some(scope))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn latest_goal_run_status_reply_ref_for_thread_ids(
+        &self,
+        thread_ids: &[String],
+    ) -> Result<Option<GoalRunStatusReplyRef>> {
+        let thread_ids = thread_ids
+            .iter()
+            .map(|thread_id| thread_id.trim())
+            .filter(|thread_id| !thread_id.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        if thread_ids.is_empty() {
+            return Ok(None);
+        }
+
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(thread_ids.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT id, status, title, updated_at, \
+                            COALESCE(current_step_title, \
+                                (SELECT title FROM goal_run_steps \
+                                  WHERE goal_run_steps.goal_run_id = goal_runs.id \
+                                    AND goal_run_steps.deleted_at IS NULL \
+                                    AND goal_run_steps.ordinal = goal_runs.current_step_index \
+                                  LIMIT 1)) AS current_step_title, \
+                            plan_summary \
+                       FROM goal_runs \
+                      WHERE deleted_at IS NULL \
+                        AND (thread_id IN ({placeholders}) \
+                          OR root_thread_id IN ({placeholders}) \
+                          OR active_thread_id IN ({placeholders}) \
+                          OR EXISTS ( \
+                             SELECT 1 \
+                               FROM json_each(COALESCE(goal_runs.execution_thread_ids_json, '[]')) \
+                              WHERE json_each.value IN ({placeholders}) \
+                          )) \
+                      ORDER BY updated_at DESC, id DESC \
+                      LIMIT 1"
+                );
+                let mut values = Vec::with_capacity(thread_ids.len() * 4);
+                for _ in 0..4 {
+                    values.extend(thread_ids.iter().cloned().map(rusqlite::types::Value::Text));
+                }
+                let mut stmt = conn.prepare(&sql)?;
+                stmt.query_row(rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok(GoalRunStatusReplyRef {
+                        id: row.get(0)?,
+                        status: parse_goal_run_status(&row.get::<_, String>(1)?),
+                        title: row.get(2)?,
+                        updated_at: row.get::<_, i64>(3)?.max(0) as u64,
+                        current_step_title: row.get(4)?,
+                        plan_summary: row.get(5)?,
+                    })
+                })
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_goal_run_status_refs_for_statuses(
+        &self,
+        statuses: &[GoalRunStatus],
+    ) -> Result<Vec<(String, GoalRunStatus)>> {
+        if statuses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let status_values = statuses
+            .iter()
+            .map(|status| goal_run_status_to_str(*status).to_string())
+            .collect::<Vec<_>>();
+
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(status_values.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT id, status FROM goal_runs \
+                     WHERE deleted_at IS NULL AND status IN ({placeholders}) \
+                     ORDER BY updated_at DESC"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let values = status_values
+                    .into_iter()
+                    .map(rusqlite::types::Value::Text)
+                    .collect::<Vec<_>>();
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        parse_goal_run_status(&row.get::<_, String>(1)?),
+                    ))
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_goal_run_goal_refs_for_statuses(
+        &self,
+        statuses: &[GoalRunStatus],
+    ) -> Result<Vec<(String, String)>> {
+        if statuses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let status_values = statuses
+            .iter()
+            .map(|status| goal_run_status_to_str(*status).to_string())
+            .collect::<Vec<_>>();
+
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(status_values.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT id, goal FROM goal_runs \
+                     WHERE deleted_at IS NULL AND status IN ({placeholders}) \
+                     ORDER BY updated_at DESC"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let values = status_values
+                    .into_iter()
+                    .map(rusqlite::types::Value::Text)
+                    .collect::<Vec<_>>();
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_goal_run_operational_refs_for_statuses_limited(
+        &self,
+        statuses: &[GoalRunStatus],
+        limit: Option<usize>,
+    ) -> Result<Vec<GoalRunOperationalRef>> {
+        if statuses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let status_values = statuses
+            .iter()
+            .map(|status| goal_run_status_to_str(*status).to_string())
+            .collect::<Vec<_>>();
+        let limit = limit.map(|value| value.max(1) as i64);
+
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(status_values.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let mut sql = format!(
+                    "SELECT id, status, title, current_step_index, \
+                            (SELECT COUNT(*) FROM goal_run_steps \
+                              WHERE goal_run_steps.goal_run_id = goal_runs.id \
+                                AND goal_run_steps.deleted_at IS NULL) AS step_count \
+                       FROM goal_runs \
+                      WHERE deleted_at IS NULL AND status IN ({placeholders}) \
+                      ORDER BY updated_at DESC"
+                );
+                if limit.is_some() {
+                    sql.push_str(" LIMIT ?");
+                }
+                let mut values = status_values
+                    .into_iter()
+                    .map(rusqlite::types::Value::Text)
+                    .collect::<Vec<_>>();
+                if let Some(limit) = limit {
+                    values.push(rusqlite::types::Value::Integer(limit));
+                }
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok(GoalRunOperationalRef {
+                        id: row.get(0)?,
+                        status: parse_goal_run_status(&row.get::<_, String>(1)?),
+                        title: row.get(2)?,
+                        current_step_index: row.get::<_, i64>(3)?.max(0) as usize,
+                        step_count: row.get::<_, i64>(4)?.max(0) as usize,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_goal_run_quiet_recovery_refs_for_statuses(
+        &self,
+        statuses: &[GoalRunStatus],
+    ) -> Result<Vec<GoalRunQuietRecoveryRef>> {
+        if statuses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let status_values = statuses
+            .iter()
+            .map(|status| goal_run_status_to_str(*status).to_string())
+            .collect::<Vec<_>>();
+
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(status_values.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT id, status, created_at, started_at, thread_id, root_thread_id, \
+                            execution_thread_ids_json, current_step_index, active_task_id, \
+                            (SELECT id FROM goal_run_steps \
+                              WHERE goal_run_steps.goal_run_id = goal_runs.id \
+                                AND goal_run_steps.deleted_at IS NULL \
+                                AND goal_run_steps.ordinal = goal_runs.current_step_index \
+                              LIMIT 1) AS current_step_id, \
+                            COALESCE(current_step_title, \
+                                (SELECT title FROM goal_run_steps \
+                                  WHERE goal_run_steps.goal_run_id = goal_runs.id \
+                                    AND goal_run_steps.deleted_at IS NULL \
+                                    AND goal_run_steps.ordinal = goal_runs.current_step_index \
+                                  LIMIT 1)) AS current_step_title \
+                       FROM goal_runs \
+                      WHERE deleted_at IS NULL AND status IN ({placeholders}) \
+                      ORDER BY updated_at DESC, id DESC"
+                );
+                let values = status_values
+                    .into_iter()
+                    .map(rusqlite::types::Value::Text)
+                    .collect::<Vec<_>>();
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    let thread_id: Option<String> = row.get(4)?;
+                    let execution_thread_ids_json: Option<String> = row.get(6)?;
+                    Ok(GoalRunQuietRecoveryRef {
+                        id: row.get(0)?,
+                        status: parse_goal_run_status(&row.get::<_, String>(1)?),
+                        created_at: row.get::<_, i64>(2)?.max(0) as u64,
+                        started_at: row
+                            .get::<_, Option<i64>>(3)?
+                            .map(|value| value.max(0) as u64),
+                        root_thread_id: row.get(5)?,
+                        execution_thread_ids: deserialize_goal_run_thread_ids(
+                            &thread_id,
+                            execution_thread_ids_json,
+                        ),
+                        current_step_index: row.get::<_, i64>(7)?.max(0) as usize,
+                        active_task_id: row.get(8)?,
+                        current_step_id: row.get(9)?,
+                        current_step_title: row.get(10)?,
+                        thread_id,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_goal_run_brief_refs_for_statuses(
+        &self,
+        statuses: &[GoalRunStatus],
+    ) -> Result<Vec<GoalRunBriefRef>> {
+        if statuses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let status_values = statuses
+            .iter()
+            .map(|status| goal_run_status_to_str(*status).to_string())
+            .collect::<Vec<_>>();
+
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(status_values.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT id, status, title, updated_at, thread_id, \
+                            (SELECT title FROM goal_run_steps \
+                              WHERE goal_run_steps.goal_run_id = goal_runs.id \
+                                AND goal_run_steps.deleted_at IS NULL \
+                                AND goal_run_steps.ordinal = goal_runs.current_step_index \
+                              LIMIT 1) AS current_step_title \
+                       FROM goal_runs \
+                      WHERE deleted_at IS NULL AND status IN ({placeholders}) \
+                      ORDER BY updated_at DESC"
+                );
+                let values = status_values
+                    .into_iter()
+                    .map(rusqlite::types::Value::Text)
+                    .collect::<Vec<_>>();
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok(GoalRunBriefRef {
+                        id: row.get(0)?,
+                        status: parse_goal_run_status(&row.get::<_, String>(1)?),
+                        title: row.get(2)?,
+                        updated_at: row.get::<_, i64>(3)? as u64,
+                        thread_id: row.get(4)?,
+                        current_step_title: row.get(5)?,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub(crate) async fn list_goal_runs_for_statuses_updated_before(
@@ -275,6 +1178,51 @@ impl HistoryStore {
             }
         }
         Ok(goal_runs)
+    }
+
+    pub(crate) async fn list_goal_run_stuck_check_refs_updated_before(
+        &self,
+        statuses: &[GoalRunStatus],
+        updated_at_lte: u64,
+    ) -> Result<Vec<GoalRunStuckCheckRef>> {
+        if statuses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let status_values = statuses
+            .iter()
+            .map(|status| goal_run_status_to_str(*status).to_string())
+            .collect::<Vec<_>>();
+
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(status_values.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT id, status, title, updated_at, last_error FROM goal_runs \
+                     WHERE deleted_at IS NULL \
+                       AND updated_at <= ? \
+                       AND status IN ({placeholders}) \
+                     ORDER BY updated_at ASC, id ASC"
+                );
+                let mut values = vec![rusqlite::types::Value::Integer(updated_at_lte as i64)];
+                values.extend(status_values.into_iter().map(rusqlite::types::Value::Text));
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok(GoalRunStuckCheckRef {
+                        id: row.get(0)?,
+                        status: parse_goal_run_status(&row.get::<_, String>(1)?),
+                        title: row.get(2)?,
+                        updated_at: row.get::<_, i64>(3)?.max(0) as u64,
+                        last_error: row.get(4)?,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub(crate) async fn list_goal_runs_for_thread_ids(
@@ -335,6 +1283,181 @@ impl HistoryStore {
             }
         }
         Ok(goal_runs)
+    }
+
+    pub(crate) async fn list_goal_run_thread_refs_for_thread_ids(
+        &self,
+        thread_ids: &[String],
+    ) -> Result<Vec<GoalRunThreadRef>> {
+        let thread_ids = thread_ids
+            .iter()
+            .map(|thread_id| thread_id.trim())
+            .filter(|thread_id| !thread_id.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        if thread_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(thread_ids.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT id, status, updated_at, thread_id, root_thread_id, active_thread_id, execution_thread_ids_json \
+                     FROM goal_runs \
+                     WHERE deleted_at IS NULL \
+                       AND (thread_id IN ({placeholders}) \
+                         OR root_thread_id IN ({placeholders}) \
+                         OR active_thread_id IN ({placeholders}) \
+                         OR EXISTS ( \
+                            SELECT 1 \
+                              FROM json_each(COALESCE(goal_runs.execution_thread_ids_json, '[]')) \
+                             WHERE json_each.value IN ({placeholders}) \
+                         )) \
+                     ORDER BY updated_at DESC, id DESC"
+                );
+                let mut values = Vec::with_capacity(thread_ids.len() * 4);
+                for _ in 0..4 {
+                    values.extend(thread_ids.iter().cloned().map(rusqlite::types::Value::Text));
+                }
+                let mut stmt = conn.prepare(&sql)?;
+                let rows =
+                    stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                        map_goal_run_thread_ref_row(row)
+                    })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_goal_run_thread_refs_for_statuses(
+        &self,
+        statuses: &[GoalRunStatus],
+    ) -> Result<Vec<GoalRunThreadRef>> {
+        if statuses.is_empty() {
+            return Ok(Vec::new());
+        }
+        let status_values = statuses
+            .iter()
+            .map(|status| goal_run_status_to_str(*status).to_string())
+            .collect::<Vec<_>>();
+
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(status_values.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT id, status, updated_at, thread_id, root_thread_id, active_thread_id, execution_thread_ids_json \
+                     FROM goal_runs \
+                     WHERE deleted_at IS NULL AND status IN ({placeholders}) \
+                     ORDER BY updated_at DESC, id DESC"
+                );
+                let values = status_values
+                    .into_iter()
+                    .map(rusqlite::types::Value::Text)
+                    .collect::<Vec<_>>();
+                let mut stmt = conn.prepare(&sql)?;
+                let rows =
+                    stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                        map_goal_run_thread_ref_row(row)
+                    })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn latest_goal_run_id_for_thread_ids(
+        &self,
+        thread_ids: &[String],
+    ) -> Result<Option<String>> {
+        self.latest_goal_run_id_for_thread_ids_and_statuses(thread_ids, &[])
+            .await
+    }
+
+    pub(crate) async fn latest_goal_run_id_for_thread_ids_and_statuses(
+        &self,
+        thread_ids: &[String],
+        statuses: &[GoalRunStatus],
+    ) -> Result<Option<String>> {
+        Ok(self
+            .latest_goal_run_id_and_updated_at_for_thread_ids_and_statuses(thread_ids, statuses)
+            .await?
+            .map(|(goal_run_id, _)| goal_run_id))
+    }
+
+    pub(crate) async fn latest_goal_run_id_and_updated_at_for_thread_ids_and_statuses(
+        &self,
+        thread_ids: &[String],
+        statuses: &[GoalRunStatus],
+    ) -> Result<Option<(String, u64)>> {
+        let thread_ids = thread_ids
+            .iter()
+            .map(|thread_id| thread_id.trim())
+            .filter(|thread_id| !thread_id.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        if thread_ids.is_empty() {
+            return Ok(None);
+        }
+        let status_values = statuses
+            .iter()
+            .map(|status| goal_run_status_to_str(*status).to_string())
+            .collect::<Vec<_>>();
+
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(thread_ids.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let status_filter = if status_values.is_empty() {
+                    String::new()
+                } else {
+                    let status_placeholders = std::iter::repeat("?")
+                        .take(status_values.len())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!(" AND status IN ({status_placeholders})")
+                };
+                let sql = format!(
+                    "SELECT id, updated_at FROM goal_runs \
+                     WHERE deleted_at IS NULL{status_filter} \
+                       AND (thread_id IN ({placeholders}) \
+                         OR root_thread_id IN ({placeholders}) \
+                         OR active_thread_id IN ({placeholders}) \
+                         OR EXISTS ( \
+                            SELECT 1 \
+                              FROM json_each(COALESCE(goal_runs.execution_thread_ids_json, '[]')) \
+                             WHERE json_each.value IN ({placeholders}) \
+                         )) \
+                     ORDER BY updated_at DESC, id DESC \
+                     LIMIT 1"
+                );
+                let mut values = Vec::with_capacity(status_values.len() + thread_ids.len() * 4);
+                values.extend(status_values.into_iter().map(rusqlite::types::Value::Text));
+                for _ in 0..4 {
+                    values.extend(thread_ids.iter().cloned().map(rusqlite::types::Value::Text));
+                }
+                conn.query_row(&sql, rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?.max(0) as u64,
+                    ))
+                })
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub(crate) async fn list_active_goal_runs_for_start_request(
@@ -713,6 +1836,185 @@ impl HistoryStore {
         }
     }
 
+    pub(crate) async fn latest_goal_run_repo_context_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<GoalRunRepoContextRef>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT id, session_id, current_step_index
+                     FROM goal_runs
+                     WHERE deleted_at IS NULL
+                       AND thread_id = ?1
+                     ORDER BY updated_at DESC, id DESC
+                     LIMIT 1",
+                    params![thread_id],
+                    |row| {
+                        Ok(GoalRunRepoContextRef {
+                            id: row.get(0)?,
+                            session_id: row.get(1)?,
+                            current_step_index: row.get::<_, i64>(2)?.max(0) as usize,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn list_goal_runs_page(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<(Vec<GoalRun>, usize)> {
+        let limit = limit.max(1) as i64;
+        let offset = offset as i64;
+        self.read_conn
+            .call(move |conn| {
+                let total = conn.query_row(
+                    "SELECT COUNT(*) FROM goal_runs WHERE deleted_at IS NULL",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                let mut id_stmt = conn.prepare(
+                    "SELECT id FROM goal_runs \
+                     WHERE deleted_at IS NULL \
+                     ORDER BY updated_at DESC \
+                     LIMIT ?1 OFFSET ?2",
+                )?;
+                let id_rows =
+                    id_stmt.query_map(params![limit, offset], |row| row.get::<_, String>(0))?;
+                let mut goal_run_ids = Vec::new();
+                for row in id_rows {
+                    goal_run_ids.push(row?);
+                }
+                if goal_run_ids.is_empty() {
+                    return Ok((Vec::new(), total.max(0) as usize));
+                }
+
+                let placeholders = std::iter::repeat("?")
+                    .take(goal_run_ids.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let values = goal_run_ids
+                    .iter()
+                    .cloned()
+                    .map(rusqlite::types::Value::Text)
+                    .collect::<Vec<_>>();
+
+                let step_sql = format!(
+                    "SELECT id, goal_run_id, ordinal, title, instructions, kind, success_criteria, session_id, status, task_id, summary, error, started_at, completed_at \
+                     FROM goal_run_steps \
+                     WHERE deleted_at IS NULL AND goal_run_id IN ({placeholders}) \
+                     ORDER BY goal_run_id ASC, ordinal ASC"
+                );
+                let mut step_stmt = conn.prepare(&step_sql)?;
+                let step_rows =
+                    step_stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                        Ok((
+                            row.get::<_, String>(1)?,
+                            GoalRunStep {
+                                id: row.get(0)?,
+                                position: row.get::<_, i64>(2)? as usize,
+                                title: row.get(3)?,
+                                instructions: row.get(4)?,
+                                kind: parse_goal_run_step_kind(&row.get::<_, String>(5)?),
+                                success_criteria: row.get(6)?,
+                                session_id: row.get(7)?,
+                                status: parse_goal_run_step_status(&row.get::<_, String>(8)?),
+                                task_id: row.get(9)?,
+                                summary: row.get(10)?,
+                                error: row.get(11)?,
+                                started_at: row
+                                    .get::<_, Option<i64>>(12)?
+                                    .map(|value| value as u64),
+                                completed_at: row
+                                    .get::<_, Option<i64>>(13)?
+                                    .map(|value| value as u64),
+                            },
+                        ))
+                    })?;
+                let mut step_map = std::collections::HashMap::<String, Vec<GoalRunStep>>::new();
+                for row in step_rows {
+                    let (goal_run_id, step) = row?;
+                    step_map.entry(goal_run_id).or_default().push(step);
+                }
+
+                let event_sql = format!(
+                    "SELECT id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json \
+                     FROM goal_run_events \
+                     WHERE deleted_at IS NULL AND goal_run_id IN ({placeholders}) \
+                     ORDER BY timestamp ASC"
+                );
+                let mut event_stmt = conn.prepare(&event_sql)?;
+                let event_rows =
+                    event_stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                        let todo_snapshot_json: Option<String> = row.get(7)?;
+                        Ok((
+                            row.get::<_, String>(1)?,
+                            GoalRunEvent {
+                                id: row.get(0)?,
+                                timestamp: row.get::<_, i64>(2)? as u64,
+                                phase: row.get(3)?,
+                                message: row.get(4)?,
+                                details: row.get(5)?,
+                                step_index: row
+                                    .get::<_, Option<i64>>(6)?
+                                    .map(|value| value as usize),
+                                todo_snapshot: todo_snapshot_json
+                                    .as_deref()
+                                    .and_then(|json| serde_json::from_str(json).ok())
+                                    .unwrap_or_default(),
+                            },
+                        ))
+                    })?;
+                let mut event_map = std::collections::HashMap::<String, Vec<GoalRunEvent>>::new();
+                for row in event_rows {
+                    let (goal_run_id, event) = row?;
+                    event_map.entry(goal_run_id).or_default().push(event);
+                }
+
+                let goal_sql = format!(
+                    "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, model_usage_json, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json \
+                     FROM goal_runs \
+                     WHERE deleted_at IS NULL AND id IN ({placeholders}) \
+                     ORDER BY updated_at DESC"
+                );
+                let mut stmt = conn.prepare(&goal_sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    map_goal_run_row(row)
+                })?;
+
+                let mut goal_runs = Vec::new();
+                for row in rows {
+                    let mut goal_run = row?;
+                    goal_run.steps = step_map.remove(&goal_run.id).unwrap_or_default();
+                    goal_run.events = event_map.remove(&goal_run.id).unwrap_or_default();
+                    if goal_run.current_step_title.is_none() {
+                        goal_run.current_step_title = goal_run
+                            .steps
+                            .get(goal_run.current_step_index)
+                            .map(|step| step.title.clone());
+                    }
+                    if goal_run.current_step_kind.is_none() {
+                        goal_run.current_step_kind = goal_run
+                            .steps
+                            .get(goal_run.current_step_index)
+                            .map(|step| step.kind.clone());
+                    }
+                    goal_runs.push(goal_run);
+                }
+
+                Ok((goal_runs, total.max(0) as usize))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub(crate) async fn list_goal_run_ids_page(
         &self,
         limit: usize,
@@ -739,6 +2041,21 @@ impl HistoryStore {
                     ids.push(row?);
                 }
                 Ok((ids, total.max(0) as usize))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn count_goal_runs(&self) -> Result<usize> {
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT COUNT(*) FROM goal_runs WHERE deleted_at IS NULL",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map(|count| count.max(0) as usize)
+                .map_err(Into::into)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))

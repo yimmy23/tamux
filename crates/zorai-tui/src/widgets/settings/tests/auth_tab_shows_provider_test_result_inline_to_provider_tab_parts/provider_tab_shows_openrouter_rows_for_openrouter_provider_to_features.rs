@@ -1,19 +1,25 @@
 use super::*;
-use crate::widgets::settings::{render_provider_tab, render_features_tab, render_chat_tab, render_websearch_tab, render_concierge_tab, render_about_tab, render_auth_tab, render_agent_tab, render_tools_tab, render_advanced_tab, render_plugins_tab};
-use crate::widgets::settings::render_tab_content;
-use crate::widgets::settings::{render, render_tabs_line};
-use crate::state::subagents::SubAgentsState;
-use crate::state::modal::ModalState;
-use crate::widgets::settings::{render_gateway_tab, tab_hit_test};
-use crate::widgets::settings::{mask_api_key, visible_tabs, active_tab_index};
-use zorai_shared::providers::*;
-use crate::state::ProviderAuthEntry;
-use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsAction, SettingsState, SettingsTab};
 use crate::state::config::{ConfigAction, ConfigState, FetchedModel};
+use crate::state::modal::ModalState;
+use crate::state::settings::{
+    PluginListItem, PluginSettingsState, SettingsAction, SettingsState, SettingsTab,
+};
+use crate::state::subagents::SubAgentsState;
+use crate::state::ProviderAuthEntry;
 use crate::theme::ThemeTokens;
+use crate::widgets::settings::render_tab_content;
+use crate::widgets::settings::{active_tab_index, mask_api_key, visible_tabs};
+use crate::widgets::settings::{render, render_tabs_line};
+use crate::widgets::settings::{
+    render_about_tab, render_advanced_tab, render_agent_tab, render_auth_tab, render_chat_tab,
+    render_concierge_tab, render_features_tab, render_plugins_tab, render_provider_tab,
+    render_tools_tab, render_websearch_tab,
+};
+use crate::widgets::settings::{render_gateway_tab, tab_hit_test};
 use ratatui::backend::TestBackend;
-use ratatui::Terminal;
 use ratatui::layout::Rect;
+use ratatui::Terminal;
+use zorai_shared::providers::*;
 #[test]
 fn provider_tab_shows_openrouter_rows_for_openrouter_provider() {
     let mut settings = SettingsState::new();
@@ -319,7 +325,7 @@ fn features_tab_includes_audio_section_when_enabled() {
     let auth = crate::state::auth::AuthState::new();
     let subagents = crate::state::subagents::SubAgentsState::new();
     let concierge = crate::state::concierge::ConciergeState::new();
-    
+
     let lines = render_tab_content(
         80,
         &settings,
@@ -332,12 +338,15 @@ fn features_tab_includes_audio_section_when_enabled() {
         &plugin_settings,
         &ThemeTokens::default(),
     );
-    
+
     // Audio section header should appear
-    let audio_header = lines.iter().find(|l| {
-        l.spans.iter().any(|s| s.content.contains("Audio"))
-    });
-    assert!(audio_header.is_some(), "Audio section header should appear in Features tab");
+    let audio_header = lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.contains("Audio")));
+    assert!(
+        audio_header.is_some(),
+        "Audio section header should appear in Features tab"
+    );
 }
 
 #[test]
@@ -351,7 +360,7 @@ fn features_tab_shows_stt_provider_when_configured() {
     let auth = crate::state::auth::AuthState::new();
     let subagents = crate::state::subagents::SubAgentsState::new();
     let concierge = crate::state::concierge::ConciergeState::new();
-    
+
     let lines = render_tab_content(
         80,
         &settings,
@@ -364,7 +373,7 @@ fn features_tab_shows_stt_provider_when_configured() {
         &plugin_settings,
         &ThemeTokens::default(),
     );
-    
+
     // Should show STT provider "openai"
     let stt_line = lines.iter().find(|l| {
         let text: String = l.spans.iter().map(|s| s.content.clone()).collect();
@@ -384,7 +393,7 @@ fn features_tab_shows_tts_voice_when_configured() {
     let auth = crate::state::auth::AuthState::new();
     let subagents = crate::state::subagents::SubAgentsState::new();
     let concierge = crate::state::concierge::ConciergeState::new();
-    
+
     let lines = render_tab_content(
         80,
         &settings,
@@ -397,7 +406,7 @@ fn features_tab_shows_tts_voice_when_configured() {
         &plugin_settings,
         &ThemeTokens::default(),
     );
-    
+
     // Should show TTS voice "alloy"
     let tts_line = lines.iter().find(|l| {
         let text: String = l.spans.iter().map(|s| s.content.clone()).collect();
@@ -417,7 +426,7 @@ fn features_tab_shows_hotkey_hints() {
     let auth = crate::state::auth::AuthState::new();
     let subagents = crate::state::subagents::SubAgentsState::new();
     let concierge = crate::state::concierge::ConciergeState::new();
-    
+
     let lines = render_tab_content(
         80,
         &settings,
@@ -430,10 +439,12 @@ fn features_tab_shows_hotkey_hints() {
         &plugin_settings,
         &ThemeTokens::default(),
     );
-    
+
     // Should show hotkey hints
     let hint_line = lines.iter().find(|l| {
-        l.spans.iter().any(|s| s.content.contains("Ctrl+L") || s.content.contains("Ctrl+P"))
+        l.spans
+            .iter()
+            .any(|s| s.content.contains("Ctrl+L") || s.content.contains("Ctrl+P"))
     });
     assert!(hint_line.is_some(), "Hotkey hints should appear");
 }
@@ -449,7 +460,7 @@ fn features_tab_audio_defaults_when_missing() {
     let auth = crate::state::auth::AuthState::new();
     let subagents = crate::state::subagents::SubAgentsState::new();
     let concierge = crate::state::concierge::ConciergeState::new();
-    
+
     let lines = render_tab_content(
         80,
         &settings,
@@ -462,15 +473,25 @@ fn features_tab_audio_defaults_when_missing() {
         &plugin_settings,
         &ThemeTokens::default(),
     );
-    
+
     // Audio section should still appear but show defaults/disabled
-    let stt_line = lines.iter().find(|l| {
-        l.spans.iter().any(|s| s.content.contains("STT"))
-    });
-    assert!(stt_line.is_some(), "STT line should appear even when disabled");
-    
+    let stt_line = lines
+        .iter()
+        .find(|l| l.spans.iter().any(|s| s.content.contains("STT")));
+    assert!(
+        stt_line.is_some(),
+        "STT line should appear even when disabled"
+    );
+
     // Should show disabled state
-    let content: String = stt_line.unwrap().spans.iter().map(|s| s.content.clone()).collect();
-    assert!(content.contains("off") || content.contains("disabled") || !content.contains("openai"),
-        "STT should show disabled/default state");
+    let content: String = stt_line
+        .unwrap()
+        .spans
+        .iter()
+        .map(|s| s.content.clone())
+        .collect();
+    assert!(
+        content.contains("off") || content.contains("disabled") || !content.contains("openai"),
+        "STT should show disabled/default state"
+    );
 }

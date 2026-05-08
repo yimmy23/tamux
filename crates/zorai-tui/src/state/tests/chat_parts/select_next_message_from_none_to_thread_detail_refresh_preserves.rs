@@ -237,7 +237,10 @@ fn disjoint_older_thread_page_does_not_sparse_merge_loaded_window() {
     assert_eq!(thread.loaded_message_end, 166);
     assert_eq!(thread.messages.len(), 96);
     assert_eq!(
-        thread.messages.first().and_then(|message| message.id.as_deref()),
+        thread
+            .messages
+            .first()
+            .and_then(|message| message.id.as_deref()),
         Some("msg-70"),
         "a non-adjacent one-row backfill must not be treated as a contiguous prepend"
     );

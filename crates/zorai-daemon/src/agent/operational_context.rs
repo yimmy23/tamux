@@ -5,23 +5,38 @@ use super::*;
 impl AgentEngine {
     pub(super) async fn build_operational_context_summary(&self) -> Option<String> {
         let sessions = self.session_manager.list().await;
-        let active_tasks = self
-            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                id: None,
-                status: None,
-                statuses: Vec::new(),
-                source: None,
-                thread_id: None,
-                thread_ids: Vec::new(),
-                goal_run_id: None,
-                parent_task_id: None,
-                awaiting_approval_id: None,
-                supervisor_config_present: false,
-                exclude_terminal_statuses: true,
-                order_by_recent_activity_desc: false,
-                limit: Some(4),
-            })
-            .await;
+        let active_task_query = crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: true,
+            order_by_recent_activity_desc: false,
+            limit: Some(4),
+        };
+        let active_tasks = match self
+            .history
+            .list_agent_task_operational_refs_filtered(&active_task_query)
+            .await
+        {
+            Ok(task_refs) => task_refs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted active task refs for operational context: {error}"
+                );
+                self.list_tasks_filtered(&active_task_query)
+                    .await
+                    .iter()
+                    .map(crate::history::AgentTaskOperationalRef::from)
+                    .collect()
+            }
+        };
         let active_goal_statuses = [
             GoalRunStatus::Queued,
             GoalRunStatus::Planning,
@@ -31,15 +46,24 @@ impl AgentEngine {
         ];
         let mut active_goals = match self
             .history
-            .list_goal_runs_for_statuses(&active_goal_statuses)
+            .list_goal_run_operational_refs_for_statuses_limited(&active_goal_statuses, Some(3))
             .await
         {
-            Ok(goal_runs) => goal_runs,
+            Ok(goal_refs) => goal_refs,
             Err(error) => {
                 tracing::warn!(
-                    "failed to query persisted active goal runs for operational context: {error}"
+                    "failed to query persisted active goal refs for operational context: {error}"
                 );
-                Vec::new()
+                self.history
+                    .list_goal_runs_for_statuses_limited(&active_goal_statuses, Some(3))
+                    .await
+                    .map(|goals| {
+                        goals
+                            .iter()
+                            .map(crate::history::GoalRunOperationalRef::from)
+                            .collect()
+                    })
+                    .unwrap_or_default()
             }
         };
         let mut seen_goal_ids = active_goals
@@ -53,7 +77,7 @@ impl AgentEngine {
                 .filter(|goal| active_goal_statuses.contains(&goal.status))
             {
                 if seen_goal_ids.insert(goal_run.id.clone()) {
-                    active_goals.push(goal_run.clone());
+                    active_goals.push(crate::history::GoalRunOperationalRef::from(goal_run));
                 }
             }
         }
@@ -119,7 +143,7 @@ impl AgentEngine {
                 goal_run_status_label(goal.status),
                 goal.title,
                 goal.current_step_index.saturating_add(1),
-                goal.steps.len().max(1)
+                goal.step_count.max(1)
             ));
         }
 

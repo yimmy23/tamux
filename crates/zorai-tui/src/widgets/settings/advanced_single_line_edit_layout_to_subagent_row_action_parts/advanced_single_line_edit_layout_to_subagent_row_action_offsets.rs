@@ -1,8 +1,8 @@
-use super::*;
 use super::super::advanced_single_line_edit_layout_to_subagent_row_action_offsets::*;
+use super::super::render_advanced_value_to_render_advanced_tab::*;
 use super::super::render_edit_buffer_with_cursor_to_editing_cursor_hit_test_to_content::*;
 use super::super::wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render::*;
-use super::super::render_advanced_value_to_render_advanced_tab::*;
+use super::*;
 use crate::providers;
 use crate::state::concierge::ConciergeState;
 use crate::state::config::ConfigState;
@@ -15,7 +15,10 @@ use ratatui::prelude::*;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use zorai_protocol::has_whatsapp_allowed_contacts;
-pub(crate) fn advanced_single_line_edit_layout(config: &ConfigState, field: &str) -> Option<(usize, usize)> {
+pub(crate) fn advanced_single_line_edit_layout(
+    config: &ConfigState,
+    field: &str,
+) -> Option<(usize, usize)> {
     let row = match config.compaction_strategy.as_str() {
         "weles" => match field {
             "max_context_messages" => 10,
@@ -151,15 +154,39 @@ pub(crate) fn single_line_edit_layout(
     }
 }
 
-pub(crate) fn textarea_edit_layout(settings: &SettingsState, field: &str) -> Option<(usize, usize)> {
+pub(crate) fn textarea_edit_layout(
+    settings: &SettingsState,
+    config: &ConfigState,
+    field: &str,
+) -> Option<(usize, usize)> {
     match settings.active_tab() {
         SettingsTab::Agent if field == "system_prompt" => Some((17, 4)),
         SettingsTab::Gateway if field == "whatsapp_allowed_contacts" => Some((23, 4)),
+        SettingsTab::Advanced => match config.compaction_strategy.as_str() {
+            "weles" => match field {
+                "workspace_repo_monitor_include_dirs" => Some((38, 4)),
+                "workspace_repo_monitor_exclude_dirs" => Some((39, 4)),
+                _ => None,
+            },
+            "custom_model" => match field {
+                "workspace_repo_monitor_include_dirs" => Some((44, 4)),
+                "workspace_repo_monitor_exclude_dirs" => Some((45, 4)),
+                _ => None,
+            },
+            _ => match field {
+                "workspace_repo_monitor_include_dirs" => Some((36, 4)),
+                "workspace_repo_monitor_exclude_dirs" => Some((37, 4)),
+                _ => None,
+            },
+        },
         _ => None,
     }
 }
 
-pub(crate) fn advanced_settings_row_hit(config: &ConfigState, row: usize) -> Option<(usize, Option<usize>)> {
+pub(crate) fn advanced_settings_row_hit(
+    config: &ConfigState,
+    row: usize,
+) -> Option<(usize, Option<usize>)> {
     match config.compaction_strategy.as_str() {
         "weles" => match row {
             4 => Some((0, None)),
@@ -187,6 +214,9 @@ pub(crate) fn advanced_settings_row_hit(config: &ConfigState, row: usize) -> Opt
             28 => Some((22, None)),
             29 => Some((23, None)),
             30 => Some((24, None)),
+            37 => Some((25, None)),
+            38 => Some((26, None)),
+            39 => Some((27, None)),
             _ => None,
         },
         "custom_model" => match row {
@@ -222,6 +252,9 @@ pub(crate) fn advanced_settings_row_hit(config: &ConfigState, row: usize) -> Opt
             35 => Some((29, None)),
             39 => Some((30, None)),
             40 => Some((31, None)),
+            43 => Some((32, None)),
+            44 => Some((33, None)),
+            45 => Some((34, None)),
             _ => None,
         },
         _ => match row {
@@ -247,6 +280,9 @@ pub(crate) fn advanced_settings_row_hit(config: &ConfigState, row: usize) -> Opt
             30 => Some((19, None)),
             31 => Some((20, None)),
             32 => Some((21, None)),
+            35 => Some((22, None)),
+            36 => Some((23, None)),
+            37 => Some((24, None)),
             _ => None,
         },
     }

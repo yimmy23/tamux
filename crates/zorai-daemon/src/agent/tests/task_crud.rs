@@ -28,6 +28,21 @@ async fn compaction_scope_snapshot_resolves_persisted_task_by_id() {
         )
         .await;
 
+    engine
+        .history
+        .conn
+        .call({
+            let task_id = task.id.clone();
+            move |conn| {
+                conn.execute(
+                    "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                    rusqlite::params![task_id],
+                )?;
+                Ok(())
+            }
+        })
+        .await
+        .expect("corrupt unrelated hydration column");
     engine.tasks.lock().await.clear();
 
     let scope = engine
@@ -38,6 +53,89 @@ async fn compaction_scope_snapshot_resolves_persisted_task_by_id() {
     assert_eq!(scope.task_id.as_deref(), Some(task.id.as_str()));
     assert_eq!(scope.active_task_id.as_deref(), Some(task.id.as_str()));
     assert_eq!(scope.thread_id, "thread-compaction-scope");
+}
+
+#[tokio::test]
+async fn compaction_scope_snapshot_resolves_persisted_goal_without_hydrating_goal() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut goal = sample_supervised_goal_run(
+        "goal-compaction-scope-fast",
+        "task-compaction-active",
+        "approval-compaction",
+    );
+    goal.title = "Compaction goal".to_string();
+    goal.goal = "Preserve persisted goal context".to_string();
+    goal.thread_id = Some("thread-compaction-root".to_string());
+    goal.root_thread_id = Some("thread-compaction-root".to_string());
+    goal.active_thread_id = Some("thread-compaction-active".to_string());
+    goal.execution_thread_ids = vec![
+        "thread-compaction-root".to_string(),
+        "thread-compaction-active".to_string(),
+    ];
+    goal.steps[0].title = "Inspect persisted scope".to_string();
+    goal.steps[0].summary = Some("Persisted scope summary".to_string());
+    goal.plan_summary = Some("Persisted compaction plan".to_string());
+    goal.last_error = Some("Persisted scope error".to_string());
+    goal.events = vec![GoalRunEvent {
+        id: "event-compaction-scope-fast".to_string(),
+        timestamp: now_millis(),
+        phase: "progress".to_string(),
+        message: "Persisted event message".to_string(),
+        details: None,
+        step_index: Some(0),
+        todo_snapshot: Vec::new(),
+    }];
+    engine
+        .history
+        .upsert_goal_run(&goal)
+        .await
+        .expect("goal run should persist");
+    engine.goal_runs.lock().await.clear();
+    engine
+        .history
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET started_at = 'not-an-integer' WHERE goal_run_id = ?1",
+                rusqlite::params!["goal-compaction-scope-fast"],
+            )?;
+            conn.execute(
+                "UPDATE goal_run_events SET timestamp = 'not-an-integer' WHERE goal_run_id = ?1",
+                rusqlite::params!["goal-compaction-scope-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("corrupt hydration-only goal columns");
+
+    let scope = engine
+        .compaction_scope_snapshot("thread-compaction-active", None)
+        .await
+        .expect("persisted goal should produce a compaction scope");
+
+    assert_eq!(
+        scope.goal_run_id.as_deref(),
+        Some("goal-compaction-scope-fast")
+    );
+    assert_eq!(scope.task_id.as_deref(), Some("task-compaction-active"));
+    assert_eq!(scope.goal_title.as_deref(), Some("Compaction goal"));
+    assert_eq!(
+        scope.goal.as_deref(),
+        Some("Preserve persisted goal context")
+    );
+    assert_eq!(
+        scope.current_step_title.as_deref(),
+        Some("Inspect persisted scope")
+    );
+    assert_eq!(
+        scope.current_step_summary.as_deref(),
+        Some("Persisted scope summary")
+    );
+    assert_eq!(scope.latest_error.as_deref(), Some("Persisted scope error"));
+    assert_eq!(scope.recent_events, vec!["Persisted event message"]);
 }
 
 #[tokio::test]
@@ -2779,6 +2877,18 @@ async fn delete_goal_run_removes_goal_and_related_tasks() {
         })
         .await
         .expect("persist child task");
+    engine
+        .history
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                rusqlite::params!["task-delete"],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("corrupt unrelated hydrated task column");
     engine.goal_runs.lock().await.clear();
     engine.tasks.lock().await.clear();
 

@@ -118,6 +118,9 @@ impl ConfigState {
             snapshot_auto_cleanup: false,
             snapshot_count: 0,
             snapshot_total_size_bytes: 0,
+            workspace_repo_monitor_enabled: false,
+            workspace_repo_monitor_include_dirs: String::new(),
+            workspace_repo_monitor_exclude_dirs: String::new(),
         }
     }
 

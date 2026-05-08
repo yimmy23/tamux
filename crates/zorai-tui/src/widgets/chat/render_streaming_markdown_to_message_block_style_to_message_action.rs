@@ -1,7 +1,7 @@
-#[path = "message_action_targets_to_classify_message_lines_to_render_parts/render_streaming_markdown_to_message_block_style.rs"]
-mod render_streaming_markdown_to_message_block_style;
 #[path = "message_action_targets_to_classify_message_lines_to_render_parts/message_action_targets_to_classify_message_lines.rs"]
 mod message_action_targets_to_classify_message_lines;
+#[path = "message_action_targets_to_classify_message_lines_to_render_parts/render_streaming_markdown_to_message_block_style.rs"]
+mod render_streaming_markdown_to_message_block_style;
 
 pub(crate) use message_action_targets_to_classify_message_lines::*;
 pub(crate) use render_streaming_markdown_to_message_block_style::*;

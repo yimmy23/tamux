@@ -1,19 +1,25 @@
 use super::*;
-use crate::widgets::settings::{render_provider_tab, render_features_tab, render_chat_tab, render_websearch_tab, render_concierge_tab, render_about_tab, render_auth_tab, render_agent_tab, render_tools_tab, render_advanced_tab, render_plugins_tab};
-use crate::widgets::settings::render_tab_content;
-use crate::widgets::settings::{render, render_tabs_line};
-use crate::state::subagents::SubAgentsState;
-use crate::state::modal::ModalState;
-use crate::widgets::settings::{render_gateway_tab, tab_hit_test};
-use crate::widgets::settings::{mask_api_key, visible_tabs, active_tab_index};
-use zorai_shared::providers::*;
-use crate::state::ProviderAuthEntry;
-use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsAction, SettingsState, SettingsTab};
 use crate::state::config::{ConfigAction, ConfigState, FetchedModel};
+use crate::state::modal::ModalState;
+use crate::state::settings::{
+    PluginListItem, PluginSettingsState, SettingsAction, SettingsState, SettingsTab,
+};
+use crate::state::subagents::SubAgentsState;
+use crate::state::ProviderAuthEntry;
 use crate::theme::ThemeTokens;
+use crate::widgets::settings::render_tab_content;
+use crate::widgets::settings::{active_tab_index, mask_api_key, visible_tabs};
+use crate::widgets::settings::{render, render_tabs_line};
+use crate::widgets::settings::{
+    render_about_tab, render_advanced_tab, render_agent_tab, render_auth_tab, render_chat_tab,
+    render_concierge_tab, render_features_tab, render_plugins_tab, render_provider_tab,
+    render_tools_tab, render_websearch_tab,
+};
+use crate::widgets::settings::{render_gateway_tab, tab_hit_test};
 use ratatui::backend::TestBackend;
-use ratatui::Terminal;
 use ratatui::layout::Rect;
+use ratatui::Terminal;
+use zorai_shared::providers::*;
 use zorai_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER};
 
 #[test]
@@ -137,7 +143,13 @@ fn settings_footer_omits_select_hint_for_read_only_advanced_field() {
         .expect("render should succeed");
 
     let footer = (0..100)
-        .filter_map(|x| terminal.backend().buffer().cell((x, 14)).map(|cell| cell.symbol()))
+        .filter_map(|x| {
+            terminal
+                .backend()
+                .buffer()
+                .cell((x, 14))
+                .map(|cell| cell.symbol())
+        })
         .collect::<String>();
     assert!(footer.contains("navigate"));
     assert!(!footer.contains("edit/select"), "{footer}");
@@ -311,7 +323,9 @@ fn chat_tab_places_honcho_editor_below_last_checkbox() {
     let honcho_editor = text
         .find("Honcho Memory Settings")
         .expect("honcho editor heading should render");
-    let tool_limit = text.find("Tool Limit:").expect("tool limit row should render");
+    let tool_limit = text
+        .find("Tool Limit:")
+        .expect("tool limit row should render");
 
     assert!(require_activation < honcho_editor);
     assert!(honcho_editor < tool_limit);

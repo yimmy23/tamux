@@ -1,8 +1,9 @@
-async fn execute_search_files(args: &serde_json::Value) -> Result<String> {
+use super::*;
+pub(crate) async fn execute_search_files(args: &serde_json::Value) -> Result<String> {
     execute_search_files_with_runner(args, run_search_files_subprocess).await
 }
 
-async fn execute_system_info() -> Result<String> {
+pub(crate) async fn execute_system_info() -> Result<String> {
     use sysinfo::System;
 
     let mut sys = System::new_all();
@@ -31,7 +32,7 @@ async fn execute_system_info() -> Result<String> {
     ))
 }
 
-async fn execute_current_datetime() -> Result<String> {
+pub(crate) async fn execute_current_datetime() -> Result<String> {
     let local_now = chrono::Local::now();
     let utc_now = chrono::Utc::now();
 
@@ -46,7 +47,7 @@ async fn execute_current_datetime() -> Result<String> {
     ))
 }
 
-async fn execute_list_processes(args: &serde_json::Value) -> Result<String> {
+pub(crate) async fn execute_list_processes(args: &serde_json::Value) -> Result<String> {
     let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
 
     use sysinfo::System;
@@ -89,7 +90,7 @@ async fn execute_list_processes(args: &serde_json::Value) -> Result<String> {
     Ok(format!("{header}\n{}", rows.join("\n")))
 }
 
-async fn execute_search_history(
+pub(crate) async fn execute_search_history(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -120,7 +121,7 @@ async fn execute_search_history(
     }
 }
 
-async fn execute_fetch_gateway_history(
+pub(crate) async fn execute_fetch_gateway_history(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -168,7 +169,7 @@ async fn execute_fetch_gateway_history(
     }))?)
 }
 
-async fn execute_session_search(
+pub(crate) async fn execute_session_search(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
 ) -> Result<String> {
@@ -197,7 +198,7 @@ async fn execute_session_search(
     }
 }
 
-async fn execute_agent_query_memory(
+pub(crate) async fn execute_agent_query_memory(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -212,14 +213,16 @@ async fn execute_agent_query_memory(
     agent.query_honcho_memory(query).await
 }
 
-async fn execute_onecontext_search(args: &serde_json::Value) -> Result<String> {
-    execute_onecontext_search_with_runner(args, super::aline_available(), |request| async move {
-        run_onecontext_search_subprocess(request).await
-    })
+pub(crate) async fn execute_onecontext_search(args: &serde_json::Value) -> Result<String> {
+    execute_onecontext_search_with_runner(
+        args,
+        super::super::engine::helpers::aline_available(),
+        |request| async move { run_onecontext_search_subprocess(request).await },
+    )
     .await
 }
 
-async fn execute_list_sessions(session_manager: &Arc<SessionManager>) -> Result<String> {
+pub(crate) async fn execute_list_sessions(session_manager: &Arc<SessionManager>) -> Result<String> {
     // If we have frontend topology, use it for a richer view that includes
     // browser panels and workspace/surface hierarchy.
     if let Some(topology) = session_manager.read_workspace_topology() {
@@ -261,7 +264,7 @@ async fn execute_list_sessions(session_manager: &Arc<SessionManager>) -> Result<
     }
 }
 
-async fn execute_notify(
+pub(crate) async fn execute_notify(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -313,7 +316,7 @@ async fn execute_notify(
     Ok(format!("Notification sent: {title}"))
 }
 
-async fn execute_update_memory(
+pub(crate) async fn execute_update_memory(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,

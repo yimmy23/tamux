@@ -1,10 +1,10 @@
-use tokio::sync::mpsc::unbounded_channel;
-use std::sync::mpsc;
-use zorai_shared::providers::*;
-use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
 use super::done_event_persists_final_reasoning_into_chat_message_to_mission_control::*;
-use crate::state::*;
+use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
 use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn header_goal_run_usage_defaults_when_goal_thread_missing() {
     let mut model = make_model();
@@ -448,4 +448,3 @@ fn header_usage_summary_caps_target_by_weles_compaction_window() {
     assert_eq!(usage.compaction_target_tokens, 164_000);
     assert_eq!(usage.context_window_tokens, 400_000);
 }
-

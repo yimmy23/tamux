@@ -1,4 +1,5 @@
-async fn execute_python_execute(
+use super::*;
+pub(crate) async fn execute_python_execute(
     args: &serde_json::Value,
     agent: &AgentEngine,
     task_id: Option<&str>,
@@ -111,7 +112,8 @@ async fn execute_python_execute(
     let status = match status {
         Ok(result) => result.context("python_execute process wait failed")?,
         Err(_) if foreground_detach_after.is_some() && foreground_wait < full_timeout => {
-            let operation = crate::server::operation_registry().accept_operation(tool_names::PYTHON_EXECUTE, None);
+            let operation = crate::server::operation_registry()
+                .accept_operation(tool_names::PYTHON_EXECUTE, None);
             let operation_id = operation.operation_id.clone();
             crate::server::operation_registry().mark_started(&operation_id);
             spawn_python_execute_monitor(
@@ -193,7 +195,8 @@ fn spawn_python_execute_background(
     requested_timeout: u64,
     auto_background: bool,
 ) -> Result<(String, Option<ToolPendingApproval>)> {
-    let operation = crate::server::operation_registry().accept_operation(tool_names::PYTHON_EXECUTE, None);
+    let operation =
+        crate::server::operation_registry().accept_operation(tool_names::PYTHON_EXECUTE, None);
     let operation_id = operation.operation_id.clone();
 
     let mut process = tokio::process::Command::new(python_bin);

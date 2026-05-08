@@ -501,5 +501,4 @@ impl TuiModel {
 
         false
     }
-
 }

@@ -20,34 +20,53 @@ impl AgentEngine {
     ) -> Result<()> {
         let attempt = candidate.retries_sent.saturating_add(1);
         let recovery_message = stalled_turn_system_message(candidate, attempt);
-        let prior_user_message = {
+        {
             let threads = self.threads.read().await;
-            let Some(thread) = threads.get(&candidate.thread_id) else {
+            if !threads.contains_key(&candidate.thread_id) {
                 anyhow::bail!(
                     "thread {} disappeared before stalled-turn retry",
                     candidate.thread_id
                 );
             };
-            if super::history_scan::thread_has_unanswered_tool_calls(thread) {
-                tracing::info!(
+        }
+        let has_unanswered_tool_calls = match self
+            .history
+            .thread_has_unanswered_tool_calls(&candidate.thread_id)
+            .await
+        {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!(
                     thread_id = %candidate.thread_id,
-                    "skipping stalled-turn retry while thread has unanswered tool calls"
+                    "failed to query persisted unanswered tool calls for stalled-turn retry; falling back to live thread scan: {error}"
                 );
-                return Ok(());
-            }
-            thread
-                .messages
-                .iter()
-                .rev()
-                .find(|message| message.role == MessageRole::User)
-                .map(|message| message.content.clone())
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "thread {} has no prior user message for stalled-turn retry",
+                let threads = self.threads.read().await;
+                let Some(thread) = threads.get(&candidate.thread_id) else {
+                    anyhow::bail!(
+                        "thread {} disappeared before stalled-turn retry",
                         candidate.thread_id
-                    )
-                })?
+                    );
+                };
+                super::history_scan::thread_has_unanswered_tool_calls(thread)
+            }
         };
+        if has_unanswered_tool_calls {
+            tracing::info!(
+                thread_id = %candidate.thread_id,
+                "skipping stalled-turn retry while thread has unanswered tool calls"
+            );
+            return Ok(());
+        }
+        let prior_user_message = self
+            .history
+            .latest_user_message_content(&candidate.thread_id)
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "thread {} has no prior user message for stalled-turn retry",
+                    candidate.thread_id
+                )
+            })?;
 
         {
             let mut threads = self.threads.write().await;

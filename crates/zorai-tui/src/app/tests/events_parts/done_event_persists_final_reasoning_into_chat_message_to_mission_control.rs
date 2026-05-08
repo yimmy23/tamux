@@ -1,9 +1,9 @@
 use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
-use tokio::sync::mpsc::unbounded_channel;
-use std::sync::mpsc;
-use zorai_shared::providers::*;
-use crate::state::*;
 use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn done_event_persists_final_reasoning_into_chat_message() {
     let mut model = make_model();
@@ -457,4 +457,3 @@ fn mission_control_header_prefers_active_execution_thread_runtime_and_usage() {
     assert_eq!(usage.total_cost_usd, Some(1.0));
     assert_eq!(usage.context_window_tokens, 1_000_000);
 }
-

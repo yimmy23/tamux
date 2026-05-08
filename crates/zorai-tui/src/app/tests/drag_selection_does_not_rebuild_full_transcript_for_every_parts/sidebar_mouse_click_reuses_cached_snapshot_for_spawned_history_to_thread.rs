@@ -1,7 +1,7 @@
-use super::*;
-use crate::state::*;
-use crate::app::*;
 use super::super::{build_model, rendered_chat_area, unbounded_channel};
+use super::*;
+use crate::app::*;
+use crate::state::*;
 use ratatui::backend::TestBackend;
 use std::sync::mpsc;
 
@@ -301,7 +301,10 @@ fn clicking_chat_scrollbar_track_scrolls_transcript() {
 
     let chat_area = rendered_chat_area(&model);
     let before = model.chat.scroll_offset();
-    let column = chat_area.x.saturating_add(chat_area.width).saturating_sub(1);
+    let column = chat_area
+        .x
+        .saturating_add(chat_area.width)
+        .saturating_sub(1);
     let row = chat_area.y.saturating_add(1);
 
     model.handle_mouse(MouseEvent {
@@ -348,7 +351,10 @@ fn dragging_chat_scrollbar_thumb_updates_scroll_offset() {
     }
 
     let chat_area = rendered_chat_area(&model);
-    let column = chat_area.x.saturating_add(chat_area.width).saturating_sub(1);
+    let column = chat_area
+        .x
+        .saturating_add(chat_area.width)
+        .saturating_sub(1);
     let start_row = chat_area.y.saturating_add(chat_area.height / 2);
     let end_row = chat_area
         .y
