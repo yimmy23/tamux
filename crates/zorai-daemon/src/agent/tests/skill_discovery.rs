@@ -29,9 +29,6 @@ fn seq(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
 
-// -----------------------------------------------------------------------
-// meets_complexity_threshold
-// -----------------------------------------------------------------------
 
 #[test]
 fn skill_drafting_prompt_uses_agentskills_schema_and_zorai_context_tags() {
@@ -66,7 +63,6 @@ fn skill_discovery_complexity_returns_false_when_outcome_not_success() {
 #[test]
 fn skill_discovery_complexity_returns_false_when_tool_count_at_threshold() {
     let cfg = default_config();
-    // tool_count == min_tool_count (8), not >, so false
     assert!(!meets_complexity_threshold(
         8,
         2,
@@ -79,14 +75,12 @@ fn skill_discovery_complexity_returns_false_when_tool_count_at_threshold() {
 #[test]
 fn skill_discovery_complexity_returns_true_with_replan() {
     let cfg = default_config();
-    // tool_count > 8, replan_count >= 1, outcome success
     assert!(meets_complexity_threshold(10, 1, None, "success", &cfg));
 }
 
 #[test]
 fn skill_discovery_complexity_returns_true_with_quality() {
     let cfg = default_config();
-    // tool_count > 8, replan_count=0, quality > 0.8, outcome success
     assert!(meets_complexity_threshold(
         10,
         0,
@@ -99,7 +93,6 @@ fn skill_discovery_complexity_returns_true_with_quality() {
 #[test]
 fn skill_discovery_complexity_returns_false_no_replan_no_quality() {
     let cfg = default_config();
-    // tool_count > 8, replan_count=0, quality <= 0.8
     assert!(!meets_complexity_threshold(
         10,
         0,
@@ -110,9 +103,6 @@ fn skill_discovery_complexity_returns_false_no_replan_no_quality() {
     assert!(!meets_complexity_threshold(10, 0, None, "success", &cfg));
 }
 
-// -----------------------------------------------------------------------
-// jaccard_similarity
-// -----------------------------------------------------------------------
 
 #[test]
 fn skill_discovery_jaccard_identical_sets() {
@@ -132,7 +122,6 @@ fn skill_discovery_jaccard_disjoint_sets() {
 fn skill_discovery_jaccard_partial_overlap() {
     let a = seq(&["A", "B", "C"]);
     let b = seq(&["B", "C", "D"]);
-    // intersection={B,C}=2, union={A,B,C,D}=4 => 0.5
     assert!((jaccard_similarity(&a, &b) - 0.5).abs() < f64::EPSILON);
 }
 
@@ -143,9 +132,6 @@ fn skill_discovery_jaccard_empty_sets() {
     assert!((jaccard_similarity(&a, &b) - 1.0).abs() < f64::EPSILON);
 }
 
-// -----------------------------------------------------------------------
-// is_novel_sequence
-// -----------------------------------------------------------------------
 
 #[test]
 fn skill_discovery_novel_when_no_patterns_match() {
@@ -160,13 +146,9 @@ fn skill_discovery_not_novel_when_pattern_similar() {
     let candidate = seq(&["A", "B", "C"]);
     let pattern = make_pattern(&["A", "B", "C"]);
     let patterns = vec![&pattern];
-    // similarity=1.0 >= 0.7 threshold
     assert!(!is_novel_sequence(&candidate, "coding", &patterns, 0.7));
 }
 
-// -----------------------------------------------------------------------
-// extract_tool_sequence_from_json
-// -----------------------------------------------------------------------
 
 #[test]
 fn skill_discovery_extract_tool_sequence_valid_json() {
@@ -187,9 +169,6 @@ fn skill_discovery_extract_tool_sequence_invalid_json() {
     assert!(result.is_empty());
 }
 
-// -----------------------------------------------------------------------
-// parse_mental_test_results
-// -----------------------------------------------------------------------
 
 #[test]
 fn skill_discovery_mental_test_parses_valid_json() {

@@ -80,7 +80,6 @@ impl TuiModel {
                 .to_string();
         }
 
-        // Hydrate tier from daemon config (override > self_assessment > "newcomer")
         if let Some(tier_config) = json.get("tier") {
             let tier_str = tier_config
                 .get("user_override")

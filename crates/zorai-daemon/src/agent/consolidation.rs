@@ -13,9 +13,6 @@ pub(crate) use pure::{DEFAULT_HALF_LIFE_HOURS, DEFAULT_IDLE_THRESHOLD_MS};
 const DISTILLATION_LAST_RUN_KEY_PREFIX: &str = "distillation_last_run_ms";
 const FORGE_LAST_RUN_KEY_PREFIX: &str = "forge_last_run_ms";
 
-// ---------------------------------------------------------------------------
-// Consolidation entry point and sub-tasks
-// ---------------------------------------------------------------------------
 
 impl AgentEngine {
     /// Run a consolidation tick if idle conditions are met. Per D-03, this is called
@@ -46,7 +43,6 @@ impl AgentEngine {
             return None;
         }
 
-        // Check idle conditions per D-01
         let active_tasks = self
             .tasks
             .lock()
@@ -91,18 +87,15 @@ impl AgentEngine {
         let deadline = std::time::Instant::now() + budget;
         let mut result = ConsolidationResult::default();
 
-        // Sub-task 1: Review execution traces -> promote heuristics (MEMO-01, MEMO-06)
         if std::time::Instant::now() < deadline {
             result.traces_reviewed = self.review_execution_traces(&config, &deadline).await;
         }
 
-        // Sub-task 1.5: Distill durable memory from older threads.
         if std::time::Instant::now() < deadline {
             self.maybe_run_distillation_subphase(&deadline, &mut result)
                 .await;
         }
 
-        // Sub-task 1.6: Forge strategy hints from recent execution traces.
         if std::time::Instant::now() < deadline {
             self.maybe_run_forge_subphase(&deadline, &mut result).await;
         }
@@ -112,40 +105,33 @@ impl AgentEngine {
                 .await;
         }
 
-        // Sub-task 2: Decay stale memory facts and tombstone low-confidence ones (MEMO-02)
         if std::time::Instant::now() < deadline {
             result.facts_decayed = self.apply_fact_decay(&config, &deadline).await;
         }
 
-        // Sub-task 3: Cleanup expired tombstones - 7-day TTL (MEMO-05)
         if std::time::Instant::now() < deadline {
             result.tombstones_purged = self.cleanup_expired_tombstones(&config).await;
         }
 
-        // Sub-task 4: Proactive memory refinement (LLM call, most expensive -- runs LAST)
         if std::time::Instant::now() < deadline {
             result.facts_refined = self.refine_memory_facts(&deadline).await;
         }
 
-        // Sub-task 5: Flag skill draft candidates (SKIL-01, SKIL-02, per D-02)
         if std::time::Instant::now() < deadline {
             result.skill_candidates_flagged =
                 self.flag_skill_draft_candidates(&config, &deadline).await;
         }
 
-        // Sub-task 6: Draft flagged candidates into SKILL.md (SKIL-01, per D-03)
         if std::time::Instant::now() < deadline {
             result.skills_drafted = self
                 .draft_flagged_skill_candidates(&config, &deadline)
                 .await;
         }
 
-        // Sub-task 7: Run mental tests on Draft skills (SKIL-04, per D-05)
         if std::time::Instant::now() < deadline {
             result.skills_tested = self.run_skill_mental_tests(&config, &deadline).await;
         }
 
-        // Sub-task 8: Check lifecycle promotions (SKIL-05, per D-06)
         if std::time::Instant::now() < deadline {
             result.skills_promoted = self.check_skill_promotions(&config, &deadline).await;
         }
@@ -156,7 +142,6 @@ impl AgentEngine {
             }
         }
 
-        // Sub-task 9: Expire stale negative knowledge constraints (Phase 1: Memory Foundation - NKNO-04)
         if std::time::Instant::now() < deadline {
             match self.expire_negative_constraints().await {
                 Ok(n) if n > 0 => {
@@ -172,19 +157,16 @@ impl AgentEngine {
             }
         }
 
-        // Sub-task 10: Expire old episodes past TTL (Phase 1: Memory Foundation - EPIS-09)
         if std::time::Instant::now() < deadline {
             if let Err(e) = self.expire_old_episodes().await {
                 tracing::warn!("Failed to expire old episodes: {e}");
             }
         }
 
-        // Persist learning stores after consolidation updates (D-10)
         if result.traces_reviewed > 0 {
             self.persist_learning_stores().await;
         }
 
-        // Log provenance for the consolidation tick (MEMO-04)
         self.record_provenance_event(
             "memory_consolidation",
             &format!(
@@ -419,7 +401,6 @@ impl AgentEngine {
         config: &AgentConfig,
         deadline: &std::time::Instant,
     ) -> usize {
-        // Get watermark from consolidation state
         let watermark: u64 = match self
             .history
             .get_consolidation_state("trace_review_watermark")
@@ -429,7 +410,6 @@ impl AgentEngine {
             _ => 0,
         };
 
-        // Fetch a batch of successful traces since the watermark
         let traces = match self
             .history
             .list_recent_successful_traces(watermark, 50)
@@ -452,12 +432,10 @@ impl AgentEngine {
         let mut last_created_at: u64 = watermark;
 
         for trace in &traces {
-            // Budget check at the start of each iteration
             if std::time::Instant::now() >= *deadline {
                 break;
             }
 
-            // Extract tool sequence from tool_sequence_json
             let tool_names: Vec<String> = trace
                 .tool_sequence_json
                 .as_deref()
@@ -474,13 +452,11 @@ impl AgentEngine {
 
             let duration_ms = trace.duration_ms.unwrap_or(0) as u64;
 
-            // Record in PatternStore
             {
                 let mut patterns = self.pattern_store.write().await;
                 patterns.record_sequence(&tool_names, task_type, true, now);
             }
 
-            // Check if the pattern crosses the promotion threshold
             let should_promote = {
                 let patterns = self.pattern_store.read().await;
                 let matching = patterns.find_patterns(
@@ -493,7 +469,6 @@ impl AgentEngine {
             };
 
             if should_promote {
-                // Promote each tool in the sequence to HeuristicStore
                 {
                     let mut heuristics = self.heuristic_store.write().await;
                     let avg_duration = duration_ms / tool_names.len().max(1) as u64;
@@ -502,7 +477,6 @@ impl AgentEngine {
                     }
                 }
 
-                // Record provenance for the promotion
                 self.record_provenance_event(
                     "heuristic_promotion",
                     &format!(
@@ -528,7 +502,6 @@ impl AgentEngine {
             last_created_at = last_created_at.max(trace.created_at as u64);
         }
 
-        // Update watermark for next run (Pitfall 5: watermark-based pagination)
         if last_created_at > watermark {
             if let Err(e) = self
                 .history
@@ -554,7 +527,6 @@ impl AgentEngine {
         let threshold = config.consolidation.fact_decay_supersede_threshold;
         let now = now_millis();
 
-        // Read MEMORY.md content
         let memory_path =
             memory_paths_for_scope(&self.data_dir, &current_agent_scope_id()).memory_path;
         let content = match tokio::fs::read_to_string(&memory_path).await {
@@ -562,14 +534,11 @@ impl AgentEngine {
             Err(_) => return 0,
         };
 
-        // Extract fact candidates from MEMORY.md
         let facts = extract_memory_fact_candidates(&content);
         if facts.is_empty() {
             return 0;
         }
 
-        // Look up provenance timestamps for the whole batch once. Missing keys
-        // are skipped because decay needs a real confirmation anchor.
         let fact_keys = facts
             .iter()
             .map(|fact| fact.key.clone())
@@ -590,14 +559,12 @@ impl AgentEngine {
                 break;
             }
 
-            // Skip facts that are already superseded
             if fact.display.contains("[SUPERSEDED]") {
                 continue;
             }
 
             let last_confirmed_at = provenance_created_at.get(&fact.key).copied().unwrap_or(0);
 
-            // If no provenance record, skip (we cannot compute meaningful decay)
             if last_confirmed_at == 0 {
                 continue;
             }
@@ -605,13 +572,12 @@ impl AgentEngine {
             let confidence = compute_decay_confidence(last_confirmed_at, now, half_life);
 
             if confidence < threshold {
-                // Actually tombstone the fact via supersede_memory_fact (MEMO-02)
                 if let Err(e) = self
                     .supersede_memory_fact(
                         MemoryTarget::Memory,
                         &fact.display,
                         &fact.key,
-                        "", // empty replacement -- fact is simply removed from active memory
+                        "",
                         "fact_decay",
                     )
                     .await
@@ -624,7 +590,6 @@ impl AgentEngine {
                     continue;
                 }
 
-                // Record provenance for the decay action (MEMO-04)
                 self.record_provenance_event(
                     "fact_decay",
                     &format!(
@@ -683,14 +648,12 @@ impl AgentEngine {
     /// Per D-12: budget within the 30-second tick. Runs LAST (most expensive sub-task).
     /// Per Pitfall 3: check circuit breaker before LLM call. Skip if open.
     async fn refine_memory_facts(&self, deadline: &std::time::Instant) -> usize {
-        // 1. Check remaining budget -- need at least 10 seconds for an LLM call
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if remaining.as_secs() < 10 {
             tracing::debug!("skipping memory refinement -- insufficient budget");
             return 0;
         }
 
-        // 2. Check circuit breaker for configured provider
         let config = self.config.read().await.clone();
         if let Err(_e) = self.check_circuit_breaker(&config.provider).await {
             tracing::debug!(
@@ -700,7 +663,6 @@ impl AgentEngine {
             return 0;
         }
 
-        // 3. Read MEMORY.md content
         let memory_path =
             memory_paths_for_scope(&self.data_dir, &current_agent_scope_id()).memory_path;
         let content = match tokio::fs::read_to_string(&memory_path).await {
@@ -708,13 +670,11 @@ impl AgentEngine {
             Err(_) => return 0,
         };
 
-        // 4. Extract fact candidates and find contradictions/redundancies
         let candidates = extract_memory_fact_candidates(&content);
         if candidates.len() < 2 {
-            return 0; // Need at least 2 facts to find contradictions
+            return 0;
         }
 
-        // Find facts with overlapping keys (potential contradictions/redundancies)
         let mut key_groups: std::collections::HashMap<String, Vec<&MemoryFactCandidate>> =
             std::collections::HashMap::new();
         for candidate in &candidates {
@@ -731,11 +691,9 @@ impl AgentEngine {
             .collect();
 
         if conflicting.is_empty() {
-            return 0; // No contradictions found
+            return 0;
         }
 
-        // 5. Build a short LLM prompt to merge the first conflict group
-        // Only handle one conflict per tick to stay within budget
         let conflict = &conflicting[0];
         let facts_text: String = conflict
             .iter()
@@ -751,7 +709,6 @@ impl AgentEngine {
             facts_text
         );
 
-        // 6. Make LLM call with timeout -- following the pattern from memory_flush.rs
         let llm_timeout = remaining.saturating_sub(std::time::Duration::from_secs(2));
 
         let merged_content = match tokio::time::timeout(
@@ -775,8 +732,6 @@ impl AgentEngine {
             return 0;
         }
 
-        // 7. Supersede the original facts with the merged result
-        // Per Pitfall 2: tombstone-before-update via supersede_memory_fact
         let original_content = conflict
             .iter()
             .map(|f| f.display.clone())
@@ -805,9 +760,6 @@ impl AgentEngine {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[path = "tests/consolidation.rs"]

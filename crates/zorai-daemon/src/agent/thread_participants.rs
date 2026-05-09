@@ -561,6 +561,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: true,
                 limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             };
             continuation.task_id = match self.history.list_agent_task_refs_filtered(&query).await {
                 Ok(task_refs) => task_refs.into_iter().next().map(|(task_id, _, _)| task_id),
@@ -823,6 +825,8 @@ impl AgentEngine {
                     exclude_terminal_statuses: false,
                     order_by_recent_activity_desc: false,
                     limit: Some(1),
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
                 })
                 .await
                 .into_iter()
@@ -1296,14 +1300,17 @@ impl AgentEngine {
                         .unwrap_or(serde_json::Value::Array(Vec::new())),
                 );
             }
-            let participants = self.list_thread_participants(thread_id).await;
-            let suggestions = self.list_thread_participant_suggestions(thread_id).await;
-            let execution_profile = self
-                .thread_execution_profiles
-                .read()
-                .await
-                .get(thread_id)
-                .cloned();
+            let (participants, suggestions, execution_profile) = tokio::join!(
+                self.list_thread_participants(thread_id),
+                self.list_thread_participant_suggestions(thread_id),
+                async {
+                    self.thread_execution_profiles
+                        .read()
+                        .await
+                        .get(thread_id)
+                        .cloned()
+                },
+            );
             detail.insert(
                 "thread_participants".to_string(),
                 serde_json::to_value(participants).unwrap_or(serde_json::Value::Array(Vec::new())),

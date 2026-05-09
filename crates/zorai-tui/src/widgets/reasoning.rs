@@ -19,13 +19,11 @@ pub fn reasoning_lines<'a>(
     let dark_blue_style = Style::default().fg(Color::Indexed(24));
 
     if expanded {
-        // Header line
         lines.push(Line::from(vec![Span::styled(
             format!("\u{25be} Reasoning {}", stats),
             theme.fg_dim,
         )]));
 
-        // Reasoning content with dark blue left border
         let content_width = width.saturating_sub(2);
         for paragraph in reasoning.split('\n') {
             if paragraph.is_empty() {
@@ -42,7 +40,6 @@ pub fn reasoning_lines<'a>(
             }
         }
     } else {
-        // Collapsed single line
         lines.push(Line::from(Span::styled(
             format!("\u{25b8} Reasoning {}", stats),
             theme.fg_dim,

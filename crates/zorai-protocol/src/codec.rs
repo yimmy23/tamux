@@ -16,7 +16,6 @@ use crate::{ClientMessage, DaemonMessage};
 #[derive(Debug, Default)]
 pub struct ZoraiCodec;
 
-// Maximum allowed frame size: 16 MiB (generous for scrollback dumps).
 pub const MAX_IPC_FRAME_SIZE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_FRAME_SIZE: u32 = MAX_IPC_FRAME_SIZE_BYTES as u32;
 
@@ -66,9 +65,6 @@ pub fn daemon_message_fits_ipc(item: &DaemonMessage) -> bool {
     validate_daemon_message_size(item).is_ok()
 }
 
-// ---------------------------------------------------------------------------
-// Decoder: bytes -> DaemonMessage  (used by clients reading daemon replies)
-// ---------------------------------------------------------------------------
 
 impl Decoder for ZoraiCodec {
     type Item = DaemonMessage;
@@ -103,9 +99,6 @@ impl Decoder for ZoraiCodec {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Encoder: ClientMessage -> bytes  (used by clients writing requests)
-// ---------------------------------------------------------------------------
 
 impl Encoder<ClientMessage> for ZoraiCodec {
     type Error = std::io::Error;
@@ -121,9 +114,6 @@ impl Encoder<ClientMessage> for ZoraiCodec {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Mirrored codec for daemon side (decodes Client, encodes Daemon)
-// ---------------------------------------------------------------------------
 
 /// Codec used on the **daemon** side: decodes `ClientMessage`, encodes
 /// `DaemonMessage`.

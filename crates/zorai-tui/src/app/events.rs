@@ -83,6 +83,7 @@ impl TuiModel {
 
         self.tick_counter = self.tick_counter.saturating_add(elapsed_ticks.max(1));
         self.maybe_refresh_system_monitor();
+        self.maybe_dispatch_pending_thread_picker_refresh();
         self.chat.clear_expired_copy_feedback(self.tick_counter);
         self.maybe_request_older_chat_history();
         self.maybe_request_older_goal_run_history();
@@ -140,6 +141,32 @@ impl TuiModel {
             || self.system_monitor != system_monitor_before
             || self.image_preview_cache_revision != image_preview_cache_revision_before
             || queued_prompt_copy_feedback_changed
+    }
+
+    fn maybe_dispatch_pending_thread_picker_refresh(&mut self) {
+        if self.modal.top() != Some(modal::ModalKind::ThreadPicker) {
+            self.pending_thread_picker_refresh = None;
+            self.thread_picker_loading_tab = None;
+            return;
+        }
+
+        let Some(pending) = self.pending_thread_picker_refresh.clone() else {
+            return;
+        };
+
+        if self.tick_counter < pending.ready_at_tick {
+            return;
+        }
+
+        if self.modal.thread_picker_tab() != pending.tab {
+            return;
+        }
+
+        self.pending_thread_picker_refresh = None;
+        self.send_daemon_command(DaemonCommand::RefreshThreadsForAgent {
+            agent_filter: Some(pending.agent_filter),
+        });
+        self.status_line = "Refreshing threads…".to_string();
     }
 
     pub(crate) fn wants_fast_tick(&self) -> bool {

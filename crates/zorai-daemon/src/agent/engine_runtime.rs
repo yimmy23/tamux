@@ -254,6 +254,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await;
         let awaiting_approval_tasks = self
@@ -271,6 +273,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await;
         let active_goal_statuses = [
@@ -483,7 +487,11 @@ impl AgentEngine {
         let engine = Arc::clone(self);
         tokio::spawn(async move {
             for (thread_id, repo_root) in repo_watches {
-                engine.ensure_repo_watcher(&thread_id, &repo_root).await;
+                if engine.repo_monitor_enabled_for_repo(&repo_root).await {
+                    engine.ensure_repo_watcher(&thread_id, &repo_root).await;
+                } else {
+                    engine.remove_repo_watcher(&thread_id).await;
+                }
             }
         });
     }
@@ -742,8 +750,6 @@ impl AgentEngine {
             .stderr(std::process::Stdio::null())
             .stdin(std::process::Stdio::null());
 
-        // Bootstrap recall is opportunistic. It should never add noticeable latency
-        // to the first visible turn on a new thread.
         let output = match tokio::time::timeout(
             Duration::from_millis(ONECONTEXT_BOOTSTRAP_TIMEOUT_MS),
             cmd.output(),

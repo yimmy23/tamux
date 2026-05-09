@@ -162,7 +162,6 @@ impl AgentEngine {
             tracing::warn!(thread_id = %thread_id, skill = %selected_variant.skill_name, variant = %selected_variant.variant_name, "failed to persist skill-selection causal trace: {error}");
         }
 
-        // Create audit entry for skill selection per D-06/TRNS-03.
         let config = self.config.read().await.clone();
         if config.audit.scope.skill {
             let confidence_val = trace.selected.estimated_success_prob;

@@ -65,9 +65,9 @@ pub(crate) fn render_cached(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // tab bar
+            Constraint::Length(1),
             Constraint::Length(filter_height),
-            Constraint::Min(1), // body
+            Constraint::Min(1),
             Constraint::Length(gw_height),
             Constraint::Length(ra_height),
             Constraint::Length(tier_height),
@@ -75,7 +75,6 @@ pub(crate) fn render_cached(
         ])
         .split(area);
 
-    // Agent status line at the very top
 
     for (tab, cell) in tab_cells(chunks[0], show_spawned, show_pinned) {
         let style = if sidebar.active_tab() == tab {
@@ -168,13 +167,13 @@ pub(crate) fn hit_test_cached(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // tab bar
+            Constraint::Length(1),
             Constraint::Length(if sidebar.active_tab() == SidebarTab::Files {
                 1
             } else {
                 0
             }),
-            Constraint::Min(1), // body
+            Constraint::Min(1),
         ])
         .split(area);
 

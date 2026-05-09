@@ -175,7 +175,6 @@ fn heartbeat_digest_received_stores_and_replaces() {
     assert_eq!(d.items.len(), 1);
     assert_eq!(d.items[0].priority, 1);
 
-    // Replace with new digest
     state.reduce(TaskAction::HeartbeatDigestReceived(HeartbeatDigestVm {
         cycle_id: "c2".into(),
         actionable: false,

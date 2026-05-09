@@ -374,7 +374,6 @@ pub enum ClientEvent {
         summary: String,
     },
 
-    // Plugin settings events (Plan 16-03)
     PluginList(Vec<zorai_protocol::PluginInfo>),
     PluginGet {
         plugin: Option<zorai_protocol::PluginInfo>,

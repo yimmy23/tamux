@@ -99,7 +99,7 @@ impl ThreadIdentityMetadata {
 }
 
 pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessageMetadata {
-    let metadata = metadata_json.and_then(|json| {
+    let mut metadata_owned = metadata_json.and_then(|json| {
         serde_json::from_str::<serde_json::Value>(json)
             .ok()
             .map(|mut value| {
@@ -107,93 +107,140 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
                 value
             })
     });
-    let get_str = |key: &str| -> Option<String> {
-        metadata
-            .as_ref()
-            .and_then(|value| value.get(key).and_then(|entry| entry.as_str()))
-            .map(ToOwned::to_owned)
-    };
-    let _get_string_vec = |key: &str| -> Vec<String> {
-        metadata
-            .as_ref()
-            .and_then(|value| value.get(key))
-            .and_then(|value| serde_json::from_value::<Vec<String>>(value.clone()).ok())
-            .unwrap_or_default()
-    };
-    let api_transport = metadata
-        .as_ref()
-        .and_then(|value| value.get("api_transport"))
-        .and_then(|value| serde_json::from_value::<ApiTransport>(value.clone()).ok());
-    let weles_review = metadata
-        .as_ref()
-        .and_then(|value| value.get("weles_review"))
-        .and_then(|value| serde_json::from_value::<WelesReviewMeta>(value.clone()).ok());
-    let upstream_message = metadata
-        .as_ref()
-        .and_then(|value| value.get("upstream_message"))
-        .and_then(|value| serde_json::from_value::<CompletionUpstreamMessage>(value.clone()).ok());
-    let provider_final_result = metadata
-        .as_ref()
-        .and_then(|value| value.get("provider_final_result"))
-        .and_then(|value| {
-            serde_json::from_value::<CompletionProviderFinalResult>(value.clone()).ok()
-        });
-    let message_kind = metadata
-        .as_ref()
-        .and_then(|value| value.get("message_kind"))
-        .and_then(|value| serde_json::from_value::<AgentMessageKind>(value.clone()).ok())
-        .unwrap_or_default();
-    let compaction_strategy = metadata
-        .as_ref()
-        .and_then(|value| value.get("compaction_strategy"))
-        .and_then(|value| serde_json::from_value::<CompactionStrategy>(value.clone()).ok());
-    let structural_refs = metadata
-        .as_ref()
-        .and_then(|value| value.get("structural_refs"))
-        .and_then(|value| serde_json::from_value::<Vec<String>>(value.clone()).ok())
-        .unwrap_or_default();
-    let content_blocks = metadata
-        .as_ref()
-        .and_then(|value| value.get("content_blocks"))
-        .or_else(|| {
-            metadata
-                .as_ref()
-                .and_then(|value| value.get("contentBlocks"))
-        })
-        .and_then(|value| serde_json::from_value::<Vec<AgentContentBlock>>(value.clone()).ok())
-        .unwrap_or_default();
+    let metadata_map = metadata_owned
+        .as_mut()
+        .and_then(|value| value.as_object_mut());
+
+    fn take_string(
+        map: Option<&mut serde_json::Map<String, serde_json::Value>>,
+        key: &str,
+    ) -> Option<String> {
+        map.and_then(|m| m.remove(key))
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s),
+                _ => None,
+            })
+    }
+    fn take_string_either(
+        map: &mut Option<&mut serde_json::Map<String, serde_json::Value>>,
+        snake: &str,
+        camel: &str,
+    ) -> Option<String> {
+        if let Some(m) = map.as_deref_mut() {
+            if let Some(value) = m.remove(snake).and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s),
+                _ => None,
+            }) {
+                return Some(value);
+            }
+            if let Some(value) = m.remove(camel).and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s),
+                _ => None,
+            }) {
+                return Some(value);
+            }
+        }
+        None
+    }
+    fn take_typed<T: serde::de::DeserializeOwned>(
+        map: Option<&mut serde_json::Map<String, serde_json::Value>>,
+        key: &str,
+    ) -> Option<T> {
+        map.and_then(|m| m.remove(key))
+            .and_then(|v| serde_json::from_value(v).ok())
+    }
+    fn take_typed_either<T: serde::de::DeserializeOwned>(
+        map: &mut Option<&mut serde_json::Map<String, serde_json::Value>>,
+        snake: &str,
+        camel: &str,
+    ) -> Option<T> {
+        if let Some(m) = map.as_deref_mut() {
+            if let Some(taken) = m.remove(snake) {
+                if let Ok(value) = serde_json::from_value(taken) {
+                    return Some(value);
+                }
+            }
+            if let Some(taken) = m.remove(camel) {
+                if let Ok(value) = serde_json::from_value(taken) {
+                    return Some(value);
+                }
+            }
+        }
+        None
+    }
+    fn take_bool_either(
+        map: &mut Option<&mut serde_json::Map<String, serde_json::Value>>,
+        snake: &str,
+        camel: &str,
+    ) -> Option<bool> {
+        if let Some(m) = map.as_deref_mut() {
+            if let Some(value) = m.remove(snake).and_then(|v| v.as_bool()) {
+                return Some(value);
+            }
+            if let Some(value) = m.remove(camel).and_then(|v| v.as_bool()) {
+                return Some(value);
+            }
+        }
+        None
+    }
+
+    let mut map_ref = metadata_map;
+
+    let content_blocks: Vec<AgentContentBlock> =
+        take_typed_either(&mut map_ref, "content_blocks", "contentBlocks").unwrap_or_default();
+    let api_transport = take_typed::<ApiTransport>(map_ref.as_deref_mut(), "api_transport");
+    let weles_review = take_typed::<WelesReviewMeta>(map_ref.as_deref_mut(), "weles_review");
+    let upstream_message =
+        take_typed::<CompletionUpstreamMessage>(map_ref.as_deref_mut(), "upstream_message");
+    let provider_final_result = take_typed::<CompletionProviderFinalResult>(
+        map_ref.as_deref_mut(),
+        "provider_final_result",
+    );
+    let message_kind: AgentMessageKind =
+        take_typed::<AgentMessageKind>(map_ref.as_deref_mut(), "message_kind").unwrap_or_default();
+    let compaction_strategy =
+        take_typed::<CompactionStrategy>(map_ref.as_deref_mut(), "compaction_strategy");
+    let structural_refs: Vec<String> =
+        take_typed::<Vec<String>>(map_ref.as_deref_mut(), "structural_refs").unwrap_or_default();
+    let tool_call_id = take_string(map_ref.as_deref_mut(), "tool_call_id");
+    let tool_name = take_string(map_ref.as_deref_mut(), "tool_name");
+    let tool_arguments = take_string(map_ref.as_deref_mut(), "tool_arguments");
+    let tool_status = take_string(map_ref.as_deref_mut(), "tool_status");
+    let response_id = take_string(map_ref.as_deref_mut(), "response_id");
+    let author_agent_id = take_string_either(&mut map_ref, "author_agent_id", "authorAgentId");
+    let author_agent_name =
+        take_string_either(&mut map_ref, "author_agent_name", "authorAgentName");
+    let compaction_payload = take_string(map_ref.as_deref_mut(), "compaction_payload");
+    let offloaded_payload_id = take_string(map_ref.as_deref_mut(), "offloaded_payload_id");
+    let tool_output_preview_path = take_string_either(
+        &mut map_ref,
+        "tool_output_preview_path",
+        "toolOutputPreviewPath",
+    );
+    let pinned_for_compaction =
+        take_bool_either(&mut map_ref, "pinned_for_compaction", "pinnedForCompaction")
+            .unwrap_or(false);
 
     ParsedMessageMetadata {
         content_blocks,
-        tool_call_id: get_str("tool_call_id"),
-        tool_name: get_str("tool_name"),
-        tool_arguments: get_str("tool_arguments"),
-        tool_status: get_str("tool_status"),
+        tool_call_id,
+        tool_name,
+        tool_arguments,
+        tool_status,
         weles_review,
         api_transport,
-        response_id: get_str("response_id"),
+        response_id,
         upstream_message,
         provider_final_result,
-        author_agent_id: get_str("author_agent_id").or_else(|| get_str("authorAgentId")),
-        author_agent_name: get_str("author_agent_name").or_else(|| get_str("authorAgentName")),
+        author_agent_id,
+        author_agent_name,
         message_kind,
         compaction_strategy,
-        compaction_payload: get_str("compaction_payload"),
-        offloaded_payload_id: get_str("offloaded_payload_id"),
-        tool_output_preview_path: get_str("tool_output_preview_path")
-            .or_else(|| get_str("toolOutputPreviewPath")),
+        compaction_payload,
+        offloaded_payload_id,
+        tool_output_preview_path,
         structural_refs,
-        pinned_for_compaction: metadata
-            .as_ref()
-            .and_then(|value| value.get("pinned_for_compaction"))
-            .and_then(|value| value.as_bool())
-            .or_else(|| {
-                metadata
-                    .as_ref()
-                    .and_then(|value| value.get("pinnedForCompaction"))
-                    .and_then(|value| value.as_bool())
-            })
-            .unwrap_or(false),
+        pinned_for_compaction,
     }
 }
 

@@ -5,6 +5,7 @@ use tempfile::tempdir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
+use zorai_protocol::{WorkspaceOperator, WorkspaceSettings};
 
 fn sample_task(id: &str, thread_id: Option<&str>, goal_run_id: Option<&str>) -> AgentTask {
     AgentTask {
@@ -134,6 +135,27 @@ fn sample_anticipatory_item(id: &str, kind: &str, title: &str, summary: &str) ->
         created_at: 0,
         updated_at: 0,
     }
+}
+
+async fn enable_repo_monitor_for_workspace_root(
+    engine: &AgentEngine,
+    workspace_root: &std::path::Path,
+) {
+    let now = now_millis();
+    engine
+        .history
+        .upsert_workspace_settings(&WorkspaceSettings {
+            workspace_id: "repo-monitor-test".to_string(),
+            workspace_root: Some(workspace_root.to_string_lossy().to_string()),
+            operator: WorkspaceOperator::User,
+            repo_monitor_enabled: true,
+            repo_monitor_include_dirs: vec![".".to_string()],
+            repo_monitor_exclude_dirs: Vec::new(),
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .expect("enable repo monitor for test workspace root");
 }
 
 #[test]
@@ -1210,6 +1232,8 @@ async fn predictive_hydration_populates_prewarm_cache_for_hydrated_thread() {
     config.anticipatory.predictive_hydration = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
+
     let mut goal = sample_goal_run("goal-cache", Some("thread-cache"));
     goal.status = GoalRunStatus::Running;
     goal.updated_at = now_millis();
@@ -1243,6 +1267,63 @@ async fn predictive_hydration_populates_prewarm_cache_for_hydrated_thread() {
         .expect("prewarm cache snapshot for hydrated thread");
     assert!(snapshot.summary.contains("branch"));
     assert!(snapshot.summary.contains("context entries 1"));
+}
+
+#[tokio::test]
+async fn predictive_hydration_skips_prewarm_cache_when_repo_monitor_disabled() {
+    let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-predictive-cache-disabled");
+    std::fs::create_dir_all(&repo_root).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.predictive_hydration = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut goal = sample_goal_run("goal-cache-disabled", Some("thread-cache-disabled"));
+    goal.status = GoalRunStatus::Running;
+    goal.updated_at = now_millis();
+    engine.goal_runs.lock().await.push_back(goal);
+    engine.thread_work_contexts.write().await.insert(
+        "thread-cache-disabled".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-cache-disabled".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "Cargo.toml".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+
+    engine.run_anticipatory_tick().await;
+
+    let runtime = engine.anticipatory.read().await;
+    assert!(
+        !runtime
+            .prewarm_cache_by_thread
+            .contains_key("thread-cache-disabled"),
+        "predictive hydration should skip git-backed prewarm work when repo monitor is disabled"
+    );
 }
 
 #[tokio::test]
@@ -1295,6 +1376,8 @@ async fn predictive_hydration_records_causal_trace_family() {
     config.anticipatory.enabled = true;
     config.anticipatory.predictive_hydration = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
 
     let mut goal = sample_goal_run("goal-trace", Some("thread-trace"));
     goal.status = GoalRunStatus::Running;
@@ -1629,6 +1712,8 @@ async fn system_outcome_foresight_does_not_persist_duplicate_unresolved_predicti
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
+
     engine
         .record_operator_attention("conversation:chat", Some("thread-foresight-dedupe"), None)
         .await
@@ -1709,6 +1794,8 @@ async fn system_outcome_foresight_updates_active_prediction_instead_of_duplicati
     let mut config = AgentConfig::default();
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
 
     engine
         .record_operator_attention("conversation:chat", Some("thread-foresight-update"), None)
@@ -1816,6 +1903,8 @@ async fn system_outcome_foresight_persists_and_resolves_when_health_feedback_arr
     let mut config = AgentConfig::default();
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
 
     engine
         .record_operator_attention("conversation:chat", Some("thread-foresight-persist"), None)
@@ -1964,6 +2053,8 @@ async fn anticipatory_tick_surfaces_persisted_system_outcome_foresight_for_build
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
+
     engine
         .record_operator_attention("conversation:chat", Some("thread-build-risk"), None)
         .await
@@ -2049,6 +2140,8 @@ async fn build_test_risk_confidence_increases_with_repeated_degraded_health_entr
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
+
     engine
         .record_operator_attention("conversation:chat", Some("thread-build-confidence"), None)
         .await
@@ -2121,13 +2214,99 @@ async fn build_test_risk_confidence_increases_with_repeated_degraded_health_entr
 }
 
 #[tokio::test]
+async fn system_outcome_foresight_skips_build_risk_when_repo_monitor_disabled() {
+    let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-build-risk-disabled");
+    std::fs::create_dir_all(&repo_root).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    std::fs::write(repo_root.join("src/lib.rs"), "pub fn broken() {}\n").unwrap();
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-build-risk-disabled"), None)
+        .await
+        .unwrap();
+    engine.thread_work_contexts.write().await.insert(
+        "thread-build-risk-disabled".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-build-risk-disabled".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/lib.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+    engine
+        .history
+        .insert_health_log(
+            "health-build-risk-disabled",
+            "task",
+            "cargo-test",
+            "degraded",
+            Some("{\"tool\":\"cargo test\",\"error\":\"Command failed\"}"),
+            Some("recent cargo test failed in this repo"),
+            now_millis(),
+        )
+        .await
+        .expect("save health log");
+
+    engine.run_anticipatory_tick().await;
+
+    let items = engine.anticipatory.read().await.items.clone();
+    assert!(
+        items.into_iter()
+            .all(|candidate| candidate.kind != "system_outcome_foresight"),
+        "system outcome foresight should skip git-backed build-risk analysis when repo monitor is disabled"
+    );
+}
+
+#[tokio::test]
 async fn anticipatory_tick_surfaces_stale_context_foresight_when_hydration_lags_session_rhythm() {
     let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-stale-context");
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    std::fs::write(repo_root.join("src/lib.rs"), "pub fn stale() {}\n").unwrap();
+
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.anticipatory.enabled = true;
     config.anticipatory.predictive_hydration = false;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
 
     engine
         .record_operator_attention("conversation:chat", Some("thread-stale-context"), None)
@@ -2143,7 +2322,7 @@ async fn anticipatory_tick_surfaces_stale_context_foresight_when_hydration_lags_
                 kind: WorkContextEntryKind::RepoChange,
                 source: "repo_scan".to_string(),
                 change_kind: Some("modified".to_string()),
-                repo_root: Some("/tmp/repo".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
                 goal_run_id: None,
                 step_index: None,
                 session_id: None,
@@ -3227,6 +3406,8 @@ async fn anticipatory_prompt_context_records_proactive_cache_provenance() {
     config.enabled = true;
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
 
     let repo_root = root.path().join("repo-proactive-provenance");
     std::fs::create_dir_all(&repo_root).unwrap();

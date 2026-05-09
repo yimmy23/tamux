@@ -125,9 +125,17 @@ impl AgentEngine {
             ),
         };
 
+        let cutoff_ts = self
+            .history
+            .thread_latest_persisted_message_ts(&thread.id)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(i64::MIN);
         let message_rows = thread
             .messages
             .iter()
+            .filter(|message| (message.timestamp as i64) >= cutoff_ts)
             .map(|message| {
                 let metadata_json = build_message_metadata_json(message);
                 zorai_protocol::AgentDbMessage {
@@ -226,17 +234,16 @@ impl AgentEngine {
 
     pub(in crate::agent) async fn persist_tasks(&self) {
         let mut tasks = self.tasks.lock().await;
+        let mut sanitized: Vec<crate::agent::types::AgentTask> =
+            Vec::with_capacity(tasks.len());
         for task in tasks.iter_mut() {
             persist_weles_runtime_context(self, task).await;
-            let persisted = sanitize_task_for_persistence(task);
-            if let Err(e) = self.history.upsert_agent_task(&persisted).await {
-                tracing::warn!(task_id = %task.id, "failed to persist task to sqlite: {e}");
-            }
+            sanitized.push(sanitize_task_for_persistence(task));
         }
-        let persisted_tasks = tasks
-            .iter()
-            .map(sanitize_task_for_persistence)
-            .collect::<VecDeque<_>>();
+        if let Err(e) = self.history.upsert_agent_tasks_batch(&sanitized).await {
+            tracing::warn!("failed to persist tasks batch to sqlite: {e}");
+        }
+        let persisted_tasks: VecDeque<_> = sanitized.into_iter().collect();
         drop(tasks);
         if let Err(e) = persist_json(&self.data_dir.join("tasks.json"), &persisted_tasks).await {
             tracing::warn!("failed to persist tasks: {e}");
@@ -248,12 +255,16 @@ impl AgentEngine {
             let mut goal_runs = self.goal_runs.lock().await;
             for goal_run in goal_runs.iter_mut() {
                 crate::agent::goal_dossier::refresh_goal_run_dossier(goal_run);
-                if let Err(e) = self.history.upsert_goal_run(goal_run).await {
-                    tracing::warn!(goal_run_id = %goal_run.id, "failed to persist goal run to sqlite: {e}");
-                }
             }
             goal_runs.iter().cloned().collect::<Vec<_>>()
         };
+        if let Err(e) = self
+            .history
+            .upsert_goal_runs_batch(&goal_runs_snapshot)
+            .await
+        {
+            tracing::warn!("failed to persist goal runs batch to sqlite: {e}");
+        }
 
         if let Err(e) =
             persist_json(&self.data_dir.join("goal-runs.json"), &goal_runs_snapshot).await
@@ -264,9 +275,6 @@ impl AgentEngine {
         for goal_run in goal_runs_snapshot {
             match crate::agent::goal_dossier::write_goal_run_projection(self, &goal_run).await {
                 Ok(()) => {
-                    // Projection files under .zorai/goals/<goal_run_id>/ are the authoritative
-                    // backing store for dossier/inventory views. Emit after the write completes
-                    // so live goal panes can hydrate against the fresh files.
                     self.emit_goal_run_update(&goal_run, None);
                 }
                 Err(error) => {

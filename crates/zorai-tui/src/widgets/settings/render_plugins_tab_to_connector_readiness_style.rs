@@ -29,7 +29,6 @@ pub(crate) fn render_plugins_tab<'a>(
     let mut lines = Vec::new();
 
     if plugin_state.list_mode {
-        // ── List mode ──────────────────────────────────────────────
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled("  Plugins", theme.fg_active)));
         lines.push(Line::from(Span::styled(
@@ -92,7 +91,6 @@ pub(crate) fn render_plugins_tab<'a>(
             ]));
         }
     } else {
-        // ── Detail mode ────────────────────────────────────────────
         let Some(plugin) = plugin_state.selected_plugin() else {
             lines.push(Line::from(Span::styled(
                 "  No plugin selected.",
@@ -170,7 +168,6 @@ pub(crate) fn render_plugins_tab<'a>(
             lines.push(Line::raw(""));
         }
 
-        // Settings fields
         for (i, field) in plugin_state.schema_fields.iter().enumerate() {
             let is_active = !plugin_state.list_mode && i == plugin_state.detail_cursor;
             let marker = if is_active { "> " } else { "  " };
@@ -222,7 +219,6 @@ pub(crate) fn render_plugins_tab<'a>(
             ]));
         }
 
-        // Action buttons
         let action_offset = plugin_state.schema_fields.len();
         if plugin.has_api {
             let btn_idx = action_offset;
@@ -245,7 +241,6 @@ pub(crate) fn render_plugins_tab<'a>(
                     },
                 ),
             ]));
-            // Show test result if available
             if let Some((success, ref msg)) = plugin_state.test_result {
                 let result_style = if success {
                     Style::default().fg(Color::Green)

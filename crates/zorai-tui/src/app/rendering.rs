@@ -1959,6 +1959,8 @@ impl TuiModel {
                         &self.tasks,
                         &self.workspace,
                         &self.theme,
+                        self.thread_picker_loading_tab(),
+                        self.tick_counter,
                     );
                 }
                 modal::ModalKind::GoalPicker => {

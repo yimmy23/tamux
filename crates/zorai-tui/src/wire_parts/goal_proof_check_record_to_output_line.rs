@@ -306,25 +306,39 @@ pub struct HeartbeatItem {
     pub last_message: Option<String>,
 }
 
+/// Deserializes a value that may be missing OR explicitly `null`, falling
+/// back to `T::default()` in either case. Plain `#[serde(default)]` only
+/// covers the *missing* case — present-but-null still errors out, which has
+/// silently broken settings hydration when the daemon serialized an
+/// `Option<...>` field as `null`.
+fn deserialize_null_or_default<'de, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Default + serde::Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    let opt = Option::<T>::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AgentConfigSnapshot {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_or_default")]
     pub provider: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_or_default")]
     pub base_url: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_or_default")]
     pub model: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_or_default")]
     pub api_key: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_or_default")]
     pub assistant_id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_or_default")]
     pub auth_source: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_or_default")]
     pub api_transport: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_or_default")]
     pub reasoning_effort: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_or_default")]
     pub context_window_tokens: u32,
 }
 

@@ -1388,6 +1388,8 @@ impl AgentEngine {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         };
         let mut subagent_tasks = match self
             .history
@@ -1406,7 +1408,12 @@ impl AgentEngine {
                     .collect()
             }
         };
-        let mut subagent_task_ids = subagent_tasks
+        let mut live_overrides: std::collections::HashMap<
+            String,
+            crate::history::AgentTaskSubagentHierarchyRef,
+        > = std::collections::HashMap::new();
+        let mut live_only: Vec<crate::history::AgentTaskSubagentHierarchyRef> = Vec::new();
+        let persisted_ids = subagent_tasks
             .iter()
             .map(|task| task.id.clone())
             .collect::<std::collections::HashSet<_>>();
@@ -1417,10 +1424,19 @@ impl AgentEngine {
             .iter()
             .filter(|task| task.source == "subagent")
         {
-            if subagent_task_ids.insert(task.id.clone()) {
-                subagent_tasks.push(crate::history::AgentTaskSubagentHierarchyRef::from(task));
+            let live_ref = crate::history::AgentTaskSubagentHierarchyRef::from(task);
+            if persisted_ids.contains(&task.id) {
+                live_overrides.insert(task.id.clone(), live_ref);
+            } else {
+                live_only.push(live_ref);
             }
         }
+        for task in subagent_tasks.iter_mut() {
+            if let Some(live) = live_overrides.remove(&task.id) {
+                *task = live;
+            }
+        }
+        subagent_tasks.extend(live_only);
         let parse_subagent_containment_scope = |scope: Option<&str>| -> Option<(u8, u8)> {
             let scope = scope?.trim();
             let payload = scope.strip_prefix("subagent-depth:")?;

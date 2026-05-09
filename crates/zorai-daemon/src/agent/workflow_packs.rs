@@ -638,6 +638,8 @@ impl AgentEngine {
                         exclude_terminal_statuses: false,
                         order_by_recent_activity_desc: false,
                         limit: Some(1),
+                        ids: Vec::new(),
+                        parent_task_ids: Vec::new(),
                     })
                     .await
                     .into_iter()
@@ -714,7 +716,6 @@ impl AgentEngine {
             .await
             .unwrap_or_default();
 
-        // Browser profile health
         let browser_profiles = self
             .list_browser_profiles_with_current_health()
             .await
@@ -724,7 +725,6 @@ impl AgentEngine {
             .filter(|profile| profile.health_state != "healthy")
             .collect();
 
-        // Build sections
         let task_summary = summarize_workspace_tasks(&tasks);
         let routine_health = summarize_routines(&routines);
         let notice_lines: Vec<_> = notices
@@ -760,11 +760,9 @@ impl AgentEngine {
                 .collect()
         };
 
-        // Knowledge connector path
         let knowledge_connectors: Vec<_> = connectors
             .iter()
             .filter(|(_, info)| {
-                // Show knowledge connectors and any connector that isn't a standard repo/tracker/mail/calendar
                 let kind = info.plugin_name.to_ascii_lowercase();
                 kind.contains("notion") || kind.contains("confluence") || kind.contains("knowledge")
             })
@@ -795,7 +793,6 @@ impl AgentEngine {
             })
         };
 
-        // All connector health (not just subset)
         let all_connector_health: Vec<_> = connectors
             .iter()
             .map(|(kind, info)| {
@@ -873,7 +870,6 @@ impl AgentEngine {
 
         let stats = self.history.get_agent_statistics(window).await?;
 
-        // Recent activity context
         let task_summary_query = crate::history::AgentTaskListQuery {
             id: None,
             status: None,
@@ -888,6 +884,8 @@ impl AgentEngine {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(10),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         };
         let task_refs = match self
             .history

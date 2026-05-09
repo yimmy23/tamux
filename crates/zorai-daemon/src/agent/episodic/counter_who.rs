@@ -10,9 +10,6 @@ use anyhow::Result;
 use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
 
-// ---------------------------------------------------------------------------
-// Pure functions (no AgentEngine dependency, easy to test)
-// ---------------------------------------------------------------------------
 
 /// Compute a stable hash for a tool+args combination.
 /// Returns the first 16 hex characters of SHA-256("{tool_name}:{args_summary}").
@@ -91,13 +88,11 @@ pub fn prune_old_approaches(
         .tried_approaches
         .retain(|a| now_ms.saturating_sub(a.timestamp) <= max_age_ms);
     if state.tried_approaches.len() > max_entries {
-        // Sort by timestamp descending, keep most recent
         state
             .tried_approaches
             .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         state.tried_approaches.truncate(max_entries);
     }
-    // Cap recent_changes at 50 entries
     if state.recent_changes.len() > 50 {
         let drain_count = state.recent_changes.len() - 50;
         state.recent_changes.drain(..drain_count);
@@ -150,7 +145,6 @@ pub fn format_counter_who_context(state: &CounterWhoState) -> String {
         }
     }
 
-    // Cap total output at 2000 chars
     if out.len() > 2000 {
         out.truncate(2000);
         out.push_str("\n...(truncated)\n");
@@ -159,9 +153,6 @@ pub fn format_counter_who_context(state: &CounterWhoState) -> String {
     out
 }
 
-// ---------------------------------------------------------------------------
-// AgentEngine integration methods
-// ---------------------------------------------------------------------------
 
 impl AgentEngine {
     /// Update counter-who state after a tool call completes (CWHO-01).
@@ -207,7 +198,6 @@ impl AgentEngine {
 
         prune_old_approaches(&mut store.counter_who, now_ms, 7, 20);
 
-        // Check for repeated approaches (CWHO-02)
         let repeated_alert = detect_repeated_approaches(&store.counter_who.tried_approaches, 3)
             .map(|suggestion| {
                 let attempt_count = store
@@ -249,7 +239,6 @@ impl AgentEngine {
         record_correction(&mut store.counter_who, correction_pattern, now_ms);
         store.counter_who.updated_at = now_ms;
 
-        // Check if this pattern is persistent
         let correction_count = store
             .counter_who
             .correction_patterns
@@ -348,9 +337,6 @@ impl AgentEngine {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[path = "counter_who/tests.rs"]

@@ -10,16 +10,14 @@ use tokio::sync::broadcast;
 use tokio_util::codec::Framed;
 use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage};
 
-pub(crate) async fn dispatch_whatsapp_link<S>(
+pub(crate) async fn dispatch_whatsapp_link(
     msg: &ClientMessage,
     agent: &Arc<AgentEngine>,
-    framed: &mut Framed<S, DaemonCodec>,
+    framed: &mut ConnectionWriter,
     whatsapp_link_subscriber_guard: &mut WhatsAppLinkSubscriberGuard,
     whatsapp_link_rx: &mut Option<broadcast::Receiver<WhatsAppLinkRuntimeEvent>>,
     whatsapp_link_snapshot_replayed: &mut bool,
 ) -> Result<bool>
-where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     if !matches!(
         msg,
@@ -106,9 +104,7 @@ where
                     {
                         framed
                             .send(DaemonMessage::AgentWhatsAppLinkError {
-                                message: format!(
-                                    "failed to clear whatsapp provider state: {e}"
-                                ),
+                                message: format!("failed to clear whatsapp provider state: {e}"),
                                 recoverable: false,
                             })
                             .await?;

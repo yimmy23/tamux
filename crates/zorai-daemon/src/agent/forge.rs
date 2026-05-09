@@ -21,7 +21,7 @@ pub struct ExecutionPattern {
     pub pattern_type: PatternType,
     pub frequency: usize,
     pub affected_tools: Vec<String>,
-    pub operator_impact: String, // e.g., "caused 3 revisions"
+    pub operator_impact: String,
     pub confidence: f64,
 }
 
@@ -57,10 +57,10 @@ impl std::fmt::Display for PatternType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrategyHint {
     pub for_agent: String,
-    pub target: String,         // tool name, behavior, or workflow
-    pub hint: String,           // actionable suggestion
-    pub priority: u8,           // 1-5, 5 being highest
-    pub source_pattern: String, // pattern_type that generated this
+    pub target: String,
+    pub hint: String,
+    pub priority: u8,
+    pub source_pattern: String,
 }
 
 /// Configuration for the forge pass.
@@ -69,8 +69,8 @@ pub struct ForgeConfig {
     pub enabled: bool,
     pub interval_hours: u64,
     pub lookback_hours: u64,
-    pub min_pattern_frequency: usize, // patterns must occur ≥N times
-    pub min_auto_apply_priority: u8,  // hints with priority ≥ N auto-applied
+    pub min_pattern_frequency: usize,
+    pub min_auto_apply_priority: u8,
     pub agent_id: String,
     pub max_forge_entries_per_pass: usize,
 }

@@ -665,6 +665,7 @@ async fn supervise_stalled_turns_retries_with_internal_ping_and_continue() {
             },
         );
     }
+    engine.persist_thread_by_id(thread_id).await;
 
     engine
         .supervise_stalled_turns()
@@ -746,6 +747,7 @@ async fn collect_stalled_turn_observations_detects_idle_active_reasoning_stream(
             },
         );
     }
+    engine.persist_thread_by_id(thread_id).await;
     engine
         .set_thread_handoff_state(
             thread_id,
@@ -1017,6 +1019,7 @@ async fn supervise_stalled_turns_recovers_idle_reasoning_stream_via_internal_dm(
             },
         );
     }
+    engine.persist_thread_by_id(thread_id).await;
     engine
         .set_thread_handoff_state(
             thread_id,
@@ -1286,6 +1289,8 @@ async fn stalled_turn_escalation_updates_persisted_task_after_live_queue_clear()
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()
@@ -1339,6 +1344,7 @@ async fn collect_stalled_turn_observations_detects_recent_subagent_tool_loop() {
             },
         );
     }
+    engine.persist_thread_by_id(thread_id).await;
 
     {
         let mut tasks = engine.tasks.lock().await;
@@ -1914,6 +1920,7 @@ async fn collect_stalled_turn_observations_detects_recent_subagent_no_progress_w
             },
         );
     }
+    engine.persist_thread_by_id(thread_id).await;
 
     {
         let mut tasks = engine.tasks.lock().await;
@@ -2017,6 +2024,7 @@ async fn supervise_stalled_turns_recovers_recent_subagent_tool_loop_via_task_ret
             },
         );
     }
+    engine.persist_thread_by_id(thread_id).await;
 
     {
         let mut tasks = engine.tasks.lock().await;
@@ -2200,6 +2208,7 @@ async fn supervise_stalled_turns_recovers_recent_subagent_no_progress_without_ru
             },
         );
     }
+    engine.persist_thread_by_id(thread_id).await;
 
     {
         let mut tasks = engine.tasks.lock().await;

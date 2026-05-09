@@ -1,7 +1,8 @@
 use super::*;
 use crate::agent::AgentEngine;
 use anyhow::Result;
-use futures::SinkExt;
+use futures::stream::SplitStream;
+use futures::StreamExt;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -12,7 +13,8 @@ use zorai_protocol::{ClientMessage, DaemonCodec, DaemonMessage, SessionId};
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn pre_dispatch<S>(
     agent: &Arc<AgentEngine>,
-    framed: &mut Framed<S, DaemonCodec>,
+    stream: &mut SplitStream<Framed<S, DaemonCodec>>,
+    framed: &mut ConnectionWriter,
     plugin_manager: &Arc<crate::plugin::PluginManager>,
     attached_rxs: &mut Vec<(SessionId, broadcast::Receiver<DaemonMessage>)>,
     client_agent_threads: &mut HashSet<String>,
@@ -20,7 +22,9 @@ pub(crate) async fn pre_dispatch<S>(
     agent_event_rx: &mut Option<broadcast::Receiver<crate::agent::types::AgentEvent>>,
     background_daemon_queues: &mut BackgroundSubsystemQueues,
     background_daemon_pending: &mut BackgroundPendingCounts,
-    whatsapp_link_rx: &mut Option<broadcast::Receiver<crate::agent::types::WhatsAppLinkRuntimeEvent>>,
+    whatsapp_link_rx: &mut Option<
+        broadcast::Receiver<crate::agent::types::WhatsAppLinkRuntimeEvent>,
+    >,
     whatsapp_link_snapshot_replayed: &mut bool,
     gateway_ipc_rx: &mut Option<mpsc::UnboundedReceiver<DaemonMessage>>,
     gateway_connection_state: &GatewayConnectionState,
@@ -28,10 +32,12 @@ pub(crate) async fn pre_dispatch<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    const MAX_EVENT_DRAIN_PER_CALL: usize = 4;
+    let mut drained_event_count: usize = 0;
+
     let msg = {
-        // Drain agent events if subscribed.
         if let Some(ref mut rx) = agent_event_rx {
-            loop {
+            while drained_event_count < MAX_EVENT_DRAIN_PER_CALL {
                 match rx.try_recv() {
                     Ok(event) => {
                         if should_forward_agent_event(&event, &client_agent_threads) {
@@ -52,14 +58,29 @@ where
                                 }
                                 tracing::debug!(
                                     event_type = match &event {
-                                        crate::agent::types::AgentEvent::Notification { .. } => "notification",
-                                        crate::agent::types::AgentEvent::AnticipatoryUpdate { .. } => "anticipatory_update",
-                                        crate::agent::types::AgentEvent::ConciergeWelcome { .. } => "concierge_welcome",
-                                        crate::agent::types::AgentEvent::WorkflowNotice { .. } => "workflow_notice",
-                                        crate::agent::types::AgentEvent::ThreadCreated { .. } => "thread_created",
-                                        crate::agent::types::AgentEvent::ThreadReloadRequired { .. } => "thread_reload_required",
-                                        crate::agent::types::AgentEvent::TaskUpdate { .. } => "task_update",
-                                        crate::agent::types::AgentEvent::GoalRunUpdate { .. } => "goal_run_update",
+                                        crate::agent::types::AgentEvent::Notification {
+                                            ..
+                                        } => "notification",
+                                        crate::agent::types::AgentEvent::AnticipatoryUpdate {
+                                            ..
+                                        } => "anticipatory_update",
+                                        crate::agent::types::AgentEvent::ConciergeWelcome {
+                                            ..
+                                        } => "concierge_welcome",
+                                        crate::agent::types::AgentEvent::WorkflowNotice {
+                                            ..
+                                        } => "workflow_notice",
+                                        crate::agent::types::AgentEvent::ThreadCreated {
+                                            ..
+                                        } => "thread_created",
+                                        crate::agent::types::AgentEvent::ThreadReloadRequired {
+                                            ..
+                                        } => "thread_reload_required",
+                                        crate::agent::types::AgentEvent::TaskUpdate { .. } =>
+                                            "task_update",
+                                        crate::agent::types::AgentEvent::GoalRunUpdate {
+                                            ..
+                                        } => "goal_run_update",
                                         _ => "other",
                                     },
                                     payload_bytes = json.len(),
@@ -68,6 +89,7 @@ where
                                 framed
                                     .send(DaemonMessage::AgentEvent { event_json: json })
                                     .await?;
+                                drained_event_count += 1;
                             }
                         }
                     }
@@ -185,15 +207,13 @@ where
             }
         }
 
-        // We need to select between: incoming client messages and output from attached sessions.
         let has_subscriptions = !attached_rxs.is_empty()
             || agent_event_rx.is_some()
             || whatsapp_link_rx.is_some()
             || gateway_ipc_rx.is_some()
             || background_daemon_pending.any();
         let msg = if !has_subscriptions {
-            // No attached sessions or agent subscription — just wait for client input.
-            match framed.next().await {
+            match stream.next().await {
                 Some(Ok(msg)) => Some(msg),
                 Some(Err(e)) => {
                     if gateway_connection_is_tracked(&gateway_connection_state) {
@@ -209,12 +229,10 @@ where
                             .record_gateway_ipc_loss("gateway connection closed")
                             .await;
                     }
-                    return Ok(PreDispatchOutcome::Terminate); // client disconnected
+                    return Ok(PreDispatchOutcome::Terminate);
                 }
             }
         } else {
-            // Select between client input and all attached session outputs.
-            // For simplicity we drain all pending broadcast messages first.
             let mut forwarded = false;
             let mut closed_sessions = Vec::new();
             for (sid, rx) in attached_rxs.iter_mut() {
@@ -247,11 +265,9 @@ where
                 attached_rxs.retain(|(sid, _)| !closed_sessions.contains(sid));
             }
 
-            // Now try to read one client message with a short timeout so we
-            // keep draining output.
             match tokio::time::timeout(
                 std::time::Duration::from_millis(if forwarded { 10 } else { 50 }),
-                framed.next(),
+                stream.next(),
             )
             .await
             {
@@ -272,7 +288,7 @@ where
                     }
                     return Ok(PreDispatchOutcome::Terminate);
                 }
-                Err(_) => None, // timeout — loop back to drain output
+                Err(_) => None,
             }
         };
         msg

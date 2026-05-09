@@ -15,9 +15,6 @@ pub use helpers::{plugin_commands, remove_plugin_files};
 const PLUGINS_DIR: &str = "plugins";
 const REGISTRY_FILE: &str = "registry.json";
 
-// ---------------------------------------------------------------------------
-// Legacy plugin types (kept for backward compat with `zorai install plugin`)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledPluginRecord {
@@ -165,7 +162,6 @@ pub fn install_from_npm(package_spec: &str) -> Result<Vec<(String, String)>> {
     let root = plugins_root()?;
     ensure_plugin_workspace(&root)?;
 
-    // Install to a temp node_modules area using npm
     let status = Command::new(npm_command())
         .arg("install")
         .arg("--ignore-scripts")
@@ -181,7 +177,6 @@ pub fn install_from_npm(package_spec: &str) -> Result<Vec<(String, String)>> {
         bail!("npm install failed for '{}'", package_spec);
     }
 
-    // Find the installed package name
     let package_name = package_name_from_spec(package_spec)?;
     let installed_dir = package_dir(&root, &package_name);
     if !installed_dir.exists() {
@@ -191,10 +186,8 @@ pub fn install_from_npm(package_spec: &str) -> Result<Vec<(String, String)>> {
         );
     }
 
-    // Look for plugin.json (new v2 format) at root first (Pitfall 5: backward compat)
     let plugin_json = installed_dir.join("plugin.json");
     if plugin_json.exists() {
-        // Single plugin at root (existing behavior, now returns Vec with one item)
         let manifest_bytes = std::fs::read(&plugin_json)?;
         let manifest_value: serde_json::Value = serde_json::from_slice(&manifest_bytes)
             .with_context(|| "invalid JSON in plugin.json")?;
@@ -220,11 +213,9 @@ pub fn install_from_npm(package_spec: &str) -> Result<Vec<(String, String)>> {
         return Ok(vec![(plugin_name.clone(), plugin_name)]);
     }
 
-    // No root plugin.json -- check for nested plugin subdirectories (D-03)
     let nested_plugins = detect_nested_plugins(&installed_dir)?;
 
     if nested_plugins.is_empty() {
-        // Check for legacy format before bailing
         let pkg_json = installed_dir.join("package.json");
         if pkg_json.exists() {
             let raw = std::fs::read_to_string(&pkg_json)?;
@@ -242,7 +233,6 @@ pub fn install_from_npm(package_spec: &str) -> Result<Vec<(String, String)>> {
         );
     }
 
-    // Copy each nested plugin to ~/.zorai/plugins/{plugin_name}/
     let mut installed = Vec::new();
     for (subdir, plugin_name) in &nested_plugins {
         let target_dir = root.join(plugin_name);
@@ -268,7 +258,6 @@ pub fn install_from_github(owner: &str, repo: &str, url: &str) -> Result<Vec<(St
     let root = plugins_root()?;
     std::fs::create_dir_all(&root)?;
 
-    // Try git clone first
     let git_available = Command::new("git")
         .arg("--version")
         .status()
@@ -295,21 +284,17 @@ pub fn install_from_github(owner: &str, repo: &str, url: &str) -> Result<Vec<(St
             .with_context(|| "failed to run git clone")?;
 
         if !status.success() {
-            // Fall back to tarball
             return install_github_tarball(owner, repo, &root, temp_dir);
         }
     } else {
-        // No git available, try tarball
         return install_github_tarball(owner, repo, &root, temp_dir);
     }
 
-    // Remove .git directory to save space before processing
     let git_dir = clone_target.join(".git");
     if git_dir.exists() {
         let _ = std::fs::remove_dir_all(&git_dir);
     }
 
-    // Check root plugin.json first (Pitfall 5: backward compat)
     let plugin_json = clone_target.join("plugin.json");
     if plugin_json.exists() {
         let manifest_bytes = std::fs::read(&plugin_json)?;
@@ -329,7 +314,6 @@ pub fn install_from_github(owner: &str, repo: &str, url: &str) -> Result<Vec<(St
         return Ok(vec![(plugin_name.clone(), plugin_name)]);
     }
 
-    // No root plugin.json -- check for nested plugin subdirectories (D-03)
     let nested_plugins = detect_nested_plugins(&clone_target)?;
     if nested_plugins.is_empty() {
         bail!(
@@ -389,7 +373,6 @@ fn install_github_tarball(
         .bytes()
         .with_context(|| "failed to read tarball response")?;
 
-    // Extract tarball to temp dir using tar command
     let temp_extract = tempfile::TempDir::new_in(plugins_root)?;
     let tarball_path = temp_extract.path().join("download.tar.gz");
     std::fs::write(&tarball_path, &bytes)?;
@@ -406,7 +389,6 @@ fn install_github_tarball(
         bail!("tar extraction failed");
     }
 
-    // GitHub tarballs extract to owner-repo-sha/ directory
     let extracted_dirs: Vec<_> = std::fs::read_dir(temp_extract.path())?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_dir())
@@ -417,7 +399,6 @@ fn install_github_tarball(
         .ok_or_else(|| anyhow!("no directory found in extracted tarball"))?
         .path();
 
-    // Check root plugin.json first (Pitfall 5: backward compat)
     let plugin_json = extracted_dir.join("plugin.json");
     if plugin_json.exists() {
         let manifest_bytes = std::fs::read(&plugin_json)?;
@@ -437,7 +418,6 @@ fn install_github_tarball(
         return Ok(vec![(plugin_name.clone(), plugin_name)]);
     }
 
-    // No root plugin.json -- check for nested plugin subdirectories (D-03)
     let nested_plugins = detect_nested_plugins(&extracted_dir)?;
     if nested_plugins.is_empty() {
         bail!(
@@ -466,7 +446,6 @@ pub fn install_from_local(local_path: &Path) -> Result<Vec<(String, String)>> {
     let root = plugins_root()?;
     std::fs::create_dir_all(&root)?;
 
-    // Check root plugin.json first (Pitfall 5: backward compat)
     let plugin_json = local_path.join("plugin.json");
     if plugin_json.exists() {
         let manifest_bytes = std::fs::read(&plugin_json)?;
@@ -479,7 +458,6 @@ pub fn install_from_local(local_path: &Path) -> Result<Vec<(String, String)>> {
 
         let target_dir = root.join(&plugin_name);
 
-        // If source == target (already in plugins dir), skip copy
         let source_canonical = local_path
             .canonicalize()
             .unwrap_or_else(|_| local_path.to_path_buf());
@@ -501,7 +479,6 @@ pub fn install_from_local(local_path: &Path) -> Result<Vec<(String, String)>> {
         return Ok(vec![(plugin_name.clone(), plugin_name)]);
     }
 
-    // No root plugin.json -- check for nested plugin subdirectories (D-03)
     let nested_plugins = detect_nested_plugins(local_path)?;
     if nested_plugins.is_empty() {
         bail!(
@@ -567,9 +544,6 @@ pub fn install_plugin_v2(spec: &str) -> Result<Vec<(String, String)>> {
     }
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
 
 #[cfg(test)]
 #[path = "tests/plugins.rs"]

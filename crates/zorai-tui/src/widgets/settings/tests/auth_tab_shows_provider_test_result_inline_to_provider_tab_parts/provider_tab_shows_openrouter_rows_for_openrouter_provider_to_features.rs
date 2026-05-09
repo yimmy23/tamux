@@ -280,7 +280,6 @@ fn subagent_editor_renders_reasoning_effort_field() {
     assert!(text.contains("Reasoning"));
     assert!(text.contains("medium"));
 }
-// TDD rendering tests for audio settings display in Features tab
 
 use serde_json::json;
 
@@ -339,7 +338,6 @@ fn features_tab_includes_audio_section_when_enabled() {
         &ThemeTokens::default(),
     );
 
-    // Audio section header should appear
     let audio_header = lines
         .iter()
         .find(|l| l.spans.iter().any(|s| s.content.contains("Audio")));
@@ -374,7 +372,6 @@ fn features_tab_shows_stt_provider_when_configured() {
         &ThemeTokens::default(),
     );
 
-    // Should show STT provider "openai"
     let stt_line = lines.iter().find(|l| {
         let text: String = l.spans.iter().map(|s| s.content.clone()).collect();
         text.contains("STT") && text.contains("openai")
@@ -407,7 +404,6 @@ fn features_tab_shows_tts_voice_when_configured() {
         &ThemeTokens::default(),
     );
 
-    // Should show TTS voice "alloy"
     let tts_line = lines.iter().find(|l| {
         let text: String = l.spans.iter().map(|s| s.content.clone()).collect();
         text.contains("TTS") && text.contains("alloy")
@@ -440,7 +436,6 @@ fn features_tab_shows_hotkey_hints() {
         &ThemeTokens::default(),
     );
 
-    // Should show hotkey hints
     let hint_line = lines.iter().find(|l| {
         l.spans
             .iter()
@@ -474,7 +469,6 @@ fn features_tab_audio_defaults_when_missing() {
         &ThemeTokens::default(),
     );
 
-    // Audio section should still appear but show defaults/disabled
     let stt_line = lines
         .iter()
         .find(|l| l.spans.iter().any(|s| s.content.contains("STT")));
@@ -483,7 +477,6 @@ fn features_tab_audio_defaults_when_missing() {
         "STT line should appear even when disabled"
     );
 
-    // Should show disabled state
     let content: String = stt_line
         .unwrap()
         .spans

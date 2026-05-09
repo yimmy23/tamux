@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-// ── GoalSidebarTab ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GoalSidebarTab {
@@ -10,7 +9,6 @@ pub enum GoalSidebarTab {
     Files,
 }
 
-// ── GoalSidebarState ─────────────────────────────────────────────────────────
 
 pub struct GoalSidebarState {
     active_tab: GoalSidebarTab,

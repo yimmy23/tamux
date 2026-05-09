@@ -4,9 +4,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
 
-// ---------------------------------------------------------------------------
-// Goal runner
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -229,6 +226,3 @@ pub struct GoalRun {
     pub authorship_tag: Option<super::super::authorship::AuthorshipTag>,
 }
 
-// ---------------------------------------------------------------------------
-// Heartbeat
-// ---------------------------------------------------------------------------

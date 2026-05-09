@@ -64,8 +64,6 @@ pub(crate) struct OpenAiResponsesReasoning {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum OpenAiResponsesInputItem {
-    // Responses API request input accepts either a normal message item or tool-call items
-    // as peers in the same array, so serde must match by shape instead of a shared Rust tag.
     Message(OpenAiResponsesInputMessage),
     FunctionCall(OpenAiResponsesFunctionCall),
     FunctionCallOutput(OpenAiResponsesFunctionCallOutput),
@@ -81,8 +79,6 @@ pub(crate) struct OpenAiResponsesInputMessage {
 #[serde(untagged)]
 pub(crate) enum OpenAiResponsesInputContent {
     Text(String),
-    // Blocks preserves provider-native structured content arrays such as multimodal or
-    // rich text blocks that cannot be loslessly flattened into a single string.
     Blocks(Vec<serde_json::Value>),
 }
 

@@ -427,7 +427,6 @@ pub(crate) async fn parse_anthropic_sse(
 
                     if delta_type == "text_delta" {
                         if in_thinking_block {
-                            // Thinking block text delivered as text_delta
                             let text = parsed
                                 .pointer("/delta/text")
                                 .and_then(|v| v.as_str())
@@ -457,7 +456,6 @@ pub(crate) async fn parse_anthropic_sse(
                             }
                         }
                     } else if delta_type == "thinking_delta" {
-                        // Anthropic extended thinking delta
                         let thinking = parsed
                             .pointer("/delta/thinking")
                             .and_then(|v| v.as_str())

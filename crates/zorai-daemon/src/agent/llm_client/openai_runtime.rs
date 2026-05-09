@@ -503,10 +503,8 @@ pub(crate) fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> 
         if msg.role == "assistant" {
             if let Some(tool_calls) = &msg.tool_calls {
                 if !tool_calls.is_empty() {
-                    // Collect expected tool_call IDs.
                     let expected_ids: std::collections::HashSet<&str> =
                         tool_calls.iter().map(|tc| tc.id.as_str()).collect();
-                    // Gather subsequent tool results that match.
                     let mut results = Vec::new();
                     let mut matched_ids = std::collections::HashSet::new();
                     let mut j = i + 1;
@@ -527,13 +525,8 @@ pub(crate) fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> 
                         out.push(msg.clone());
                         out.extend(results);
                     } else if is_unanswered_latest_tool_turn {
-                        // Keep only the current unfinished tool-use turn so the caller
-                        // can execute the tools and append results before the next retry.
                         out.push(msg.clone());
                     } else {
-                        // Anthropic requires all tool_results for an assistant tool_use
-                        // turn to arrive together in the next user message. Drop any
-                        // partial or stale batch entirely.
                         tracing::warn!(
                             "sanitize_api_messages: dropping incomplete assistant tool_use with {} calls (matched {}/{})",
                             tool_calls.len(),
@@ -546,7 +539,6 @@ pub(crate) fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> 
                 }
             }
             if api_content_has_non_empty_payload(&msg.content) {
-                // Regular assistant message (no tool calls).
                 out.push(msg.clone());
             } else {
                 tracing::warn!(
@@ -554,7 +546,6 @@ pub(crate) fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> 
                 );
             }
         } else if msg.role == "tool" {
-            // Orphaned tool result — skip it.
             tracing::warn!(
                 "sanitize_api_messages: dropping orphaned tool result (id={:?})",
                 msg.tool_call_id

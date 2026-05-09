@@ -26,17 +26,11 @@ pub struct HealthReport {
     pub recommendations: Vec<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Hysteresis thresholds (consecutive ticks required for a transition)
-// ---------------------------------------------------------------------------
 const HEALTHY_TO_DEGRADED_TICKS: u32 = 2;
 const DEGRADED_TO_STUCK_TICKS: u32 = 3;
 const DEGRADED_TO_HEALTHY_TICKS: u32 = 3;
 const STUCK_TO_DEGRADED_TICKS: u32 = 2;
 
-// ---------------------------------------------------------------------------
-// Indicator thresholds
-// ---------------------------------------------------------------------------
 const DEGRADED_ERROR_RATE: f64 = 0.3;
 const DEGRADED_CONTEXT_UTIL_PCT: u32 = 85;
 const DEGRADED_TOOL_FREQ_MIN: f64 = 0.5;
@@ -68,30 +62,21 @@ impl HealthMonitor {
     pub fn check(&mut self, indicators: &HealthIndicators, now: u64) -> HealthReport {
         let previous_state = self.current_state;
 
-        // ---------------------------------------------------------------
-        // Immediate transitions (no hysteresis)
-        // ---------------------------------------------------------------
 
-        // Crashed: error_rate > 0.8 OR consecutive_errors >= 5
         if is_crashed(indicators) {
             self.transition_to(HealthState::Crashed, now);
             return self.report(previous_state, indicators);
         }
 
-        // WaitingForInput: no tool calls and no errors — the agent is idle.
         if is_waiting_for_input(indicators) {
             self.transition_to(HealthState::WaitingForInput, now);
             return self.report(previous_state, indicators);
         }
 
-        // ---------------------------------------------------------------
-        // Classify the *current tick's* raw signal
-        // ---------------------------------------------------------------
         let tick_is_stuck = is_stuck_indicators(indicators, now);
         let tick_is_degraded = is_degraded_indicators(indicators);
         let tick_is_healthy = !tick_is_degraded && !tick_is_stuck;
 
-        // Update consecutive-tick counters.
         if tick_is_healthy {
             self.healthy_ticks += 1;
             self.degraded_ticks = 0;
@@ -100,9 +85,6 @@ impl HealthMonitor {
             self.degraded_ticks += 1;
         }
 
-        // ---------------------------------------------------------------
-        // Hysteresis-guarded transitions
-        // ---------------------------------------------------------------
         match self.current_state {
             HealthState::Healthy => {
                 if self.degraded_ticks >= HEALTHY_TO_DEGRADED_TICKS {
@@ -117,16 +99,11 @@ impl HealthMonitor {
                 }
             }
             HealthState::Stuck => {
-                // Recovering from Stuck requires consecutive non-stuck ticks.
                 if !tick_is_stuck && self.healthy_ticks >= STUCK_TO_DEGRADED_TICKS {
                     self.transition_to(HealthState::Degraded, now);
                 }
             }
-            // Crashed and WaitingForInput are handled above (immediate).
-            // They stay until a `reset()` or a subsequent check reclassifies.
             HealthState::Crashed | HealthState::WaitingForInput => {
-                // Re-evaluate: if indicators no longer meet the immediate
-                // criteria we fell through to here, allow recovery.
                 if tick_is_healthy && self.healthy_ticks >= DEGRADED_TO_HEALTHY_TICKS {
                     self.transition_to(HealthState::Healthy, now);
                 } else if tick_is_degraded {
@@ -152,7 +129,6 @@ impl HealthMonitor {
         self.healthy_ticks = 0;
     }
 
-    // -- private helpers --------------------------------------------------
 
     fn transition_to(&mut self, new_state: HealthState, now: u64) {
         if self.current_state != new_state {
@@ -175,9 +151,6 @@ impl HealthMonitor {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Indicator classification helpers
-// ---------------------------------------------------------------------------
 
 fn is_crashed(ind: &HealthIndicators) -> bool {
     ind.error_rate > CRASH_ERROR_RATE || ind.consecutive_errors >= CRASH_CONSECUTIVE_ERRORS
@@ -198,7 +171,6 @@ fn is_stuck_indicators(ind: &HealthIndicators, now: u64) -> bool {
         return true;
     }
 
-    // No progress for 5+ minutes.
     if let Some(last) = ind.last_progress_at {
         if now.saturating_sub(last) >= STUCK_NO_PROGRESS_SECS {
             return true;
@@ -208,9 +180,6 @@ fn is_stuck_indicators(ind: &HealthIndicators, now: u64) -> bool {
     false
 }
 
-// ---------------------------------------------------------------------------
-// Recommendation engine
-// ---------------------------------------------------------------------------
 
 /// Produce actionable, human-readable suggestions based on the current state
 /// and the measured indicators.
@@ -219,7 +188,6 @@ pub fn compute_recommendations(state: HealthState, indicators: &HealthIndicators
 
     match state {
         HealthState::Healthy => {
-            // Nothing urgent, but we can still give minor advice.
             if indicators.context_utilization_pct > 70 {
                 recs.push(
                     "Context utilization is above 70% — consider summarising context soon."

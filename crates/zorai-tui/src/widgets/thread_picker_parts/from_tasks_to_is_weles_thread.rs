@@ -247,11 +247,11 @@ pub(super) fn thread_picker_layout(inner: Rect) -> [Rect; 5] {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // tabs
-            Constraint::Length(1), // search
-            Constraint::Length(1), // separator
-            Constraint::Min(1),    // list
-            Constraint::Length(1), // hints
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
         ])
         .split(inner);
     [chunks[0], chunks[1], chunks[2], chunks[3], chunks[4]]

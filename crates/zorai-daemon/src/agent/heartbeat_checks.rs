@@ -156,17 +156,14 @@ impl AgentEngine {
         let now = now_millis();
         let threshold_ms = threshold_hours * 3600 * 1000;
 
-        // Read gateway_threads for sender context (maps thread_id -> gateway channel key)
         let gateway_threads = self.gateway_threads.read().await;
 
-        // Read gateway_state for last_incoming_at and last_response_at
         let gw_lock = self.gateway_state.lock().await;
 
         let mut unreplied: Vec<CheckDetail> = Vec::new();
 
         if let Some(gw) = gw_lock.as_ref() {
             for (channel_key, &incoming_at) in &gw.last_incoming_at {
-                // Check if we've responded after the incoming message
                 let responded = gw
                     .last_response_at
                     .get(channel_key)
@@ -177,8 +174,6 @@ impl AgentEngine {
                     continue;
                 }
 
-                // Check if the incoming message is old enough to flag
-                // (prevents flagging messages that just arrived)
                 let elapsed_ms = now.saturating_sub(incoming_at);
                 if elapsed_ms < threshold_ms {
                     continue;
@@ -186,7 +181,6 @@ impl AgentEngine {
 
                 let age_h = elapsed_ms as f64 / 3_600_000.0;
 
-                // Try to find sender info from gateway_threads
                 let sender = gateway_threads
                     .iter()
                     .find(|(_, v)| v.as_str() == channel_key)
@@ -236,7 +230,6 @@ impl AgentEngine {
     /// Uses spawn_blocking to avoid blocking the tokio reactor.
     pub(super) async fn check_repo_changes(&self) -> HeartbeatCheckResult {
         let data_dir = self.data_dir.clone();
-        // Find the parent of data_dir as the likely project root
         let repo_path = data_dir
             .parent()
             .and_then(|p| p.parent())
@@ -254,7 +247,6 @@ impl AgentEngine {
             }
         };
 
-        // Check if git is available on PATH
         let has_git = which::which("git").is_ok();
         if !has_git {
             return HeartbeatCheckResult {
@@ -265,7 +257,6 @@ impl AgentEngine {
             };
         }
 
-        // Run git status in spawn_blocking to avoid blocking the reactor (Pitfall 2)
         let path_clone = repo_path.clone();
         let git_info = match tokio::task::spawn_blocking(move || {
             crate::git::get_git_status(&path_clone)

@@ -22,16 +22,43 @@ impl ConciergeEngine {
             ..crate::history::AgentThreadListQuery::default()
         };
 
-        match session_manager.list_agent_threads_filtered(&query).await {
-            Ok(threads) => threads
-                .into_iter()
-                .map(thread_summary_from_persisted_thread)
-                .collect(),
+        let threads = match session_manager.list_agent_threads_filtered(&query).await {
+            Ok(threads) => threads,
             Err(error) => {
                 tracing::warn!("concierge: failed to inspect persisted thread history: {error}");
-                Vec::new()
+                return Vec::new();
+            }
+        };
+
+        let mut summaries: Vec<ThreadSummary> = threads
+            .into_iter()
+            .map(thread_summary_from_persisted_thread)
+            .collect();
+        for summary in summaries.iter_mut() {
+            match session_manager
+                .history()
+                .concierge_thread_context_summary(&summary.id, 5)
+                .await
+            {
+                Ok((opening, tail)) => {
+                    summary.opening_message = opening
+                        .as_ref()
+                        .map(|(role, content)| format_concierge_context_line(role, content));
+                    summary.last_messages = tail
+                        .into_iter()
+                        .map(|(role, content)| format_concierge_context_line(&role, &content))
+                        .collect();
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        thread_id = %summary.id,
+                        %error,
+                        "concierge: failed to load lean thread context for welcome"
+                    );
+                }
             }
         }
+        summaries
     }
 
     pub(super) async fn gather_context(
@@ -132,6 +159,32 @@ pub(super) fn is_heartbeat_thread(thread: &AgentThread) -> bool {
                 && (message.content.starts_with("HEARTBEAT SYNTHESIS")
                     || message.content.starts_with("Heartbeat check:"))
         })
+}
+
+/// Per-message content cap used inside the welcome's lightweight context.
+/// Even with the lean SQL query above, a single message can be many KB
+/// (e.g. a tool's full diff dump). Truncate hard to a few hundred chars
+/// per message so the LLM prompt stays under a couple of KB total.
+const CONCIERGE_CONTEXT_LINE_MAX_CHARS: usize = 500;
+
+fn format_concierge_context_line(role: &str, content: &str) -> String {
+    let trimmed = content.trim();
+    let truncated = if trimmed.chars().count() > CONCIERGE_CONTEXT_LINE_MAX_CHARS {
+        let mut out = String::with_capacity(CONCIERGE_CONTEXT_LINE_MAX_CHARS + 16);
+        out.extend(trimmed.chars().take(CONCIERGE_CONTEXT_LINE_MAX_CHARS));
+        out.push_str("…[truncated]");
+        out
+    } else {
+        trimmed.to_string()
+    };
+    let role_label = match role {
+        "user" => "user",
+        "assistant" => "assistant",
+        "tool" => "tool",
+        "system" => "system",
+        other => other,
+    };
+    format!("{role_label}: {truncated}")
 }
 
 fn thread_summary_from_persisted_thread(thread: zorai_protocol::AgentDbThread) -> ThreadSummary {

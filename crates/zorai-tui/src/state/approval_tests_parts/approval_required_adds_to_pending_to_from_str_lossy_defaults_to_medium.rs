@@ -19,7 +19,6 @@ fn make_approval(approval_id: &str, task_id: &str, command: &str) -> PendingAppr
     }
 }
 
-// ── ApprovalState tests ───────────────────────────────────────────────────
 
 #[test]
 fn approval_required_adds_to_pending() {
@@ -172,7 +171,6 @@ fn filter_change_clears_stale_selection_and_uses_first_visible_approval() {
     );
 }
 
-// ── RiskLevel::classify_command tests ────────────────────────────────────
 
 #[test]
 fn risk_critical_for_rm_rf_root() {
@@ -317,7 +315,6 @@ fn risk_low_for_cat() {
     assert_eq!(RiskLevel::classify_command("cat README.md"), RiskLevel::Low);
 }
 
-// ── RiskLevel::from_str_lossy tests ──────────────────────────────────────
 
 #[test]
 fn from_str_lossy_parses_known_values() {

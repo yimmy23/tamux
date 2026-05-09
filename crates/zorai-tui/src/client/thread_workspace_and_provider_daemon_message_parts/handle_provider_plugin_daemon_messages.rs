@@ -236,7 +236,6 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse concierge config response: {}", err),
                 }
             }
-            // Plugin response handlers (Plan 16-03)
             DaemonMessage::PluginListResult { plugins } => {
                 let _ = event_tx.send(ClientEvent::PluginList(plugins)).await;
             }

@@ -79,7 +79,6 @@ async fn replay_cursor_round_trips_by_platform_and_channel() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;
 
-    // Initially none
     let none = store
         .load_gateway_replay_cursor("whatsapp", "chat@server")
         .await?;
@@ -98,7 +97,6 @@ async fn replay_cursor_round_trips_by_platform_and_channel() -> Result<()> {
     assert_eq!(row.cursor_value, "msg-1000");
     assert_eq!(row.cursor_type, "message_id");
 
-    // different channel should be none
     assert!(store
         .load_gateway_replay_cursor("whatsapp", "other")
         .await?

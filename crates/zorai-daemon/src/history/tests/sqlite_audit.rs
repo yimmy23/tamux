@@ -43,8 +43,8 @@ async fn wal_pragmas_applied() -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     assert_eq!(pragmas.0.to_lowercase(), "wal");
-    assert_eq!(pragmas.1, 1); // NORMAL
-    assert_eq!(pragmas.2, 1); // ON
+    assert_eq!(pragmas.1, 1);
+    assert_eq!(pragmas.2, 1);
     assert_eq!(pragmas.3, 1000);
     assert_eq!(pragmas.4, 5000);
     fs::remove_dir_all(root)?;
@@ -105,6 +105,57 @@ async fn agent_messages_have_cursor_friendly_thread_created_id_index() -> Result
             "id".to_string()
         ]
     );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn init_schema_adds_visible_thread_list_index_after_deleted_at_migration() -> Result<()> {
+    let root = std::env::temp_dir().join(format!("zorai-history-test-{}", Uuid::new_v4()));
+    let history_dir = root.join("history");
+    fs::create_dir_all(&history_dir)?;
+    let db_path = history_dir.join("command-history.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path)?;
+        conn.execute_batch(
+            "CREATE TABLE agent_threads (
+                id             TEXT PRIMARY KEY,
+                workspace_id   TEXT,
+                surface_id     TEXT,
+                pane_id        TEXT,
+                agent_name     TEXT,
+                title          TEXT NOT NULL,
+                created_at     INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL,
+                message_count  INTEGER NOT NULL DEFAULT 0,
+                total_tokens   INTEGER NOT NULL DEFAULT 0,
+                last_preview   TEXT NOT NULL DEFAULT '',
+                metadata_json  TEXT
+            );",
+        )?;
+    }
+
+    let store = HistoryStore::new_test_store(&root).await?;
+    let (has_deleted_at, index_sql) = store
+        .conn
+        .call(|conn| {
+            let has_deleted_at = table_has_column(conn, "agent_threads", "deleted_at")?;
+            let index_sql = conn.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_threads_visible_updated'",
+                [],
+                |row| row.get::<_, String>(0),
+            )?;
+            Ok((has_deleted_at, index_sql))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(has_deleted_at);
+    assert!(index_sql.contains("updated_at DESC"));
+    assert!(index_sql.contains("id"));
+    assert!(index_sql.contains("WHERE deleted_at IS NULL"));
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -3026,12 +3077,10 @@ async fn concurrent_read_write() -> Result<()> {
     Ok(())
 }
 
-// ── action_audit user_action column tests (BEAT-09/D-04) ────────────
 
 #[tokio::test]
 async fn ensure_column_adds_user_action_to_action_audit() -> Result<()> {
     let (store, root) = make_test_store().await?;
-    // Verify the column exists by inserting and querying
     let has = store
         .conn
         .call(|conn| Ok(table_has_column(conn, "action_audit", "user_action")?))
@@ -3132,7 +3181,6 @@ async fn dismiss_audit_entry_sets_user_action() -> Result<()> {
 #[tokio::test]
 async fn count_dismissals_by_type_returns_correct_counts() -> Result<()> {
     let (store, root) = make_test_store().await?;
-    // Insert 3 heartbeat entries, dismiss 2
     for i in 0..3 {
         let entry = AuditEntryRow {
             id: format!("hb-{}", i),
@@ -3153,7 +3201,6 @@ async fn count_dismissals_by_type_returns_correct_counts() -> Result<()> {
     store.dismiss_audit_entry("hb-0").await?;
     store.dismiss_audit_entry("hb-1").await?;
 
-    // Insert 1 escalation entry, dismiss it
     let esc_entry = AuditEntryRow {
         id: "esc-0".to_string(),
         timestamp: 2000,

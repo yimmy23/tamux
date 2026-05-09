@@ -62,13 +62,11 @@ pub fn socket_path() -> std::path::PathBuf {
 
 /// Run the IPC server until a shutdown signal is received.
 pub async fn run() -> Result<()> {
-    // Create shared history store (single connection for entire daemon)
     let history = crate::history::HistoryStore::new()
         .await
         .context("failed to initialize shared history store")?;
     let history = Arc::new(history);
 
-    // load_config now takes &HistoryStore
     let agent_config = crate::agent::load_config_from_history(&history)
         .await
         .unwrap_or_default();
@@ -89,11 +87,9 @@ pub async fn run() -> Result<()> {
         }
     });
 
-    // Start agent engine
     let agent =
         AgentEngine::new_with_shared_history(manager.clone(), agent_config, history.clone());
 
-    // Initialize plugin manager
     let plugins_dir = dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".zorai")
@@ -109,7 +105,6 @@ pub async fn run() -> Result<()> {
         "plugin loader complete"
     );
 
-    // Wire plugin manager into agent engine for tool executor access (Phase 17)
     let _ = agent.plugin_manager.set(plugin_manager.clone());
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
@@ -123,8 +118,6 @@ pub async fn run() -> Result<()> {
         let startup_agent = agent.clone();
         let startup_readiness_for_task = startup_readiness.clone();
         tokio::spawn(async move {
-            // Hydrate persisted state (threads, tasks, heartbeat, memory) without
-            // delaying socket availability.
             if let Err(e) = startup_agent
                 .hydrate_without_participant_observer_restore()
                 .await
@@ -132,7 +125,6 @@ pub async fn run() -> Result<()> {
                 tracing::warn!("failed to hydrate agent engine: {e}");
             }
 
-            // Initialize the concierge after hydrated state is available.
             startup_agent
                 .concierge
                 .initialize(&startup_agent.threads)
@@ -144,7 +136,6 @@ pub async fn run() -> Result<()> {
             #[cfg(not(test))]
             maybe_autostart_whatsapp_link(startup_agent.clone()).await;
 
-            // Start background loop (tasks + heartbeat) once startup restore finishes.
             Box::pin(startup_agent.run_loop(shutdown_rx)).await;
         });
         run_unix(
@@ -177,8 +168,6 @@ pub async fn run() -> Result<()> {
         let startup_agent = agent.clone();
         let startup_readiness_for_task = startup_readiness.clone();
         tokio::spawn(async move {
-            // Hydrate persisted state (threads, tasks, heartbeat, memory) without
-            // delaying socket availability.
             if let Err(e) = startup_agent
                 .hydrate_without_participant_observer_restore()
                 .await
@@ -186,7 +175,6 @@ pub async fn run() -> Result<()> {
                 tracing::warn!("failed to hydrate agent engine: {e}");
             }
 
-            // Initialize the concierge after hydrated state is available.
             startup_agent
                 .concierge
                 .initialize(&startup_agent.threads)
@@ -198,7 +186,6 @@ pub async fn run() -> Result<()> {
             #[cfg(not(test))]
             maybe_autostart_whatsapp_link(startup_agent.clone()).await;
 
-            // Start background loop (tasks + heartbeat) once startup restore finishes.
             Box::pin(startup_agent.run_loop(shutdown_rx)).await;
         });
         run_windows(
@@ -212,15 +199,11 @@ pub async fn run() -> Result<()> {
         .await
     };
 
-    // Signal agent loop shutdown
     let _ = shutdown_tx.send(true);
 
     result
 }
 
-// ---------------------------------------------------------------------------
-// Unix Domain Socket implementation
-// ---------------------------------------------------------------------------
 
 #[cfg(unix)]
 async fn run_unix(
@@ -231,7 +214,6 @@ async fn run_unix(
     plugin_manager: Arc<crate::plugin::PluginManager>,
     startup_readiness: StartupReadiness,
 ) -> Result<()> {
-    // Graceful shutdown on SIGINT / SIGTERM.
     let shutdown = await_shutdown_signal_unix();
 
     tokio::select! {
@@ -517,9 +499,6 @@ mod shutdown_signal_tests {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Windows IPC implementation
-// ---------------------------------------------------------------------------
 
 #[cfg(windows)]
 async fn run_windows(
@@ -582,6 +561,3 @@ async fn accept_loop_tcp(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Connection handler — generic over any AsyncRead + AsyncWrite stream
-// ---------------------------------------------------------------------------

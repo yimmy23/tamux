@@ -3211,6 +3211,8 @@ async fn missing_completion_marker_requeue_updates_persisted_review_task_after_l
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()
@@ -4197,6 +4199,8 @@ async fn complete_goal_run_reuses_existing_active_final_review() {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .len();

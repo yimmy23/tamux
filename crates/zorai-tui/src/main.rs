@@ -259,7 +259,6 @@ fn main() -> Result<()> {
     write_runtime_marker("startup: logging initialized");
     install_terminal_panic_hook();
 
-    // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     stdout.execute(EnterAlternateScreen)?;
@@ -283,20 +282,17 @@ fn main() -> Result<()> {
     write_runtime_marker("startup: terminal initialized");
 
     let app_result = panic::catch_unwind(AssertUnwindSafe(|| {
-        // Setup daemon bridge
         let (daemon_event_tx, daemon_event_rx) = mpsc::channel();
         let (daemon_cmd_tx, daemon_cmd_rx) = tokio_mpsc::unbounded_channel();
         start_daemon_bridge(daemon_event_tx, daemon_cmd_rx);
         update::spawn_update_check(daemon_cmd_tx.clone());
 
-        // Create model
         let mut model = TuiModel::new(daemon_event_rx, daemon_cmd_tx);
         model.load_saved_settings();
         let protocol = crate::terminal_graphics::configure_detected_protocol();
         let mut graphics_renderer =
             crate::terminal_graphics::TerminalGraphicsRenderer::new(protocol);
 
-        // Main loop
         let tick_rate = Duration::from_millis(crate::app::TUI_TICK_RATE_MS);
         run_loop(&mut terminal, &mut model, &mut graphics_renderer, tick_rate)
     }));
@@ -485,7 +481,7 @@ fn start_daemon_bridge(
         };
 
         runtime.block_on(async move {
-            let (client_event_tx, mut client_event_rx) = tokio_mpsc::channel(512);
+            let (client_event_tx, mut client_event_rx) = tokio_mpsc::channel(65_536);
             let client = DaemonClient::new(client_event_tx);
             let mut queued_goal_hydrations: VecDeque<String> = VecDeque::new();
             let mut queued_goal_hydration_ids: HashSet<String> = HashSet::new();
@@ -518,6 +514,13 @@ fn start_daemon_bridge(
                                     &daemon_event_tx,
                                     "refresh",
                                     client.refresh(),
+                                );
+                            }
+                            DaemonCommand::RefreshThreadsForAgent { agent_filter } => {
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "refresh threads for agent",
+                                    client.refresh_threads_for_agent(agent_filter),
                                 );
                             }
                             DaemonCommand::GetConfig => {
@@ -1073,7 +1076,6 @@ fn start_daemon_bridge(
                             DaemonCommand::AuditDismiss { entry_id } => {
                                 let _ = client.dismiss_audit_entry(entry_id);
                             }
-                            // Plugin commands (Plan 16-03)
                             DaemonCommand::PluginList => {
                                 let _ = client.plugin_list();
                             }

@@ -8,9 +8,6 @@ use std::collections::{HashMap, HashSet};
 
 use super::model::{ProfileFieldSpec, ProfileFieldValue};
 
-// ---------------------------------------------------------------------------
-// Session state
-// ---------------------------------------------------------------------------
 
 /// In-memory state for a single operator profile interview session.
 ///
@@ -75,9 +72,6 @@ impl InterviewSession {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Question selector
-// ---------------------------------------------------------------------------
 
 /// Return the next question to present, or `None` when all specs have been
 /// answered or excluded.
@@ -93,14 +87,12 @@ pub fn next_question<'a>(
     session: &InterviewSession,
     now_ms: u64,
 ) -> Option<&'a ProfileFieldSpec> {
-    // Pass 1: required fields only.
     for spec in specs.iter().filter(|s| s.required) {
         if !answered.contains_key(&spec.field_key) && !session.is_excluded(&spec.field_key, now_ms)
         {
             return Some(spec);
         }
     }
-    // Pass 2: optional fields.
     for spec in specs.iter().filter(|s| !s.required) {
         if !answered.contains_key(&spec.field_key) && !session.is_excluded(&spec.field_key, now_ms)
         {
@@ -110,9 +102,6 @@ pub fn next_question<'a>(
     None
 }
 
-// ---------------------------------------------------------------------------
-// Completion check
-// ---------------------------------------------------------------------------
 
 /// Returns `true` when every required field has been answered.
 ///
@@ -127,9 +116,6 @@ pub fn is_complete(
         .all(|s| answered.contains_key(&s.field_key))
 }
 
-// ---------------------------------------------------------------------------
-// Progress
-// ---------------------------------------------------------------------------
 
 /// Returns `(answered_count, remaining_count, completion_ratio)`.
 ///
@@ -164,9 +150,6 @@ pub fn progress(
     (answered_count, remaining_count, ratio)
 }
 
-// ---------------------------------------------------------------------------
-// Unit tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -190,7 +173,6 @@ mod tests {
         }
     }
 
-    // ── Question selection ───────────────────────────────────────────────
 
     #[test]
     fn first_run_asks_required_field_before_optional() {
@@ -208,7 +190,6 @@ mod tests {
         let answered = HashMap::new();
         let session = InterviewSession::new("s1", "onboarding");
 
-        // Should only return the first spec, not a list.
         let next = next_question(&specs, &answered, &session, 0);
         assert_eq!(next.unwrap().field_key, "field_a");
     }
@@ -255,7 +236,6 @@ mod tests {
         assert!(next_question(&specs, &answered, &session, 0).is_none());
     }
 
-    // ── Skip behaviour ───────────────────────────────────────────────────
 
     #[test]
     fn skip_excludes_field_from_selection() {
@@ -279,7 +259,6 @@ mod tests {
         assert_eq!(next.unwrap().field_key, "opt");
     }
 
-    // ── Defer behaviour ──────────────────────────────────────────────────
 
     #[test]
     fn defer_excludes_field_before_expiry() {
@@ -299,8 +278,6 @@ mod tests {
         let mut session = InterviewSession::new("s1", "onboarding");
         session.defer("field_a", Some(1000));
 
-        // At exact expiry timestamp field_a is still deferred (now_ms < until → excluded when now_ms < 1000).
-        // now_ms == 1000: 1000 < 1000 is false → field_a eligible.
         let next = next_question(&specs, &answered, &session, 1000);
         assert_eq!(next.unwrap().field_key, "field_a");
     }
@@ -327,7 +304,6 @@ mod tests {
         assert!(next.is_none());
     }
 
-    // ── Completion threshold ─────────────────────────────────────────────
 
     #[test]
     fn is_complete_true_when_all_required_answered() {
@@ -373,15 +349,12 @@ mod tests {
         let mut answered = HashMap::new();
         answered.insert("req".to_string(), make_value("\"done\""));
 
-        // Complete even though optional field is not answered.
         assert!(is_complete(&specs, &answered));
-        // next_question still returns the optional field.
         let session = InterviewSession::new("s1", "onboarding");
         let next = next_question(&specs, &answered, &session, 0);
         assert_eq!(next.unwrap().field_key, "opt");
     }
 
-    // ── Progress counters ────────────────────────────────────────────────
 
     #[test]
     fn progress_returns_correct_counts() {
@@ -409,7 +382,7 @@ mod tests {
 
         let (ans, rem, _) = progress(&specs, &answered, &session, 0);
         assert_eq!(ans, 0);
-        assert_eq!(rem, 1); // only "a" is remaining
+        assert_eq!(rem, 1);
     }
 
     #[test]

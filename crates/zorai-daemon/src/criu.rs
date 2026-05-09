@@ -36,7 +36,7 @@ pub fn checkpoint(pid: u32, dump_dir: &Path) -> Result<bool> {
             "--images-dir",
             &dump_dir.to_string_lossy(),
             "--shell-job",
-            "--leave-running", // Don't kill the process after dumping
+            "--leave-running",
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -74,8 +74,6 @@ pub fn restore(dump_dir: &Path) -> Result<Option<u32>> {
 
     if output.status.success() {
         tracing::info!(path = %dump_dir.display(), "CRIU process restored");
-        // CRIU doesn't directly return the new PID in stdout,
-        // but the process is restored with its original PID
         Ok(None)
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);

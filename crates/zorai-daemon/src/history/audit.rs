@@ -62,9 +62,6 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("list_heartbeat_history: {e}"))
     }
 
-    // -----------------------------------------------------------------------
-    // Action audit CRUD (per D-06/TRNS-03)
-    // -----------------------------------------------------------------------
 
     /// Insert or replace an action audit entry.
     pub async fn insert_action_audit(&self, entry: &AuditEntryRow) -> Result<()> {
@@ -133,15 +130,12 @@ impl HistoryStore {
 
                 let stmt = conn.prepare(&sql)?;
 
-                // Bind parameters dynamically
                 let _param_idx = 1;
                 let params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
-                // Rewrite: use a simpler approach with raw SQL and named params
                 drop(stmt);
                 drop(params);
 
-                // Build the query more simply
                 let mut where_parts: Vec<String> = Vec::new();
                 let mut bind_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -210,7 +204,6 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 let mut deleted = 0usize;
-                // Delete by age
                 if max_age_days > 0 {
                     let cutoff = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
@@ -222,7 +215,6 @@ impl HistoryStore {
                         params![cutoff, now_ts() as i64],
                     )? as usize;
                 }
-                // Delete excess entries (keep newest max_entries)
                 if max_entries > 0 {
                     deleted += conn.execute(
                         "UPDATE action_audit SET deleted_at = ?2 WHERE deleted_at IS NULL AND id NOT IN \

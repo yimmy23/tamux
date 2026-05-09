@@ -981,6 +981,8 @@ pub(crate) async fn task_by_id_for_tool_scope(
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()

@@ -113,7 +113,6 @@ pub fn render_with_models(
         return;
     }
 
-    // Split: list (flex) + hints (1)
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])

@@ -104,7 +104,6 @@ fn task_list_received_replaces_tasks() {
     ]));
     assert_eq!(state.tasks().len(), 2);
 
-    // Replace with a smaller list
     state.reduce(TaskAction::TaskListReceived(vec![make_task(
         "t3", "Third", 3, None, None, None, None,
     )]));
@@ -119,7 +118,6 @@ fn task_update_upserts_by_id() {
         "t1", "Original", 1, None, None, None, None,
     )]));
 
-    // Update existing task
     state.reduce(TaskAction::TaskUpdate(AgentTask {
         id: "t1".into(),
         title: "Updated".into(),
@@ -130,7 +128,6 @@ fn task_update_upserts_by_id() {
     assert_eq!(state.tasks()[0].title, "Updated");
     assert_eq!(state.tasks()[0].status, Some(TaskStatus::InProgress));
 
-    // Insert new task
     state.reduce(TaskAction::TaskUpdate(make_task(
         "t2",
         "New",
@@ -163,7 +160,6 @@ fn goal_run_detail_received_upserts() {
         "g1", "Original",
     )]));
 
-    // Update via detail
     state.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
         id: "g1".into(),
         title: "Detailed".into(),
@@ -172,7 +168,6 @@ fn goal_run_detail_received_upserts() {
     assert_eq!(state.goal_runs().len(), 1);
     assert_eq!(state.goal_runs()[0].title, "Detailed");
 
-    // Insert new via update
     state.reduce(TaskAction::GoalRunUpdate(make_goal_run("g2", "New Goal")));
     assert_eq!(state.goal_runs().len(), 2);
 }

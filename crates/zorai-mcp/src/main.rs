@@ -72,7 +72,6 @@ use tool_definitions::tool_definitions;
 use transport::{read_message, write_message};
 use utils::{default_task_title, parse_scheduled_at, strip_ansi_basic};
 
-// JSON-RPC error codes
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
@@ -80,9 +79,6 @@ const INVALID_PARAMS: i64 = -32602;
 #[allow(dead_code)]
 const INTERNAL_ERROR: i64 = -32603;
 
-// ---------------------------------------------------------------------------
-// Tool dispatch
-// ---------------------------------------------------------------------------
 
 /// Execute an MCP tool call against the daemon and return the result as JSON.
 async fn handle_tool_call(name: &str, args: &Value) -> Value {
@@ -173,9 +169,6 @@ async fn dispatch_tool(name: &str, args: &Value) -> Result<Value> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tool implementations
-// ---------------------------------------------------------------------------
 
 async fn tool_enqueue_task(args: &Value) -> Result<Value> {
     let description = args
@@ -842,13 +835,9 @@ async fn handle_tools_call(id: Option<Value>, params: Option<Value>) -> JsonRpcR
     JsonRpcResponse::success(id, result)
 }
 
-// ---------------------------------------------------------------------------
-// Main loop
-// ---------------------------------------------------------------------------
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Log to stderr so stdout stays clean for JSON-RPC.
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -904,7 +893,6 @@ async fn main() -> Result<()> {
         let response = match request.method.as_str() {
             "initialize" => Some(handle_initialize(request.id)),
             "initialized" | "notifications/initialized" => {
-                // Notification — no response needed.
                 debug!("received initialized notification");
                 None
             }
@@ -917,7 +905,6 @@ async fn main() -> Result<()> {
             "ping" => Some(JsonRpcResponse::success(request.id, serde_json::json!({}))),
             method => {
                 warn!("unknown method: {method}");
-                // Notifications (no id) should not receive error responses.
                 if request.id.is_some() {
                     Some(JsonRpcResponse::error(
                         request.id,

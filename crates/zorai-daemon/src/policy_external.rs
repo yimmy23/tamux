@@ -249,8 +249,6 @@ impl PolicyProvider for CerbosPolicyProvider {
     }
 
     fn evaluate(&self, request: &PolicyRequest) -> Result<PolicyDecision> {
-        // Cerbos integration requires the ureq dependency.
-        // Falling back to local policy evaluation.
         tracing::info!(
             endpoint = %self.endpoint,
             "Cerbos integration requires the ureq dependency; falling back to local policy"
@@ -301,7 +299,6 @@ impl PolicyProvider for CompositePolicyProvider {
     }
 
     fn evaluate(&self, request: &PolicyRequest) -> Result<PolicyDecision> {
-        // Run all providers; most restrictive decision wins
         let mut strictest: Option<PolicyDecision> = None;
 
         for provider in &self.providers {
@@ -310,7 +307,6 @@ impl PolicyProvider for CompositePolicyProvider {
                     strictest = Some(match strictest {
                         None => decision,
                         Some(prev) if !decision.allowed => {
-                            // Denial overrides previous allows
                             let mut merged = decision;
                             merged.reasons.extend(prev.reasons);
                             merged

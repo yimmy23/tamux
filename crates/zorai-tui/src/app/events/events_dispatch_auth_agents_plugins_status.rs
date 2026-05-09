@@ -138,7 +138,6 @@ impl TuiModel {
                 self.handle_operator_profile_session_completed_event(session_id, updated_fields);
                 None
             }
-            // Plugin settings events (Plan 16-03)
             ClientEvent::PluginList(plugins) => {
                 self.handle_plugin_list_event(plugins);
                 None

@@ -1,7 +1,4 @@
 use super::*;
-// ---------------------------------------------------------------------------
-// OpenAI-compatible implementation
-// ---------------------------------------------------------------------------
 
 use zorai_shared::providers::{
     PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_MINIMAX,
@@ -31,7 +28,6 @@ pub(crate) fn build_chat_completion_url(base_url: &str) -> String {
         return format!("{base}/chat/completions");
     }
 
-    // If URL already has a version suffix, just append the endpoint
     if lower.ends_with("/v1")
         || lower.ends_with("/v2")
         || lower.ends_with("/v3")

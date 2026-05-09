@@ -18,9 +18,6 @@ mod store;
 use detect::detect_snapshot_backend;
 pub use store::SnapshotStore;
 
-// ---------------------------------------------------------------------------
-// Snapshot backend trait
-// ---------------------------------------------------------------------------
 
 /// Pluggable backend for creating, restoring and listing workspace snapshots.
 pub trait SnapshotBackend: Send + Sync {
@@ -40,9 +37,6 @@ pub trait SnapshotBackend: Send + Sync {
     fn name(&self) -> &'static str;
 }
 
-// ---------------------------------------------------------------------------
-// Shared helpers
-// ---------------------------------------------------------------------------
 
 fn now_ts() -> u64 {
     SystemTime::now()
@@ -190,9 +184,6 @@ fn restore_snapshot_payload(snapshot: &SnapshotInfo) -> Result<(bool, String)> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// TarBackend — the original tar.gz implementation
-// ---------------------------------------------------------------------------
 
 pub struct TarBackend {
     root: PathBuf,
@@ -312,9 +303,6 @@ impl SnapshotBackend for TarBackend {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ZfsBackend — ZFS snapshot support
-// ---------------------------------------------------------------------------
 
 pub struct ZfsBackend {
     /// The ZFS dataset that corresponds to the workspace (e.g. "pool/data").
@@ -397,7 +385,6 @@ impl SnapshotBackend for ZfsBackend {
             return Ok((false, "snapshot not found".to_string()));
         };
 
-        // snapshot.path holds the full ZFS snapshot name (e.g. "pool/data@zorai-label-123")
         let status = Command::new("zfs")
             .arg("rollback")
             .arg(&snapshot.path)
@@ -426,9 +413,6 @@ impl SnapshotBackend for ZfsBackend {
     }
 }
 
-// ---------------------------------------------------------------------------
-// BtrfsBackend — BTRFS subvolume snapshot support
-// ---------------------------------------------------------------------------
 
 pub struct BtrfsBackend {
     /// Directory where BTRFS snapshots are stored.
@@ -522,12 +506,10 @@ impl SnapshotBackend for BtrfsBackend {
             return Ok((false, "snapshot has no workspace association".to_string()));
         };
 
-        // Restore by deleting the current subvolume and re-snapshotting.
         let target_root = zorai_protocol::ensure_zorai_data_dir()?
             .join("restores")
             .join(workspace_id);
 
-        // Delete existing restore target if it is a subvolume.
         if target_root.exists() {
             let _ = Command::new("btrfs")
                 .arg("subvolume")
@@ -569,6 +551,3 @@ impl SnapshotBackend for BtrfsBackend {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Backend detection
-// ---------------------------------------------------------------------------

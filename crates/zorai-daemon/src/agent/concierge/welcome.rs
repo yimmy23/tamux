@@ -6,25 +6,53 @@ impl ConciergeEngine {
         detail_level: ConciergeDetailLevel,
         context: &WelcomeContext,
     ) -> (String, Vec<ConciergeAction>) {
+        let started = std::time::Instant::now();
         let actions = self.build_welcome_actions(detail_level, context);
         let signature = build_welcome_signature(detail_level, context);
         if let Some(cached) = self.cached_welcome(&signature).await {
+            tracing::info!(
+                detail_level = ?detail_level,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "concierge: compose_welcome served from cache"
+            );
             return cached;
         }
 
         let content = if detail_level == ConciergeDetailLevel::Minimal {
             minimal_welcome_content(context)
         } else {
+            let llm_started = std::time::Instant::now();
+            tracing::info!(
+                detail_level = ?detail_level,
+                "concierge: starting LLM welcome call"
+            );
             match self.call_llm_for_welcome(detail_level, context, true).await {
-                Ok(response) => strip_trailing_actions(&response),
+                Ok(response) => {
+                    tracing::info!(
+                        detail_level = ?detail_level,
+                        elapsed_ms = llm_started.elapsed().as_millis() as u64,
+                        response_len = response.len(),
+                        "concierge: LLM welcome call complete"
+                    );
+                    strip_trailing_actions(&response)
+                }
                 Err(e) => {
-                    tracing::warn!("concierge LLM call failed, falling back to template: {e}");
+                    tracing::warn!(
+                        elapsed_ms = llm_started.elapsed().as_millis() as u64,
+                        "concierge LLM call failed, falling back to template: {e}"
+                    );
                     self.template_fallback(context)
                 }
             }
         };
 
         self.cache_welcome(&signature, &content, &actions).await;
+        tracing::info!(
+            detail_level = ?detail_level,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            content_len = content.len(),
+            "concierge: compose_welcome done"
+        );
         (content, actions)
     }
 
@@ -113,17 +141,37 @@ impl ConciergeEngine {
 
         let mut full_content = String::new();
         let mut last_emitted_partial = String::new();
+        let partial_emit_interval = std::time::Duration::from_millis(250);
+        let partial_emit_min_growth: usize = 256;
+        let mut last_emit_at: Option<std::time::Instant> = None;
+        let mut last_emitted_len: usize = 0;
         let mut stream = std::pin::pin!(stream);
         while let Some(chunk) = stream.next().await {
             match chunk {
                 Ok(CompletionChunk::Delta { content, .. }) => {
                     full_content.push_str(&content);
                     if emit_partial_progress {
-                        self.emit_partial_welcome_progress(
-                            detail_level,
-                            &full_content,
-                            &mut last_emitted_partial,
-                        );
+                        let now = std::time::Instant::now();
+                        let is_first_emit = last_emit_at.is_none();
+                        let interval_due = last_emit_at
+                            .map(|prev| now.duration_since(prev) >= partial_emit_interval)
+                            .unwrap_or(true);
+                        let grew_enough = full_content
+                            .len()
+                            .saturating_sub(last_emitted_len)
+                            >= partial_emit_min_growth;
+                        if interval_due
+                            && (is_first_emit || grew_enough)
+                            && !full_content.trim().is_empty()
+                        {
+                            self.emit_partial_welcome_progress(
+                                detail_level,
+                                &full_content,
+                                &mut last_emitted_partial,
+                            );
+                            last_emit_at = Some(now);
+                            last_emitted_len = full_content.len();
+                        }
                     }
                 }
                 Ok(CompletionChunk::Done { content, .. }) => {

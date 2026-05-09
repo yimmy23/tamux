@@ -17,7 +17,6 @@ mod persistence;
 mod request;
 mod rule_based;
 
-// participant compaction paths intentionally suppress owner_only_pins on non-owner requests.
 pub(crate) use candidate::*;
 pub(crate) use checkpoint::*;
 pub(crate) use core::*;

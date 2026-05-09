@@ -284,6 +284,8 @@ pub fn render_for_workspace(
     tasks: &TaskState,
     workspace: &WorkspaceState,
     theme: &ThemeTokens,
+    loading_tab: Option<ThreadPickerTab>,
+    tick_counter: u64,
 ) {
     let block = Block::default()
         .title(" THREADS ")
@@ -310,12 +312,17 @@ pub fn render_for_workspace(
             .iter()
             .enumerate()
             .flat_map(|(index, cell)| {
+                let label = if loading_tab.as_ref() == Some(&cell.tab) {
+                    format!("{} {}", cell.label, thread_picker_spinner_frame(tick_counter))
+                } else {
+                    cell.label.clone()
+                };
                 let style = if cell.tab == selected_tab {
                     theme.accent_primary
                 } else {
                     theme.fg_dim
                 };
-                let mut spans = vec![Span::styled(cell.label.clone(), style)];
+                let mut spans = vec![Span::styled(label, style)];
                 if index + 1 < tab_cells.len() {
                     spans.push(Span::raw(" "));
                 }
@@ -325,7 +332,6 @@ pub fn render_for_workspace(
     );
     frame.render_widget(Paragraph::new(tab_line).scroll((0, tab_scroll)), tabs_row);
 
-    // Search input
     let query = modal.command_query();
     let input_line = Line::from(vec![
         Span::raw(" "),
@@ -345,14 +351,12 @@ pub fn render_for_workspace(
     ]);
     frame.render_widget(Paragraph::new(input_line), search_row);
 
-    // Separator
     let sep = Line::from(Span::styled(
         "\u{2500}".repeat(separator_row.width as usize),
         theme.fg_dim,
     ));
     frame.render_widget(Paragraph::new(sep), separator_row);
 
-    // Build thread list
     let active_id = chat.active_thread_id();
     let filtered_threads = filtered_threads_inner(
         chat,
@@ -470,7 +474,6 @@ pub fn render_for_workspace(
     let list = List::new(list_items);
     frame.render_widget(list, list_row);
 
-    // Hints
     let mut hints = vec![
         Span::raw(" "),
         Span::styled("↑↓", theme.fg_active),
@@ -505,4 +508,9 @@ pub fn hit_test(
     let tasks = TaskState::default();
     let workspace = WorkspaceState::new();
     hit_test_for_workspace(area, chat, modal, subagents, &tasks, &workspace, mouse)
+}
+
+fn thread_picker_spinner_frame(tick_counter: u64) -> &'static str {
+    const FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
+    FRAMES[((tick_counter / 2) as usize) % FRAMES.len()]
 }

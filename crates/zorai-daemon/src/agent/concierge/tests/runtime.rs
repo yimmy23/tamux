@@ -300,6 +300,8 @@ async fn concierge_recovery_deduplicates_inflight_investigations_per_thread_sign
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await;
     assert_eq!(tasks.len(), 1);

@@ -61,7 +61,6 @@ pub(crate) async fn execute_type_in_terminal(
 
     let sid = target_id.ok_or_else(|| anyhow::anyhow!("Target session not found"))?;
 
-    // Check if sending a special key
     let description;
     let input: Vec<u8> = if let Some(key) = args.get("key").and_then(|v| v.as_str()) {
         description = format!("key:{key}");
@@ -79,17 +78,14 @@ pub(crate) async fn execute_type_in_terminal(
             text.to_string()
         };
 
-        // Send text first
         if !text.is_empty() {
             session_manager.write_input(sid, text.as_bytes()).await?;
         }
         if press_enter {
-            // Small delay so the TUI processes the text before Enter
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             session_manager.write_input(sid, b"\r").await?;
         }
 
-        // Signal that we already sent — skip the write_input below
         Vec::new()
     };
 
@@ -97,10 +93,8 @@ pub(crate) async fn execute_type_in_terminal(
         session_manager.write_input(sid, &input).await?;
     }
 
-    // Wait for the terminal to process input
     tokio::time::sleep(std::time::Duration::from_millis(800)).await;
 
-    // Read back terminal content to see the result
     match session_manager.get_scrollback(sid, None).await {
         Ok(data) => {
             let stripped = strip_ansi_escapes::strip(&data);
@@ -154,12 +148,10 @@ fn resolve_key_sequence(key: &str) -> Vec<u8> {
         "end" => vec![0x1b, b'[', b'F'],
         "page_up" => vec![0x1b, b'[', b'5', b'~'],
         "page_down" => vec![0x1b, b'[', b'6', b'~'],
-        // F-keys
         "f1" => vec![0x1b, b'O', b'P'],
         "f2" => vec![0x1b, b'O', b'Q'],
         "f3" => vec![0x1b, b'O', b'R'],
         "f4" => vec![0x1b, b'O', b'S'],
-        // Default: send as raw text
         other => other.as_bytes().to_vec(),
     }
 }

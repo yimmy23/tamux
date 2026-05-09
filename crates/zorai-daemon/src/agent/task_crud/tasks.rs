@@ -123,6 +123,23 @@ fn filter_task_snapshot_for_query(
     tasks
 }
 
+fn matches_parent_thread_subagent(
+    task: &AgentTask,
+    parent_thread_id: &str,
+    status: Option<&str>,
+) -> bool {
+    if task.source != "subagent" || task.parent_thread_id.as_deref() != Some(parent_thread_id) {
+        return false;
+    }
+    let Some(status) = status else {
+        return true;
+    };
+    serde_json::to_value(task.status)
+        .ok()
+        .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        .is_some_and(|value| value == status)
+}
+
 fn is_policy_escalation_approval(approval_id: &str) -> bool {
     approval_id.starts_with("policy-escalation-")
 }
@@ -329,6 +346,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: true,
                 limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await
             .into_iter()
@@ -542,6 +561,8 @@ impl AgentEngine {
                     exclude_terminal_statuses: false,
                     order_by_recent_activity_desc: false,
                     limit: Some(1),
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
                 })
                 .await
                 .into_iter()
@@ -651,6 +672,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await
             .into_iter()
@@ -1182,12 +1205,56 @@ impl AgentEngine {
                 for task in &mut tasks {
                     crate::agent::persistence::sanitize_task_for_external_view(task);
                 }
+                let in_memory = filter_task_snapshot_for_query(self.snapshot_tasks().await, query);
+                if !in_memory.is_empty() {
+                    let known_ids: std::collections::HashSet<String> =
+                        tasks.iter().map(|task| task.id.clone()).collect();
+                    for task in in_memory {
+                        if !known_ids.contains(&task.id) {
+                            tasks.push(task);
+                        }
+                    }
+                    if query.order_by_recent_activity_desc {
+                        tasks.sort_by_key(|task| std::cmp::Reverse(task_recent_activity_at(task)));
+                    }
+                    if let Some(limit) = query.limit {
+                        tasks.truncate(limit.max(1));
+                    }
+                }
                 tasks
             }
             Err(error) => {
                 tracing::warn!("failed to list filtered persisted tasks: {error}");
                 let snapshot = self.snapshot_tasks().await;
                 filter_task_snapshot_for_query(snapshot, query)
+            }
+        }
+    }
+
+    pub(crate) async fn list_parent_thread_subagent_tasks(
+        &self,
+        parent_thread_id: &str,
+        status: Option<&str>,
+    ) -> Vec<AgentTask> {
+        self.refresh_task_queue_state_for_filtered_list().await;
+        match self
+            .history
+            .list_agent_tasks_for_parent_thread_subagents(parent_thread_id, status, None)
+            .await
+        {
+            Ok(mut tasks) => {
+                for task in &mut tasks {
+                    crate::agent::persistence::sanitize_task_for_external_view(task);
+                }
+                tasks
+            }
+            Err(error) => {
+                tracing::warn!("failed to list parent-thread persisted subagent tasks: {error}");
+                self.snapshot_tasks()
+                    .await
+                    .into_iter()
+                    .filter(|task| matches_parent_thread_subagent(task, parent_thread_id, status))
+                    .collect()
             }
         }
     }
@@ -1229,6 +1296,69 @@ impl AgentEngine {
         }
     }
 
+    pub(crate) async fn list_task_quiet_recovery_refs_for_goal_runs_statuses(
+        &self,
+        goal_run_ids: &[String],
+        statuses: &[String],
+    ) -> Vec<crate::history::AgentTaskQuietRecoveryRef> {
+        let goal_run_ids = goal_run_ids
+            .iter()
+            .map(|goal_run_id| goal_run_id.trim())
+            .filter(|goal_run_id| !goal_run_id.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<std::collections::HashSet<_>>();
+        let statuses = statuses
+            .iter()
+            .map(|status| status.trim())
+            .filter(|status| !status.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<std::collections::HashSet<_>>();
+        if goal_run_ids.is_empty() || statuses.is_empty() {
+            return Vec::new();
+        }
+
+        self.refresh_task_queue_state_for_filtered_list().await;
+        let persisted_goal_run_ids = goal_run_ids.iter().cloned().collect::<Vec<_>>();
+        let persisted_statuses = statuses.iter().cloned().collect::<Vec<_>>();
+        let mut refs = match self
+            .history
+            .list_agent_task_quiet_recovery_refs_for_goal_runs_statuses(
+                &persisted_goal_run_ids,
+                &persisted_statuses,
+            )
+            .await
+        {
+            Ok(refs) => refs,
+            Err(error) => {
+                tracing::warn!("failed to list quiet-goal recovery task refs by goal run: {error}");
+                Vec::new()
+            }
+        };
+        let known_ids = refs
+            .iter()
+            .map(|task| task.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let live_refs = self
+            .snapshot_tasks()
+            .await
+            .iter()
+            .filter(|task| {
+                task.goal_run_id
+                    .as_deref()
+                    .is_some_and(|goal_run_id| goal_run_ids.contains(goal_run_id))
+                    && serde_json::to_value(task.status)
+                        .ok()
+                        .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                        .is_some_and(|status| statuses.contains(&status))
+                    && !known_ids.contains(&task.id)
+            })
+            .map(crate::history::AgentTaskQuietRecoveryRef::from)
+            .collect::<Vec<_>>();
+        refs.extend(live_refs);
+        refs.sort_by(|a, b| a.id.cmp(&b.id));
+        refs
+    }
+
     pub async fn list_runs(&self) -> Vec<AgentRun> {
         let tasks = self
             .list_tasks_filtered(&crate::history::AgentTaskListQuery {
@@ -1245,6 +1375,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await;
         let sessions = self.session_manager.list().await;
@@ -1269,6 +1401,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await;
         let parent_task_id = tasks.first().and_then(|task| task.parent_task_id.clone());
@@ -1288,6 +1422,8 @@ impl AgentEngine {
                     exclude_terminal_statuses: false,
                     order_by_recent_activity_desc: false,
                     limit: Some(1),
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
                 })
                 .await,
             );

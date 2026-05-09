@@ -1675,6 +1675,59 @@ async fn invalid_due_routine_records_failed_run_history() {
 }
 
 #[tokio::test]
+async fn upsert_inbox_notification_emits_preserved_lifecycle_state() {
+    let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
+    let mut events = engine.event_tx.subscribe();
+
+    let existing = zorai_protocol::InboxNotification {
+        id: "notif-preserved-lifecycle".to_string(),
+        source: "plugin_auth".to_string(),
+        kind: "plugin_needs_reconnect".to_string(),
+        title: "Reconnect plugin".to_string(),
+        body: "Reconnect Gmail before it expires.".to_string(),
+        subtitle: Some("gmail".to_string()),
+        severity: "warning".to_string(),
+        created_at: 100,
+        updated_at: 120,
+        read_at: Some(130),
+        archived_at: Some(140),
+        deleted_at: None,
+        actions: vec![crate::notifications::plugin_settings_action("gmail")],
+        metadata_json: None,
+    };
+    engine
+        .history
+        .upsert_notification(&existing)
+        .await
+        .expect("seed persisted notification");
+
+    let fresh = zorai_protocol::InboxNotification {
+        updated_at: 200,
+        read_at: None,
+        archived_at: None,
+        ..existing.clone()
+    };
+
+    engine
+        .upsert_inbox_notification(fresh)
+        .await
+        .expect("upsert notification");
+
+    let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
+        .await
+        .expect("notification event should arrive")
+        .expect("notification event should exist");
+    match event {
+        AgentEvent::NotificationInboxUpsert { notification } => {
+            assert_eq!(notification.updated_at, 200);
+            assert_eq!(notification.read_at, Some(130));
+            assert_eq!(notification.archived_at, Some(140));
+        }
+        other => panic!("expected notification inbox upsert, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn daily_brief_workflow_pack_uses_preview_sections_without_connector_access() {
     let (engine, _temp_dir) = make_test_engine(AgentConfig::default()).await;
 

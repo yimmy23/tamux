@@ -120,6 +120,8 @@ async fn hydrate_loads_only_active_tasks_into_live_queue() {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()
@@ -855,4 +857,48 @@ async fn remove_repo_watcher_keeps_shared_root_watcher_until_last_thread_leaves(
 
     engine.remove_repo_watcher("thread-2").await;
     assert!(engine.repo_watchers.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn hydrate_does_not_restore_repo_watchers_when_repo_monitor_is_disabled_by_default() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let repo_root = root.path().join("disabled-monitor-repo");
+    std::fs::create_dir_all(&repo_root).expect("create repo root");
+
+    let contexts = std::collections::BTreeMap::from([(
+        "thread-disabled".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-disabled".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/lib.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "test".to_string(),
+                change_kind: None,
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: 1,
+            }],
+        },
+    )]);
+    tokio::fs::write(
+        engine.data_dir.join("work-context.json"),
+        serde_json::to_string_pretty(&contexts).expect("serialize work contexts"),
+    )
+    .await
+    .expect("write work contexts");
+
+    engine.hydrate().await.expect("hydrate should succeed");
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    assert!(
+        engine.repo_watchers.lock().await.is_empty(),
+        "hydrate should not restore repo watchers when repo monitoring was never enabled"
+    );
 }

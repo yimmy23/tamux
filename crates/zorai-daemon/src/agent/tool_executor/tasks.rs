@@ -19,46 +19,28 @@ pub(crate) async fn execute_list_subagents(
         false
     }
 
-    let all_tasks = agent
-        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-            id: None,
-            status: None,
-            statuses: Vec::new(),
-            source: Some("subagent".to_string()),
-            thread_id: None,
-            thread_ids: Vec::new(),
-            goal_run_id: None,
-            parent_task_id: None,
-            awaiting_approval_id: None,
-            supervisor_config_present: false,
-            exclude_terminal_statuses: false,
-            order_by_recent_activity_desc: false,
-            limit: None,
-        })
-        .await;
     let current_task = if let Some(task_id) = task_id {
-        match all_tasks.iter().find(|task| task.id == task_id).cloned() {
-            Some(task) => Some(task),
-            None => agent
-                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
-                    id: Some(task_id.to_string()),
-                    status: None,
-                    statuses: Vec::new(),
-                    source: None,
-                    thread_id: None,
-                    thread_ids: Vec::new(),
-                    goal_run_id: None,
-                    parent_task_id: None,
-                    awaiting_approval_id: None,
-                    supervisor_config_present: false,
-                    exclude_terminal_statuses: false,
-                    order_by_recent_activity_desc: false,
-                    limit: Some(1),
-                })
-                .await
-                .into_iter()
-                .next(),
-        }
+        agent
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+            .into_iter()
+            .next()
     } else {
         None
     };
@@ -91,6 +73,37 @@ pub(crate) async fn execute_list_subagents(
         .and_then(|value| value.as_u64())
         .map(|value| value as usize)
         .unwrap_or(20);
+
+    let all_tasks = if let Some(parent_thread_id) = parent_thread_id.as_deref() {
+        let direct_parent_thread_status = if parent_task_id.is_none() {
+            status_filter.as_deref()
+        } else {
+            None
+        };
+        agent
+            .list_parent_thread_subagent_tasks(parent_thread_id, direct_parent_thread_status)
+            .await
+    } else {
+        agent
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: Some("subagent".to_string()),
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+    };
 
     let mut subagents = all_tasks
         .clone()
@@ -723,6 +736,8 @@ pub(crate) async fn execute_list_tasks(
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await;
 
@@ -1421,7 +1436,6 @@ pub(crate) async fn execute_update_browser_profile_health(
         row.last_auth_failure_reason = last_auth_failure_reason;
     }
 
-    // Reconstruct a BrowserProfile from the row for upsert
     let profile = crate::agent::types::BrowserProfile {
         profile_id: row.profile_id.clone(),
         label: row.label.clone(),
@@ -1513,6 +1527,8 @@ pub(crate) async fn execute_show_harness_state(
                     exclude_terminal_statuses: false,
                     order_by_recent_activity_desc: false,
                     limit: Some(1),
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
                 })
                 .await
                 .into_iter()

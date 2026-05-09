@@ -2255,9 +2255,6 @@ async fn send_telegram_message_uses_auto_injected_reply_context_for_chat() {
     assert_eq!(result, "Telegram message sent to 777");
 }
 
-// -----------------------------------------------------------------------
-// Source authority classification tests (UNCR-03)
-// -----------------------------------------------------------------------
 
 use super::{classify_freshness, classify_source_authority, format_result_with_authority};
 
@@ -2319,7 +2316,6 @@ fn classify_source_authority_official_cppreference() {
 
 #[test]
 fn classify_source_authority_empty_string_no_panic() {
-    // Should return "unknown" without panicking.
     assert_eq!(classify_source_authority(""), "unknown");
 }
 
@@ -3053,6 +3049,8 @@ async fn spawn_subagent_inherits_goal_from_persisted_parent_task() {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()

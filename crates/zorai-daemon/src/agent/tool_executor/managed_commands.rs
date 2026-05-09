@@ -102,7 +102,6 @@ pub(crate) async fn execute_managed_command(
         .and_then(|value| value.as_u64())
         .unwrap_or(30);
     let timeout_secs = requested_timeout.min(600);
-    // Auto-background: if requested timeout exceeds max, run in background with monitoring
     let auto_background = requested_timeout > 600;
     let wait_for_completion = if auto_background {
         false
@@ -321,7 +320,6 @@ pub(crate) async fn execute_managed_command(
             );
 
             if !wait_for_completion {
-                // Spawn background monitor if auto-backgrounded due to high timeout
                 if auto_background {
                     let sm = session_manager.clone();
                     let sid = resolved_session_id.clone();

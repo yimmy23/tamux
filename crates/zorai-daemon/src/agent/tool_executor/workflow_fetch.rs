@@ -155,8 +155,6 @@ pub(crate) fn collect_skill_documents(
             continue;
         }
 
-        // Include any .md file in the skills tree — covers SKILL.md, generated
-        // skills, and curated skill documents alike.
         let is_md = path
             .extension()
             .and_then(|value| value.to_str())
@@ -391,7 +389,6 @@ where
             .ok_or_else(|| anyhow::anyhow!("fetch_url timed out after {timeout_seconds} seconds"))
     };
 
-    // Try headless browser for JS-rendered content, fall back to raw HTTP.
     let raw_html = if browser_available {
         match tokio::time::timeout(
             remaining_budget(started)?,
@@ -648,6 +645,3 @@ pub(crate) async fn record_browser_profile_fetch_success(
     agent.history.upsert_browser_profile(&updated).await
 }
 
-// ---------------------------------------------------------------------------
-// Web browsing setup tool
-// ---------------------------------------------------------------------------

@@ -191,6 +191,8 @@ async fn retarget_task_to_weles_updates_persisted_task_after_live_queue_clear() 
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()
@@ -870,6 +872,8 @@ async fn explicit_acknowledgment_unblocks_persisted_current_step_task_after_live
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()
@@ -942,6 +946,8 @@ async fn task_approval_resolution_syncs_parent_goal_run_state() {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()
@@ -1215,6 +1221,8 @@ async fn mark_task_awaiting_approval_updates_persisted_task_after_live_queue_cle
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .pop()
@@ -1416,6 +1424,8 @@ async fn stopping_goal_run_cancels_all_related_goal_tasks_and_streams() {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()
@@ -1436,6 +1446,8 @@ async fn stopping_goal_run_cancels_all_related_goal_tasks_and_streams() {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()
@@ -2930,6 +2942,8 @@ async fn delete_goal_run_removes_goal_and_related_tasks() {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await
             .expect("read task")

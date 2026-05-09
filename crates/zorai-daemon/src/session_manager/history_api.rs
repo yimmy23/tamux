@@ -159,6 +159,16 @@ impl SessionManager {
             .await
     }
 
+    pub async fn list_notifications(
+        &self,
+        include_inactive: bool,
+        limit: Option<usize>,
+    ) -> Result<Vec<zorai_protocol::InboxNotification>> {
+        self.history
+            .list_notifications(include_inactive, limit)
+            .await
+    }
+
     pub(crate) async fn agent_event_recall_matches(
         &self,
         category: &str,

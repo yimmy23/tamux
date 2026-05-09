@@ -71,10 +71,20 @@ impl DaemonClient {
     }
 
     pub fn refresh(&self) -> Result<()> {
+        self.refresh_threads_for_agent(Some(zorai_protocol::AGENT_HANDLE_SVAROG.to_string()))
+    }
+
+    /// Request the unbounded thread list for a specific agent filter. When
+    /// `agent_filter` is `Some`, the daemon drops its 128-thread cap and
+    /// returns every matching thread; the TUI caches the result and refreshes
+    /// it on demand (shift+r) or when a `ThreadCreated` event for the same
+    /// filter arrives.
+    pub fn refresh_threads_for_agent(&self, agent_filter: Option<String>) -> Result<()> {
         self.send(ClientMessage::AgentListThreads {
             limit: None,
             offset: None,
             include_internal: true,
+            agent_filter,
         })
     }
 

@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-// ── RiskLevel ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RiskLevel {
@@ -58,7 +57,6 @@ impl RiskLevel {
     }
 }
 
-// ── PendingApproval ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct PendingApproval {
@@ -95,7 +93,6 @@ pub enum ApprovalFilter {
     SavedRules,
 }
 
-// ── ApprovalAction ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum ApprovalAction {
@@ -109,10 +106,9 @@ pub enum ApprovalAction {
     },
     SetRules(Vec<SavedApprovalRule>),
     RemoveRule(String),
-    ClearResolved(String), // remove by approval_id
+    ClearResolved(String),
 }
 
-// ── ApprovalState ─────────────────────────────────────────────────────────────
 
 pub struct ApprovalState {
     pending_approvals: Vec<PendingApproval>,
@@ -311,7 +307,6 @@ impl Default for ApprovalState {
     }
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 #[path = "approval_tests_parts"]

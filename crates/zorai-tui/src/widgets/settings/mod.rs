@@ -47,6 +47,8 @@ mod tests {
     use crate::state::modal::ModalState;
     use crate::state::settings::SettingsState;
 
+    #[path = "advanced_tab_shows_repo_monitor_checkbox.rs"]
+    mod advanced_tab_shows_repo_monitor_checkbox;
     #[path = "settings_handles_empty_state_to_auth_tab_shows_chatgpt_logout.rs"]
     mod settings_handles_empty_state_to_auth_tab_shows_chatgpt_logout;
 }

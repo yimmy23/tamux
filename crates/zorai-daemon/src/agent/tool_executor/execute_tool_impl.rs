@@ -1588,7 +1588,6 @@ async fn dispatch_tool_execution(
     let mut pending_approval = None;
 
     let result = match prepared.dispatch_tool_name.as_str() {
-        // Terminal/session tools (daemon owns sessions directly)
         tool_names::LIST_TERMINALS | tool_names::LIST_SESSIONS => {
             execute_list_sessions(session_manager).await
         }

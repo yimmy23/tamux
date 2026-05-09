@@ -8,9 +8,6 @@ use tracing::{debug, info, warn};
 use zorai_protocol::ClientMessage;
 use zorai_protocol::DaemonMessage;
 
-// Sends a ClientEvent and logs (rather than panics or silently drops) if the
-// receiver has been closed — typically during shutdown or after the TUI's event
-// channel overflows.
 pub(crate) async fn dispatch_client_event(
     event_tx: &mpsc::Sender<ClientEvent>,
     event: ClientEvent,

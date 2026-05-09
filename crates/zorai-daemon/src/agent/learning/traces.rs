@@ -4,9 +4,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-// ---------------------------------------------------------------------------
-// Data types
-// ---------------------------------------------------------------------------
 
 /// A single tool-call step within an execution trace.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -136,9 +133,6 @@ pub enum TraceOutcome {
     Cancelled,
 }
 
-// ---------------------------------------------------------------------------
-// TraceCollector
-// ---------------------------------------------------------------------------
 
 /// Accumulates [`StepTrace`]s during an execution and produces a final
 /// [`ExecutionTrace`] via [`TraceCollector::finalize`].
@@ -246,16 +240,12 @@ impl TraceCollector {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helper functions
-// ---------------------------------------------------------------------------
 
 /// Return the first 16 hex characters of the SHA-256 digest of `args`.
 pub fn hash_arguments(args: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(args.as_bytes());
     let digest = hasher.finalize();
-    // Each byte → 2 hex chars, so 8 bytes → 16 hex chars.
     digest[..8]
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -279,12 +269,9 @@ pub fn compute_quality_score(trace: &ExecutionTrace) -> f64 {
         return 0.0;
     }
 
-    // Success component (70 % weight).
     let success_count = trace.steps.iter().filter(|s| s.succeeded).count() as f64;
     let success_rate = success_count / trace.steps.len() as f64;
 
-    // Efficiency component (30 % weight): fewer steps is better.
-    // We treat <= 3 steps as "ideal" and scale down linearly up to 20 steps.
     let step_count = trace.steps.len() as f64;
     let efficiency = (1.0 - ((step_count - 3.0).max(0.0) / 17.0)).max(0.0);
 
@@ -292,9 +279,6 @@ pub fn compute_quality_score(trace: &ExecutionTrace) -> f64 {
     raw.clamp(0.0, 1.0)
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -346,7 +330,6 @@ mod tests {
         );
         let trace = c.finalize(TraceOutcome::Success, None, None, None, 2000);
         assert!(trace.trace_id.starts_with("trace_"));
-        // UUID portion is 36 chars (8-4-4-4-12 with hyphens).
         assert_eq!(trace.trace_id.len(), 6 + 36);
     }
 
@@ -376,7 +359,6 @@ mod tests {
         c.record_step("b", "h", false, 10, 10, Some("fail".into()), 2);
         c.record_step("c", "h", true, 10, 10, None, 3);
         c.record_step("d", "h", true, 10, 10, None, 4);
-        // 3 out of 4 → 0.75
         assert!((c.success_rate() - 0.75).abs() < f64::EPSILON);
     }
 
@@ -399,13 +381,11 @@ mod tests {
     #[test]
     fn quality_score_all_success_trace() {
         let mut c = TraceCollector::new("code_edit", 0);
-        // 3 successful steps (ideal count).
         c.record_step("a", "h", true, 10, 10, None, 1);
         c.record_step("b", "h", true, 10, 10, None, 2);
         c.record_step("c", "h", true, 10, 10, None, 3);
         let trace = c.finalize(TraceOutcome::Success, None, None, None, 10);
         let score = compute_quality_score(&trace);
-        // success_rate = 1.0 → 0.7; efficiency at 3 steps → 1.0 → 0.3; total = 1.0
         assert!((score - 1.0).abs() < f64::EPSILON);
     }
 
@@ -424,8 +404,6 @@ mod tests {
             10,
         );
         let score = compute_quality_score(&trace);
-        // success_rate = 0.5 → 0.35; efficiency: (4-3)/17 ≈ 0.059 → (1-0.059)*0.3 ≈ 0.282
-        // total ≈ 0.632
         assert!(score > 0.0 && score < 1.0, "score = {score}");
     }
 
@@ -436,7 +414,6 @@ mod tests {
         assert_eq!(h1, h2);
         assert_eq!(h1.len(), 16);
 
-        // Different input → different hash.
         let h3 = hash_arguments("goodbye world");
         assert_ne!(h1, h3);
     }

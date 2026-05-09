@@ -1,5 +1,3 @@
-// TDD tests for audio configuration parsing from agent_config_raw
-// Audio settings are stored in agent_config_raw.extra via flatten
 
 use crate::state::config::ConfigAction;
 use crate::state::config::ConfigState;
@@ -157,9 +155,9 @@ fn audio_partial_fields_parse_with_defaults() {
 
     assert_eq!(state.audio_stt_enabled(), true);
     assert_eq!(state.audio_stt_provider(), "openai");
-    assert_eq!(state.audio_stt_model(), ""); // missing, defaults to empty
-    assert_eq!(state.audio_tts_enabled(), false); // missing, defaults to false
-    assert_eq!(state.audio_tts_provider(), ""); // missing
+    assert_eq!(state.audio_stt_model(), "");
+    assert_eq!(state.audio_tts_enabled(), false);
+    assert_eq!(state.audio_tts_provider(), "");
 }
 
 #[test]

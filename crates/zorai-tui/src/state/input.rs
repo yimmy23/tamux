@@ -17,8 +17,8 @@ pub enum InputMode {
 pub enum InputAction {
     InsertChar(char),
     Backspace,
-    DeleteWord, // delete word before cursor (Ctrl+Backspace / Ctrl+W)
-    ClearLine,  // clear entire input line (Ctrl+U)
+    DeleteWord,
+    ClearLine,
     Submit,
     ToggleMode,
     Clear,

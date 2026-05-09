@@ -1,9 +1,9 @@
 use super::*;
 
 /// Thresholds for browser profile expiry detection (in milliseconds).
-const EXPIRY_LAST_USED_THRESHOLD_MS: u64 = 30 * 24 * 60 * 60 * 1000; // 30 days
-const EXPIRY_LAST_AUTH_SUCCESS_THRESHOLD_MS: u64 = 90 * 24 * 60 * 60 * 1000; // 90 days
-const STALE_LAST_USED_THRESHOLD_MS: u64 = 14 * 24 * 60 * 60 * 1000; // 14 days
+const EXPIRY_LAST_USED_THRESHOLD_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+const EXPIRY_LAST_AUTH_SUCCESS_THRESHOLD_MS: u64 = 90 * 24 * 60 * 60 * 1000;
+const STALE_LAST_USED_THRESHOLD_MS: u64 = 14 * 24 * 60 * 60 * 1000;
 
 fn map_browser_profile_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<BrowserProfileRow> {
     Ok(BrowserProfileRow {
@@ -226,13 +226,12 @@ impl HistoryStore {
                             ),
                         )
                     } else {
-                        continue; // still fresh
+                        continue;
                     }
                 } else {
-                    continue; // no last_used_at, can't classify
+                    continue;
                 }
             } else {
-                // No auth success timestamp; fall back to last_used_at only
                 if let Some(used_age) = last_used_age {
                     if used_age > EXPIRY_LAST_USED_THRESHOLD_MS {
                         (
@@ -251,20 +250,19 @@ impl HistoryStore {
                             ),
                         )
                     } else {
-                        continue; // still fresh
+                        continue;
                     }
                 } else {
-                    continue; // no timestamps to classify
+                    continue;
                 }
             };
 
             if profile.health_state == new_state {
-                continue; // already correctly classified
+                continue;
             }
 
             let old_state = profile.health_state.clone();
 
-            // Update the profile in the database
             let pid = profile.profile_id.clone();
             let ns = new_state.to_string();
             self.conn

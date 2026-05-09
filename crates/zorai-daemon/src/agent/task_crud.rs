@@ -1208,32 +1208,22 @@ impl AgentEngine {
         let limit = limit.unwrap_or(i64::MAX as usize);
         let projected = match self.history.list_goal_runs_page(limit, offset).await {
             Ok((goal_runs, total)) if total > 0 => {
-                let mut projected = Vec::with_capacity(goal_runs.len());
-                for goal_run in goal_runs {
-                    projected.push(self.project_goal_run(goal_run).await);
-                }
-                projected
+                self.project_goal_runs_batched(goal_runs).await
             }
             Ok(_) => {
                 let goal_runs = self.goal_runs.lock().await;
-                let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
+                let items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
                 drop(goal_runs);
-                let mut projected = Vec::with_capacity(items.len());
-                for goal_run in items.drain(..) {
-                    projected.push(self.project_goal_run(goal_run).await);
-                }
+                let mut projected = self.project_goal_runs_batched(items).await;
                 projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
                 projected.into_iter().skip(offset).take(limit).collect()
             }
             Err(error) => {
                 tracing::warn!("failed to list paged persisted goal runs for IPC: {error}");
                 let goal_runs = self.goal_runs.lock().await;
-                let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
+                let items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
                 drop(goal_runs);
-                let mut projected = Vec::with_capacity(items.len());
-                for goal_run in items.drain(..) {
-                    projected.push(self.project_goal_run(goal_run).await);
-                }
+                let mut projected = self.project_goal_runs_batched(items).await;
                 projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
                 projected.into_iter().skip(offset).take(limit).collect()
             }
@@ -1378,6 +1368,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await;
         let mut task_ids = related_tasks
@@ -1398,6 +1390,64 @@ impl AgentEngine {
         project_goal_run_snapshot(goal_run, &related_tasks, now_millis())
     }
 
+    /// Projects a batch of goal_runs in O(1) SQL round-trips instead of
+    /// O(N). Replaces the per-goal-run `project_goal_run().await` loop that
+    /// the AgentListGoalRuns dispatch handler used to do — under load that
+    /// blocked the connection's outer loop for hundreds of milliseconds and
+    /// starved every other client message in the cascade.
+    pub(super) async fn project_goal_runs_batched(
+        &self,
+        goal_runs: Vec<GoalRun>,
+    ) -> Vec<GoalRun> {
+        if goal_runs.is_empty() {
+            return Vec::new();
+        }
+        let goal_run_ids: Vec<String> = goal_runs.iter().map(|g| g.id.clone()).collect();
+        let mut persisted_by_goal = match self
+            .history
+            .list_agent_tasks_by_goal_run_ids(&goal_run_ids)
+            .await
+        {
+            Ok(map) => map,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "failed to batch-fetch tasks by goal_run_ids; goal-run page will be empty of related tasks"
+                );
+                std::collections::HashMap::new()
+            }
+        };
+        let live_tasks_by_goal: std::collections::HashMap<String, Vec<AgentTask>> = {
+            let live = self.tasks.lock().await;
+            let mut map: std::collections::HashMap<String, Vec<AgentTask>> =
+                std::collections::HashMap::new();
+            for task in live.iter() {
+                if let Some(id) = task.goal_run_id.clone() {
+                    if goal_run_ids.iter().any(|candidate| candidate == &id) {
+                        map.entry(id).or_default().push(task.clone());
+                    }
+                }
+            }
+            map
+        };
+        let now = now_millis();
+        let mut projected = Vec::with_capacity(goal_runs.len());
+        for goal_run in goal_runs {
+            let mut related = persisted_by_goal.remove(&goal_run.id).unwrap_or_default();
+            if let Some(live_tasks) = live_tasks_by_goal.get(&goal_run.id) {
+                let mut seen: std::collections::HashSet<String> =
+                    related.iter().map(|task| task.id.clone()).collect();
+                for task in live_tasks {
+                    if seen.insert(task.id.clone()) {
+                        related.push(task.clone());
+                    }
+                }
+            }
+            projected.push(project_goal_run_snapshot(goal_run, &related, now));
+        }
+        projected
+    }
+
     pub(super) async fn goal_run_has_active_tasks(&self, goal_run_id: &str) -> bool {
         let active_count = self
             .count_tasks_filtered(&crate::history::AgentTaskListQuery {
@@ -1414,6 +1464,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: true,
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await;
         active_count > 0
@@ -1460,6 +1512,8 @@ impl AgentEngine {
                     exclude_terminal_statuses: false,
                     order_by_recent_activity_desc: false,
                     limit: None,
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
                 })
                 .await;
             if !thread_ids.is_empty() {
@@ -1478,14 +1532,17 @@ impl AgentEngine {
                         exclude_terminal_statuses: false,
                         order_by_recent_activity_desc: false,
                         limit: None,
+                        ids: Vec::new(),
+                        parent_task_ids: Vec::new(),
                     })
                     .await,
                 );
             }
-            for task_id in task_ids.clone() {
+            if !task_ids.is_empty() {
                 related_task_refs.extend(
                     self.list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
-                        id: Some(task_id.clone()),
+                        id: None,
+                        ids: task_ids.clone(),
                         status: None,
                         statuses: Vec::new(),
                         source: None,
@@ -1493,24 +1550,27 @@ impl AgentEngine {
                         thread_ids: Vec::new(),
                         goal_run_id: None,
                         parent_task_id: None,
+                        parent_task_ids: Vec::new(),
                         awaiting_approval_id: None,
                         supervisor_config_present: false,
                         exclude_terminal_statuses: false,
                         order_by_recent_activity_desc: false,
-                        limit: Some(1),
+                        limit: None,
                     })
                     .await,
                 );
                 related_task_refs.extend(
                     self.list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
                         id: None,
+                        ids: Vec::new(),
                         status: None,
                         statuses: Vec::new(),
                         source: None,
                         thread_id: None,
                         thread_ids: Vec::new(),
                         goal_run_id: None,
-                        parent_task_id: Some(task_id),
+                        parent_task_id: None,
+                        parent_task_ids: task_ids.clone(),
                         awaiting_approval_id: None,
                         supervisor_config_present: false,
                         exclude_terminal_statuses: false,
@@ -1749,6 +1809,8 @@ impl AgentEngine {
                         exclude_terminal_statuses: false,
                         order_by_recent_activity_desc: false,
                         limit: Some(1),
+                        ids: Vec::new(),
+                        parent_task_ids: Vec::new(),
                     })
                     .await
                     .into_iter()
@@ -1867,6 +1929,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await
         {

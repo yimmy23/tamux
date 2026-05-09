@@ -94,7 +94,6 @@ fn render_request_sync(
     endpoint: &EndpointDef,
     context: &serde_json::Value,
 ) -> Result<RenderedRequest, PluginApiError> {
-    // Render URL: base_url + path template
     let base = api.base_url.as_deref().unwrap_or("");
     let path_rendered = registry
         .render_template(&endpoint.path, context)
@@ -103,7 +102,6 @@ fn render_request_sync(
         })?;
     let url = format!("{}{}", base.trim_end_matches('/'), path_rendered);
 
-    // Render headers
     let mut headers = Vec::new();
     if let Some(ref header_map) = endpoint.headers {
         for (key, value_tpl) in header_map {
@@ -116,7 +114,6 @@ fn render_request_sync(
         }
     }
 
-    // Render body
     let body = if let Some(ref body_map) = endpoint.body {
         let body_json =
             serde_json::to_string(body_map).map_err(|e| PluginApiError::TemplateError {
@@ -163,9 +160,6 @@ pub fn render_response(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Custom Handlebars helpers
-// ---------------------------------------------------------------------------
 
 /// `{{urlencode value}}` -- percent-encode a string value.
 fn helper_urlencode(
@@ -305,7 +299,6 @@ mod tests {
     #[test]
     fn create_registry_returns_strict_mode() {
         let reg = create_registry();
-        // Strict mode rejects undefined variables
         let result = reg.render_template("{{undefined_var}}", &serde_json::json!({}));
         assert!(
             result.is_err(),
@@ -635,7 +628,6 @@ mod tests {
         };
         let response = serde_json::json!({"key": "value"});
         let result = render_response(&reg, &endpoint, &response).unwrap();
-        // Should be pretty-printed JSON
         assert!(result.contains("\"key\""));
         assert!(result.contains("\"value\""));
         assert!(result.contains('\n'), "should be pretty-printed");

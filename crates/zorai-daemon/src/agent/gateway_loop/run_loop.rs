@@ -74,17 +74,9 @@ impl AgentEngine {
                 let rx = shutdown.clone();
                 async move { engine.run_subagent_supervision_loop(rx).await }
             }),
-            tokio::spawn({
-                let engine = self.clone();
-                let rx = shutdown.clone();
-                async move { engine.run_embedding_index_loop(rx).await }
-            }),
-            tokio::spawn({
-                let engine = self.clone();
-                let rx = shutdown.clone();
-                async move { engine.run_semantic_document_index_loop(rx).await }
-            }),
         ];
+
+        spawn_lancedb_indexer_runtime(self.clone(), shutdown.clone());
 
         let _ = shutdown.changed().await;
 
@@ -425,6 +417,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await;
 
@@ -592,6 +586,57 @@ impl AgentEngine {
         }
         self.maybe_spawn_gateway().await;
         Ok(())
+    }
+}
+
+fn spawn_lancedb_indexer_runtime(
+    engine: Arc<AgentEngine>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) {
+    let thread_result = std::thread::Builder::new()
+        .name("zorai-lancedb-indexer".into())
+        .spawn(move || {
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .thread_name("zorai-lancedb-indexer")
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    tracing::error!(
+                        error = %error,
+                        "failed to build dedicated LanceDB indexer runtime; loops will not run"
+                    );
+                    return;
+                }
+            };
+            tracing::info!(
+                "lancedb indexer runtime started on dedicated OS thread"
+            );
+            runtime.block_on(async move {
+                let embedding_engine = engine.clone();
+                let semantic_engine = engine.clone();
+                let embedding_shutdown = shutdown.clone();
+                let semantic_shutdown = shutdown.clone();
+                let embedding_handle = tokio::spawn(async move {
+                    embedding_engine
+                        .run_embedding_index_loop(embedding_shutdown)
+                        .await;
+                });
+                let semantic_handle = tokio::spawn(async move {
+                    semantic_engine
+                        .run_semantic_document_index_loop(semantic_shutdown)
+                        .await;
+                });
+                let _ = tokio::join!(embedding_handle, semantic_handle);
+            });
+            tracing::info!("lancedb indexer runtime exiting");
+        });
+    if let Err(error) = thread_result {
+        tracing::error!(
+            error = %error,
+            "failed to spawn dedicated LanceDB indexer thread; loops will not run"
+        );
     }
 }
 

@@ -374,7 +374,7 @@ pub(super) fn queue_embedding_deletion_on_connection(
 
 impl HistoryStore {
     pub(crate) async fn enqueue_embedding_job(&self, job: EmbeddingJobInput) -> Result<()> {
-        self.conn
+        self.embedding_writer_conn
             .call(move |conn| {
                 enqueue_embedding_job_on_connection(conn, &job, now_ts() as i64)?;
                 Ok(())
@@ -395,7 +395,7 @@ impl HistoryStore {
         }
         let limit = limit.min(512) as i64;
         let dimensions = dimensions as i64;
-        self.conn
+        self.embedding_writer_conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
                 let now = now_ts() as i64;
@@ -463,7 +463,7 @@ impl HistoryStore {
         let job = job.clone();
         let embedding_model = embedding_model.trim().to_string();
         let dimensions = dimensions as i64;
-        self.conn
+        self.embedding_writer_conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
                 transaction.execute(
@@ -502,7 +502,7 @@ impl HistoryStore {
     pub(crate) async fn fail_embedding_job(&self, job: &EmbeddingJob, error: &str) -> Result<()> {
         let job = job.clone();
         let error = error.chars().take(2000).collect::<String>();
-        self.conn
+        self.embedding_writer_conn
             .call(move |conn| {
                 conn.execute(
                     "UPDATE embedding_jobs
@@ -530,7 +530,7 @@ impl HistoryStore {
             return Ok(Vec::new());
         }
         let limit = limit.min(512) as i64;
-        self.conn
+        self.embedding_writer_conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
                 let now = now_ts() as i64;
@@ -571,7 +571,7 @@ impl HistoryStore {
         deletion: &EmbeddingDeletion,
     ) -> Result<()> {
         let deletion = deletion.clone();
-        self.conn
+        self.embedding_writer_conn
             .call(move |conn| {
                 conn.execute(
                     "DELETE FROM embedding_deletions WHERE source_kind = ?1 AND source_id = ?2",
@@ -590,7 +590,7 @@ impl HistoryStore {
     ) -> Result<()> {
         let deletion = deletion.clone();
         let error = error.chars().take(2000).collect::<String>();
-        self.conn
+        self.embedding_writer_conn
             .call(move |conn| {
                 conn.execute(
                     "UPDATE embedding_deletions
@@ -614,7 +614,7 @@ impl HistoryStore {
         limit: Option<usize>,
     ) -> Result<SemanticBackfillResult> {
         let limit = limit.unwrap_or(usize::MAX).max(1);
-        self.conn
+        self.embedding_writer_conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
                 let now = now_ts() as i64;
@@ -737,7 +737,7 @@ impl HistoryStore {
     pub(crate) async fn reset_semantic_vector_index_state(
         &self,
     ) -> Result<SemanticIndexRepairStateReset> {
-        self.conn
+        self.embedding_writer_conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
                 let cleared_completions = count_i64(

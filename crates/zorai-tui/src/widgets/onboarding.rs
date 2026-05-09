@@ -150,7 +150,6 @@ mod tests {
 
     #[test]
     fn onboarding_compact_renders_setup_prompt() {
-        // Below 40x10 the compact branch is taken.
         let rows = render_to_lines(30, 6);
         let body = rows.join("\n");
         assert!(

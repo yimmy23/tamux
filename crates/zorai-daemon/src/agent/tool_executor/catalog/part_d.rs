@@ -425,7 +425,6 @@ pub(crate) fn add_available_tools_part_d(
         "required": []
     })));
 
-    // Workspace tools — executed via WorkspaceCommand event on the frontend
     tools.push(tool_def(
         tool_names::LIST_WORKSPACES,
         "List workspaces, surfaces, and panes (with names and IDs).",
@@ -586,7 +585,6 @@ pub(crate) fn add_available_tools_part_d(
         tools.extend(generated_tool_definitions(config, agent_data_dir));
     }
 
-    // Plugin API proxy tool -- always available (PluginManager handles disabled/missing checks)
     tools.push(tool_def(
         tool_names::PLUGIN_API_CALL,
         "Call a plugin API endpoint. The daemon proxies the HTTP request, handles auth, rate limiting, and returns the response as text.",

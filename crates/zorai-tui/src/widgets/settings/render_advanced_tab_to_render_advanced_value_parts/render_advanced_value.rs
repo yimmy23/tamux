@@ -43,6 +43,8 @@ pub(crate) fn render_advanced_toggle<'a>(
     };
     let mut spans = vec![
         Span::styled(marker, marker_style),
+        Span::styled(_check, _check_style),
+        Span::raw(" "),
         Span::styled(label, label_style),
     ];
     if is_selected {

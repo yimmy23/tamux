@@ -210,7 +210,6 @@ fn circuit_breaker_event_deserializes_legacy_shape_without_reason() {
     }
 }
 
-// ── Consolidation type tests (Phase 5 — MEMO-02/MEMO-07) ────────────
 
 #[test]
 fn consolidation_config_defaults() {
@@ -299,9 +298,6 @@ fn consolidation_result_defaults_are_zero() {
     assert!(result.skipped_reason.is_none());
 }
 
-// -----------------------------------------------------------------------
-// Skill discovery type contract tests (SKIL-01, SKIL-02, SKIL-03, SKIL-05)
-// -----------------------------------------------------------------------
 
 #[test]
 fn skill_maturity_status_from_str_roundtrip() {

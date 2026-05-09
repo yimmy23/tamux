@@ -38,7 +38,6 @@ impl HistoryStore {
         let thread_id = thread_id.to_string();
         let query = query.to_string();
         self.conn.call(move |conn| {
-        // Try FTS5 first, fall back to LIKE search
         let fts_result: Result<Vec<String>> = (|| {
             let mut stmt = conn.prepare(
                 "SELECT ca.id FROM context_archive ca JOIN context_archive_fts fts ON ca.rowid = fts.rowid WHERE ca.thread_id = ?1 AND context_archive_fts MATCH ?2 ORDER BY rank LIMIT ?3",
@@ -51,7 +50,6 @@ impl HistoryStore {
         match fts_result {
             Ok(ids) if !ids.is_empty() => Ok(ids),
             Ok(_) | Err(_) => {
-                // Fallback: simple LIKE search
                 let like_pattern = format!("%{query}%");
                 let mut stmt = conn.prepare(
                     "SELECT id FROM context_archive WHERE thread_id = ?1 AND (compressed_content LIKE ?2 OR summary LIKE ?2) ORDER BY archived_at DESC LIMIT ?3",

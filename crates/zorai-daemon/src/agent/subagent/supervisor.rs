@@ -5,9 +5,6 @@ use crate::agent::types::{
     InterventionAction, InterventionLevel, StuckReason, SubagentHealthState, SupervisorConfig,
 };
 
-// ---------------------------------------------------------------------------
-// Snapshot — a point-in-time view of a sub-agent's health indicators
-// ---------------------------------------------------------------------------
 
 /// A lightweight snapshot of a sub-agent's runtime metrics, used by the
 /// supervisor to decide whether intervention is needed.
@@ -33,9 +30,6 @@ pub struct SubagentSnapshot {
     pub max_duration_secs: Option<u64>,
 }
 
-// ---------------------------------------------------------------------------
-// SupervisorAction — the output of a health check
-// ---------------------------------------------------------------------------
 
 /// Describes what the supervisor decided after evaluating a sub-agent.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,9 +46,6 @@ pub struct SupervisorAction {
     pub evidence: String,
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 /// Analyse a single sub-agent's health and return an intervention action if
 /// one is warranted.  Returns `None` when the agent is healthy **or** when
@@ -69,11 +60,10 @@ pub fn check_health(
     let intervention = select_intervention(
         reason,
         config.intervention_level,
-        0, // first attempt — callers track retry counts externally
+        0,
         config.max_retries,
     );
 
-    // Passive + NoProgress → suppress entirely.
     let intervention = intervention?;
 
     let health_state = match reason {
@@ -100,7 +90,6 @@ pub fn detect_stuck_reason(
     config: &SupervisorConfig,
     now: u64,
 ) -> Option<(StuckReason, String)> {
-    // 1. Timeout — hard deadline exceeded.
     if let Some(max_dur) = snapshot.max_duration_secs {
         let elapsed = now.saturating_sub(snapshot.started_at);
         if elapsed > max_dur {
@@ -111,7 +100,6 @@ pub fn detect_stuck_reason(
         }
     }
 
-    // 2. ResourceExhaustion — context window almost full.
     if snapshot.context_utilization_pct > 90 {
         return Some((
             StuckReason::ResourceExhaustion,
@@ -122,12 +110,10 @@ pub fn detect_stuck_reason(
         ));
     }
 
-    // 3. ToolCallLoop — A→B→A→B cycling in recent tool names.
     if let Some(evidence) = detect_tool_call_loop(&snapshot.recent_tool_names) {
         return Some((StuckReason::ToolCallLoop, evidence));
     }
 
-    // 4. ErrorLoop — 3+ consecutive errors.
     if snapshot.consecutive_errors >= 3 {
         return Some((
             StuckReason::ErrorLoop,
@@ -135,7 +121,6 @@ pub fn detect_stuck_reason(
         ));
     }
 
-    // 5. NoProgress — no tool call within stuck_timeout_secs.
     let idle_secs = match snapshot.last_tool_call_at {
         Some(ts) => now.saturating_sub(ts),
         None => now.saturating_sub(snapshot.started_at),
@@ -183,9 +168,6 @@ pub fn select_intervention(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 /// Detect a repeating cycle in the recent tool names list.
 ///
@@ -197,9 +179,6 @@ fn detect_tool_call_loop(names: &[String]) -> Option<String> {
     detect_tool_call_loop_evidence(names, 4)
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -224,7 +203,6 @@ mod tests {
         SupervisorConfig::default()
     }
 
-    // ----- healthy agent --------------------------------------------------
 
     #[test]
     fn healthy_agent_no_action() {
@@ -237,15 +215,14 @@ mod tests {
         );
     }
 
-    // ----- NoProgress -----------------------------------------------------
 
     #[test]
     fn no_progress_detected_when_no_tool_calls() {
         let mut snap = healthy_snapshot();
         snap.last_tool_call_at = None;
         snap.started_at = 100;
-        let cfg = default_config(); // stuck_timeout = 300
-        let now = 500; // 400s since start, > 300
+        let cfg = default_config();
+        let now = 500;
         let (reason, _evidence) = detect_stuck_reason(&snap, &cfg, now).unwrap();
         assert_eq!(reason, StuckReason::NoProgress);
     }
@@ -255,7 +232,7 @@ mod tests {
         let mut snap = healthy_snapshot();
         snap.last_tool_call_at = Some(100);
         let cfg = default_config();
-        let now = 500; // 400s since last tool call
+        let now = 500;
         let (reason, _) = detect_stuck_reason(&snap, &cfg, now).unwrap();
         assert_eq!(reason, StuckReason::NoProgress);
     }
@@ -265,11 +242,10 @@ mod tests {
         let mut snap = healthy_snapshot();
         snap.last_tool_call_at = Some(900);
         let cfg = default_config();
-        let now = 1100; // 200s, below 300 threshold
+        let now = 1100;
         assert!(detect_stuck_reason(&snap, &cfg, now).is_none());
     }
 
-    // ----- ErrorLoop ------------------------------------------------------
 
     #[test]
     fn error_loop_detected_with_3_consecutive() {
@@ -298,7 +274,6 @@ mod tests {
         assert!(detect_stuck_reason(&snap, &cfg, 1010).is_none());
     }
 
-    // ----- ToolCallLoop ---------------------------------------------------
 
     #[test]
     fn tool_call_loop_detected_with_abab_pattern() {
@@ -324,11 +299,9 @@ mod tests {
         let mut snap = healthy_snapshot();
         snap.recent_tool_names = vec!["read".into(), "write".into(), "read".into()];
         let cfg = default_config();
-        // Should not trigger — only 3 entries, need at least 4.
         assert!(detect_stuck_reason(&snap, &cfg, 1010).is_none());
     }
 
-    // ----- ResourceExhaustion ---------------------------------------------
 
     #[test]
     fn resource_exhaustion_at_91_percent() {
@@ -345,11 +318,9 @@ mod tests {
         let mut snap = healthy_snapshot();
         snap.context_utilization_pct = 90;
         let cfg = default_config();
-        // 90% is the boundary — only > 90 triggers.
         assert!(detect_stuck_reason(&snap, &cfg, 1010).is_none());
     }
 
-    // ----- Timeout --------------------------------------------------------
 
     #[test]
     fn timeout_detected() {
@@ -357,7 +328,7 @@ mod tests {
         snap.started_at = 100;
         snap.max_duration_secs = Some(200);
         let cfg = default_config();
-        let now = 400; // elapsed 300 > max 200
+        let now = 400;
         let (reason, evidence) = detect_stuck_reason(&snap, &cfg, now).unwrap();
         assert_eq!(reason, StuckReason::Timeout);
         assert!(evidence.contains("300"));
@@ -369,15 +340,12 @@ mod tests {
         snap.started_at = 100;
         snap.max_duration_secs = Some(500);
         let cfg = default_config();
-        let now = 400; // elapsed 300 < max 500
-                       // Timeout should not fire.  Other checks may or may not fire, but
-                       // let's ensure at least timeout isn't the reason.
+        let now = 400;
         if let Some((reason, _)) = detect_stuck_reason(&snap, &cfg, now) {
             assert_ne!(reason, StuckReason::Timeout);
         }
     }
 
-    // ----- Intervention selection -----------------------------------------
 
     #[test]
     fn passive_no_progress_returns_none() {
@@ -449,7 +417,6 @@ mod tests {
         assert_eq!(action, Some(InterventionAction::EscalateToUser));
     }
 
-    // ----- check_health integration --------------------------------------
 
     #[test]
     fn check_health_returns_correct_action_for_error_loop() {

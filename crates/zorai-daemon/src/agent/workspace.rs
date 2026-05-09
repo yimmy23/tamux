@@ -146,7 +146,7 @@ impl AgentEngine {
             .list_assigned_workspace_tasks_by_status(workspace_id, WorkspaceTaskStatus::Todo)
             .await?;
         for task in tasks {
-            self.run_workspace_task(&task.id).await?;
+            self.run_workspace_task_with_loaded(task).await?;
         }
         Ok(())
     }
@@ -160,7 +160,7 @@ impl AgentEngine {
             .list_assigned_workspace_tasks_by_status(workspace_id, WorkspaceTaskStatus::Todo)
             .await?;
         for task in tasks {
-            self.run_workspace_task_deferred(&task.id).await?;
+            self.run_workspace_task_deferred_with_loaded(task).await?;
         }
         Ok(())
     }

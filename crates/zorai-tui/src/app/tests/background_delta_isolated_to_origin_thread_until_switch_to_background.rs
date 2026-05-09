@@ -105,7 +105,7 @@ fn sticky_thread_activity_uses_generic_phase_labels_with_top_padding() {
         .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
 
     model.set_active_thread_activity("reasoning");
-    model.tick_counter = 0; // Ensure the first variant is selected
+    model.tick_counter = 0;
     let input_start_row = model.height.saturating_sub(model.input_height() + 1);
     let padding_row = input_start_row.saturating_sub(2) as usize;
     let activity_row = input_start_row.saturating_sub(1) as usize;
@@ -124,7 +124,7 @@ fn sticky_thread_activity_uses_generic_phase_labels_with_top_padding() {
     );
 
     model.set_active_thread_activity("⚙  fetch_gateway_history");
-    model.tick_counter = 0; // Ensure the first variant is selected
+    model.tick_counter = 0;
     let rows = render_plain_rows(&mut model);
     assert!(
         rows.get(activity_row)
@@ -138,7 +138,7 @@ fn sticky_thread_activity_uses_generic_phase_labels_with_top_padding() {
     );
 
     model.set_active_thread_activity("writing");
-    model.tick_counter = 0; // Ensure the first variant is selected
+    model.tick_counter = 0;
     let rows = render_plain_rows(&mut model);
     assert!(
         rows.get(activity_row)

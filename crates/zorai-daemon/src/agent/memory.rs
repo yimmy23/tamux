@@ -17,7 +17,6 @@ const DEFAULT_MEMORY: &str = "# Memory\n\n## zorai Architecture (Verified)\n- zo
 const DEFAULT_USER: &str =
     "# User\nStable operator preferences, constraints, and workflow habits belong here.\n";
 
-// Shared SOUL footer — common architecture every agent knows about
 const SHARED_SOUL_FOOTER: &str = "\
 \n\n## zorai Platform (Shared)\n\
 - zorai is a Rust, daemon-first multi-agent runtime\n\
@@ -858,9 +857,6 @@ fn normalize_fact_text(value: &str) -> String {
         .join(" ")
 }
 
-// ---------------------------------------------------------------------------
-// Memory fact supersession (D-06, Pitfall 2)
-// ---------------------------------------------------------------------------
 
 impl super::engine::AgentEngine {
     /// Supersede a memory fact with tombstone-before-update ordering per D-06.
@@ -880,7 +876,6 @@ impl super::engine::AgentEngine {
         let tombstone_id = format!("tomb_{}", Uuid::new_v4());
         let now = now_millis();
 
-        // Step 1: Write tombstone FIRST (durable, per Pitfall 2)
         self.history
             .insert_memory_tombstone(
                 &tombstone_id,
@@ -898,9 +893,6 @@ impl super::engine::AgentEngine {
             )
             .await?;
 
-        // Step 2: Mark the original fact with [SUPERSEDED] prefix in the memory file.
-        // D-06 says: "Superseded facts get a `## [SUPERSEDED]` prefix and are moved to
-        // the tombstone table." The file only grows or has lines replaced -- never shrinks.
         let superseded_content = format!("## [SUPERSEDED]\n{}", original_content);
 
         let scope_id = current_agent_scope_id();
@@ -915,7 +907,6 @@ impl super::engine::AgentEngine {
             .unwrap_or_default();
         let updated = existing.replace(original_content, &superseded_content);
 
-        // If replacement content is non-empty, append it as a new section
         let final_content = if replacement_content.is_empty() {
             updated
         } else {
@@ -924,7 +915,6 @@ impl super::engine::AgentEngine {
 
         tokio::fs::write(&memory_path, &final_content).await?;
 
-        // Step 3: Record provenance (audit trail, MEMO-04)
         self.record_provenance_event(
             "memory_consolidation",
             &format!(

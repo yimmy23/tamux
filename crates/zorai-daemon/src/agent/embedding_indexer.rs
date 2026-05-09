@@ -5,6 +5,13 @@ use zorai_protocol::HistorySearchHit;
 const EMBEDDING_IDLE_SLEEP_SECS: u64 = 30;
 const EMBEDDING_DISABLED_SLEEP_SECS: u64 = 60;
 const EMBEDDING_ACTIVE_SLEEP_MILLIS: u64 = 1_500;
+/// Grace period before the embedding indexer's first run after daemon
+/// startup. Keeps the writer connection (and the LanceDB store) clear of
+/// background work while the concierge welcome and TUI's first-paint queries
+/// are in flight — large embedding batches would otherwise queue on the same
+/// tokio_rusqlite writer thread or hold the LanceDB index open while welcome
+/// is trying to render. The indexer makes up any backlog on subsequent ticks.
+const EMBEDDING_STARTUP_GRACE_SECS: u64 = 15;
 const SEMANTIC_DOCUMENT_SCAN_SECS: u64 = 60;
 const SEMANTIC_DOCUMENT_DAILY_SCAN_SECS: u64 = 86_400;
 #[cfg(feature = "lancedb-vector")]
@@ -267,6 +274,10 @@ impl AgentEngine {
         self: Arc<Self>,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(EMBEDDING_STARTUP_GRACE_SECS)) => {}
+            _ = shutdown.changed() => return,
+        }
         let mut last_daily_scan = std::time::Instant::now()
             .checked_sub(std::time::Duration::from_secs(
                 SEMANTIC_DOCUMENT_DAILY_SCAN_SECS,
@@ -381,6 +392,10 @@ impl AgentEngine {
         self: Arc<Self>,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(EMBEDDING_STARTUP_GRACE_SECS)) => {}
+            _ = shutdown.changed() => return,
+        }
         loop {
             let enabled = self.config.read().await.semantic.embedding.enabled;
             let processed = match self.process_embedding_queue_once().await {

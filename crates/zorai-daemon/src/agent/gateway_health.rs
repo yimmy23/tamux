@@ -181,9 +181,6 @@ impl TokenBucket {
 mod tests {
     use super::*;
 
-    // -----------------------------------------------------------------------
-    // PlatformHealthState tests
-    // -----------------------------------------------------------------------
 
     #[test]
     fn new_starts_disconnected_with_zero_failures() {
@@ -227,7 +224,6 @@ mod tests {
         assert_eq!(state.consecutive_failure_count, 4);
         assert_eq!(state.current_backoff_secs, 60);
 
-        // Further failures stay capped at 60s.
         state.on_failure(5000, "timeout".to_string());
         assert_eq!(state.current_backoff_secs, 60);
     }
@@ -242,7 +238,6 @@ mod tests {
     fn should_retry_returns_false_before_backoff_elapsed() {
         let mut state = PlatformHealthState::new();
         state.on_failure(1000, "error".to_string());
-        // Backoff is 5s = 5000ms. At 1000 + 4999 = 5999ms it should still be false.
         assert!(!state.should_retry(5999));
     }
 
@@ -250,7 +245,6 @@ mod tests {
     fn should_retry_returns_true_after_backoff_elapsed() {
         let mut state = PlatformHealthState::new();
         state.on_failure(1000, "error".to_string());
-        // Backoff is 5s = 5000ms. At 1000 + 5000 = 6000ms it should be true.
         assert!(state.should_retry(6000));
     }
 
@@ -276,15 +270,15 @@ mod tests {
         let mut state = PlatformHealthState::new();
         let old = state.status;
         state.on_failure(1000, "err".to_string());
-        assert!(state.status_changed(old)); // Disconnected -> Error
+        assert!(state.status_changed(old));
 
         let old = state.status;
         state.on_success(2000);
-        assert!(state.status_changed(old)); // Error -> Connected
+        assert!(state.status_changed(old));
 
         let old = state.status;
         state.on_success(3000);
-        assert!(!state.status_changed(old)); // Connected -> Connected (no change)
+        assert!(!state.status_changed(old));
     }
 
     #[test]
@@ -311,15 +305,11 @@ mod tests {
         assert!(!state.is_reconnect_transition(old));
     }
 
-    // -----------------------------------------------------------------------
-    // TokenBucket tests
-    // -----------------------------------------------------------------------
 
     #[test]
     fn new_starts_with_full_tokens() {
         let bucket = TokenBucket::new(5, 5.0);
         assert_eq!(bucket.capacity, 5);
-        // tokens should be capacity (5.0)
         assert!((bucket.tokens - 5.0).abs() < f64::EPSILON);
     }
 
@@ -334,10 +324,9 @@ mod tests {
     #[test]
     fn try_acquire_returns_some_duration_when_empty() {
         let mut bucket = TokenBucket::new(1, 1.0);
-        assert!(bucket.try_acquire().is_none()); // consume the one token
+        assert!(bucket.try_acquire().is_none());
         let wait = bucket.try_acquire();
         assert!(wait.is_some());
-        // Wait should be approximately 1s (one token at 1 token/sec)
         let wait_ms = wait.unwrap().as_millis();
         assert!(wait_ms > 0 && wait_ms <= 1100, "wait_ms was {wait_ms}");
     }
@@ -346,10 +335,8 @@ mod tests {
     fn tokens_refill_over_elapsed_time() {
         let past = Instant::now() - Duration::from_secs(2);
         let mut bucket = TokenBucket::new_with_instant(3, 1.0, past);
-        // Manually set tokens to 0 to simulate empty bucket
         bucket.tokens = 0.0;
 
-        // After 2 seconds at 1 token/sec, refill should add 2 tokens
         let result = bucket.try_acquire();
         assert!(result.is_none(), "should have refilled enough tokens");
     }

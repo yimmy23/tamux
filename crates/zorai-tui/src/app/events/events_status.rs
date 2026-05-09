@@ -93,13 +93,24 @@ impl TuiModel {
     pub(in crate::app) fn handle_agent_config_raw_event(&mut self, raw: serde_json::Value) {
         let before_profile = self.current_conversation_agent_profile();
         let was_loaded = self.agent_config_loaded;
+        tracing::info!(
+            was_loaded,
+            connected = self.connected,
+            "app: handle_agent_config_raw_event entered"
+        );
+        let apply_started = std::time::Instant::now();
         self.apply_config_json(&raw);
+        tracing::info!(
+            apply_ms = apply_started.elapsed().as_millis() as u64,
+            "app: apply_config_json done"
+        );
         self.reconcile_pending_svarog_reasoning_effort_after_raw_config();
         self.chat
             .set_history_page_size(self.config.tui_chat_history_page_size as usize);
         self.invalidate_active_header_runtime_profile_if_profile_changed(&before_profile);
         self.agent_config_loaded = true;
         if self.connected && !was_loaded {
+            tracing::info!("app: agent_config_loaded transitioning false→true; firing startup cascade");
             let restored_thread = self.begin_pending_reconnect_restore();
             if !restored_thread {
                 self.request_concierge_welcome();
@@ -114,6 +125,13 @@ impl TuiModel {
             self.send_daemon_command(DaemonCommand::ListTaskApprovalRules);
             self.send_daemon_command(DaemonCommand::PluginList);
             self.send_daemon_command(DaemonCommand::PluginListCommands);
+            tracing::info!("app: startup cascade dispatched");
+        } else {
+            tracing::info!(
+                connected = self.connected,
+                was_loaded,
+                "app: cascade SKIPPED (either already loaded or not connected)"
+            );
         }
     }
 
@@ -287,7 +305,6 @@ impl TuiModel {
         &mut self,
         _items: Vec<crate::wire::AnticipatoryItem>,
     ) {
-        // Anticipatory items are surfaced through inbox notifications now.
     }
 
     pub(in crate::app) fn handle_gateway_status_event(

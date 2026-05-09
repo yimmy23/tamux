@@ -4,9 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::types::StuckReason;
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /// High-level strategy the metacognitive loop can select when a step is stuck
 /// or performance is degraded.
@@ -51,14 +48,10 @@ pub struct ReplanDecision {
     pub fallback: Option<ReplanStrategy>,
 }
 
-// ---------------------------------------------------------------------------
-// Strategy selection
-// ---------------------------------------------------------------------------
 
 /// Analyse the current [`ReplanContext`] and select the most appropriate
 /// [`ReplanStrategy`], together with a fallback.
 pub fn select_replan_strategy(ctx: &ReplanContext) -> ReplanDecision {
-    // 1. High error rate overrides everything except resource exhaustion.
     if ctx.error_rate > 0.7 && ctx.stuck_reason != Some(StuckReason::ResourceExhaustion) {
         return ReplanDecision {
             strategy: ReplanStrategy::GoalRevision {
@@ -81,7 +74,6 @@ pub fn select_replan_strategy(ctx: &ReplanContext) -> ReplanDecision {
     }
 
     match ctx.stuck_reason {
-        // ── No stuck reason (preventive) ─────────────────────────────
         None => ReplanDecision {
             strategy: ReplanStrategy::CompressRetry,
             reasoning: "No stuck signal detected; compressing context as a preventive measure."
@@ -92,7 +84,6 @@ pub fn select_replan_strategy(ctx: &ReplanContext) -> ReplanDecision {
             }),
         },
 
-        // ── NoProgress ───────────────────────────────────────────────
         Some(StuckReason::NoProgress) => match ctx.attempt_count {
             0 => ReplanDecision {
                 strategy: ReplanStrategy::CompressRetry,
@@ -138,7 +129,6 @@ pub fn select_replan_strategy(ctx: &ReplanContext) -> ReplanDecision {
             },
         },
 
-        // ── ErrorLoop ────────────────────────────────────────────────
         Some(StuckReason::ErrorLoop) => {
             let most_used = most_used_tool(&ctx.recent_tool_names);
             ReplanDecision {
@@ -156,7 +146,6 @@ pub fn select_replan_strategy(ctx: &ReplanContext) -> ReplanDecision {
             }
         }
 
-        // ── ToolCallLoop ─────────────────────────────────────────────
         Some(StuckReason::ToolCallLoop) => ReplanDecision {
             strategy: ReplanStrategy::GoalRevision {
                 reason: format!(
@@ -174,7 +163,6 @@ pub fn select_replan_strategy(ctx: &ReplanContext) -> ReplanDecision {
             }),
         },
 
-        // ── ResourceExhaustion ───────────────────────────────────────
         Some(StuckReason::ResourceExhaustion) => ReplanDecision {
             strategy: ReplanStrategy::CompressRetry,
             reasoning: format!(
@@ -187,7 +175,6 @@ pub fn select_replan_strategy(ctx: &ReplanContext) -> ReplanDecision {
             }),
         },
 
-        // ── Timeout ──────────────────────────────────────────────────
         Some(StuckReason::Timeout) => match ctx.attempt_count {
             0 => ReplanDecision {
                 strategy: ReplanStrategy::Parallelize {
@@ -226,9 +213,6 @@ pub fn select_replan_strategy(ctx: &ReplanContext) -> ReplanDecision {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Prompt builder
-// ---------------------------------------------------------------------------
 
 /// Build a human-readable prompt describing the replan decision, suitable for
 /// injection into the agent's context window.
@@ -281,9 +265,6 @@ pub fn build_replan_prompt(decision: &ReplanDecision, step_title: &str) -> Strin
     )
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /// Simple heuristic to infer a domain of expertise from a step title.
 fn infer_expertise(step_title: &str) -> String {
@@ -319,9 +300,6 @@ fn most_used_tool(recent: &[String]) -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[path = "replanning/tests.rs"]

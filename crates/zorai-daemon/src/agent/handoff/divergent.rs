@@ -13,9 +13,6 @@ mod helpers;
 
 use helpers::{format_mediator_prompt, format_tensions, generate_framing_prompts, now_millis};
 
-// ---------------------------------------------------------------------------
-// DivergentStatus
-// ---------------------------------------------------------------------------
 
 /// Status of a divergent session as it moves through its lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,9 +25,6 @@ pub enum DivergentStatus {
     Failed,
 }
 
-// ---------------------------------------------------------------------------
-// Framing
-// ---------------------------------------------------------------------------
 
 /// A single perspective/lens used to frame the problem for a subagent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,9 +37,6 @@ pub struct Framing {
     pub contribution_id: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// DivergentSession
-// ---------------------------------------------------------------------------
 
 /// A divergent session that manages parallel framings of a problem.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,7 +89,6 @@ impl DivergentSession {
             (DivergentStatus::Spawning, DivergentStatus::Running) => true,
             (DivergentStatus::Running, DivergentStatus::Mediating) => true,
             (DivergentStatus::Mediating, DivergentStatus::Complete) => true,
-            // Any state can transition to Failed
             (_, DivergentStatus::Failed) => true,
             _ => false,
         };
@@ -114,9 +104,6 @@ impl DivergentSession {
     }
 }
 
-// ---------------------------------------------------------------------------
-// AgentEngine integration
-// ---------------------------------------------------------------------------
 
 use crate::agent::engine::AgentEngine;
 
@@ -169,11 +156,9 @@ impl AgentEngine {
 
         let mut session = DivergentSession::new(problem_statement.to_string(), framings)?;
 
-        // Create a CollaborationSession for this divergent session.
         let collab_id = format!("collab_{}", uuid::Uuid::new_v4());
         session.collaboration_session_id = collab_id.clone();
 
-        // Create a virtual parent task ID for the collaboration session.
         let parent_task_id = format!("divergent_parent_{}", uuid::Uuid::new_v4());
 
         {
@@ -208,7 +193,6 @@ impl AgentEngine {
             collaboration.insert(parent_task_id.clone(), collab_session);
         }
 
-        // Enqueue a task for each framing.
         for framing in session.framings.iter_mut() {
             let task = self
                 .enqueue_task(
@@ -232,7 +216,6 @@ impl AgentEngine {
             framing.task_id = Some(task.id);
         }
 
-        // Transition to Running.
         session.transition_to(DivergentStatus::Running)?;
 
         let session_id = session.id.clone();
@@ -272,13 +255,11 @@ impl AgentEngine {
         content: &str,
         contribution_id: Option<String>,
     ) -> Result<()> {
-        // Find the collaboration session for this divergent session.
         let parent_task_id = {
             let sessions = self.divergent_sessions.read().await;
             let session = sessions
                 .get(session_id)
                 .ok_or_else(|| anyhow::anyhow!("unknown divergent session: {}", session_id))?;
-            // Look up the collaboration session by finding the parent task ID.
             let mut found = None;
             let collab = self.collaboration.read().await;
             for (key, cs) in collab.iter() {
@@ -295,7 +276,6 @@ impl AgentEngine {
             })?
         };
 
-        // Add contribution using framing_label as agent_id.
         {
             use super::super::collaboration::{detect_disagreements, Contribution};
 
@@ -457,7 +437,6 @@ impl AgentEngine {
     /// decides whether to make the LLM call or present tensions directly to the
     /// operator.
     pub(crate) async fn complete_divergent_session(&self, session_id: &str) -> Result<String> {
-        // Look up divergent session.
         let (collab_session_id, framings, existing_prompt) = {
             let sessions = self.divergent_sessions.read().await;
             let session = sessions
@@ -475,7 +454,6 @@ impl AgentEngine {
             )
         };
 
-        // Find the parent_task_id for the collaboration session.
         let parent_task_id = {
             let collab = self.collaboration.read().await;
             let mut found = None;
@@ -493,7 +471,6 @@ impl AgentEngine {
             })?
         };
 
-        // Detect disagreements and format tensions.
         let tensions = {
             use super::super::collaboration::detect_disagreements;
 
@@ -506,7 +483,6 @@ impl AgentEngine {
             format_tensions(&collab_session.disagreements, &framings)
         };
 
-        // Generate mediator prompt and update session.
         let mediator_prompt = {
             let mut sessions = self.divergent_sessions.write().await;
             let session = sessions

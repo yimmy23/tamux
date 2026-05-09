@@ -44,9 +44,6 @@ pub(crate) fn drain_tool_calls(map: &mut HashMap<u32, PendingToolCall>) -> Vec<T
         .collect()
 }
 
-// ---------------------------------------------------------------------------
-// Model fetching
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FetchedModelPricing {
@@ -233,8 +230,6 @@ pub async fn fetch_models(
 
     let mut response = send_request(true).send().await?;
 
-    // Chutes exposes a public model catalog. If the saved bearer token is stale,
-    // retry without auth so the picker can still populate from `/models`.
     if provider_id == zorai_shared::providers::PROVIDER_ID_CHUTES
         && !api_key.is_empty()
         && matches!(
@@ -342,8 +337,6 @@ pub async fn validate_provider_connection(
         return Ok(None);
     }
 
-    // Always validate via a minimal chat completion — this tests both connectivity
-    // AND the API key (fetch_models doesn't require auth on some providers like OpenRouter).
     let client = reqwest::Client::new();
     let api_type = get_provider_api_type(provider_id, def.default_model, &resolved_base_url);
     let request = match api_type {

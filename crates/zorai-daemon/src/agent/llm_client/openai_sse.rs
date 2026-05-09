@@ -21,7 +21,6 @@ pub(crate) async fn parse_openai_sse(
         let mut remaining = String::new();
         for line in buffer.split('\n') {
             if !line.starts_with("data: ") {
-                // Keep incomplete lines in the buffer
                 if !line.is_empty() && !line.starts_with(':') && !line.starts_with("event:") {
                     remaining.push_str(line);
                     remaining.push('\n');
@@ -31,7 +30,6 @@ pub(crate) async fn parse_openai_sse(
 
             let data = line[6..].trim();
             if data == "[DONE]" {
-                // Emit final chunk
                 if !pending_tool_calls.is_empty() {
                     let tool_calls = drain_tool_calls(&mut pending_tool_calls);
                     let provider_final_result = Some(
@@ -704,6 +702,3 @@ pub(crate) async fn parse_openai_responses_sse(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Anthropic Messages API implementation
-// ---------------------------------------------------------------------------

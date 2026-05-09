@@ -20,9 +20,6 @@ fn make_item(
     }
 }
 
-// -----------------------------------------------------------------------
-// 1. Summarize produces tool call summary
-// -----------------------------------------------------------------------
 #[test]
 fn summarize_produces_tool_call_summary() {
     let items = vec![
@@ -57,9 +54,6 @@ fn summarize_produces_tool_call_summary() {
     assert_eq!(result.strategy_used, CompressionStrategy::Summarize);
 }
 
-// -----------------------------------------------------------------------
-// 2. ExtractKeyPoints filters for key terms
-// -----------------------------------------------------------------------
 #[test]
 fn extract_key_points_filters_for_key_terms() {
     let items = vec![
@@ -84,16 +78,11 @@ fn extract_key_points_filters_for_key_terms() {
     let result = compress(&items, CompressionStrategy::ExtractKeyPoints, 1000);
 
     assert!(result.compressed_content.contains("Key point:"));
-    // "error" and "decide" items should match
     assert!(result.compressed_content.contains("error: file not found"));
-    // "Hello world" and "How are you?" should NOT be present
     assert!(!result.compressed_content.contains("Hello world"));
     assert!(!result.compressed_content.contains("How are you?"));
 }
 
-// -----------------------------------------------------------------------
-// 3. SemanticCompress deduplicates
-// -----------------------------------------------------------------------
 #[test]
 fn semantic_compress_deduplicates() {
     let items = vec![
@@ -110,14 +99,10 @@ fn semantic_compress_deduplicates() {
 
     let result = compress(&items, CompressionStrategy::SemanticCompress, 1000);
 
-    // "same content" should appear exactly once (the newer one kept)
     assert_eq!(result.compressed_content.matches("same content").count(), 1);
     assert!(result.compressed_content.contains("different content"));
 }
 
-// -----------------------------------------------------------------------
-// 4. CompressionResult tracks token counts
-// -----------------------------------------------------------------------
 #[test]
 fn compression_result_tracks_token_counts() {
     let items = vec![
@@ -145,31 +130,22 @@ fn compression_result_tracks_token_counts() {
     assert_eq!(result.items_processed, 2);
 }
 
-// -----------------------------------------------------------------------
-// 5. select_strategy chooses based on ratios
-// -----------------------------------------------------------------------
 #[test]
 fn select_strategy_chooses_based_on_ratios() {
-    // 4x reduction -> Summarize
     assert_eq!(
         select_strategy(4000, 1000, 10),
         CompressionStrategy::Summarize
     );
-    // 2x reduction -> ExtractKeyPoints
     assert_eq!(
         select_strategy(2000, 1000, 10),
         CompressionStrategy::ExtractKeyPoints
     );
-    // 1.2x reduction -> SemanticCompress
     assert_eq!(
         select_strategy(1200, 1000, 10),
         CompressionStrategy::SemanticCompress
     );
 }
 
-// -----------------------------------------------------------------------
-// 6. Empty items produces empty result
-// -----------------------------------------------------------------------
 #[test]
 fn empty_items_produces_empty_result() {
     let result = compress(&[], CompressionStrategy::Summarize, 1000);
@@ -180,12 +156,8 @@ fn empty_items_produces_empty_result() {
     assert_eq!(result.items_processed, 0);
 }
 
-// -----------------------------------------------------------------------
-// 7. Compression ratio is calculated correctly
-// -----------------------------------------------------------------------
 #[test]
 fn compression_ratio_is_calculated_correctly() {
-    // Use enough verbose content so that summarize genuinely compresses.
     let long_content = "x".repeat(200);
     let items = vec![
         make_item("a", ContextType::ToolResult, &long_content, "tool:bash", 1),
@@ -204,14 +176,11 @@ fn compression_ratio_is_calculated_correctly() {
     let original_total: u32 = items.iter().map(|i| i.estimated_tokens).sum();
     let result = compress(&items, CompressionStrategy::Summarize, 1000);
 
-    // original_tokens should match the sum of input item tokens
     assert_eq!(result.original_tokens, original_total);
-    // compressed_tokens should reflect the actual compressed output
     assert_eq!(
         result.compressed_tokens,
         ContextItem::estimate_tokens(&result.compressed_content),
     );
-    // With enough content, summarize should actually reduce
     assert!(
         result.compressed_tokens < result.original_tokens,
         "compressed {} should be < original {}",
@@ -220,9 +189,6 @@ fn compression_ratio_is_calculated_correctly() {
     );
 }
 
-// -----------------------------------------------------------------------
-// 8. Max output tokens is respected (content truncated if needed)
-// -----------------------------------------------------------------------
 #[test]
 fn max_output_tokens_respected() {
     let items = vec![
@@ -236,7 +202,6 @@ fn max_output_tokens_respected() {
         ),
     ];
 
-    // Very tight budget
     let result = compress(&items, CompressionStrategy::SemanticCompress, 10);
 
     assert!(
@@ -246,9 +211,6 @@ fn max_output_tokens_respected() {
     );
 }
 
-// -----------------------------------------------------------------------
-// 9. Different item types are handled
-// -----------------------------------------------------------------------
 #[test]
 fn different_item_types_are_handled() {
     let items = vec![
@@ -278,7 +240,6 @@ fn different_item_types_are_handled() {
         make_item("f", ContextType::ToolResult, "OK", "tool:bash", 6),
     ];
 
-    // All three strategies should handle the mix without panicking.
     let r1 = compress(&items, CompressionStrategy::Summarize, 1000);
     let r2 = compress(&items, CompressionStrategy::ExtractKeyPoints, 1000);
     let r3 = compress(&items, CompressionStrategy::SemanticCompress, 1000);
@@ -287,57 +248,42 @@ fn different_item_types_are_handled() {
     assert_eq!(r2.items_processed, 6);
     assert_eq!(r3.items_processed, 6);
 
-    // Summarize should mention the tool call
     assert!(r1.compressed_content.contains("1 tool calls"));
-    // ExtractKeyPoints should include the AgentThought
     assert!(r1.compressed_content.len() > 0);
     assert!(r2.compressed_content.contains("Key point:"));
-    // SemanticCompress should have grouped output
     assert!(r3.compressed_content.contains("[system]"));
 }
 
-// -----------------------------------------------------------------------
-// 10. Mixed strategy selection boundaries
-// -----------------------------------------------------------------------
 #[test]
 fn mixed_strategy_selection_boundaries() {
-    // Exactly 3.0 ratio -> should NOT be Summarize (> 3.0 required)
     assert_eq!(
         select_strategy(3000, 1000, 5),
         CompressionStrategy::ExtractKeyPoints,
     );
 
-    // Exactly 1.5 ratio -> should NOT be ExtractKeyPoints (> 1.5 required)
     assert_eq!(
         select_strategy(1500, 1000, 5),
         CompressionStrategy::SemanticCompress,
     );
 
-    // Just above 3.0
     assert_eq!(
         select_strategy(3001, 1000, 5),
         CompressionStrategy::Summarize,
     );
 
-    // Just above 1.5
     assert_eq!(
         select_strategy(1501, 1000, 5),
         CompressionStrategy::ExtractKeyPoints,
     );
 
-    // target_tokens == 0 -> Summarize (avoid divide by zero)
     assert_eq!(select_strategy(5000, 0, 10), CompressionStrategy::Summarize,);
 
-    // 1:1 ratio -> SemanticCompress
     assert_eq!(
         select_strategy(1000, 1000, 10),
         CompressionStrategy::SemanticCompress,
     );
 }
 
-// -----------------------------------------------------------------------
-// Bonus: AgentThought items are always included in ExtractKeyPoints
-// -----------------------------------------------------------------------
 #[test]
 fn extract_key_points_includes_agent_thoughts() {
     let items = vec![
@@ -357,9 +303,6 @@ fn extract_key_points_includes_agent_thoughts() {
     assert!(!result.compressed_content.contains("Ordinary chat"));
 }
 
-// -----------------------------------------------------------------------
-// Bonus: SemanticCompress keeps most recent duplicate
-// -----------------------------------------------------------------------
 #[test]
 fn semantic_compress_keeps_most_recent_duplicate() {
     let items = vec![
@@ -369,6 +312,5 @@ fn semantic_compress_keeps_most_recent_duplicate() {
 
     let result = compress(&items, CompressionStrategy::SemanticCompress, 1000);
 
-    // Content should appear exactly once
     assert_eq!(result.compressed_content.matches("dup content").count(), 1);
 }

@@ -75,7 +75,6 @@ impl AgentEngine {
         let max_steps = adaptation_mode.max_goal_plan_steps();
         let max_rejected = adaptation_mode.max_rejected_alternatives();
 
-        // Surface relevant past episodes before planning (Phase 1: Memory Foundation - EPIS-03)
         let episodic_context = match self.retrieve_relevant_episodes(&goal_run.goal, 5).await {
             Ok(episodes) if !episodes.is_empty() => {
                 let config = self.config.read().await;
@@ -158,7 +157,6 @@ impl AgentEngine {
             prompt.push_str("\nConsider the above past experiences when planning. Avoid approaches that previously failed unless circumstances have changed.\n");
         }
 
-        // Surface negative knowledge constraints before planning (Phase 1: Memory Foundation - NKNO-03)
         let negative_constraints_text =
             match self.query_active_constraints(Some(&goal_run.goal)).await {
                 Ok(constraints) if !constraints.is_empty() => {
@@ -179,7 +177,6 @@ impl AgentEngine {
             .run_goal_structured_for_goal::<GoalPlanResponse>(&prompt, &goal_run.id)
             .await?;
 
-        // Loop with the model to fix validation issues
         for attempt in 0..10 {
             let issues = collect_plan_issues(&plan);
             if issues.is_empty() {
@@ -213,7 +210,6 @@ impl AgentEngine {
         apply_plan_defaults(&mut plan);
         self.apply_goal_plan_adaptation(&mut plan, &adaptation, false);
 
-        // Annotate plan steps with confidence labels (UNCR-01, Phase v3.0)
         self.annotate_plan_steps_with_confidence(
             &mut plan.steps,
             &goal_run.goal,
@@ -241,13 +237,11 @@ impl AgentEngine {
         let thresholds = config.uncertainty.domain_thresholds.clone();
         drop(config);
 
-        // 1. Tool success rate from awareness window (AWAR-01 signal)
         let tool_success_rate = {
             let monitor = self.awareness.read().await;
             monitor.aggregate_short_term_success_rate()
         };
 
-        // Compute operator urgency from real thread pacing signals (EMBD-02).
         let (recent_message_count, avg_gap_secs) = if let Some(thread_id) = thread_id {
             let now = super::now_millis();
             let window_ms = 5 * 60 * 1000;
@@ -272,26 +266,22 @@ impl AgentEngine {
             super::embodied::dimensions::compute_temperature(recent_message_count, avg_gap_secs);
 
         for step in steps.iter_mut() {
-            // 2. Episodic familiarity: count FTS5 hits for step instructions
             let episodic_familiarity = {
                 let query = &step.instructions;
                 match self.retrieve_relevant_episodes(query, 5).await {
                     Ok(episodes) => {
                         super::embodied::dimensions::compute_familiarity(episodes.len())
                     }
-                    Err(_) => 0.5, // default to moderate familiarity on error
+                    Err(_) => 0.5,
                 }
             };
 
-            // Compute difficulty from awareness window error rate (EMBD-01)
             let difficulty = {
                 let monitor = self.awareness.read().await;
                 let error_rate = 1.0 - monitor.aggregate_short_term_success_rate();
                 super::embodied::dimensions::compute_difficulty(error_rate, 0)
             };
 
-            // Compute weight from step kind (EMBD-03)
-            // GoalRunStepKind variants: Reason, Command, Research, Memory, Skill, Specialist, Unknown
             let weight = {
                 let tool_name = match &step.kind {
                     GoalRunStepKind::Command => zorai_protocol::tool_names::EXECUTE_COMMAND,
@@ -316,7 +306,6 @@ impl AgentEngine {
                 "embodied dimensions computed for step"
             );
 
-            // 3. Domain classification + blast radius from step kind
             let domain = super::uncertainty::domains::classify_step_kind(&step.kind);
             let blast_radius_score = {
                 let domain_score = match domain {
@@ -324,13 +313,10 @@ impl AgentEngine {
                     super::uncertainty::domains::DomainClassification::Reliability => 0.5,
                     _ => 0.2,
                 };
-                // Blend domain classification with embodied weight (EMBD-04),
-                // then adjust with operator urgency temperature (EMBD-02).
                 let base_blast_radius = 0.6 * domain_score + 0.4 * weight;
                 (0.85 * base_blast_radius + 0.15 * temperature).clamp(0.0, 1.0)
             };
 
-            // 4. Approach novelty: check counter-who for similar approaches
             let approach_novelty = {
                 let scope_id = crate::agent::agent_identity::current_agent_scope_id();
                 let stores = self.episodic_store.read().await;
@@ -366,7 +352,6 @@ impl AgentEngine {
                 &thresholds,
             );
 
-            // Apply calibration adjustment (UNCR-07)
             let calibrated_band = {
                 let tracker = self.calibration_tracker.read().await;
                 tracker.get_calibrated_band(assessment.band)
@@ -374,10 +359,8 @@ impl AgentEngine {
             let calibrated_label =
                 super::uncertainty::confidence::confidence_label(calibrated_band);
 
-            // Prepend confidence label to step title (locked decision: "[HIGH] Step title")
             step.title = format!("[{}] {}", calibrated_label, step.title);
 
-            // Add confidence evidence to step instructions if not HIGH
             if calibrated_label != "HIGH" && !assessment.evidence.is_empty() {
                 step.instructions = format!(
                     "{}\n\nConfidence note: {}",
@@ -585,7 +568,6 @@ impl AgentEngine {
         replan_follow_up: bool,
         goal_run_id: Option<&str>,
     ) -> Result<T> {
-        // 1. Try JSON
         let raw1 = if replan_follow_up {
             self.run_goal_llm_json_for_replan(prompt, goal_run_id)
                 .await?
@@ -598,7 +580,6 @@ impl AgentEngine {
         }
         tracing::warn!(raw_len = raw1.len(), raw = %raw1, "goal structured: JSON attempt 1 failed");
 
-        // 2. Retry JSON with correction
         let retry_json_prompt = build_json_retry_prompt(prompt, &raw1);
         let raw2 = if replan_follow_up {
             self.run_goal_llm_json_for_replan(&retry_json_prompt, goal_run_id)
@@ -615,7 +596,6 @@ impl AgentEngine {
             tracing::warn!(raw_len = raw2.len(), raw = %raw2, "goal structured: JSON attempt 2 failed");
         }
 
-        // 3. Try YAML
         let yaml_prompt = format!(
             "{}\n\n\
              IMPORTANT: Return ONLY valid YAML (not JSON). Use proper YAML indentation.\n\
@@ -635,7 +615,6 @@ impl AgentEngine {
         }
         tracing::warn!(raw_len = raw3.len(), raw = %raw3, "goal structured: YAML attempt 1 failed");
 
-        // 4. Retry YAML with correction
         let retry_yaml_prompt = format!(
             "Your previous response could not be parsed.\n\
              Here is what you returned:\n---\n{}\n---\n\n\
@@ -657,7 +636,6 @@ impl AgentEngine {
         }
         tracing::warn!(raw_len = raw4.len(), raw = %raw4, "goal structured: YAML attempt 2 failed");
 
-        // 5. Markdown fallback — ask for a simple numbered list and parse it
         tracing::warn!("goal structured: trying markdown fallback");
         let md_prompt = format!(
             "I need you to break down a goal into steps. Return ONLY a numbered list.\n\

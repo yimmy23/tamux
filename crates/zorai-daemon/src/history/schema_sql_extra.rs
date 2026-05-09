@@ -995,6 +995,9 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 created_at     INTEGER NOT NULL,
                 updated_at     INTEGER NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_workspace_settings_repo_monitor_enabled
+                ON workspace_settings(repo_monitor_enabled, workspace_id)
+                WHERE repo_monitor_enabled = 1;
 
             CREATE TABLE IF NOT EXISTS workspace_tasks (
                 id                 TEXT PRIMARY KEY,

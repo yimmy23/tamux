@@ -233,7 +233,6 @@ pub fn render(
     let inner = content_inner(area);
 
     if chat.active_thread().is_none() && chat.streaming_content().is_empty() {
-        // Render splash
         crate::widgets::splash::render(frame, inner, theme);
         return;
     }

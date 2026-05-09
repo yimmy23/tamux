@@ -154,7 +154,6 @@ impl ToolGraph {
         succeeded: bool,
         now: u64,
     ) {
-        // Check if this exact sequence + task_type already exists.
         if let Some(existing) = self
             .composition_cache
             .iter_mut()
@@ -168,9 +167,7 @@ impl ToolGraph {
             return;
         }
 
-        // Evict if cache is full.
         if self.composition_cache.len() >= self.max_cache_size {
-            // Find the non-permanent entry with the lowest uses.
             if let Some(evict_idx) = self
                 .composition_cache
                 .iter()
@@ -181,7 +178,6 @@ impl ToolGraph {
             {
                 self.composition_cache.remove(evict_idx);
             } else {
-                // All entries are permanent; cannot evict.
                 return;
             }
         }
@@ -241,7 +237,6 @@ impl ToolGraph {
 pub fn build_default_graph() -> ToolGraph {
     let mut graph = ToolGraph::default();
 
-    // -- Nodes --
 
     graph.add_node(ToolNode {
         name: zorai_protocol::tool_names::BASH_COMMAND.into(),
@@ -306,9 +301,7 @@ pub fn build_default_graph() -> ToolGraph {
         category: "agent_management".into(),
     });
 
-    // -- Edges --
 
-    // bash_command synergizes with read_file
     graph.add_edge(ToolEdge {
         from: zorai_protocol::tool_names::BASH_COMMAND.into(),
         to: zorai_protocol::tool_names::READ_FILE.into(),
@@ -316,7 +309,6 @@ pub fn build_default_graph() -> ToolGraph {
         weight: 0.8,
     });
 
-    // bash_command synergizes with list_files
     graph.add_edge(ToolEdge {
         from: zorai_protocol::tool_names::BASH_COMMAND.into(),
         to: zorai_protocol::tool_names::LIST_FILES.into(),
@@ -324,7 +316,6 @@ pub fn build_default_graph() -> ToolGraph {
         weight: 0.7,
     });
 
-    // write_file depends on read_file (read before write)
     graph.add_edge(ToolEdge {
         from: zorai_protocol::tool_names::WRITE_FILE.into(),
         to: zorai_protocol::tool_names::READ_FILE.into(),
@@ -332,7 +323,6 @@ pub fn build_default_graph() -> ToolGraph {
         weight: 0.9,
     });
 
-    // replace_in_file depends on read_file
     graph.add_edge(ToolEdge {
         from: zorai_protocol::tool_names::REPLACE_IN_FILE.into(),
         to: zorai_protocol::tool_names::READ_FILE.into(),
@@ -340,7 +330,6 @@ pub fn build_default_graph() -> ToolGraph {
         weight: 0.95,
     });
 
-    // bash_command conflicts with execute_managed_command
     graph.add_edge(ToolEdge {
         from: zorai_protocol::tool_names::BASH_COMMAND.into(),
         to: zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND.into(),
@@ -348,7 +337,6 @@ pub fn build_default_graph() -> ToolGraph {
         weight: 0.6,
     });
 
-    // search_files synergizes with read_file
     graph.add_edge(ToolEdge {
         from: zorai_protocol::tool_names::SEARCH_FILES.into(),
         to: zorai_protocol::tool_names::READ_FILE.into(),
@@ -356,7 +344,6 @@ pub fn build_default_graph() -> ToolGraph {
         weight: 0.85,
     });
 
-    // spawn_subagent synergizes with list_subagents
     graph.add_edge(ToolEdge {
         from: zorai_protocol::tool_names::SPAWN_SUBAGENT.into(),
         to: zorai_protocol::tool_names::LIST_SUBAGENTS.into(),

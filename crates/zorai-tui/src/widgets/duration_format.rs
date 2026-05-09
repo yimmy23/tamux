@@ -43,13 +43,11 @@ mod tests {
 
     #[test]
     fn rounds_down_below_thirty_seconds_into_next_minute() {
-        // 149s = 2m29s → rounds to 2m
         assert_eq!(format_duration_ms(149_000), "2m");
     }
 
     #[test]
     fn rounds_up_at_thirty_seconds_into_next_minute() {
-        // 150s = 2m30s → rounds to 3m
         assert_eq!(format_duration_ms(150_000), "3m");
     }
 

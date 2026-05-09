@@ -187,11 +187,10 @@ impl PluginPersistence {
                 for row in rows {
                     let (key, raw_value, is_secret) = row?;
                     let value = if is_secret {
-                        // Decode base64 for secret values
                         use base64::Engine;
                         match base64::engine::general_purpose::STANDARD.decode(&raw_value) {
                             Ok(bytes) => String::from_utf8(bytes).unwrap_or(raw_value),
-                            Err(_) => raw_value, // Fallback: return as-is if not valid base64
+                            Err(_) => raw_value,
                         }
                     } else {
                         raw_value

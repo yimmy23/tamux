@@ -283,7 +283,6 @@ impl TuiModel {
                 {
                     let _ = self.return_from_mission_control_navigation();
                 }
-                // Dismiss selected audit entry with 'd' key (BEAT-07);
                 Some(false)
             }
             KeyCode::Char('d')

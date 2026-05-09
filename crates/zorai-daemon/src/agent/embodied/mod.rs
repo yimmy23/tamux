@@ -103,23 +103,18 @@ mod tests {
 
         let meta = compute_embodied_metadata(&signals);
 
-        // difficulty: 0.6 * 0.5 + 0.4 * (2/5) = 0.3 + 0.16 = 0.46
         assert!(
             (meta.difficulty - 0.46).abs() < 0.001,
             "difficulty: expected ~0.46, got {}",
             meta.difficulty
         );
 
-        // familiarity: 3/5 = 0.6
         assert_eq!(meta.familiarity, 0.6);
 
-        // trajectory: all progress, no failure -> 1.0
         assert_eq!(meta.trajectory, 1.0);
 
-        // temperature: 0 messages -> 0.0
         assert_eq!(meta.temperature, 0.0);
 
-        // weight: read_file -> 0.2
         assert_eq!(meta.weight, 0.2);
     }
 }

@@ -220,8 +220,6 @@ impl ConfigState {
             .and_then(|group| group.get(field))
     }
 
-    // Audio configuration getters support canonical nested audio settings and
-    // flattened legacy keys from the daemon's extra config bag.
     fn get_audio_field(
         &self,
         group: &str,
@@ -386,4 +384,3 @@ impl Default for ConfigState {
     }
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────

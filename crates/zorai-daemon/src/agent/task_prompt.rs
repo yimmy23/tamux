@@ -300,7 +300,6 @@ pub(super) async fn resolve_preferred_session_id(
         .map(|session| session.id)
 }
 
-// -- Utility functions --
 
 pub(crate) fn agent_data_dir() -> std::path::PathBuf {
     zorai_protocol::zorai_root_dir().join("agent")

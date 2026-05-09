@@ -339,9 +339,6 @@ pub enum MessageRole {
     Tool,
 }
 
-// ---------------------------------------------------------------------------
-// Tool calls
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {

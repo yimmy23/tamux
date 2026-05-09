@@ -4,9 +4,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
 
-// ---------------------------------------------------------------------------
-// Goal run dossier
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

@@ -170,6 +170,17 @@ impl AgentEngine {
             }
         }
 
+        {
+            let tasks = self.tasks.lock().await;
+            if let Some(approval_id) = tasks
+                .iter()
+                .filter(|task| task.thread_id.as_deref() == Some(thread_id))
+                .find_map(|task| task.awaiting_approval_id.clone())
+            {
+                return Some(approval_id);
+            }
+        }
+
         if let Some(approval_id) = self
             .critique_approval_continuations
             .lock()
@@ -186,13 +197,15 @@ impl AgentEngine {
             .gateway_approval_ids_for_thread(thread_id)
             .await
         {
-            Ok(approval_ids) => approval_ids,
-            Err(error) => {
-                tracing::warn!(
-                    thread_id = %thread_id,
-                    %error,
-                    "gateway: failed to query persisted approval ids; falling back to live thread messages"
-                );
+            Ok(approval_ids) if !approval_ids.is_empty() => approval_ids,
+            other => {
+                if let Err(error) = &other {
+                    tracing::warn!(
+                        thread_id = %thread_id,
+                        %error,
+                        "gateway: failed to query persisted approval ids; falling back to live thread messages"
+                    );
+                }
                 let threads = self.threads.read().await;
                 threads
                     .get(thread_id)

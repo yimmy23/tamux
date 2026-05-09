@@ -95,7 +95,6 @@ pub async fn compile_skill_document(
     };
 
     if matches!(context.mode, SkillMeshCompileMode::ProviderAssisted) {
-        // Provider-assisted compilation lands later; v1 stays deterministic when no provider is wired.
     }
 
     Ok(document)

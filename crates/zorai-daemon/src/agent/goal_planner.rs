@@ -438,7 +438,6 @@ impl AgentEngine {
         )
         .await;
 
-        // Check plan confidence and route to approval if needed (UNCR-08)
         let low_confidence_steps = collect_low_confidence_plan_steps(&updated);
         let gate_action = self.plan_confidence_gate(&updated).await;
         if gate_action == super::uncertainty::PlanConfidenceAction::RequireApproval
@@ -602,7 +601,6 @@ impl AgentEngine {
             return Ok(());
         }
 
-        // Auto-checkpoint before step (PreStep)
         {
             let goal_run = {
                 let goal_runs = self.goal_runs.lock().await;
@@ -622,19 +620,17 @@ impl AgentEngine {
         let step = snapshot.steps[snapshot.current_step_index].clone();
         let resolved_execution_target = self.resolve_goal_execution_target(&snapshot, &step).await;
 
-        // If this is a Specialist step, route through the handoff broker
-        // instead of the normal task enqueue path.
         let task = if let GoalRunStepKind::Specialist(ref role) = step.kind {
             let thread_id = snapshot.thread_id.clone().unwrap_or_default();
             match self
                 .route_handoff_to_target(
                     &step.instructions,
                     &[role.clone()],
-                    None, // parent_task_id
+                    None,
                     Some(&snapshot.id),
                     &thread_id,
                     &step.success_criteria,
-                    0, // depth starts at 0 for goal-originated handoffs
+                    0,
                     resolved_execution_target.as_ref(),
                 )
                 .await
@@ -668,13 +664,11 @@ impl AgentEngine {
                 }
             }
         } else if step.kind == GoalRunStepKind::Divergent {
-            // Route Divergent steps through start_divergent_session (DIVR-03).
-            // The step instructions become the problem statement for parallel framings.
             let thread_id = snapshot.thread_id.clone().unwrap_or_default();
             match self
                 .start_divergent_session(
                     &step.instructions,
-                    None, // use default framings (analytical + pragmatic)
+                    None,
                     &thread_id,
                     Some(&snapshot.id),
                 )
@@ -686,8 +680,6 @@ impl AgentEngine {
                         step = step.title.as_str(),
                         "divergent session started for goal step"
                     );
-                    // The divergent session enqueues its own tasks internally.
-                    // Create a placeholder task so the goal runner can track the step.
                     self.enqueue_task(
                         format!("Divergent: {}", step.title),
                         format!(
@@ -735,8 +727,6 @@ impl AgentEngine {
                 }
             }
         } else if step.kind == GoalRunStepKind::Debate {
-            // Route Debate steps through start_debate_session.
-            // The step instructions become the debate topic.
             let thread_id = snapshot.thread_id.clone().unwrap_or_default();
             match self
                 .start_debate_session(&step.instructions, None, &thread_id, Some(&snapshot.id))
@@ -941,6 +931,8 @@ impl AgentEngine {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()

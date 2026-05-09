@@ -8,9 +8,6 @@
 
 use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// Confidence bands (per D-09)
-// ---------------------------------------------------------------------------
 
 /// Verbal confidence band mapped from a numeric probability.
 ///
@@ -91,9 +88,6 @@ pub fn format_confidence_text(probability: f64, threshold: f64) -> Option<String
     Some(text)
 }
 
-// ---------------------------------------------------------------------------
-// Explanation generation (per D-03)
-// ---------------------------------------------------------------------------
 
 /// Result of attempting to generate an explanation from templates.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -182,7 +176,6 @@ pub fn generate_explanation(action_type: &str, data: &serde_json::Value) -> Expl
                 skill_name, confidence, rejected_count
             ))
         }
-        // Learning transparency templates (D-10)
         "schedule_learned" => {
             let peak_hours = data["peak_hours"].as_str().unwrap_or("unknown");
             ExplanationResult::Template(format!(
@@ -215,7 +208,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    // -- Confidence band tests --
 
     #[test]
     fn confidence_band_confident() {
@@ -252,7 +244,6 @@ mod tests {
         assert_eq!(confidence_band(0.40), ConfidenceBand::Uncertain);
     }
 
-    // -- Confidence text formatting tests --
 
     #[test]
     fn format_confidence_suppressed_above_threshold() {
@@ -280,7 +271,6 @@ mod tests {
         assert!(text.contains("30%"), "got: {}", text);
     }
 
-    // -- ConfidenceBand::as_str tests --
 
     #[test]
     fn confidence_band_as_str() {
@@ -290,7 +280,6 @@ mod tests {
         assert_eq!(ConfidenceBand::Guessing.as_str(), "guessing");
     }
 
-    // -- Explanation template tests --
 
     #[test]
     fn explain_stale_todo() {

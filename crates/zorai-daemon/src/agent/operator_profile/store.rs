@@ -9,9 +9,6 @@ use std::collections::HashMap;
 use super::interview::InterviewSession;
 use super::model::ProfileFieldSpec;
 
-// ---------------------------------------------------------------------------
-// Session registry
-// ---------------------------------------------------------------------------
 
 /// Bounded in-memory map of active interview sessions.
 ///
@@ -66,9 +63,6 @@ impl InterviewStore {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Default field specifications
-// ---------------------------------------------------------------------------
 
 /// Canonical ordered list of profile questions used for every interview.
 ///
@@ -122,9 +116,6 @@ pub fn default_field_specs() -> Vec<ProfileFieldSpec> {
     ]
 }
 
-// ---------------------------------------------------------------------------
-// Unit tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

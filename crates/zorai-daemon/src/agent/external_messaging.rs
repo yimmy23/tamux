@@ -12,7 +12,6 @@ impl AgentEngine {
     ) -> Result<String> {
         let (tid, is_new_thread) = self.get_or_create_thread(thread_id, content).await;
 
-        // Add user message
         {
             let mut threads = self.threads.write().await;
             if let Some(thread) = threads.get_mut(&tid) {
@@ -38,7 +37,6 @@ impl AgentEngine {
         let (stream_generation, stream_cancel_token, _stream_retry_now) =
             self.begin_stream_cancellation(&tid).await;
 
-        // Ensure zorai-mcp is configured in the external agent's MCP settings
         {
             let runners = self.external_runners.read().await;
             if let Some(runner) = runners.get(config.agent_backend.as_str()) {
@@ -48,11 +46,8 @@ impl AgentEngine {
             }
         }
 
-        // Only inject zorai context on the first message in a thread
-        // (subsequent messages in the same thread don't need the preamble
-        // repeated — the external agent session carries the context)
         let is_first_message = match self.history.thread_message_count(&tid).await {
-            Ok(Some(message_count)) => message_count <= 1, // 1 = just the user message we added above
+            Ok(Some(message_count)) => message_count <= 1,
             Ok(None) => true,
             Err(error) => {
                 tracing::warn!(
@@ -115,7 +110,6 @@ impl AgentEngine {
             }
         }
 
-        // Run through external agent
         let runners = self.external_runners.read().await;
         let runner = match runners.get(config.agent_backend.as_str()) {
             Some(runner) => runner,
@@ -179,7 +173,6 @@ impl AgentEngine {
             }
         };
 
-        // Store assistant response in thread
         if let Some(response) = response {
             self.add_assistant_message(
                 &tid,

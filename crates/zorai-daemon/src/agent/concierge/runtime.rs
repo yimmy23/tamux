@@ -46,6 +46,8 @@ impl ConciergeEngine {
                         exclude_terminal_statuses: true,
                         order_by_recent_activity_desc: false,
                         limit: Some(1),
+                        ids: Vec::new(),
+                        parent_task_ids: Vec::new(),
                     })
                     .await
                     > 0;
@@ -362,6 +364,7 @@ impl ConciergeEngine {
 
 impl super::super::AgentEngine {
     pub(crate) async fn request_concierge_welcome(&self) {
+        let request_started = std::time::Instant::now();
         let (onboarding_done, tier) = {
             let cfg = self.config.read().await;
             let done = cfg.tier.onboarding_completed;
@@ -372,10 +375,16 @@ impl super::super::AgentEngine {
             (done, tier)
         };
 
+        let recent_threads_started = std::time::Instant::now();
         let recent_history_threads = self
             .concierge
             .recent_persisted_history_threads(&self.session_manager)
             .await;
+        tracing::info!(
+            elapsed_ms = recent_threads_started.elapsed().as_millis() as u64,
+            count = recent_history_threads.len(),
+            "concierge.welcome: recent_persisted_history_threads"
+        );
         let should_deliver_onboarding = !onboarding_done && recent_history_threads.is_empty();
 
         if !onboarding_done && !should_deliver_onboarding {
@@ -384,6 +393,7 @@ impl super::super::AgentEngine {
         }
 
         if should_deliver_onboarding {
+            let onboarding_started = std::time::Instant::now();
             if let Err(error) = self.concierge.deliver_onboarding(tier, &self.threads).await {
                 tracing::warn!(
                     "onboarding delivery failed, falling back to generic welcome: {error}"
@@ -392,6 +402,11 @@ impl super::super::AgentEngine {
                 self.persist_thread_by_id(CONCIERGE_THREAD_ID).await;
                 let mut cfg = self.config.write().await;
                 cfg.tier.onboarding_completed = true;
+                tracing::info!(
+                    elapsed_ms = request_started.elapsed().as_millis() as u64,
+                    onboarding_ms = onboarding_started.elapsed().as_millis() as u64,
+                    "concierge.welcome: onboarding delivered"
+                );
                 return;
             }
 
@@ -399,6 +414,7 @@ impl super::super::AgentEngine {
             cfg.tier.onboarding_completed = true;
         }
 
+        let connect_started = std::time::Instant::now();
         self.concierge
             .on_client_connected_with_persisted_threads(
                 &self.threads,
@@ -406,6 +422,17 @@ impl super::super::AgentEngine {
                 &recent_history_threads,
             )
             .await;
+        tracing::info!(
+            elapsed_ms = connect_started.elapsed().as_millis() as u64,
+            "concierge.welcome: on_client_connected_with_persisted_threads"
+        );
+
+        let persist_started = std::time::Instant::now();
         self.persist_thread_by_id(CONCIERGE_THREAD_ID).await;
+        tracing::info!(
+            elapsed_ms = persist_started.elapsed().as_millis() as u64,
+            total_ms = request_started.elapsed().as_millis() as u64,
+            "concierge.welcome: persisted (request done)"
+        );
     }
 }

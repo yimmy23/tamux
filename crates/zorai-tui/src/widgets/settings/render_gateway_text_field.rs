@@ -36,7 +36,6 @@ pub(crate) fn render_gateway_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // ── Field 0: gateway_enabled (toggle) ─────────────────────────────────────
     {
         let is_selected = settings.field_cursor() == 0;
         let marker = if is_selected { "> " } else { "  " };
@@ -68,7 +67,6 @@ pub(crate) fn render_gateway_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // ── Field 1: gateway_prefix (plain text) ──────────────────────────────────
     render_gateway_text_field(
         settings,
         theme,
@@ -80,7 +78,6 @@ pub(crate) fn render_gateway_tab<'a>(
         false,
     );
 
-    // ── Slack section ─────────────────────────────────────────────────────────
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "  \u{2500}\u{2500} Slack \u{2500}\u{2500}",
@@ -107,7 +104,6 @@ pub(crate) fn render_gateway_tab<'a>(
         false,
     );
 
-    // ── Telegram section ──────────────────────────────────────────────────────
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "  \u{2500}\u{2500} Telegram \u{2500}\u{2500}",
@@ -134,7 +130,6 @@ pub(crate) fn render_gateway_tab<'a>(
         false,
     );
 
-    // ── Discord section ───────────────────────────────────────────────────────
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "  \u{2500}\u{2500} Discord \u{2500}\u{2500}",
@@ -171,7 +166,6 @@ pub(crate) fn render_gateway_tab<'a>(
         false,
     );
 
-    // ── WhatsApp section ──────────────────────────────────────────────────────
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "  \u{2500}\u{2500} WhatsApp \u{2500}\u{2500}",

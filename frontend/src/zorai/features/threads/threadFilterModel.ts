@@ -72,6 +72,14 @@ export function buildThreadFilterTabs(
   ];
 }
 
+export function daemonAgentFilterForThreadTab(tab: ThreadFilterTab): string | null {
+  if (tab === "svarog") return "svarog";
+  if (tab === "rarog") return "rarog";
+  if (tab === "weles") return "weles";
+  if (tab.startsWith("agent:")) return tab.slice("agent:".length) || null;
+  return null;
+}
+
 function matchesThreadTab(thread: AgentThread, tab: ThreadFilterTab, goalThreadIds: Set<string>): boolean {
   const haystack = [
     thread.agent_name,

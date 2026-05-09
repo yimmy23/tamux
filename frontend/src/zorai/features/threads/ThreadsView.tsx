@@ -1,12 +1,13 @@
-import { useMemo, useState, type KeyboardEvent, type UIEvent } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState, type KeyboardEvent, type UIEvent } from "react";
 import { ToolEventRow } from "@/components/agent-chat-panel/chat-view/ToolEventRow";
 import { buildDisplayItems } from "@/components/agent-chat-panel/chat-view/helpers";
 import { useAgentChatPanelRuntime } from "@/components/agent-chat-panel/runtime/context";
 import { useAgentStore, type AgentMessage, type AgentThread } from "@/lib/agentStore";
 import { ThreadFilePreviewOverlay } from "./ThreadFilePreviewOverlay";
-import { buildThreadFilterTabs, dateFilters, filterThreads, type DateFilterId, type ThreadFilterTab } from "./threadFilterModel";
+import { buildThreadFilterTabs, daemonAgentFilterForThreadTab, dateFilters, filterThreads, type DateFilterId, type ThreadFilterTab } from "./threadFilterModel";
 
 const THREAD_SCROLL_THRESHOLD_PX = 24;
+const THREAD_FILTER_FETCH_DEBOUNCE_MS = 1000;
 
 export function ThreadsRail() {
   const runtime = useAgentChatPanelRuntime();
@@ -15,18 +16,95 @@ export function ThreadsRail() {
   const [dateFilter, setDateFilter] = useState<DateFilterId>("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const displayedThreads = useMemo(() => filterThreads(runtime.filteredThreads, {
+  const [daemonFilteredThreads, setDaemonFilteredThreads] = useState<AgentThread[] | null>(null);
+  const [loadingTab, setLoadingTab] = useState<ThreadFilterTab | null>(null);
+  const pendingFetchIdRef = useRef(0);
+  const goalThreadIdSet = useMemo(() => goalThreadIds(runtime.goalRunsForTrace), [runtime.goalRunsForTrace]);
+  const daemonAgentFilter = useMemo(() => daemonAgentFilterForThreadTab(tab), [tab]);
+  const sourceThreads = useMemo(() => {
+    const baseThreads = daemonFilteredThreads ?? runtime.filteredThreads;
+    return filterThreadsForSearchQuery(baseThreads, runtime.searchQuery);
+  }, [daemonFilteredThreads, runtime.filteredThreads, runtime.searchQuery]);
+  const displayedThreads = useMemo(() => filterThreads(sourceThreads, {
     tab,
     dateFilter,
     fromDate,
     toDate,
-    goalThreadIds: goalThreadIds(runtime.goalRunsForTrace),
-  }), [dateFilter, fromDate, runtime.filteredThreads, runtime.goalRunsForTrace, tab, toDate]);
+    goalThreadIds: goalThreadIdSet,
+  }), [dateFilter, fromDate, goalThreadIdSet, sourceThreads, tab, toDate]);
   const threadTabs = useMemo(() => buildThreadFilterTabs(
     runtime.filteredThreads,
     subAgents,
-    goalThreadIds(runtime.goalRunsForTrace),
+    goalThreadIdSet,
   ), [runtime.filteredThreads, runtime.goalRunsForTrace, subAgents]);
+
+  useEffect(() => {
+    pendingFetchIdRef.current += 1;
+    const fetchId = pendingFetchIdRef.current;
+
+    if (!daemonAgentFilter) {
+      setDaemonFilteredThreads(null);
+      setLoadingTab(null);
+      return;
+    }
+
+    setDaemonFilteredThreads(null);
+    setLoadingTab(tab);
+
+    const timeoutId = window.setTimeout(() => {
+      void runtime.fetchThreadList({ agentFilter: daemonAgentFilter })
+        .then((threads) => {
+          if (pendingFetchIdRef.current !== fetchId) {
+            return;
+          }
+          startTransition(() => {
+            setDaemonFilteredThreads(threads);
+            setLoadingTab(null);
+          });
+        })
+        .catch(() => {
+          if (pendingFetchIdRef.current !== fetchId) {
+            return;
+          }
+          setDaemonFilteredThreads(null);
+          setLoadingTab(null);
+        });
+    }, THREAD_FILTER_FETCH_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [daemonAgentFilter, runtime, tab]);
+
+  const refreshSelectedTab = () => {
+    pendingFetchIdRef.current += 1;
+    const fetchId = pendingFetchIdRef.current;
+
+    if (!daemonAgentFilter) {
+      setDaemonFilteredThreads(null);
+      setLoadingTab(null);
+      void runtime.refreshThreadList();
+      return;
+    }
+
+    setLoadingTab(tab);
+    void runtime.fetchThreadList({ agentFilter: daemonAgentFilter })
+      .then((threads) => {
+        if (pendingFetchIdRef.current !== fetchId) {
+          return;
+        }
+        startTransition(() => {
+          setDaemonFilteredThreads(threads);
+          setLoadingTab(null);
+        });
+      })
+      .catch(() => {
+        if (pendingFetchIdRef.current !== fetchId) {
+          return;
+        }
+        setLoadingTab(null);
+      });
+  };
 
   return (
     <div className="zorai-rail-stack">
@@ -42,7 +120,7 @@ export function ThreadsRail() {
         >
           New Thread
         </button>
-        <button type="button" className="zorai-ghost-button" onClick={() => void runtime.refreshThreadList()}>
+        <button type="button" className="zorai-ghost-button" onClick={refreshSelectedTab}>
           Refresh
         </button>
       </div>
@@ -57,10 +135,16 @@ export function ThreadsRail() {
           <button
             type="button"
             key={item.id}
-            className={["zorai-thread-filter-tab", tab === item.id ? "zorai-thread-filter-tab--active" : ""].filter(Boolean).join(" ")}
+            className={[
+              "zorai-thread-filter-tab",
+              tab === item.id ? "zorai-thread-filter-tab--active" : "",
+              loadingTab === item.id ? "zorai-thread-filter-tab--loading" : "",
+            ].filter(Boolean).join(" ")}
             onClick={() => setTab(item.id)}
+            aria-busy={loadingTab === item.id}
           >
             {item.label}
+            {loadingTab === item.id ? <span className="zorai-thread-filter-tab__spinner" aria-hidden="true">◌</span> : null}
           </button>
         ))}
       </div>
@@ -103,6 +187,17 @@ export function ThreadsRail() {
         )}
       </div>
     </div>
+  );
+}
+
+function filterThreadsForSearchQuery(threads: AgentThread[], searchQuery: string): AgentThread[] {
+  const lower = searchQuery.trim().toLowerCase();
+  if (!lower) {
+    return threads;
+  }
+  return threads.filter((thread) =>
+    thread.title.toLowerCase().includes(lower)
+    || thread.lastMessagePreview.toLowerCase().includes(lower),
   );
 }
 

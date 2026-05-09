@@ -973,6 +973,7 @@ impl AgentEngine {
             .await
             .get(thread_id)
             .map(|thread| thread.pinned);
+
         let mut thread_shell = self.restore_thread_from_db(thread_id).await?;
         if let Some(pinned) = existing_pinned {
             thread_shell.pinned = pinned;
@@ -980,22 +981,34 @@ impl AgentEngine {
         if !thread_is_query_visible(&thread_shell, include_internal) {
             return None;
         }
-        if !include_internal
-            && self
-                .persisted_thread_hidden_by_message_content(thread_id)
-                .await
-        {
+
+        let hidden_check = async {
+            if include_internal {
+                false
+            } else {
+                self.persisted_thread_hidden_by_message_content(thread_id)
+                    .await
+            }
+        };
+        let messages_fut = self.history.list_messages(thread_id, None);
+        let context_window_fut = self.history.list_active_context_window(thread_id);
+        let pinned_fut = persisted_pinned_message_summaries(self, thread_id);
+
+        let (hidden, db_messages_result, context_window_result, pinned_messages) =
+            tokio::join!(hidden_check, messages_fut, context_window_fut, pinned_fut);
+
+        if hidden {
             return None;
         }
+        let db_messages = db_messages_result.ok()?;
+        thread_shell.messages = db_messages
+            .into_iter()
+            .filter_map(super::messaging::agent_message_from_db)
+            .collect();
+        self.clear_thread_message_hydration_pending(thread_id).await;
 
-        let mut thread = self.restore_thread_with_messages_from_db(thread_id).await?;
-        if let Some(pinned) = existing_pinned {
-            thread.pinned = pinned;
-        }
-
-        let pinned_messages = persisted_pinned_message_summaries(self, thread_id).await;
         let (active_context_window_start, active_context_window_end, active_context_window_tokens) =
-            match self.history.list_active_context_window(thread_id).await {
+            match context_window_result {
                 Ok((rows, absolute_start, absolute_end)) => {
                     let messages = rows
                         .into_iter()
@@ -1008,9 +1021,10 @@ impl AgentEngine {
                         tokens,
                     )
                 }
-                Err(_) => thread_context_window_summary(&thread.messages),
+                Err(_) => thread_context_window_summary(&thread_shell.messages),
             };
 
+        let mut thread = thread_shell;
         let total_messages = thread.messages.len();
         {
             let mut threads = self.threads.write().await;
@@ -1094,27 +1108,36 @@ impl AgentEngine {
         if !thread_is_query_visible(&thread, include_internal) {
             return None;
         }
-        if !include_internal
-            && self
-                .persisted_thread_hidden_by_message_content(thread_id)
-                .await
-        {
+
+        let hidden_check = async {
+            if include_internal {
+                false
+            } else {
+                self.persisted_thread_hidden_by_message_content(thread_id)
+                    .await
+            }
+        };
+        let window_fut = self
+            .history
+            .list_message_window(thread_id, message_limit, message_offset);
+        let pinned_fut = persisted_pinned_message_summaries(self, thread_id);
+        let context_window_fut = self.history.list_active_context_window(thread_id);
+
+        let (hidden, window_result, pinned_messages, context_window_result) =
+            tokio::join!(hidden_check, window_fut, pinned_fut, context_window_fut);
+
+        if hidden {
             return None;
         }
-
-        let (db_messages, total_message_count, loaded_message_start, loaded_message_end) = self
-            .history
-            .list_message_window(thread_id, message_limit, message_offset)
-            .await
-            .ok()?;
+        let (db_messages, total_message_count, loaded_message_start, loaded_message_end) =
+            window_result.ok()?;
         thread.messages = db_messages
             .into_iter()
             .filter_map(super::messaging::agent_message_from_db)
             .collect();
 
-        let pinned_messages = persisted_pinned_message_summaries(self, thread_id).await;
         let (active_context_window_start, active_context_window_end, active_context_window_tokens) =
-            match self.history.list_active_context_window(thread_id).await {
+            match context_window_result {
                 Ok((rows, absolute_start, absolute_end)) => {
                     let messages = rows
                         .into_iter()

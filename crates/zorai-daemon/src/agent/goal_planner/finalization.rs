@@ -158,6 +158,8 @@ impl AgentEngine {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
     }

@@ -734,10 +734,6 @@ impl AgentEngine {
     ) -> Result<RoutineExecutionOutcome> {
         let started_at = now_millis();
 
-        // Proactive browser profile repair alert: scan for unhealthy profiles
-        // before executing the routine so the operator can see repair-needed
-        // state before an automated workflow tries to use a broken profile.
-        // First, run expiry detection to auto-classify any expired/stale profiles.
         if let Ok(reclassified) = self
             .history
             .detect_and_classify_expired_profiles(now_millis())

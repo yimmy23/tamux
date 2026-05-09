@@ -163,7 +163,7 @@ pub(crate) async fn ensure_daemon_running() -> Result<()> {
         anyhow::bail!("Could not start daemon: {e}\nPlease start it manually with: zorai-daemon");
     }
 
-    for _ in 0..10 {
+    for _ in 0..60 {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         if wizard_connect().await.is_ok() {
             println!("Daemon started.");
@@ -172,7 +172,7 @@ pub(crate) async fn ensure_daemon_running() -> Result<()> {
     }
 
     anyhow::bail!(
-        "Daemon did not become reachable within 5 seconds.\n\
+        "Daemon did not become reachable within 30 seconds.\n\
          Please start it manually with: zorai-daemon"
     )
 }

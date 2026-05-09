@@ -453,6 +453,8 @@ impl AgentEngine {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: true,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         };
         match self.history.list_agent_task_refs_filtered(&query).await {
             Ok(task_refs) => task_refs.into_iter().next().map(|(task_id, _, _)| task_id),

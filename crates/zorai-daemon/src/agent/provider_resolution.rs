@@ -114,9 +114,6 @@ pub(super) fn resolve_provider_config_for(
                 resolved.model = def.default_model.to_string();
             }
         }
-        // Providers with globally canonical endpoints can reset to the catalog
-        // default here; providers with per-account endpoints must keep the
-        // user-configured base URL from persisted config/runtime state.
         if !provider_uses_configurable_base_url(provider_id) {
             if let Some(def) = get_provider_definition(provider_id) {
                 resolved.base_url =

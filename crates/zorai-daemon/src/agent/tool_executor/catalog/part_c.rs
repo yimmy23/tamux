@@ -69,7 +69,6 @@ pub(crate) fn add_available_tools_part_c(
         ));
     }
 
-    // Always available — the agent can detect, install, and configure web browsing.
     tools.push(tool_def(
         tool_names::SETUP_WEB_BROWSING,
         "Detect, install, and configure a headless browser for web browsing. \
@@ -151,7 +150,6 @@ pub(crate) fn add_available_tools_part_c(
         }
     }
 
-    // Terminal pane tools
     tools.push(tool_def(
         tool_names::PYTHON_EXECUTE,
         "Execute Python code directly in a daemon-native subprocess without going through a shell. Use this instead of shell-launched Python when you need Python execution.",

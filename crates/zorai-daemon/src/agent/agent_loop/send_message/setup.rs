@@ -83,6 +83,8 @@ async fn load_current_task_for_send_message(
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()
@@ -608,8 +610,6 @@ impl<'a> SendMessageRunner<'a> {
                     return Err(error);
                 }
             };
-        // The active responder can override the provider/model selection, so the
-        // runtime config used by the send loop must reflect that effective provider.
         config.provider = active_provider_id.clone();
         config.base_url = provider_config.base_url.clone();
         config.model = provider_config.model.clone();

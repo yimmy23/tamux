@@ -7,9 +7,6 @@
 
 use crate::agent::types::{InterventionAction, StuckReason};
 
-// ---------------------------------------------------------------------------
-// DetectionSnapshot — input to the detector
-// ---------------------------------------------------------------------------
 
 /// A point-in-time view of an entity's runtime metrics, used by the
 /// [`StuckDetector`] to decide whether the entity is stuck.
@@ -37,9 +34,6 @@ pub struct DetectionSnapshot {
     pub context_utilization_pct: u32,
 }
 
-// ---------------------------------------------------------------------------
-// StuckAnalysis — output of the detector
-// ---------------------------------------------------------------------------
 
 /// Describes a detected stuck condition with confidence and suggested action.
 #[derive(Debug, Clone)]
@@ -58,9 +52,6 @@ pub struct StuckAnalysis {
     pub evidence: String,
 }
 
-// ---------------------------------------------------------------------------
-// StuckDetector — configurable detector
-// ---------------------------------------------------------------------------
 
 /// A stuck detector with configurable thresholds.
 ///
@@ -93,7 +84,6 @@ impl StuckDetector {
     /// Analyse a snapshot and return the highest-confidence stuck analysis,
     /// or `None` if the entity appears healthy.
     pub fn analyze(&self, snapshot: &DetectionSnapshot, now: u64) -> Option<StuckAnalysis> {
-        // Collect all detected issues with their confidence scores.
         let mut candidates: Vec<(StuckReason, f64, String)> = Vec::new();
 
         if let Some((conf, evidence)) = detect_timeout(snapshot, now) {
@@ -116,7 +106,6 @@ impl StuckDetector {
             candidates.push((StuckReason::ResourceExhaustion, conf, evidence));
         }
 
-        // Pick the highest confidence issue.
         candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         let (reason, confidence, evidence) = candidates.into_iter().next()?;
 
@@ -131,9 +120,6 @@ impl StuckDetector {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Public utility — shared cycle detection
-// ---------------------------------------------------------------------------
 
 /// Check whether the recent tool names contain a repeating cycle (period 1 or 2)
 /// of at least `min_length` entries.
@@ -199,16 +185,12 @@ pub fn detect_tool_call_loop_evidence(recent: &[String], min_length: usize) -> O
     None
 }
 
-// ---------------------------------------------------------------------------
-// Detection helpers (private)
-// ---------------------------------------------------------------------------
 
 /// Detect whether the entity has exceeded its `max_duration_secs` deadline.
 fn detect_timeout(snapshot: &DetectionSnapshot, now: u64) -> Option<(f64, String)> {
     let max_dur = snapshot.max_duration_secs?;
     let elapsed = now.saturating_sub(snapshot.started_at);
     if elapsed > max_dur {
-        // Confidence scales with how far past the deadline we are.
         let overshoot_ratio = (elapsed - max_dur) as f64 / max_dur as f64;
         let confidence = (0.8 + 0.2 * overshoot_ratio.min(1.0)).min(1.0);
         Some((
@@ -236,7 +218,6 @@ fn detect_no_progress(
         None => now.saturating_sub(snapshot.started_at),
     };
     if idle_secs >= threshold_secs {
-        // Confidence grows as idle time exceeds the threshold.
         let ratio = idle_secs as f64 / threshold_secs as f64;
         let confidence = (0.5 + 0.5 * (ratio - 1.0).min(1.0)).min(1.0);
         Some((
@@ -254,7 +235,6 @@ fn detect_no_progress(
 /// Detect whether the entity is in an error loop.
 fn detect_error_loop(snapshot: &DetectionSnapshot, threshold: u32) -> Option<(f64, String)> {
     if snapshot.consecutive_errors >= threshold {
-        // Confidence based on how many errors above threshold.
         let excess = (snapshot.consecutive_errors - threshold) as f64;
         let confidence = (0.7 + 0.1 * excess.min(3.0)).min(1.0);
         Some((
@@ -277,10 +257,8 @@ fn detect_tool_loop(snapshot: &DetectionSnapshot, min_length: usize) -> Option<(
     let names = &snapshot.recent_tool_names;
     let evidence = detect_tool_call_loop_evidence(names, min_length)?;
 
-    // Compute confidence from the number of repetitions.
     let check_len = std::cmp::max(min_length, 2);
     let repetitions = if names.len() >= check_len {
-        // Period detection: try period 1 first, then 2.
         let mut reps = 2usize;
         for period in 1..=2 {
             let cl = std::cmp::max(min_length, 2 * period);
@@ -322,9 +300,6 @@ fn detect_resource_exhaustion(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Intervention selection
-// ---------------------------------------------------------------------------
 
 /// Choose an intervention action based on the stuck reason and confidence.
 fn suggest_intervention(reason: StuckReason, confidence: f64) -> InterventionAction {
@@ -355,9 +330,6 @@ fn suggest_intervention(reason: StuckReason, confidence: f64) -> InterventionAct
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[path = "tests/stuck_detection.rs"]

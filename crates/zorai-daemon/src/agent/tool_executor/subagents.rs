@@ -171,6 +171,8 @@ async fn find_task_for_spawn(agent: &AgentEngine, task_id: &str) -> Option<Agent
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()
@@ -204,6 +206,8 @@ async fn list_subagent_tasks_for_spawn(agent: &AgentEngine) -> Vec<AgentTask> {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await;
     let mut task_ids = tasks
@@ -1259,7 +1263,7 @@ pub(crate) async fn execute_route_to_specialist(
             &task_description,
             &capability_tags,
             task_id,
-            None, // goal_run_id
+            None,
             thread_id,
             &acceptance_criteria,
             current_depth,
@@ -1310,7 +1314,6 @@ pub(crate) async fn execute_run_divergent(
         .ok_or_else(|| anyhow::anyhow!("missing 'problem_statement' argument"))?
         .to_string();
 
-    // Parse optional custom framings
     let custom_framings = args
         .get("custom_framings")
         .and_then(|v| v.as_array())

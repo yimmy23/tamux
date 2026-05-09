@@ -85,7 +85,11 @@ impl AgentEngine {
     async fn resolve_repo_monitor_scope(&self, repo_root: &str) -> Option<RepoMonitorScope> {
         let repo_root =
             std::fs::canonicalize(repo_root).unwrap_or_else(|_| PathBuf::from(repo_root));
-        let settings = self.history.list_workspace_settings().await.ok()?;
+        let settings = self
+            .history
+            .list_repo_monitor_workspace_settings()
+            .await
+            .ok()?;
         let selected = settings
             .into_iter()
             .filter_map(|settings| {
@@ -104,10 +108,6 @@ impl AgentEngine {
             .max_by_key(|(_, workspace_root)| workspace_root.components().count());
 
         let (settings, workspace_root) = selected?;
-        if !settings.repo_monitor_enabled || settings.repo_monitor_include_dirs.is_empty() {
-            return None;
-        }
-
         let include_roots = settings
             .repo_monitor_include_dirs
             .iter()
@@ -126,6 +126,10 @@ impl AgentEngine {
             include_roots,
             exclude_roots,
         })
+    }
+
+    pub(super) async fn repo_monitor_enabled_for_repo(&self, repo_root: &str) -> bool {
+        self.resolve_repo_monitor_scope(repo_root).await.is_some()
     }
 
     pub(super) fn emit_task_update(&self, task: &AgentTask, message: Option<String>) {
@@ -577,6 +581,21 @@ impl AgentEngine {
     }
 
     pub(super) async fn refresh_thread_repo_context(&self, thread_id: &str) {
+        self.refresh_thread_repo_context_with_changes(thread_id, None)
+            .await;
+    }
+
+    /// Variant that accepts a pre-fetched `(repo_root → git_changes)` cache.
+    /// When `cached_changes` contains the resolved repo, the per-thread
+    /// `crate::git::list_git_changes(&repo_root)` scan is skipped (which is
+    /// the dominant cost — git status on a large repo is hundreds of ms).
+    /// The per-thread state mutations (detect_reverts, merge_repo_scan)
+    /// still run unchanged.
+    pub(super) async fn refresh_thread_repo_context_with_changes(
+        &self,
+        thread_id: &str,
+        cached_changes: Option<&std::collections::HashMap<String, Vec<zorai_protocol::GitChangeEntry>>>,
+    ) {
         let Some((repo_root, goal_run_id, session_id, step_index)) =
             self.resolve_thread_repo_root(thread_id).await
         else {
@@ -584,47 +603,53 @@ impl AgentEngine {
             return;
         };
 
-        let Some(monitor_scope) = self.resolve_repo_monitor_scope(&repo_root).await else {
+        let monitor_scope = self.resolve_repo_monitor_scope(&repo_root).await;
+        if monitor_scope.is_some() {
+            self.ensure_repo_watcher(thread_id, &repo_root).await;
+        } else {
             self.remove_repo_watcher(thread_id).await;
-            self.merge_repo_scan_entries(thread_id, &repo_root, Vec::new())
-                .await;
-            return;
-        };
-
-        self.ensure_repo_watcher(thread_id, &repo_root).await;
+        }
         let repo_root_path = PathBuf::from(&repo_root);
-        let changes = crate::git::list_git_changes(&repo_root)
-            .into_iter()
-            .filter(|entry| {
-                monitored_change_matches(&repo_root_path, &entry.path, &monitor_scope)
-                    || entry
-                        .previous_path
-                        .as_deref()
-                        .map(|path| monitored_change_matches(&repo_root_path, path, &monitor_scope))
-                        .unwrap_or(false)
-            })
-            .collect::<Vec<_>>();
+        let all_changes: Vec<zorai_protocol::GitChangeEntry> = match cached_changes
+            .and_then(|cache| cache.get(&repo_root))
+        {
+            Some(cached) => cached.clone(),
+            None => crate::git::list_git_changes(&repo_root),
+        };
         let now = now_millis();
-        let entries = changes
-            .into_iter()
-            .map(|entry| WorkContextEntry {
-                path: entry.path,
-                previous_path: entry.previous_path,
-                kind: WorkContextEntryKind::RepoChange,
-                source: "repo_scan".to_string(),
-                change_kind: Some(entry.kind),
-                repo_root: Some(repo_root.clone()),
-                goal_run_id: goal_run_id.clone(),
-                step_index,
-                session_id: session_id.clone(),
-                is_text: true,
-                updated_at: now,
-            })
-            .collect::<Vec<_>>();
-        self.detect_and_record_rapid_reverts(thread_id, &repo_root, &entries, now)
+        let make_entry = |entry: zorai_protocol::GitChangeEntry| WorkContextEntry {
+            path: entry.path,
+            previous_path: entry.previous_path,
+            kind: WorkContextEntryKind::RepoChange,
+            source: "repo_scan".to_string(),
+            change_kind: Some(entry.kind),
+            repo_root: Some(repo_root.clone()),
+            goal_run_id: goal_run_id.clone(),
+            step_index,
+            session_id: session_id.clone(),
+            is_text: true,
+            updated_at: now,
+        };
+        let detection_entries: Vec<WorkContextEntry> =
+            all_changes.iter().cloned().map(make_entry).collect();
+        self.detect_and_record_rapid_reverts(thread_id, &repo_root, &detection_entries, now)
             .await;
-        self.merge_repo_scan_entries(thread_id, &repo_root, entries)
-            .await;
+        if let Some(scope) = monitor_scope.as_ref() {
+            let merge_entries: Vec<WorkContextEntry> = all_changes
+                .into_iter()
+                .filter(|entry| {
+                    monitored_change_matches(&repo_root_path, &entry.path, scope)
+                        || entry
+                            .previous_path
+                            .as_deref()
+                            .map(|path| monitored_change_matches(&repo_root_path, path, scope))
+                            .unwrap_or(false)
+                })
+                .map(make_entry)
+                .collect();
+            self.merge_repo_scan_entries(thread_id, &repo_root, merge_entries)
+                .await;
+        }
         self.maybe_run_aline_startup_reconciliation_for_repo(&repo_root)
             .await;
     }
@@ -808,6 +833,8 @@ impl AgentEngine {
                     exclude_terminal_statuses: false,
                     order_by_recent_activity_desc: false,
                     limit: Some(1),
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
                 })
                 .await
                 .into_iter()
@@ -890,6 +917,8 @@ impl AgentEngine {
                     exclude_terminal_statuses: false,
                     order_by_recent_activity_desc: false,
                     limit: Some(1),
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
                 })
                 .await
                 .into_iter()

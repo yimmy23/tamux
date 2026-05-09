@@ -216,11 +216,6 @@ impl TuiModel {
                             .map(|pending| pending.provider_id.clone())
                             .unwrap_or_else(|| self.config.provider.clone()),
                     ),
-                    // Defensive: the outer match arm above restricts to the five
-                    // listed picker targets, so this is currently unreachable.
-                    // If a future variant is added to the outer arm without
-                    // updating the inner match, return an empty model list
-                    // rather than panicking the TUI.
                     _ => return Vec::new(),
                 };
                 let mut models = match endpoint {

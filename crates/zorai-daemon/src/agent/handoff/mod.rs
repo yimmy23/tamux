@@ -14,9 +14,6 @@ pub use acceptance::ValidationResult;
 
 use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// Proficiency levels
-// ---------------------------------------------------------------------------
 
 /// How proficient a specialist is at a given capability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,9 +37,6 @@ impl Proficiency {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Capability tags
-// ---------------------------------------------------------------------------
 
 /// A capability tag with its associated proficiency level.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,9 +45,6 @@ pub struct CapabilityTag {
     pub proficiency: Proficiency,
 }
 
-// ---------------------------------------------------------------------------
-// Escalation types
-// ---------------------------------------------------------------------------
 
 /// Trigger condition for an escalation rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,9 +79,6 @@ pub struct HandoffEscalationRule {
     pub action: HandoffEscalationAction,
 }
 
-// ---------------------------------------------------------------------------
-// Specialist profile
-// ---------------------------------------------------------------------------
 
 /// A specialist agent profile with capability tags, tool restrictions,
 /// and escalation rules.
@@ -110,9 +98,6 @@ pub struct SpecialistProfile {
     pub is_builtin: bool,
 }
 
-// ---------------------------------------------------------------------------
-// Context bundle (stub for Plan 02)
-// ---------------------------------------------------------------------------
 
 /// Reference to an episodic memory episode.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,9 +135,6 @@ pub struct ContextBundle {
     pub estimated_tokens: u32,
 }
 
-// ---------------------------------------------------------------------------
-// Acceptance criteria (stub for Plan 02)
-// ---------------------------------------------------------------------------
 
 /// Criteria used to validate specialist output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,9 +146,6 @@ pub struct AcceptanceCriteria {
     pub require_llm_validation: bool,
 }
 
-// ---------------------------------------------------------------------------
-// Routing metadata
-// ---------------------------------------------------------------------------
 
 /// How the handoff broker selected the final specialist.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -185,9 +164,6 @@ impl RoutingMethod {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Handoff result
-// ---------------------------------------------------------------------------
 
 /// Result of a successful handoff dispatch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,9 +180,6 @@ pub struct HandoffResult {
     pub specialization_diagnostics: serde_json::Value,
 }
 
-// ---------------------------------------------------------------------------
-// HandoffBroker
-// ---------------------------------------------------------------------------
 
 /// Central broker that matches tasks to specialist profiles and manages
 /// handoff orchestration.

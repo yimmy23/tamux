@@ -206,7 +206,6 @@ async fn browser_profile_health_state_transitions() -> Result<()> {
     };
     store.upsert_browser_profile(&profile).await?;
 
-    // Transition to stale
     let stale = crate::agent::types::BrowserProfile {
         health_state: crate::agent::types::BrowserProfileHealth::Stale,
         updated_at: 1_777_230_500,
@@ -216,7 +215,6 @@ async fn browser_profile_health_state_transitions() -> Result<()> {
     let row = store.get_browser_profile("health-test").await?.unwrap();
     assert_eq!(row.health_state, "stale");
 
-    // Transition to repair_needed
     let repair = crate::agent::types::BrowserProfile {
         health_state: crate::agent::types::BrowserProfileHealth::RepairNeeded,
         updated_at: 1_777_231_000,
@@ -238,15 +236,11 @@ async fn browser_profile_health_state_transitions() -> Result<()> {
 
 #[tokio::test]
 async fn browser_profile_expiry_detection_and_repair_flow() -> Result<()> {
-    // Proves the Slice 6 DoD requirement: simulate expiry → repair → reuse
     let (store, root) = make_test_store().await?;
 
-    // Reference time: "now"
     let now_ms: u64 = 1_800_000_000_000;
-    // Old timestamps: 60 days ago (well past the 30-day expiry threshold)
     let sixty_days_ago = now_ms.saturating_sub(60 * 24 * 60 * 60 * 1000);
 
-    // Create a profile that should be expired (last_used_at is 60 days old)
     let old_profile = crate::agent::types::BrowserProfile {
         profile_id: "expired-work".to_string(),
         label: "Expired Work Profile".to_string(),
@@ -286,11 +280,9 @@ async fn browser_profile_expiry_detection_and_repair_flow() -> Result<()> {
         .await
         .map_err(|error| anyhow::anyhow!("{error}"))?;
 
-    // Verify it starts as healthy
     let row = store.get_browser_profile("expired-work").await?.unwrap();
     assert_eq!(row.health_state, "healthy", "should start healthy");
 
-    // Step 1: Run expiry detection — should classify as expired
     let reclassified = store.detect_and_classify_expired_profiles(now_ms).await?;
     assert_eq!(reclassified.len(), 1, "one profile should be reclassified");
     assert_eq!(reclassified[0].0, "expired-work");
@@ -301,11 +293,9 @@ async fn browser_profile_expiry_detection_and_repair_flow() -> Result<()> {
         "reason should mention threshold"
     );
 
-    // Verify the health state was updated in the database
     let row = store.get_browser_profile("expired-work").await?.unwrap();
     assert_eq!(row.health_state, "expired", "should now be expired");
 
-    // Step 2: Repair — manually update to healthy (simulating user re-auth)
     let repaired = crate::agent::types::BrowserProfile {
         profile_id: "expired-work".to_string(),
         label: "Expired Work Profile".to_string(),
@@ -322,14 +312,12 @@ async fn browser_profile_expiry_detection_and_repair_flow() -> Result<()> {
     };
     store.upsert_browser_profile(&repaired).await?;
 
-    // Verify it's healthy again
     let row = store.get_browser_profile("expired-work").await?.unwrap();
     assert_eq!(
         row.health_state, "healthy",
         "should be healthy after repair"
     );
 
-    // Step 3: Reuse — run expiry detection again, should NOT reclassify
     let reclassified = store.detect_and_classify_expired_profiles(now_ms).await?;
     assert!(
         reclassified.is_empty(),
@@ -347,7 +335,6 @@ async fn browser_profile_expiry_detection_and_repair_flow() -> Result<()> {
         .await
         .map_err(|error| anyhow::anyhow!("{error}"))?;
 
-    // Step 4: Verify it appears in list_browser_profiles
     let all = store.list_browser_profiles().await?;
     let found = all
         .iter()

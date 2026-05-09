@@ -576,6 +576,10 @@ impl TuiModel {
         if self.modal.top() == Some(modal::ModalKind::PinnedBudgetExceeded) {
             self.pending_pinned_budget_exceeded = None;
         }
+        if self.modal.top() == Some(modal::ModalKind::ThreadPicker) {
+            self.pending_thread_picker_refresh = None;
+            self.thread_picker_loading_tab = None;
+        }
         if self.modal.top() == Some(modal::ModalKind::Settings) {
             self.settings_modal_scroll = 0;
         }

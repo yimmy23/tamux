@@ -380,7 +380,6 @@ mod tests {
         assert!(!registry.is_empty());
         let all = registry.list_all();
         assert_eq!(all.len(), 2);
-        // Commands should be namespaced as /pluginname.commandname
         assert!(all.iter().any(|e| e.command_key == "/gmail-calendar.inbox"));
         assert!(all.iter().any(|e| e.command_key == "/gmail-calendar.send"));
     }
@@ -428,7 +427,6 @@ mod tests {
 
         let all = registry.list_all();
         assert_eq!(all.len(), 2);
-        // Sorted: /gmail.inbox < /weather.forecast
         assert_eq!(all[0].command_key, "/gmail.inbox");
         assert_eq!(all[1].command_key, "/weather.forecast");
     }

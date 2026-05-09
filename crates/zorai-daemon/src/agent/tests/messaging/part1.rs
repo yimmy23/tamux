@@ -244,6 +244,8 @@ async fn send_task_message_initializes_persisted_task_thread_after_live_queue_cl
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .into_iter()

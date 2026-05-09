@@ -4,9 +4,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
 
-// ---------------------------------------------------------------------------
-// Provider definitions (static registry)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

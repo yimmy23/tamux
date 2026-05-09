@@ -63,7 +63,6 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    // ── Operator Profile: fields ────────────────────────────────────────
 
     pub async fn upsert_profile_field(
         &self,
@@ -170,7 +169,6 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    // ── Operator Profile: consents ──────────────────────────────────────
 
     pub async fn upsert_profile_consent(&self, consent_key: &str, granted: bool) -> Result<()> {
         let consent_key = consent_key.to_string();
@@ -235,7 +233,6 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    // ── Operator Profile: events ────────────────────────────────────────
 
     pub async fn append_profile_event(
         &self,
@@ -300,7 +297,6 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    // ── Operator Profile: checkins ──────────────────────────────────────
 
     pub async fn upsert_profile_checkin(&self, row: OperatorProfileCheckinRow) -> Result<()> {
         let now = now_ts() as i64;

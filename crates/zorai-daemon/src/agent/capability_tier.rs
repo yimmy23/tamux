@@ -12,9 +12,6 @@ use super::operator_model::RiskTolerance;
 #[path = "capability_tier/disclosures.rs"]
 mod disclosures;
 
-// ---------------------------------------------------------------------------
-// CapabilityTier enum
-// ---------------------------------------------------------------------------
 
 /// Progressive capability tier.  Order matters for `PartialOrd`/`Ord` -- each
 /// successive variant represents a higher tier.
@@ -51,9 +48,6 @@ impl CapabilityTier {
     }
 }
 
-// ---------------------------------------------------------------------------
-// TierSignals -- inputs to resolve_tier()
-// ---------------------------------------------------------------------------
 
 /// Aggregated signals used to compute the current capability tier.
 #[derive(Debug, Clone)]
@@ -66,9 +60,6 @@ pub(super) struct TierSignals {
     pub user_override: Option<CapabilityTier>,
 }
 
-// ---------------------------------------------------------------------------
-// resolve_tier() -- pure function
-// ---------------------------------------------------------------------------
 
 /// Compute the effective tier from the given signals.
 ///
@@ -78,12 +69,10 @@ pub(super) struct TierSignals {
 /// 3. `self_assessment` can *elevate* the behavioral tier but never demote it
 ///    (D-01: hybrid, elevates only).
 pub(super) fn resolve_tier(signals: &TierSignals) -> CapabilityTier {
-    // Rule 1: override takes precedence
     if let Some(tier) = signals.user_override {
         return tier;
     }
 
-    // Rule 2: behavioral tier from signals
     let behavioral = if signals.goal_runs_completed >= 10
         && signals.unique_tools_used >= 8
         && signals.risk_tolerance == RiskTolerance::Aggressive
@@ -97,7 +86,6 @@ pub(super) fn resolve_tier(signals: &TierSignals) -> CapabilityTier {
         CapabilityTier::Newcomer
     };
 
-    // Rule 3: self-assessment elevates only
     if let Some(assessment) = signals.user_self_assessment {
         if assessment > behavioral {
             return assessment;
@@ -107,9 +95,6 @@ pub(super) fn resolve_tier(signals: &TierSignals) -> CapabilityTier {
     behavioral
 }
 
-// ---------------------------------------------------------------------------
-// TierFeatureFlags -- per-tier feature visibility
-// ---------------------------------------------------------------------------
 
 /// Feature visibility flags driven by the current tier (D-04).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -160,9 +145,6 @@ pub(super) fn tier_features_visible(tier: CapabilityTier) -> TierFeatureFlags {
     }
 }
 
-// ---------------------------------------------------------------------------
-// DisclosureQueue -- one-per-session feature draining (D-13)
-// ---------------------------------------------------------------------------
 
 /// A single feature disclosure entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,9 +184,6 @@ impl DisclosureQueue {
     }
 }
 
-// ---------------------------------------------------------------------------
-// TierConfig -- persisted in agent config
-// ---------------------------------------------------------------------------
 
 /// Tier settings persisted in `config.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -231,9 +210,6 @@ impl Default for TierConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// AgentEngine tier integration
-// ---------------------------------------------------------------------------
 
 use zorai_protocol::DaemonMessage;
 
@@ -246,7 +222,6 @@ impl AgentEngine {
         let tier_config = &config.tier;
 
         if !tier_config.enabled {
-            // Tier system disabled -- fall back to self-assessment or Newcomer.
             return tier_config
                 .user_self_assessment
                 .unwrap_or(CapabilityTier::Newcomer);
@@ -272,7 +247,6 @@ impl AgentEngine {
         let flags = tier_features_visible(tier);
         let feature_flags_json = serde_json::to_string(&flags).unwrap_or_else(|_| "{}".to_string());
 
-        // Activity state
         let goal_runs = self.goal_runs.lock().await;
         let inflight = self.inflight_goal_runs.lock().await;
         let (activity, active_goal_run_id, active_goal_run_title) = if !inflight.is_empty() {
@@ -304,7 +278,6 @@ impl AgentEngine {
             }
         };
 
-        // Provider health: serialize circuit breaker summaries with outage context.
         let provider_health_json = {
             let snapshots = super::engine::collect_provider_health_snapshot(
                 &self.config,
@@ -320,7 +293,6 @@ impl AgentEngine {
             serde_json::to_string(&health).unwrap_or_else(|_| "{}".to_string())
         };
 
-        // Gateway statuses
         let gateway_statuses_json = {
             let snapshots = self.gateway_health_snapshots().await;
             if !snapshots.is_empty() {
@@ -340,7 +312,6 @@ impl AgentEngine {
             }
         };
 
-        // Recent audit actions (last 5).
         let recent_actions_json = match self.history.list_action_audit(None, None, 5).await {
             Ok(entries) => {
                 let items: Vec<serde_json::Value> = entries
@@ -384,7 +355,6 @@ impl AgentEngine {
             config.tier.user_override = tier;
         }
 
-        // Persist config change.
         self.persist_config().await;
 
         let new_tier = self.compute_current_tier().await;
@@ -419,24 +389,19 @@ impl AgentEngine {
                 "auto_promotion"
             };
 
-            // Broadcast TierChanged event
             let _ = self.event_tx.send(super::types::AgentEvent::TierChanged {
                 previous_tier: previous_tier_str.clone(),
                 new_tier: new_tier_str.clone(),
                 reason: reason.to_string(),
             });
 
-            // Populate disclosure queue with features unlocked at the new tier
             self.populate_disclosure_queue(&mut config, new_tier).await;
 
-            // Update last_known_tier
             config.tier.last_known_tier = Some(new_tier_str.clone());
 
-            // Persist config change
             drop(config);
             self.persist_config().await;
 
-            // Announce tier transition via concierge (D-12)
             if let Err(e) = self
                 .concierge
                 .announce_tier_transition(&previous_tier_str, &new_tier_str)
@@ -478,18 +443,12 @@ impl AgentEngine {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Disclosure features per tier (D-13)
-// ---------------------------------------------------------------------------
 
 /// Define features available at each tier for progressive disclosure.
 fn tier_disclosure_features(tier: CapabilityTier) -> Vec<FeatureDisclosure> {
     disclosures::tier_disclosure_features(tier)
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[path = "capability_tier/tests.rs"]

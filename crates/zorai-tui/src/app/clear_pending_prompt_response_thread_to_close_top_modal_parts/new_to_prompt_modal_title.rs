@@ -110,6 +110,8 @@ impl TuiModel {
             operator_profile: OperatorProfileOnboardingState::default(),
             cancelled_thread_id: None,
             pending_new_thread_target_agent: None,
+            pending_thread_picker_refresh: None,
+            thread_picker_loading_tab: None,
             pending_builtin_persona_setup: None,
             pending_target_agent_config: None,
             pending_svarog_reasoning_effort: None,

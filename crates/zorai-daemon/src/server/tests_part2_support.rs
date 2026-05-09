@@ -265,6 +265,7 @@ pub(crate) async fn startup_readiness_blocks_history_requests_until_hydrate_fini
             limit: None,
             offset: None,
             include_internal: false,
+            agent_filter: None,
         })
         .await
         .expect("request thread list before startup is ready");

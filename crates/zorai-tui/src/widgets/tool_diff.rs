@@ -34,7 +34,6 @@ mod tests {
 
     #[test]
     fn summarize_array_value_falls_back_to_count_for_complex_items() {
-        // Mixed contents (an inner array) trigger the count-only branch.
         let items = vec![Value::Bool(true), json!([1, 2, 3])];
         assert_eq!(summarize_array_value(&items), "2 items");
     }

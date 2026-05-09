@@ -89,6 +89,8 @@ impl AgentEngine {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: true,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         };
         match self.history.list_agent_task_refs_filtered(&query).await {
             Ok(task_refs) => task_refs.into_iter().next().map(|(task_id, _, _)| task_id),
@@ -146,18 +148,19 @@ impl AgentEngine {
             tokio::time::sleep(delay).await;
         }
 
-        let Some(db_messages) = self.history.list_messages(thread_id, None).await.ok() else {
+        let (db_messages_result, totals_result) = tokio::join!(
+            self.history.list_messages(thread_id, None),
+            self.history.thread_message_token_totals(thread_id),
+        );
+        let Some(db_messages) = db_messages_result.ok() else {
             return false;
         };
         let messages: Vec<AgentMessage> = db_messages
             .into_iter()
             .filter_map(agent_message_from_db)
             .collect();
-        let (total_input_tokens, total_output_tokens) = self
-            .history
-            .thread_message_token_totals(thread_id)
-            .await
-            .unwrap_or_else(|_| sum_message_token_totals(&messages));
+        let (total_input_tokens, total_output_tokens) =
+            totals_result.unwrap_or_else(|_| sum_message_token_totals(&messages));
 
         let updated = {
             let mut threads = self.threads.write().await;
@@ -238,7 +241,6 @@ impl AgentEngine {
                 .unwrap_or(0)
         };
 
-        // Also delete from SQLite (by synthetic ID or direct ID).
         let id_refs: Vec<&str> = message_ids.iter().map(String::as_str).collect();
         let db_removed = self
             .history
@@ -350,7 +352,7 @@ impl AgentEngine {
     ) {
         let tid = match thread_id {
             Some(id) => id.to_string(),
-            None => return, // Can't seed without a thread ID
+            None => return,
         };
 
         let has_pending_persisted_messages = self
@@ -367,7 +369,6 @@ impl AgentEngine {
         }
 
         let mut threads = self.threads.write().await;
-        // Only seed if the thread doesn't exist yet or has no messages
         let needs_seeding = match threads.get(&tid) {
             None => true,
             Some(t) => t.messages.is_empty(),
@@ -648,87 +649,8 @@ impl AgentEngine {
     pub(super) async fn restore_thread_from_db(&self, thread_id: &str) -> Option<AgentThread> {
         let db_thread = self.history.get_thread(thread_id).await.ok().flatten()?;
         let thread_metadata = parse_thread_metadata(db_thread.metadata_json.as_deref());
-        if let Some(client_surface) = thread_metadata.client_surface {
-            self.thread_client_surfaces
-                .write()
-                .await
-                .insert(thread_id.to_string(), client_surface);
-        }
-        match thread_metadata.identity {
-            Some(identity) => {
-                self.thread_identity_metadata
-                    .write()
-                    .await
-                    .insert(thread_id.to_string(), identity);
-            }
-            None => {
-                self.thread_identity_metadata
-                    .write()
-                    .await
-                    .remove(thread_id);
-            }
-        }
-        match thread_metadata.execution_profile {
-            Some(execution_profile) => {
-                self.thread_execution_profiles
-                    .write()
-                    .await
-                    .insert(thread_id.to_string(), execution_profile);
-            }
-            None => {
-                self.thread_execution_profiles
-                    .write()
-                    .await
-                    .remove(thread_id);
-            }
-        }
-        if thread_metadata.thread_participants.is_empty() {
-            self.thread_participants.write().await.remove(thread_id);
-        } else {
-            self.thread_participants.write().await.insert(
-                thread_id.to_string(),
-                thread_metadata.thread_participants.clone(),
-            );
-        }
-        if thread_metadata.thread_participant_suggestions.is_empty() {
-            self.thread_participant_suggestions
-                .write()
-                .await
-                .remove(thread_id);
-        } else {
-            self.thread_participant_suggestions.write().await.insert(
-                thread_id.to_string(),
-                thread_metadata.thread_participant_suggestions.clone(),
-            );
-        }
-        match thread_metadata.latest_skill_discovery_state {
-            Some(latest_skill_discovery_state) => {
-                self.thread_skill_discovery_states
-                    .write()
-                    .await
-                    .insert(thread_id.to_string(), latest_skill_discovery_state);
-            }
-            None => {
-                self.thread_skill_discovery_states
-                    .write()
-                    .await
-                    .remove(thread_id);
-            }
-        }
-        match thread_metadata.prompt_memory_injection_state {
-            Some(prompt_memory_injection_state) => {
-                self.thread_memory_injection_state_map()
-                    .write()
-                    .await
-                    .insert(thread_id.to_string(), prompt_memory_injection_state);
-            }
-            None => {
-                self.thread_memory_injection_state_map()
-                    .write()
-                    .await
-                    .remove(thread_id);
-            }
-        }
+
+        let has_thread_participants = !thread_metadata.thread_participants.is_empty();
         let handoff_state = normalized_thread_handoff_state(
             thread_id,
             db_thread.agent_name.as_deref(),
@@ -738,27 +660,130 @@ impl AgentEngine {
         let hydrated_agent_name = visible_thread_owner_agent_name_for_handoff_state(
             thread_id,
             &handoff_state,
-            !thread_metadata.thread_participants.is_empty(),
+            has_thread_participants,
         )
         .unwrap_or_else(|| canonical_agent_name(&handoff_state.active_agent_id).to_string());
-        self.thread_handoff_states
-            .write()
-            .await
-            .insert(thread_id.to_string(), handoff_state.clone());
 
-        let (total_input, total_output) = self
-            .history
-            .thread_message_token_totals(thread_id)
-            .await
-            .unwrap_or_else(|_| (db_thread.total_tokens.max(0) as u64, 0));
-        {
+        let ParsedThreadMetadata {
+            identity: meta_identity,
+            client_surface: meta_client_surface,
+            execution_profile: meta_execution_profile,
+            thread_participants: meta_thread_participants,
+            thread_participant_suggestions: meta_thread_participant_suggestions,
+            latest_skill_discovery_state: meta_skill_discovery,
+            prompt_memory_injection_state: meta_memory_injection,
+            handoff_state: _,
+            pinned: _,
+            upstream_thread_id: meta_upstream_thread_id,
+            upstream_transport: meta_upstream_transport,
+            upstream_provider: meta_upstream_provider,
+            upstream_model: meta_upstream_model,
+            upstream_assistant_id: meta_upstream_assistant_id,
+        } = thread_metadata;
+
+        let thread_id_owned = thread_id.to_string();
+
+        let totals_fut = async {
+            self.history
+                .thread_message_token_totals(thread_id)
+                .await
+                .unwrap_or_else(|_| (db_thread.total_tokens.max(0) as u64, 0))
+        };
+        let client_surface_fut = async {
+            if let Some(client_surface) = meta_client_surface {
+                self.thread_client_surfaces
+                    .write()
+                    .await
+                    .insert(thread_id_owned.clone(), client_surface);
+            }
+        };
+        let identity_fut = async {
+            let mut guard = self.thread_identity_metadata.write().await;
+            match meta_identity {
+                Some(identity) => {
+                    guard.insert(thread_id_owned.clone(), identity);
+                }
+                None => {
+                    guard.remove(thread_id);
+                }
+            }
+        };
+        let execution_profile_fut = async {
+            let mut guard = self.thread_execution_profiles.write().await;
+            match meta_execution_profile {
+                Some(profile) => {
+                    guard.insert(thread_id_owned.clone(), profile);
+                }
+                None => {
+                    guard.remove(thread_id);
+                }
+            }
+        };
+        let participants_fut = async {
+            let mut guard = self.thread_participants.write().await;
+            if meta_thread_participants.is_empty() {
+                guard.remove(thread_id);
+            } else {
+                guard.insert(thread_id_owned.clone(), meta_thread_participants);
+            }
+        };
+        let participant_suggestions_fut = async {
+            let mut guard = self.thread_participant_suggestions.write().await;
+            if meta_thread_participant_suggestions.is_empty() {
+                guard.remove(thread_id);
+            } else {
+                guard.insert(thread_id_owned.clone(), meta_thread_participant_suggestions);
+            }
+        };
+        let skill_discovery_fut = async {
+            let mut guard = self.thread_skill_discovery_states.write().await;
+            match meta_skill_discovery {
+                Some(state) => {
+                    guard.insert(thread_id_owned.clone(), state);
+                }
+                None => {
+                    guard.remove(thread_id);
+                }
+            }
+        };
+        let memory_injection_fut = async {
+            let mut guard = self.thread_memory_injection_state_map().write().await;
+            match meta_memory_injection {
+                Some(state) => {
+                    guard.insert(thread_id_owned.clone(), state);
+                }
+                None => {
+                    guard.remove(thread_id);
+                }
+            }
+        };
+        let handoff_fut = async {
+            self.thread_handoff_states
+                .write()
+                .await
+                .insert(thread_id_owned.clone(), handoff_state.clone());
+        };
+        let pending_fut = async {
             let mut pending = self.thread_message_hydration_pending.write().await;
             if db_thread.message_count > 0 {
-                pending.insert(thread_id.to_string());
+                pending.insert(thread_id_owned.clone());
             } else {
                 pending.remove(thread_id);
             }
-        }
+        };
+
+        let ((total_input, total_output), _, _, _, _, _, _, _, _, _) = tokio::join!(
+            totals_fut,
+            client_surface_fut,
+            identity_fut,
+            execution_profile_fut,
+            participants_fut,
+            participant_suggestions_fut,
+            skill_discovery_fut,
+            memory_injection_fut,
+            handoff_fut,
+            pending_fut,
+        );
 
         Some(AgentThread {
             id: thread_id.to_string(),
@@ -766,11 +791,11 @@ impl AgentEngine {
             title: db_thread.title,
             messages: Vec::new(),
             pinned: false,
-            upstream_thread_id: thread_metadata.upstream_thread_id,
-            upstream_transport: thread_metadata.upstream_transport,
-            upstream_provider: thread_metadata.upstream_provider,
-            upstream_model: thread_metadata.upstream_model,
-            upstream_assistant_id: thread_metadata.upstream_assistant_id,
+            upstream_thread_id: meta_upstream_thread_id,
+            upstream_transport: meta_upstream_transport,
+            upstream_provider: meta_upstream_provider,
+            upstream_model: meta_upstream_model,
+            upstream_assistant_id: meta_upstream_assistant_id,
             created_at: db_thread.created_at as u64,
             updated_at: db_thread.updated_at as u64,
             total_input_tokens: total_input,
@@ -783,27 +808,21 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<AgentThread> {
-        let mut thread = self.restore_thread_from_db(thread_id).await?;
-        let db_messages = self.history.list_messages(thread_id, None).await.ok()?;
+        let (thread_opt, db_messages_result) = tokio::join!(
+            self.restore_thread_from_db(thread_id),
+            self.history.list_messages(thread_id, None),
+        );
+        let mut thread = thread_opt?;
+        let db_messages = db_messages_result.ok()?;
         let messages: Vec<AgentMessage> = db_messages
             .into_iter()
             .filter_map(agent_message_from_db)
             .collect();
-        let (total_input, total_output) = self
-            .history
-            .thread_message_token_totals(thread_id)
-            .await
-            .unwrap_or_else(|_| sum_message_token_totals(&messages));
         thread.messages = messages;
-        thread.total_input_tokens = total_input;
-        thread.total_output_tokens = total_output;
         self.clear_thread_message_hydration_pending(thread_id).await;
         Some(thread)
     }
 
-    // -----------------------------------------------------------------------
-    // Agent turn (send message → LLM → tool loop → done)
-    // -----------------------------------------------------------------------
 
     /// Run a complete agent turn in a thread.
     pub async fn send_message(&self, thread_id: Option<&str>, content: &str) -> Result<String> {

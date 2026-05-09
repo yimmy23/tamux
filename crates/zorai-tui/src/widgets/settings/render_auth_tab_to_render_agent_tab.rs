@@ -218,7 +218,6 @@ pub(crate) fn render_agent_tab<'a>(
         String::new()
     };
 
-    // (field_index, label, value, field_name, hint)
     let editable_fields: [(usize, &str, String, &str, &str); 1] = [(
         8,
         "System Prompt ",
@@ -237,14 +236,12 @@ pub(crate) fn render_agent_tab<'a>(
             theme.fg_dim
         };
 
-        // System prompt: textarea mode when editing
         if *field_name == "system_prompt" && is_editing && settings.is_textarea() {
             lines.push(Line::from(vec![
                 Span::styled(marker, marker_style),
                 Span::styled(*label, theme.fg_dim),
                 Span::styled(" [Ctrl+S/Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
             ]));
-            // Render the edit buffer as a multi-line textarea with border
             lines.push(Line::from(Span::styled(
                 "  ╭──────────────────────────────────────────╮",
                 theme.fg_dim,
@@ -266,12 +263,10 @@ pub(crate) fn render_agent_tab<'a>(
             continue;
         }
 
-        // System prompt: show truncated preview when NOT editing
         if *field_name == "system_prompt" && !is_editing {
             let preview = if value.is_empty() {
                 "(not set)".to_string()
             } else {
-                // Show first 2 lines, truncated
                 let first_lines: Vec<&str> = value.lines().take(2).collect();
                 let preview = first_lines.join(" ");
                 if preview.chars().count() > 45 {
@@ -333,7 +328,6 @@ pub(crate) fn render_agent_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 9: backend (read-only)
     {
         let is_selected = settings.field_cursor() == 9;
         let marker = if is_selected { "> " } else { "  " };

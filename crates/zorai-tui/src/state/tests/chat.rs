@@ -10,3 +10,5 @@ mod selected_message_tracks_same_message_when_append_trims_latest_window;
 mod thread_detail_preserves_local_messages_in_active_compaction_window;
 #[path = "chat_parts/thread_detail_refresh_preserves_finalized_stream_after_stale_user.rs"]
 mod thread_detail_refresh_preserves_finalized_stream_after_stale_user;
+#[path = "chat_parts/thread_list_received_defaults_missing_agent_name_to_svarog.rs"]
+mod thread_list_received_defaults_missing_agent_name_to_svarog;

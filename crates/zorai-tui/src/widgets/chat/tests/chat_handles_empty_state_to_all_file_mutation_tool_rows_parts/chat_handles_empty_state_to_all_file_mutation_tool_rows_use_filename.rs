@@ -216,7 +216,6 @@ fn tool_row_renders_toggle_chevron_before_tool_name() {
         text.contains("▶"),
         "expected collapsed chevron, got: {text}"
     );
-    // read_file is a file tool, so it uses the 📄 emoji icon now (not ⚙)
     assert!(text.contains("📄"), "expected file emoji icon, got: {text}");
 }
 

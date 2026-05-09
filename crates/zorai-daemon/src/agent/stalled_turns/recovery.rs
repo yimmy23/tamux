@@ -57,16 +57,25 @@ impl AgentEngine {
             );
             return Ok(());
         }
-        let prior_user_message = self
+        let prior_user_message = match self
             .history
             .latest_user_message_content(&candidate.thread_id)
-            .await?
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "thread {} has no prior user message for stalled-turn retry",
-                    candidate.thread_id
-                )
-            })?;
+            .await
+        {
+            Ok(Some(content)) => content,
+            Ok(None) => anyhow::bail!(
+                "thread {} has no prior user message for stalled-turn retry",
+                candidate.thread_id
+            ),
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to query persisted prior user message for stalled-turn retry on thread {}",
+                        candidate.thread_id
+                    )
+                });
+            }
+        };
 
         {
             let mut threads = self.threads.write().await;
@@ -199,6 +208,8 @@ impl AgentEngine {
                         exclude_terminal_statuses: false,
                         order_by_recent_activity_desc: false,
                         limit: Some(1),
+                        ids: Vec::new(),
+                        parent_task_ids: Vec::new(),
                     })
                     .await
                     .into_iter()

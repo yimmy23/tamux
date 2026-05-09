@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentThread, SubAgentDefinition } from "@/lib/agentStore";
-import { buildThreadFilterTabs, filterThreads } from "./threadFilterModel";
+import { buildThreadFilterTabs, daemonAgentFilterForThreadTab, filterThreads } from "./threadFilterModel";
 
 function thread(overrides: Partial<AgentThread>): AgentThread {
   return {
@@ -74,4 +74,15 @@ describe("thread filters", () => {
       goalThreadIds: new Set(),
     }).map((item) => item.id)).toEqual(["svarog-thread"]);
   });
+
+  it("maps agent-backed tabs to daemon agent filters", () => {
+    expect(daemonAgentFilterForThreadTab("svarog")).toBe("svarog");
+    expect(daemonAgentFilterForThreadTab("rarog")).toBe("rarog");
+    expect(daemonAgentFilterForThreadTab("weles")).toBe("weles");
+    expect(daemonAgentFilterForThreadTab("agent:domowoj")).toBe("domowoj");
+    expect(daemonAgentFilterForThreadTab("goals")).toBeNull();
+    expect(daemonAgentFilterForThreadTab("workspace")).toBeNull();
+    expect(daemonAgentFilterForThreadTab("internal")).toBeNull();
+  });
 });
+

@@ -213,7 +213,6 @@ pub(crate) fn parse_json_block<T: serde::de::DeserializeOwned>(raw: &str) -> Res
         }
     }
 
-    // Try unwrapping {"answer":"..."} wrapper pattern
     if let Some(candidate) = object_candidate {
         if let Ok(wrapper) = serde_json::from_str::<serde_json::Value>(candidate) {
             if let Some(inner) = wrapper.get("answer").and_then(|v| v.as_str()) {
@@ -230,7 +229,6 @@ pub(crate) fn parse_json_block<T: serde::de::DeserializeOwned>(raw: &str) -> Res
         }
     }
 
-    // Try repairing the JSON using jsonrepair
     let repaired = repair_json(without_fence);
     if let Ok(parsed) = serde_json::from_str::<T>(&repaired) {
         tracing::info!("parsed JSON after jsonrepair");

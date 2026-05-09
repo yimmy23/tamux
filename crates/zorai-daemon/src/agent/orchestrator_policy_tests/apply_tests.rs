@@ -167,6 +167,8 @@ async fn apply_fresh_halt_retries_marks_persisted_task_after_live_queue_clear() 
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await
         .pop()

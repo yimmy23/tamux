@@ -69,7 +69,6 @@ mod tests {
     fn compute_trajectory_positive_when_progress_exceeds_failure() {
         let ratio = compute_trajectory(8, 2);
         assert!(ratio > 0.0, "expected positive, got {ratio}");
-        // 8-2 / 10 = 0.6
         assert!((ratio - 0.6).abs() < 0.01);
     }
 
@@ -77,7 +76,6 @@ mod tests {
     fn compute_trajectory_negative_when_failure_exceeds_progress() {
         let ratio = compute_trajectory(1, 9);
         assert!(ratio < 0.0, "expected negative, got {ratio}");
-        // 1-9 / 10 = -0.8
         assert!((ratio - (-0.8)).abs() < 0.01);
     }
 

@@ -94,9 +94,6 @@ pub fn select_strategy(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 /// Truncate `text` so its estimated token count is at most `max_tokens`.
 fn truncate_to_tokens(text: &str, max_tokens: u32) -> String {
@@ -105,8 +102,6 @@ fn truncate_to_tokens(text: &str, max_tokens: u32) -> String {
         return text.to_string();
     }
 
-    // Target char budget: subtract the fixed overhead that estimate_tokens adds
-    // (4 tokens), then multiply by chars-per-token.
     let max_chars = (max_tokens.saturating_sub(4) as usize) * APPROX_CHARS_PER_TOKEN;
     let truncated: String = text.chars().take(max_chars).collect();
     truncated
@@ -149,7 +144,6 @@ fn compress_summarize(items: &[ContextItem]) -> String {
 
     let mut parts: Vec<String> = Vec::new();
 
-    // Tool calls summary
     let total_tool_calls: usize = tool_call_counts.values().sum();
     if total_tool_calls > 0 {
         let tool_list: Vec<String> = tool_call_counts
@@ -162,14 +156,12 @@ fn compress_summarize(items: &[ContextItem]) -> String {
         ));
     }
 
-    // Conversation summary
     if user_messages > 0 || assistant_messages > 0 {
         parts.push(format!(
             "Conversation: {user_messages} user messages, {assistant_messages} assistant messages."
         ));
     }
 
-    // Thoughts, artifacts, files
     if thought_count > 0 {
         parts.push(format!("{thought_count} agent thoughts recorded."));
     }
@@ -180,7 +172,6 @@ fn compress_summarize(items: &[ContextItem]) -> String {
         parts.push(format!("{file_count} files read into context."));
     }
 
-    // Extract key findings from tool results (first line of each, deduped)
     let mut findings: Vec<String> = Vec::new();
     let mut seen_findings: HashSet<String> = HashSet::new();
     for item in items {
@@ -239,7 +230,6 @@ fn compress_extract_key_points(items: &[ContextItem]) -> String {
 /// SemanticCompress strategy: group by source, deduplicate exact content,
 /// keep only the most recent of each duplicate group.
 fn compress_semantic(items: &[ContextItem]) -> String {
-    // Group items by source.
     let mut groups: BTreeMap<String, Vec<&ContextItem>> = BTreeMap::new();
     for item in items {
         groups.entry(item.source.clone()).or_default().push(item);
@@ -248,8 +238,6 @@ fn compress_semantic(items: &[ContextItem]) -> String {
     let mut output_parts: Vec<String> = Vec::new();
 
     for (source, group_items) in &groups {
-        // Deduplicate: for items with identical content keep only the most
-        // recent (highest timestamp).
         let mut seen_content: BTreeMap<&str, &ContextItem> = BTreeMap::new();
         for item in group_items {
             let entry = seen_content.entry(item.content.as_str()).or_insert(item);
@@ -258,7 +246,6 @@ fn compress_semantic(items: &[ContextItem]) -> String {
             }
         }
 
-        // Collect deduplicated items sorted by timestamp.
         let mut deduped: Vec<&&ContextItem> = seen_content.values().collect();
         deduped.sort_by_key(|i| i.timestamp);
 
@@ -271,9 +258,6 @@ fn compress_semantic(items: &[ContextItem]) -> String {
     output_parts.join("\n\n")
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[path = "compression/tests.rs"]

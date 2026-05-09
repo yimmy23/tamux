@@ -86,7 +86,6 @@ impl ContextItem {
             ContextType::FileContent => 0.3,
         };
 
-        // Weighted combination: recency 50%, access 20%, type 30%
         recency_weight * 0.5 + access_weight * 0.2 + type_weight * 0.3
     }
 
@@ -153,12 +152,12 @@ mod tests {
 
     #[test]
     fn estimate_tokens_basic() {
-        assert_eq!(ContextItem::estimate_tokens("hello world"), 7); // 11 chars / 4 + 4
+        assert_eq!(ContextItem::estimate_tokens("hello world"), 7);
     }
 
     #[test]
     fn estimate_tokens_empty() {
-        assert_eq!(ContextItem::estimate_tokens(""), 4); // 0/4 + 4
+        assert_eq!(ContextItem::estimate_tokens(""), 4);
     }
 
     #[test]

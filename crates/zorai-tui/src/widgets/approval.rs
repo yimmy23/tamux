@@ -8,7 +8,6 @@ use crate::theme::ThemeTokens;
 pub fn render(frame: &mut Frame, area: Rect, approval: &ApprovalState, theme: &ThemeTokens) {
     let ap = approval.selected_approval();
 
-    // Determine border color from risk level
     let (border_style, risk_label, risk_style) = match ap.map(|a| a.risk_level) {
         Some(RiskLevel::Critical) => (
             theme.accent_danger,
@@ -43,27 +42,22 @@ pub fn render(frame: &mut Frame, area: Rect, approval: &ApprovalState, theme: &T
 
     let mut lines: Vec<Line> = Vec::new();
 
-    // Empty line
     lines.push(Line::raw(""));
 
-    // Risk badge
     lines.push(Line::from(vec![
         Span::raw("  "),
         Span::styled(risk_label, risk_style),
     ]));
 
-    // Empty line
     lines.push(Line::raw(""));
 
     if let Some(ap) = ap {
-        // Command text
         lines.push(Line::from(vec![
             Span::raw("  "),
             Span::styled("Command: ", theme.fg_dim),
             Span::styled(&ap.command, theme.fg_active),
         ]));
 
-        // Blast radius
         if !ap.blast_radius.is_empty() {
             lines.push(Line::from(vec![
                 Span::raw("  "),
@@ -72,7 +66,6 @@ pub fn render(frame: &mut Frame, area: Rect, approval: &ApprovalState, theme: &T
             ]));
         }
 
-        // Task title
         if let Some(task_title) = &ap.task_title {
             lines.push(Line::from(vec![
                 Span::raw("  "),

@@ -69,9 +69,6 @@ where
     ))
 }
 
-// ---------------------------------------------------------------------------
-// Source authority classification for web search results (UNCR-03)
-// ---------------------------------------------------------------------------
 
 /// Classify URL source authority for web search/read results (UNCR-03).
 /// Uses URL domain pattern matching -- deterministic, zero-latency.
@@ -149,5 +146,3 @@ pub(crate) fn format_result_with_metadata(
     )
 }
 
-// ---------------------------------------------------------------------------
-// Tool reordering by learned heuristic effectiveness (D-08)

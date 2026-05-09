@@ -1256,8 +1256,9 @@ impl TuiModel {
                         Position::new(mouse.column, mouse.row),
                     ) {
                         Some(widgets::thread_picker::ThreadPickerHitTarget::Tab(tab)) => {
-                            self.modal.set_thread_picker_tab(tab);
+                            self.modal.set_thread_picker_tab(tab.clone());
                             self.sync_thread_picker_item_count();
+                            self.queue_threads_for_picker_tab_refresh(&tab);
                         }
                         Some(widgets::thread_picker::ThreadPickerHitTarget::Item(idx)) => {
                             self.modal_navigate_to(idx);

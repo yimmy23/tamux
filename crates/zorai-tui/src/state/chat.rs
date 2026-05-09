@@ -1,5 +1,3 @@
-// Temporary local copies until wire.rs rename (Task 9)
-// These mirror the types in state.rs
 #![allow(dead_code)]
 
 use serde_json::Value;
@@ -14,7 +12,7 @@ mod interactions;
 pub use chat_types::*;
 use chat_window::MessageWindow;
 
-use zorai_protocol::AGENT_NAME_RAROG;
+use zorai_protocol::{AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
 
 pub const CHAT_HISTORY_PAGE_SIZE: usize = 100;
 pub const CHAT_HISTORY_COLLAPSE_DELAY_TICKS: u64 = 20;
@@ -43,7 +41,13 @@ struct ThreadHandoffResponderEvent {
     to_agent_name: Option<String>,
 }
 
-// ── ChatState ─────────────────────────────────────────────────────────────────
+fn normalize_thread_agent_name(agent_name: &mut Option<String>) {
+    match agent_name.as_deref().map(str::trim) {
+        Some(value) if !value.is_empty() => {}
+        _ => *agent_name = Some(AGENT_NAME_SWAROG.to_string()),
+    }
+}
+
 
 pub struct ChatState {
     threads: Vec<AgentThread>,
@@ -1367,7 +1371,6 @@ impl ChatState {
             ChatAction::Delta { thread_id, content } => {
                 should_bump_render_revision = false;
                 self.pinned_message_top = None;
-                // Set active thread if not set, or if it matches the incoming thread
                 if (self.active_thread_id.is_none() && !self.new_thread_pending)
                     || self.active_thread_id.as_deref() == Some(thread_id.as_str())
                 {
@@ -1413,8 +1416,6 @@ impl ChatState {
                     };
                     (content, reasoning)
                 };
-                // Flush any accumulated streaming content as an ASST message first
-                // (the assistant said something before calling the tool)
                 if !content.is_empty() || reasoning.is_some() {
                     if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
                         append_message_to_thread(
@@ -1430,7 +1431,6 @@ impl ChatState {
                     }
                 }
 
-                // Push tool call as a TOOL message immediately (running status)
                 if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
                     append_message_to_thread(
                         thread,
@@ -1447,7 +1447,6 @@ impl ChatState {
                     );
                 }
 
-                // Still track in active_tool_calls for status updates
                 self.activity_for_thread_mut(&thread_id)
                     .active_tool_calls
                     .push(ToolCallVm {
@@ -1471,7 +1470,6 @@ impl ChatState {
                 weles_review,
             } => {
                 self.pinned_message_top = None;
-                // Update the active tracker
                 if let Some(activity) = self.thread_activity.get_mut(&thread_id) {
                     if let Some(tc) = activity
                         .active_tool_calls
@@ -1489,7 +1487,6 @@ impl ChatState {
                     }
                 }
 
-                // Update the TOOL message in the thread
                 if let Some(thread) = self.threads.iter_mut().find(|t| t.id == thread_id) {
                     if let Some(msg) = thread.messages.iter_mut().rev().find(|m| {
                         m.role == MessageRole::Tool && m.tool_call_id.as_deref() == Some(&call_id)
@@ -1628,7 +1625,6 @@ impl ChatState {
             }
 
             ChatAction::ThreadListReceived(new_threads) => {
-                // Preserve active selection if the thread still exists
                 if let Some(active_id) = &self.active_thread_id {
                     if !new_threads.iter().any(|t| &t.id == active_id) {
                         self.active_thread_id = None;
@@ -1646,6 +1642,9 @@ impl ChatState {
                 self.threads = new_threads
                     .into_iter()
                     .map(|mut incoming| {
+                        if incoming.id != "concierge" {
+                            normalize_thread_agent_name(&mut incoming.agent_name);
+                        }
                         if let Some(existing) = existing_threads
                             .iter()
                             .find(|thread| thread.id == incoming.id)
@@ -1723,12 +1722,11 @@ impl ChatState {
             }
 
             ChatAction::ThreadDetailReceived(incoming) => {
-                // Skip merging the concierge thread — the ConciergeWelcome
-                // event is the authoritative source for its content.
                 if incoming.id == "concierge" {
                     return;
                 }
                 let mut incoming = incoming;
+                normalize_thread_agent_name(&mut incoming.agent_name);
                 normalize_thread_window(&mut incoming);
                 let local_deleted_messages = self.local_deleted_messages.clone();
                 filter_locally_deleted_messages(&mut incoming, &local_deleted_messages);
@@ -1912,7 +1910,6 @@ impl ChatState {
                 if should_select_created_thread {
                     self.clear_thread_history_stack();
                 }
-                // Transfer messages only from a local pending placeholder to the real thread.
                 let local_messages = if replacing_local_thread {
                     self.active_thread()
                         .map(|t| t.messages.clone())
@@ -1921,16 +1918,13 @@ impl ChatState {
                     Vec::new()
                 };
 
-                // Remove local thread if it exists (it was a placeholder)
                 if let Some(active_id) = &self.active_thread_id {
                     if active_id.starts_with("local-") {
                         self.threads.retain(|t| t.id != *active_id);
                     }
                 }
 
-                // Check if thread already exists (avoid duplicates)
                 if let Some(existing) = self.threads.iter_mut().find(|t| t.id == thread_id) {
-                    // Merge local messages into existing
                     for msg in &local_messages {
                         if !existing
                             .messages
@@ -2149,7 +2143,6 @@ impl ChatState {
             }
 
             ChatAction::ForceStopStreaming => {
-                // Finalize current streaming as incomplete message with [stopped] marker
                 let Some(thread_id) = self.active_thread_id.clone() else {
                     self.bump_render_revision();
                     return;
@@ -2230,7 +2223,6 @@ impl Default for ChatState {
     }
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 #[path = "tests/chat.rs"]

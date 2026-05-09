@@ -6,7 +6,6 @@ fn detect_nested_plugins_multi() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
 
-    // Create nested structure: root/gmail/plugin.json and root/calendar/plugin.json
     let gmail_dir = root.join("gmail");
     std::fs::create_dir_all(&gmail_dir).unwrap();
     std::fs::write(
@@ -23,7 +22,6 @@ fn detect_nested_plugins_multi() {
     )
     .unwrap();
 
-    // Also create a non-plugin subdir (should be ignored)
     let docs_dir = root.join("docs");
     std::fs::create_dir_all(&docs_dir).unwrap();
     std::fs::write(docs_dir.join("README.md"), "docs").unwrap();
@@ -37,8 +35,6 @@ fn detect_nested_plugins_multi() {
 
 #[test]
 fn detect_nested_plugins_none_when_root_has_manifest() {
-    // If root has plugin.json, detect_nested_plugins should return empty
-    // (caller handles root plugin.json separately)
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
 
@@ -48,10 +44,6 @@ fn detect_nested_plugins_none_when_root_has_manifest() {
     )
     .unwrap();
 
-    // Even with nested dirs, if called on a dir that has root plugin.json,
-    // caller should not call detect_nested_plugins. But the function itself
-    // just scans subdirs -- no root plugin.json in subdirs means empty.
-    // Actually, detect_nested_plugins scans immediate children only.
     let results = detect_nested_plugins(root).unwrap();
     assert!(results.is_empty());
 }
@@ -61,7 +53,6 @@ fn detect_nested_plugins_ignores_non_plugin_dirs() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
 
-    // Only non-plugin subdirs
     let docs_dir = root.join("docs");
     std::fs::create_dir_all(&docs_dir).unwrap();
     std::fs::write(docs_dir.join("README.md"), "docs").unwrap();

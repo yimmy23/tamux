@@ -483,10 +483,6 @@ pub(super) fn summarize_array_value(items: &[Value]) -> String {
                 Value::Bool(boolean) => boolean.to_string(),
                 Value::Number(number) => number.to_string(),
                 Value::String(text) => text.clone(),
-                // Defensive: outer `all(...)` predicate (lines above) restricts
-                // to primitives, so this branch is currently unreachable. If a
-                // future edit loosens the predicate, render an empty placeholder
-                // rather than panicking the TUI mid-render.
                 _ => String::new(),
             })
             .collect::<Vec<_>>()

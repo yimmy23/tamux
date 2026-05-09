@@ -119,9 +119,6 @@ pub enum RetryStrategy {
     DurableRateLimited,
 }
 
-// ---------------------------------------------------------------------------
-// API message types
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ApiMessage {
@@ -158,9 +155,6 @@ pub struct ApiToolCallFunction {
     pub arguments: String,
 }
 
-// ---------------------------------------------------------------------------
-// Completion stream wrapper
-// ---------------------------------------------------------------------------
 
 pub struct CompletionStream {
     pub(crate) rx: mpsc::Receiver<Result<CompletionChunk>>,

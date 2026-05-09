@@ -55,6 +55,8 @@ mod modal_body_to_step;
 mod pending_workspace_actor_picker;
 
 const MESSAGE_DELETE_BACKFILL_THRESHOLD: usize = 5;
+pub(crate) const THREAD_PICKER_AGENT_REFRESH_DEBOUNCE_TICKS: u64 =
+    1_000 / modal_body_to_step::TUI_TICK_RATE_MS;
 
 #[derive(Clone, Copy, Debug)]
 struct PendingDeleteBackfillFetch {
@@ -64,8 +66,14 @@ struct PendingDeleteBackfillFetch {
     requested_at_tick: u64,
 }
 
+#[derive(Debug, Clone)]
+struct PendingThreadPickerRefresh {
+    tab: modal::ThreadPickerTab,
+    agent_filter: String,
+    ready_at_tick: u64,
+}
+
 pub struct TuiModel {
-    // State modules
     chat: chat::ChatState,
     input: input::InputState,
     modal: modal::ModalState,
@@ -90,17 +98,14 @@ pub struct TuiModel {
     pub tier: TierState,
     pub workspace: crate::state::workspace::WorkspaceState,
 
-    // UI chrome
     focus: FocusArea,
     theme: ThemeTokens,
     width: u16,
     height: u16,
 
-    // Infrastructure
     daemon_cmd_tx: UnboundedSender<DaemonCommand>,
     daemon_events_rx: Receiver<ClientEvent>,
 
-    // Status
     connected: bool,
     agent_config_loaded: bool,
     status_line: String,
@@ -114,7 +119,6 @@ pub struct TuiModel {
     next_system_monitor_tick: u64,
     image_preview_cache_revision: u64,
 
-    // Agent activity state (from daemon events, not local buffers)
     agent_activity: Option<String>,
     thread_agent_activity: std::collections::HashMap<String, String>,
     bootstrap_pending_activity_threads: std::collections::HashSet<String>,
@@ -127,18 +131,15 @@ pub struct TuiModel {
     participant_playground_activity:
         std::collections::HashMap<String, ParticipantPlaygroundActivity>,
 
-    // Error state
     last_error: Option<String>,
     error_active: bool,
     error_tick: u64,
 
-    // Pending ChatGPT subscription login flow
     openai_auth_url: Option<String>,
     openai_auth_status_text: Option<String>,
     settings_picker_target: Option<SettingsPickerTarget>,
     last_attention_surface: Option<String>,
 
-    // Responsive layout override: when Some, overrides breakpoint-based sidebar visibility
     show_sidebar_override: Option<bool>,
     main_pane_view: MainPaneView,
     task_view_scroll: usize,
@@ -146,10 +147,8 @@ pub struct TuiModel {
     task_show_timeline: bool,
     task_show_files: bool,
 
-    // Set by /quit command; checked after modal enter to issue quit
     pending_quit: bool,
 
-    // Double-Esc stream stop state
     pending_stop: bool,
     pending_stop_tick: u64,
     input_notice: Option<InputNotice>,
@@ -162,10 +161,8 @@ pub struct TuiModel {
     auto_response_selection: AutoResponseActionSelection,
     held_key_modifiers: KeyModifiers,
 
-    // Pending file attachments (prepended to next submitted message)
     attachments: Vec<Attachment>,
 
-    // Voice capture / playback state
     voice_recording: bool,
     voice_capture_path: Option<String>,
     voice_capture_stderr_path: Option<String>,
@@ -173,42 +170,36 @@ pub struct TuiModel {
     voice_recorder: Option<Child>,
     voice_player: Option<Child>,
 
-    // Queue of prompts submitted while tool execution is still in flight.
     queued_prompts: Vec<QueuedPrompt>,
     queued_prompt_action: QueuedPromptAction,
     hidden_auto_response_suggestion_ids: std::collections::HashSet<String>,
 
     operator_profile: OperatorProfileOnboardingState,
 
-    // Thread ID whose stream was cancelled via double-Esc (ignore further events)
     cancelled_thread_id: Option<String>,
 
-    // Selected target agent for the next brand-new thread started from the thread picker.
     pending_new_thread_target_agent: Option<String>,
+    pending_thread_picker_refresh: Option<PendingThreadPickerRefresh>,
+    thread_picker_loading_tab: Option<modal::ThreadPickerTab>,
 
-    // Builtin persona setup flow launched from @agent / !agent commands.
     pending_builtin_persona_setup: Option<PendingBuiltinPersonaSetup>,
     pending_target_agent_config: Option<PendingTargetAgentConfig>,
     pending_svarog_reasoning_effort: Option<String>,
 
-    // Thread currently awaiting full detail from the daemon.
     thread_loading_id: Option<String>,
     missing_runtime_thread_ids: std::collections::HashSet<String>,
     empty_hydrated_runtime_thread_ids: std::collections::HashSet<String>,
     pending_reconnect_restore: Option<PendingReconnectRestore>,
     pending_goal_hydration_refreshes: std::collections::HashSet<String>,
 
-    // Ignore a stale concierge welcome that arrives after the user navigated away.
     ignore_pending_concierge_welcome: bool,
     operator_profile_auto_start_requested: bool,
     operator_profile_auto_start_pending_summary: bool,
 
-    // Gateway connection statuses received from daemon
     pub gateway_statuses: Vec<chat::GatewayStatusVm>,
 
     pub weles_health: Option<crate::client::WelesHealthVm>,
 
-    // Recent autonomous actions from heartbeat digests (shown in sidebar)
     pub recent_actions: Vec<RecentActionVm>,
     status_modal_snapshot: Option<crate::client::AgentStatusSnapshotVm>,
     status_modal_diagnostics_json: Option<String>,
@@ -231,7 +222,6 @@ pub struct TuiModel {
     thread_participants_modal_scroll: usize,
     help_modal_scroll: usize,
 
-    // Active mouse drag selection in the chat pane
     chat_drag_anchor: Option<Position>,
     chat_drag_current: Option<Position>,
     chat_drag_anchor_point: Option<widgets::chat::SelectionPoint>,
@@ -241,19 +231,16 @@ pub struct TuiModel {
     chat_scrollbar_drag_grab_offset: Option<u16>,
     file_preview_scrollbar_drag_grab_offset: Option<u16>,
 
-    // Active mouse drag selection in the work-context preview pane
     work_context_drag_anchor: Option<Position>,
     work_context_drag_current: Option<Position>,
     work_context_drag_anchor_point: Option<widgets::chat::SelectionPoint>,
     work_context_drag_current_point: Option<widgets::chat::SelectionPoint>,
 
-    // Active mouse drag selection in the goal/task detail pane
     task_view_drag_anchor: Option<Position>,
     task_view_drag_current: Option<Position>,
     task_view_drag_anchor_point: Option<widgets::chat::SelectionPoint>,
     task_view_drag_current_point: Option<widgets::chat::SelectionPoint>,
 
-    // Active workspace board drag
     workspace_drag_task: Option<String>,
     workspace_drag_status: Option<zorai_protocol::WorkspaceTaskStatus>,
     workspace_drag_start_target: Option<widgets::workspace_board::WorkspaceBoardHitTarget>,

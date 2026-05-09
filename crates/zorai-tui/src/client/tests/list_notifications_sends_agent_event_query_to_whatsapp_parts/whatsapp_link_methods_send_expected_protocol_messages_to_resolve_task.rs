@@ -122,6 +122,7 @@ fn refresh_requests_thread_list_with_internal_threads_included() {
             limit: None,
             offset: None,
             include_internal: true,
+            agent_filter: Some(_),
         }
     ));
 }

@@ -1,6 +1,24 @@
 use super::*;
 use crate::agent::types::{GoalAgentAssignment, GoalRuntimeOwnerProfile};
 
+/// Narrow projection of `goal_runs` columns the concierge welcome actually
+/// reads. Lets `concierge_goal_context` skip the heavy 46-column scan +
+/// JSON-blob deserialization that `list_goal_runs_filtered` performs.
+struct ConciergeGoalRunLean {
+    id: String,
+    title: String,
+    goal: String,
+    status_str: String,
+    priority_str: String,
+    created_at: u64,
+    updated_at: u64,
+    started_at: Option<u64>,
+    completed_at: Option<u64>,
+    plan_summary: Option<String>,
+    reflection_summary: Option<String>,
+    current_step_index: usize,
+}
+
 fn serialize_goal_runtime_owner_profile(
     profile: &Option<GoalRuntimeOwnerProfile>,
 ) -> rusqlite::Result<Option<String>> {
@@ -145,32 +163,35 @@ fn map_goal_run_thread_ref_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Goal
     })
 }
 
-impl HistoryStore {
-    pub async fn upsert_goal_run(&self, goal_run: &GoalRun) -> Result<()> {
-        let goal_run = goal_run.clone();
-        self.conn.call(move |conn| {
-            let transaction = conn.transaction()?;
-            let memory_updates_json = serde_json::to_string(&goal_run.memory_updates).call_err()?;
-            let child_task_ids_json = serde_json::to_string(&goal_run.child_task_ids).call_err()?;
-            let launch_assignment_snapshot_json =
-                serde_json::to_string(&goal_run.launch_assignment_snapshot).call_err()?;
-            let runtime_assignment_list_json =
-                serde_json::to_string(&goal_run.runtime_assignment_list).call_err()?;
-            let execution_thread_ids_json =
-                serde_json::to_string(&goal_run.execution_thread_ids).call_err()?;
-            let model_usage_json = serde_json::to_string(&goal_run.model_usage).call_err()?;
-            let dossier_json = goal_run
-                .dossier
-                .as_ref()
-                .map(|dossier| serde_json::to_string(dossier).call_err())
-                .transpose()?;
-            let planner_owner_profile_json =
-                serialize_goal_runtime_owner_profile(&goal_run.planner_owner_profile)?;
-            let current_step_owner_profile_json =
-                serialize_goal_runtime_owner_profile(&goal_run.current_step_owner_profile)?;
-            let authorship_tag = goal_run.authorship_tag.map(authorship_tag_to_str);
+/// Synchronous goal-run upsert body that runs inside an existing
+/// transaction. Extracted so both `upsert_goal_run` and the batched
+/// variant share one implementation. Keep INSERT column lists / step
+/// reaping / event reaping in lockstep here.
+fn upsert_goal_run_in_tx(
+    transaction: &rusqlite::Transaction<'_>,
+    goal_run: &GoalRun,
+) -> std::result::Result<(), tokio_rusqlite::Error> {
+    let memory_updates_json = serde_json::to_string(&goal_run.memory_updates).call_err()?;
+    let child_task_ids_json = serde_json::to_string(&goal_run.child_task_ids).call_err()?;
+    let launch_assignment_snapshot_json =
+        serde_json::to_string(&goal_run.launch_assignment_snapshot).call_err()?;
+    let runtime_assignment_list_json =
+        serde_json::to_string(&goal_run.runtime_assignment_list).call_err()?;
+    let execution_thread_ids_json =
+        serde_json::to_string(&goal_run.execution_thread_ids).call_err()?;
+    let model_usage_json = serde_json::to_string(&goal_run.model_usage).call_err()?;
+    let dossier_json = goal_run
+        .dossier
+        .as_ref()
+        .map(|dossier| serde_json::to_string(dossier).call_err())
+        .transpose()?;
+    let planner_owner_profile_json =
+        serialize_goal_runtime_owner_profile(&goal_run.planner_owner_profile)?;
+    let current_step_owner_profile_json =
+        serialize_goal_runtime_owner_profile(&goal_run.current_step_owner_profile)?;
+    let authorship_tag = goal_run.authorship_tag.map(authorship_tag_to_str);
 
-            transaction.execute(
+    transaction.execute(
                 "INSERT OR REPLACE INTO goal_runs \
                  (id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, model_usage_json, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json, deleted_at) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, NULL)",
@@ -273,10 +294,44 @@ impl HistoryStore {
                 ],
             )?;
         }
+    Ok(())
+}
 
-            transaction.commit()?;
-            Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+impl HistoryStore {
+    pub async fn upsert_goal_run(&self, goal_run: &GoalRun) -> Result<()> {
+        self.caches.latest_goal_run_for_thread.clear();
+        let goal_run = goal_run.clone();
+        self.conn
+            .call(move |conn| {
+                let transaction = conn.transaction()?;
+                upsert_goal_run_in_tx(&transaction, &goal_run)?;
+                transaction.commit()?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// Batched upsert. Wraps N goal-runs in one transaction + one
+    /// background-thread roundtrip. `persist_goal_runs`'s loop previously
+    /// paid per-goal BEGIN/COMMIT and dispatch overhead.
+    pub async fn upsert_goal_runs_batch(&self, goal_runs: &[GoalRun]) -> Result<()> {
+        if goal_runs.is_empty() {
+            return Ok(());
+        }
+        self.caches.latest_goal_run_for_thread.clear();
+        let goal_runs = goal_runs.to_vec();
+        self.conn
+            .call(move |conn| {
+                let transaction = conn.transaction()?;
+                for goal_run in &goal_runs {
+                    upsert_goal_run_in_tx(&transaction, goal_run)?;
+                }
+                transaction.commit()?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn list_goal_runs(&self) -> Result<Vec<GoalRun>> {
@@ -832,12 +887,11 @@ impl HistoryStore {
                     .join(", ");
                 let sql = format!(
                     "SELECT id, status, title, updated_at, \
-                            COALESCE(current_step_title, \
-                                (SELECT title FROM goal_run_steps \
-                                  WHERE goal_run_steps.goal_run_id = goal_runs.id \
-                                    AND goal_run_steps.deleted_at IS NULL \
-                                    AND goal_run_steps.ordinal = goal_runs.current_step_index \
-                                  LIMIT 1)) AS current_step_title, \
+                                                        (SELECT title FROM goal_run_steps \
+                                                            WHERE goal_run_steps.goal_run_id = goal_runs.id \
+                                                                AND goal_run_steps.deleted_at IS NULL \
+                                                                AND goal_run_steps.ordinal = goal_runs.current_step_index \
+                                                            LIMIT 1) AS current_step_title, \
                             plan_summary \
                        FROM goal_runs \
                       WHERE deleted_at IS NULL \
@@ -1035,12 +1089,11 @@ impl HistoryStore {
                                 AND goal_run_steps.deleted_at IS NULL \
                                 AND goal_run_steps.ordinal = goal_runs.current_step_index \
                               LIMIT 1) AS current_step_id, \
-                            COALESCE(current_step_title, \
-                                (SELECT title FROM goal_run_steps \
-                                  WHERE goal_run_steps.goal_run_id = goal_runs.id \
-                                    AND goal_run_steps.deleted_at IS NULL \
-                                    AND goal_run_steps.ordinal = goal_runs.current_step_index \
-                                  LIMIT 1)) AS current_step_title \
+                                                        (SELECT title FROM goal_run_steps \
+                                                            WHERE goal_run_steps.goal_run_id = goal_runs.id \
+                                                                AND goal_run_steps.deleted_at IS NULL \
+                                                                AND goal_run_steps.ordinal = goal_runs.current_step_index \
+                                                            LIMIT 1) AS current_step_title \
                        FROM goal_runs \
                       WHERE deleted_at IS NULL AND status IN ({placeholders}) \
                       ORDER BY updated_at DESC, id DESC"
@@ -1555,51 +1608,183 @@ impl HistoryStore {
     }
 
     pub(crate) async fn concierge_goal_context(&self) -> Result<ConciergeGoalContext> {
-        let (latest_goal_run_id, running_goal_total, paused_goal_total) = self
-            .read_conn
-            .call(|conn| {
-                let latest_goal_run_id = conn
-                    .query_row(
-                        "SELECT id FROM goal_runs \
-                         WHERE deleted_at IS NULL \
-                         ORDER BY updated_at DESC \
-                         LIMIT 1",
-                        [],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .optional()?;
+        let started = std::time::Instant::now();
+        let running_str = goal_run_status_to_str(GoalRunStatus::Running);
+        let paused_str = goal_run_status_to_str(GoalRunStatus::Paused);
 
-                let (running_goal_total, paused_goal_total) = conn.query_row(
-                    "SELECT \
-                         COALESCE(SUM(CASE WHEN status = ?1 THEN 1 ELSE 0 END), 0), \
-                         COALESCE(SUM(CASE WHEN status = ?2 THEN 1 ELSE 0 END), 0) \
-                     FROM goal_runs \
-                     WHERE deleted_at IS NULL",
-                    params![
-                        goal_run_status_to_str(GoalRunStatus::Running),
-                        goal_run_status_to_str(GoalRunStatus::Paused),
-                    ],
-                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
-                )?;
+        let (latest_goal_run, running_goal_total, paused_goal_total) = self
+            .interactive_read_conn
+            .call(move |conn| {
+                let (latest_id, running_total, paused_total): (Option<String>, i64, i64) =
+                    conn.query_row(
+                        "SELECT \
+                             (SELECT id FROM goal_runs WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1), \
+                             COALESCE(SUM(CASE WHEN status = ?1 THEN 1 ELSE 0 END), 0), \
+                             COALESCE(SUM(CASE WHEN status = ?2 THEN 1 ELSE 0 END), 0) \
+                         FROM goal_runs \
+                         WHERE deleted_at IS NULL",
+                        params![running_str, paused_str],
+                        |row| {
+                            Ok((
+                                row.get::<_, Option<String>>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                            ))
+                        },
+                    )?;
+
+                let latest_goal_run = if let Some(goal_run_id) = latest_id {
+                    let lean: ConciergeGoalRunLean = conn.query_row(
+                        "SELECT id, title, goal, status, priority, created_at, updated_at, \
+                                started_at, completed_at, plan_summary, reflection_summary, \
+                                current_step_index \
+                         FROM goal_runs WHERE id = ?1",
+                        params![goal_run_id],
+                        |row| {
+                            Ok(ConciergeGoalRunLean {
+                                id: row.get(0)?,
+                                title: row.get(1)?,
+                                goal: row.get(2)?,
+                                status_str: row.get(3)?,
+                                priority_str: row.get(4)?,
+                                created_at: row.get::<_, i64>(5)? as u64,
+                                updated_at: row.get::<_, i64>(6)? as u64,
+                                started_at: row.get::<_, Option<i64>>(7)?.map(|v| v as u64),
+                                completed_at: row.get::<_, Option<i64>>(8)?.map(|v| v as u64),
+                                plan_summary: row.get(9)?,
+                                reflection_summary: row.get(10)?,
+                                current_step_index: row.get::<_, i64>(11)?.max(0) as usize,
+                            })
+                        },
+                    )?;
+
+                    let current_step_title: Option<String> = conn
+                        .query_row(
+                            "SELECT title FROM goal_run_steps \
+                             WHERE goal_run_id = ?1 AND ordinal = ?2 AND deleted_at IS NULL",
+                            params![lean.id, lean.current_step_index as i64],
+                            |row| row.get::<_, String>(0),
+                        )
+                        .optional()?;
+
+                    let latest_step: Option<(String, Option<String>, Option<String>, Option<i64>, Option<i64>, i64)> = conn
+                        .query_row(
+                            "SELECT title, summary, error, started_at, completed_at, ordinal \
+                             FROM goal_run_steps \
+                             WHERE goal_run_id = ?1 \
+                               AND deleted_at IS NULL \
+                               AND ((summary IS NOT NULL AND length(trim(summary)) > 0) \
+                                    OR (error IS NOT NULL AND length(trim(error)) > 0)) \
+                             ORDER BY COALESCE(completed_at, started_at, ordinal) DESC, ordinal DESC \
+                             LIMIT 1",
+                            params![lean.id],
+                            |row| {
+                                Ok((
+                                    row.get::<_, String>(0)?,
+                                    row.get::<_, Option<String>>(1)?,
+                                    row.get::<_, Option<String>>(2)?,
+                                    row.get::<_, Option<i64>>(3)?,
+                                    row.get::<_, Option<i64>>(4)?,
+                                    row.get::<_, i64>(5)?,
+                                ))
+                            },
+                        )
+                        .optional()?;
+
+                    let mut steps: Vec<GoalRunStep> = Vec::new();
+                    if let Some((title, summary, error, started_at, completed_at, ordinal)) =
+                        latest_step
+                    {
+                        steps.push(GoalRunStep {
+                            id: String::new(),
+                            position: ordinal.max(0) as usize,
+                            title,
+                            instructions: String::new(),
+                            kind: GoalRunStepKind::Reason,
+                            success_criteria: String::new(),
+                            session_id: None,
+                            status: GoalRunStepStatus::Completed,
+                            task_id: None,
+                            summary,
+                            error,
+                            started_at: started_at.map(|v| v as u64),
+                            completed_at: completed_at.map(|v| v as u64),
+                        });
+                    }
+
+                    Some(GoalRun {
+                        id: lean.id,
+                        title: lean.title,
+                        goal: lean.goal,
+                        client_request_id: None,
+                        status: parse_goal_run_status(&lean.status_str),
+                        priority: parse_task_priority(&lean.priority_str),
+                        created_at: lean.created_at,
+                        updated_at: lean.updated_at,
+                        started_at: lean.started_at,
+                        completed_at: lean.completed_at,
+                        thread_id: None,
+                        root_thread_id: None,
+                        active_thread_id: None,
+                        execution_thread_ids: Vec::new(),
+                        session_id: None,
+                        current_step_index: lean.current_step_index,
+                        current_step_title,
+                        current_step_kind: None,
+                        launch_assignment_snapshot: Vec::new(),
+                        runtime_assignment_list: Vec::new(),
+                        planner_owner_profile: None,
+                        current_step_owner_profile: None,
+                        replan_count: 0,
+                        max_replans: 0,
+                        plan_summary: lean.plan_summary,
+                        reflection_summary: lean.reflection_summary,
+                        memory_updates: Vec::new(),
+                        generated_skill_path: None,
+                        last_error: None,
+                        failure_cause: None,
+                        stopped_reason: None,
+                        child_task_ids: Vec::new(),
+                        child_task_count: 0,
+                        approval_count: 0,
+                        awaiting_approval_id: None,
+                        policy_fingerprint: None,
+                        approval_expires_at: None,
+                        containment_scope: None,
+                        compensation_status: None,
+                        compensation_summary: None,
+                        active_task_id: None,
+                        duration_ms: None,
+                        steps,
+                        events: Vec::new(),
+                        dossier: None,
+                        total_prompt_tokens: 0,
+                        total_completion_tokens: 0,
+                        estimated_cost_usd: None,
+                        model_usage: Vec::new(),
+                        autonomy_level: crate::agent::AutonomyLevel::default(),
+                        authorship_tag: None,
+                    })
+                } else {
+                    None
+                };
 
                 Ok((
-                    latest_goal_run_id,
-                    running_goal_total.max(0) as usize,
-                    paused_goal_total.max(0) as usize,
+                    latest_goal_run,
+                    running_total.max(0) as usize,
+                    paused_total.max(0) as usize,
                 ))
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let latest_goal_run = match latest_goal_run_id {
-            Some(goal_run_id) => self
-                .list_goal_runs_filtered(Some(goal_run_id))
-                .await?
-                .into_iter()
-                .next(),
-            None => None,
-        };
-
+        tracing::info!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            running_goal_total,
+            paused_goal_total,
+            has_latest = latest_goal_run.is_some(),
+            "concierge_goal_context: lean query completed"
+        );
         Ok(ConciergeGoalContext {
             latest_goal_run,
             running_goal_total,
@@ -1810,7 +1995,15 @@ impl HistoryStore {
         &self,
         thread_id: &str,
     ) -> Result<Option<GoalRun>> {
-        let thread_id = thread_id.to_string();
+        let thread_id_owned = thread_id.to_string();
+        if let Some(cached) = self
+            .caches
+            .latest_goal_run_for_thread
+            .get(&thread_id_owned)
+        {
+            return Ok(cached);
+        }
+        let thread_id_for_query = thread_id_owned.clone();
         let goal_run_id = self
             .read_conn
             .call(move |conn| {
@@ -1821,7 +2014,7 @@ impl HistoryStore {
                        AND thread_id = ?1
                      ORDER BY updated_at DESC, id DESC
                      LIMIT 1",
-                    params![thread_id],
+                    params![thread_id_for_query],
                     |row| row.get::<_, String>(0),
                 )
                 .optional()
@@ -1830,10 +2023,14 @@ impl HistoryStore {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        match goal_run_id {
-            Some(goal_run_id) => self.get_goal_run(&goal_run_id).await,
-            None => Ok(None),
-        }
+        let value = match goal_run_id {
+            Some(goal_run_id) => self.get_goal_run(&goal_run_id).await?,
+            None => None,
+        };
+        self.caches
+            .latest_goal_run_for_thread
+            .insert(thread_id_owned, value.clone());
+        Ok(value)
     }
 
     pub(crate) async fn latest_goal_run_repo_context_for_thread(
@@ -1873,7 +2070,7 @@ impl HistoryStore {
     ) -> Result<(Vec<GoalRun>, usize)> {
         let limit = limit.max(1) as i64;
         let offset = offset as i64;
-        self.read_conn
+        self.interactive_read_conn
             .call(move |conn| {
                 let total = conn.query_row(
                     "SELECT COUNT(*) FROM goal_runs WHERE deleted_at IS NULL",
@@ -1944,56 +2141,87 @@ impl HistoryStore {
                     step_map.entry(goal_run_id).or_default().push(step);
                 }
 
-                let event_sql = format!(
-                    "SELECT id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json \
-                     FROM goal_run_events \
-                     WHERE deleted_at IS NULL AND goal_run_id IN ({placeholders}) \
-                     ORDER BY timestamp ASC"
-                );
-                let mut event_stmt = conn.prepare(&event_sql)?;
-                let event_rows =
-                    event_stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
-                        let todo_snapshot_json: Option<String> = row.get(7)?;
-                        Ok((
-                            row.get::<_, String>(1)?,
-                            GoalRunEvent {
-                                id: row.get(0)?,
-                                timestamp: row.get::<_, i64>(2)? as u64,
-                                phase: row.get(3)?,
-                                message: row.get(4)?,
-                                details: row.get(5)?,
-                                step_index: row
-                                    .get::<_, Option<i64>>(6)?
-                                    .map(|value| value as usize),
-                                todo_snapshot: todo_snapshot_json
-                                    .as_deref()
-                                    .and_then(|json| serde_json::from_str(json).ok())
-                                    .unwrap_or_default(),
-                            },
-                        ))
-                    })?;
-                let mut event_map = std::collections::HashMap::<String, Vec<GoalRunEvent>>::new();
-                for row in event_rows {
-                    let (goal_run_id, event) = row?;
-                    event_map.entry(goal_run_id).or_default().push(event);
-                }
-
                 let goal_sql = format!(
-                    "SELECT id, title, goal, client_request_id, status, priority, created_at, updated_at, started_at, completed_at, thread_id, session_id, root_thread_id, active_thread_id, execution_thread_ids_json, current_step_index, replan_count, max_replans, plan_summary, reflection_summary, memory_updates_json, generated_skill_path, last_error, failure_cause, stopped_reason, child_task_ids_json, child_task_count, approval_count, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, active_task_id, duration_ms, dossier_json, total_prompt_tokens, total_completion_tokens, estimated_cost_usd, model_usage_json, autonomy_level, authorship_tag, planner_owner_profile_json, current_step_owner_profile_json, launch_assignment_snapshot_json, runtime_assignment_list_json \
+                    "SELECT id, title, goal, client_request_id, status, priority, \
+                            created_at, updated_at, started_at, completed_at, \
+                            thread_id, session_id, root_thread_id, active_thread_id, \
+                            current_step_index, replan_count, max_replans, \
+                            plan_summary, reflection_summary, generated_skill_path, \
+                            last_error, failure_cause, stopped_reason, \
+                            child_task_count, approval_count, awaiting_approval_id, \
+                            policy_fingerprint, approval_expires_at, containment_scope, \
+                            compensation_status, compensation_summary, active_task_id, \
+                            duration_ms, total_prompt_tokens, total_completion_tokens, \
+                            estimated_cost_usd, autonomy_level, authorship_tag \
                      FROM goal_runs \
                      WHERE deleted_at IS NULL AND id IN ({placeholders}) \
                      ORDER BY updated_at DESC"
                 );
                 let mut stmt = conn.prepare(&goal_sql)?;
                 let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
-                    map_goal_run_row(row)
+                    Ok(GoalRun {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        goal: row.get(2)?,
+                        client_request_id: row.get(3)?,
+                        status: parse_goal_run_status(&row.get::<_, String>(4)?),
+                        priority: parse_task_priority(&row.get::<_, String>(5)?),
+                        created_at: row.get::<_, i64>(6)? as u64,
+                        updated_at: row.get::<_, i64>(7)? as u64,
+                        started_at: row.get::<_, Option<i64>>(8)?.map(|v| v as u64),
+                        completed_at: row.get::<_, Option<i64>>(9)?.map(|v| v as u64),
+                        thread_id: row.get(10)?,
+                        session_id: row.get(11)?,
+                        root_thread_id: row.get(12)?,
+                        active_thread_id: row.get(13)?,
+                        execution_thread_ids: Vec::new(),
+                        current_step_index: row.get::<_, i64>(14)?.max(0) as usize,
+                        current_step_title: None,
+                        current_step_kind: None,
+                        launch_assignment_snapshot: Vec::new(),
+                        runtime_assignment_list: Vec::new(),
+                        planner_owner_profile: None,
+                        current_step_owner_profile: None,
+                        replan_count: row.get::<_, i64>(15)?.max(0) as u32,
+                        max_replans: row.get::<_, i64>(16)?.max(0) as u32,
+                        plan_summary: row.get(17)?,
+                        reflection_summary: row.get(18)?,
+                        memory_updates: Vec::new(),
+                        generated_skill_path: row.get(19)?,
+                        last_error: row.get(20)?,
+                        failure_cause: row.get(21)?,
+                        stopped_reason: row.get(22)?,
+                        child_task_ids: Vec::new(),
+                        child_task_count: row.get::<_, i64>(23)?.max(0) as u32,
+                        approval_count: row.get::<_, i64>(24)?.max(0) as u32,
+                        awaiting_approval_id: row.get(25)?,
+                        policy_fingerprint: row.get(26)?,
+                        approval_expires_at: row.get::<_, Option<i64>>(27)?.map(|v| v as u64),
+                        containment_scope: row.get(28)?,
+                        compensation_status: row.get(29)?,
+                        compensation_summary: row.get(30)?,
+                        active_task_id: row.get(31)?,
+                        duration_ms: row.get::<_, Option<i64>>(32)?.map(|v| v as u64),
+                        steps: Vec::new(),
+                        events: Vec::new(),
+                        dossier: None,
+                        total_prompt_tokens: row.get::<_, i64>(33)?.max(0) as u64,
+                        total_completion_tokens: row.get::<_, i64>(34)?.max(0) as u64,
+                        estimated_cost_usd: row.get(35)?,
+                        model_usage: Vec::new(),
+                        autonomy_level: parse_autonomy_level(
+                            &row.get::<_, Option<String>>(36)?.unwrap_or_default(),
+                        ),
+                        authorship_tag: row
+                            .get::<_, Option<String>>(37)?
+                            .map(|value| parse_authorship_tag(&value)),
+                    })
                 })?;
 
                 let mut goal_runs = Vec::new();
                 for row in rows {
                     let mut goal_run = row?;
                     goal_run.steps = step_map.remove(&goal_run.id).unwrap_or_default();
-                    goal_run.events = event_map.remove(&goal_run.id).unwrap_or_default();
                     if goal_run.current_step_title.is_none() {
                         goal_run.current_step_title = goal_run
                             .steps
@@ -2062,6 +2290,7 @@ impl HistoryStore {
     }
 
     pub async fn delete_goal_run(&self, goal_run_id: &str) -> Result<()> {
+        self.caches.latest_goal_run_for_thread.clear();
         let goal_run_id = goal_run_id.to_string();
         self.conn
             .call(move |conn| {

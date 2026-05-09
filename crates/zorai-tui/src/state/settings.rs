@@ -6,7 +6,6 @@ mod cursor;
 use crate::state::config::ConfigState;
 use zorai_shared::providers::PROVIDER_ID_OPENROUTER;
 
-// ── SettingsTab ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsTab {
@@ -28,7 +27,6 @@ pub enum SettingsTab {
 #[path = "settings_impl_parts/all.rs"]
 mod all;
 
-// ── SettingsAction ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum SettingsAction {
@@ -57,7 +55,6 @@ pub enum SettingsAction {
     Save,
 }
 
-// ── SettingsState ─────────────────────────────────────────────────────────────
 
 pub struct SettingsState {
     active_tab: SettingsTab,
@@ -65,7 +62,7 @@ pub struct SettingsState {
     editing_field: Option<String>,
     edit_buffer: String,
     edit_cursor: usize,
-    textarea_mode: bool, // true for multi-line edit (system_prompt)
+    textarea_mode: bool,
     dropdown_open: bool,
     dropdown_cursor: usize,
     dirty: bool,
@@ -90,7 +87,6 @@ mod reduce;
 #[path = "settings_impl_parts/default.rs"]
 mod default;
 
-// ── PluginSettingsState ──────────────────────────────────────────────────────
 
 /// State for the Plugins settings tab. Stored separately from SettingsState
 /// because plugin data is dynamic (varies by installed plugins).
@@ -103,7 +99,7 @@ pub struct PluginSettingsState {
     /// Settings schema fields for the selected plugin (parsed from manifest JSON).
     pub schema_fields: Vec<PluginSchemaField>,
     /// Current setting values for the selected plugin (from daemon).
-    pub settings_values: Vec<(String, String, bool)>, // (key, value, is_secret)
+    pub settings_values: Vec<(String, String, bool)>,
     /// Whether we're in plugin list mode (true) or plugin detail mode (false).
     pub list_mode: bool,
     /// Test connection result message (None = not tested yet).
@@ -153,7 +149,6 @@ mod new_to_is_key_secret;
 #[path = "settings_impl_parts/default_02.rs"]
 mod default_02;
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 #[path = "tests/settings.rs"]

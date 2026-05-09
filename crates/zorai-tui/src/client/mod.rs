@@ -46,9 +46,6 @@ mod tests {
     async fn dispatch_client_event_does_not_panic_when_receiver_dropped() {
         let (tx, rx) = mpsc::channel::<ClientEvent>(1);
         drop(rx);
-        // The helper must absorb the SendError without panicking so that a
-        // closed event channel during shutdown / overflow only logs a warning
-        // and does not poison the daemon dispatch loop.
         super::dispatch_client_event(&tx, ClientEvent::Error("test".to_string()), "test_context")
             .await;
     }
@@ -126,7 +123,6 @@ mod tests {
     #[tokio::test]
     async fn unhandled_daemon_message_does_not_panic_dispatcher() {
         let (event_tx, _event_rx) = mpsc::channel(8);
-        // `Pong` is currently routed nowhere — exercising the catch-all branch.
         let cont = dispatch_for_test(zorai_protocol::DaemonMessage::Pong, &event_tx).await;
         assert!(
             cont,

@@ -5,7 +5,6 @@ pub(crate) fn add_available_tools_part_b(
     _agent_data_dir: &std::path::Path,
     has_workspace_topology: bool,
 ) {
-    // History search (daemon has SQLite FTS)
     tools.push(tool_def(
         tool_names::SEARCH_HISTORY,
         "Search command execution history. Returns matching commands with timestamps and exit codes.",
@@ -78,7 +77,6 @@ pub(crate) fn add_available_tools_part_b(
         ));
     }
 
-    // Always available: notify and memory tools
     tools.push(tool_def(
         tool_names::NOTIFY_USER,
         "Send a proactive notification to the user via configured channels.",

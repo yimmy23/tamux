@@ -165,12 +165,6 @@ pub fn reorder_tools_by_heuristics(
         return;
     }
 
-    // Stable sort: preserve the existing heuristic ordering first, then apply a
-    // bounded promotion for clarification and preferred fallback tools inside
-    // the same score band. This keeps higher-confidence heuristic wins intact
-    // while moving ask_questions earlier when the operator model says the next
-    // best move is to clarify intent, and still promotes known-good fallbacks
-    // when the base heuristic is otherwise indifferent.
     tools.sort_by(|a, b| {
         let score_cmp = match (
             scores.get(&a.function.name).copied(),

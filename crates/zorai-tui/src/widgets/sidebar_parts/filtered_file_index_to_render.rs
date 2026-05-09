@@ -290,7 +290,6 @@ pub(crate) fn gateway_status_lines(
     statuses: &[GatewayStatusVm],
     theme: &ThemeTokens,
 ) -> Vec<Line<'static>> {
-    // Only show gateway section if at least one platform is not disconnected
     let active: Vec<&GatewayStatusVm> = statuses
         .iter()
         .filter(|s| s.status != "disconnected")
@@ -355,10 +354,10 @@ pub(crate) fn recent_actions_lines(
     )));
     for action in actions.iter().take(3) {
         let icon = match action.action_type.as_str() {
-            "stale_todo" => "\u{2611}",    // ballot box with check
-            "stuck_goal" => "\u{26A0}",    // warning
-            "morning_brief" => "\u{2600}", // sun
-            _ => "\u{25CB}",               // circle
+            "stale_todo" => "\u{2611}",
+            "stuck_goal" => "\u{26A0}",
+            "morning_brief" => "\u{2600}",
+            _ => "\u{25CB}",
         };
         let mut summary = action.summary.clone();
         if summary.chars().count() > 40 {

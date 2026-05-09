@@ -82,6 +82,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: true,
                 limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await
             .into_iter()
@@ -102,10 +104,11 @@ impl AgentEngine {
             .filter(|thread| !active_stream_ids.contains(&thread.id))
             .filter(|thread| !pending_operator_question_thread_ids.contains(&thread.id))
             .filter(|thread| {
-                unanswered_tool_call_thread_ids
+                let in_db = unanswered_tool_call_thread_ids
                     .as_ref()
-                    .map(|thread_ids| !thread_ids.contains(&thread.id))
-                    .unwrap_or_else(|| !thread_has_unanswered_tool_calls(thread))
+                    .map(|thread_ids| thread_ids.contains(&thread.id))
+                    .unwrap_or(false);
+                !(in_db || thread_has_unanswered_tool_calls(thread))
             })
             .filter(|thread| latest_thread_activity_at(thread) >= recent_cutoff)
             .filter_map(|thread| latest_stalled_turn_observation(thread, &tasks, &goal_runs))
@@ -126,11 +129,11 @@ impl AgentEngine {
             {
                 return None;
             }
-            if unanswered_tool_call_thread_ids
+            let in_db_unanswered = unanswered_tool_call_thread_ids
                 .as_ref()
                 .map(|thread_ids| thread_ids.contains(thread.id.as_str()))
-                .unwrap_or_else(|| thread_has_unanswered_tool_calls(thread))
-            {
+                .unwrap_or(false);
+            if in_db_unanswered || thread_has_unanswered_tool_calls(thread) {
                 return None;
             }
             if latest_stream_activity_at(thread, &entry) < recent_cutoff {
@@ -199,10 +202,10 @@ impl AgentEngine {
             let Some(thread) = threads.get(thread_id) else {
                 continue;
             };
-            if unanswered_tool_call_thread_ids
+            let in_db_unanswered = unanswered_tool_call_thread_ids
                 .map(|thread_ids| thread_ids.contains(thread_id))
-                .unwrap_or_else(|| thread_has_unanswered_tool_calls(thread))
-            {
+                .unwrap_or(false);
+            if in_db_unanswered || thread_has_unanswered_tool_calls(thread) {
                 continue;
             }
 

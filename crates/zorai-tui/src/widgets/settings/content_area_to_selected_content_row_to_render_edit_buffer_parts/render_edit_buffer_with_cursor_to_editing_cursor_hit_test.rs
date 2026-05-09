@@ -131,18 +131,16 @@ pub(crate) fn render(
         return;
     }
 
-    // Split: tab bar (1) + separator (1) + content (flex) + hints (1)
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // tab bar
-            Constraint::Length(1), // separator
-            Constraint::Min(1),    // content
-            Constraint::Length(1), // hints
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
         ])
         .split(inner);
 
-    // Tab bar
     let active = settings.active_tab();
     let tab_index = active_tab_index(active);
     let tabs = visible_tabs(chunks[0], tab_index);
@@ -151,14 +149,12 @@ pub(crate) fn render(
         chunks[0],
     );
 
-    // Separator
     let sep = Line::from(Span::styled(
         "\u{2500}".repeat(chunks[1].width as usize),
         theme.fg_dim,
     ));
     frame.render_widget(Paragraph::new(sep), chunks[1]);
 
-    // Content
     let content_lines = render_tab_content(
         chunks[2].width,
         settings,
@@ -174,7 +170,6 @@ pub(crate) fn render(
     let paragraph = Paragraph::new(content_lines).scroll((scroll.min(u16::MAX as usize) as u16, 0));
     frame.render_widget(paragraph, chunks[2]);
 
-    // Hints — context-sensitive
     let hints = if settings.is_editing() {
         Line::from(vec![
             Span::raw(" "),

@@ -133,25 +133,10 @@ pub(crate) fn build_skill_drafting_prompt(
     )
 }
 
-// ---------------------------------------------------------------------------
-// Complexity threshold
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Jaccard similarity
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Novelty detection
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// JSON extraction
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Consolidation sub-task methods on AgentEngine (Phase 6 Plan 02)
-// ---------------------------------------------------------------------------
 
 use super::engine::AgentEngine;
 use super::types::AgentConfig;
@@ -230,7 +215,6 @@ impl AgentEngine {
 
             let outcome = trace.outcome.as_deref().unwrap_or("unknown");
 
-            // Get replan_count from goal_run if present (Pitfall 1)
             let replan_count: u32 = if let Some(ref gr_id) = trace.goal_run_id {
                 match self.history.goal_run_replan_count(gr_id).await {
                     Ok(Some(replan_count)) => replan_count,
@@ -252,7 +236,6 @@ impl AgentEngine {
                 continue;
             }
 
-            // Check novelty against known patterns
             let task_type = trace.task_type.as_deref().unwrap_or("unknown");
             let is_novel = {
                 let patterns = self.pattern_store.read().await;
@@ -272,7 +255,6 @@ impl AgentEngine {
                 continue;
             }
 
-            // Store as pending candidate
             let key = format!("skill_draft_candidate:{}", trace.id);
             if let Err(e) = self
                 .history
@@ -286,7 +268,6 @@ impl AgentEngine {
             flagged += 1;
         }
 
-        // Update watermark
         if last_created_at > watermark {
             if let Err(e) = self
                 .history
@@ -312,14 +293,12 @@ impl AgentEngine {
         config: &AgentConfig,
         deadline: &std::time::Instant,
     ) -> usize {
-        // Need at least 10 seconds for LLM call (Pitfall 4)
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if remaining.as_secs() < 10 {
             tracing::debug!("skipping skill drafting -- insufficient budget");
             return 0;
         }
 
-        // Check circuit breaker
         if let Err(_e) = self.check_circuit_breaker(&config.provider).await {
             tracing::debug!(
                 provider = %config.provider,
@@ -328,7 +307,6 @@ impl AgentEngine {
             return 0;
         }
 
-        // Load the oldest pending candidate.
         let pending = match self
             .history
             .first_consolidation_state_by_prefix_value("skill_draft_candidate:", "pending")
@@ -341,13 +319,11 @@ impl AgentEngine {
             }
         };
 
-        // Process at most ONE candidate per tick
         let Some((key, _)) = pending else {
             return 0;
         };
         let trace_id = key.strip_prefix("skill_draft_candidate:").unwrap_or(&key);
 
-        // Extract tool sequence from the trace (look it up again)
         let trace = match self
             .history
             .get_successful_execution_trace_by_id(trace_id)
@@ -355,7 +331,6 @@ impl AgentEngine {
         {
             Ok(Some(trace)) => trace,
             Ok(None) => {
-                // Trace no longer available -- mark as skipped
                 let _ = self
                     .history
                     .set_consolidation_state(&key, "skipped", super::now_millis())
@@ -370,7 +345,6 @@ impl AgentEngine {
         let context_tags =
             infer_draft_context_tags(&tool_sequence, task_type, self.workspace_root.as_deref());
 
-        // Build template part (tool sequence) + LLM prompt for description/guidance
         let tool_list = tool_sequence.join(", ");
         let drafting_prompt = build_skill_drafting_prompt(&tool_sequence, task_type, &context_tags);
 
@@ -397,7 +371,6 @@ impl AgentEngine {
             return 0;
         }
 
-        // Extract skill name from generated content
         let skill_name: String = skill_content
             .lines()
             .find(|l: &&str| l.starts_with("name:"))
@@ -405,7 +378,6 @@ impl AgentEngine {
             .map(|s: &str| s.trim().to_string())
             .unwrap_or_else(|| format!("skill_{}", &trace_id[..8.min(trace_id.len())]));
 
-        // Create drafts directory (Pitfall 3)
         let drafts_dir = self
             .data_dir
             .parent()
@@ -425,7 +397,6 @@ impl AgentEngine {
             return 0;
         }
 
-        // Register in DB
         let variant = match self.history.register_skill_document(&skill_path).await {
             Ok(v) => v,
             Err(e) => {
@@ -434,7 +405,6 @@ impl AgentEngine {
             }
         };
 
-        // Override status to "draft" (Pitfall 6: register_skill_document defaults to "active")
         if let Err(e) = self
             .history
             .update_skill_variant_status(&variant.variant_id, "draft")
@@ -443,14 +413,12 @@ impl AgentEngine {
             tracing::warn!(error = %e, "failed to set drafted skill status to draft");
         }
 
-        // Mark candidate as drafted
         let now = super::now_millis();
         let _ = self
             .history
             .set_consolidation_state(&key, "drafted", now)
             .await;
 
-        // Record provenance for skill drafting (D-07)
         self.record_provenance_event(
             "skill_drafted",
             &format!(
@@ -478,7 +446,6 @@ impl AgentEngine {
             "drafted new skill from execution trace"
         );
 
-        // Announce via concierge (D-08: first drafts are milestones)
         let description_excerpt: String = skill_content.chars().take(200).collect();
         self.announce_skill_draft(&skill_name, &description_excerpt);
 
@@ -509,7 +476,6 @@ impl AgentEngine {
             return 0;
         }
 
-        // Query draft skills
         let drafts = match self
             .history
             .list_skill_variants_by_status("draft", 10)
@@ -526,10 +492,8 @@ impl AgentEngine {
             return 0;
         }
 
-        // Process at most ONE draft per tick
         let draft = &drafts[0];
 
-        // Read SKILL.md content from disk
         let skill_path = self
             .data_dir
             .parent()
@@ -550,7 +514,6 @@ impl AgentEngine {
             }
         };
 
-        // Build LLM prompt for mental test evaluation (D-05)
         let test_prompt = format!(
             "You are evaluating whether a draft AI skill document is useful and correct.\n\n\
              ## Skill Document\n\n\
@@ -587,11 +550,9 @@ impl AgentEngine {
             }
         };
 
-        // Parse response: count scenarios where would_help=true
         let pass_count = parse_mental_test_results(&response);
 
         if pass_count >= 2 {
-            // Promote to Testing
             if let Err(e) = self
                 .history
                 .update_skill_variant_status(&draft.variant_id, "testing")
@@ -601,7 +562,6 @@ impl AgentEngine {
                 return 0;
             }
 
-            // Record provenance for mental test promotion (D-07)
             self.record_provenance_event(
                 "skill_mental_test_passed",
                 &format!(
@@ -642,9 +602,6 @@ impl AgentEngine {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[path = "tests/skill_discovery.rs"]

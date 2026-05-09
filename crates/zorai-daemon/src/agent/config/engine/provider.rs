@@ -436,7 +436,6 @@ impl AgentEngine {
                             config.base_url.clone(),
                         )
                     } else {
-                        // Fall back to top-level config if this is the active provider.
                         (
                             !config.api_key.is_empty(),
                             config.auth_source,

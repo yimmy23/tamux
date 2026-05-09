@@ -79,9 +79,7 @@ impl AwarenessMonitor {
         is_progress: bool,
         now_ms: u64,
     ) {
-        // Enforce entity cap: remove least recently active if at limit
         if !self.windows.contains_key(entity_id) && self.windows.len() >= MAX_TRACKED_ENTITIES {
-            // Find entity with oldest last entry timestamp
             if let Some(oldest_id) = self
                 .windows
                 .iter()
@@ -183,9 +181,6 @@ impl AwarenessMonitor {
     }
 }
 
-// ---------------------------------------------------------------------------
-// AgentEngine integration methods
-// ---------------------------------------------------------------------------
 
 use crate::agent::engine::AgentEngine;
 use crate::agent::types::AgentEvent;
@@ -218,7 +213,6 @@ impl AgentEngine {
     ///
     /// Consults counter-who before firing any mode shift (locked decision AWAR-03).
     pub(crate) async fn check_awareness_mode_shift(&self, entity_id: &str, thread_id: &str) {
-        // 1. Check diminishing returns from awareness
         let diminishing = {
             let monitor = self.awareness.read().await;
             monitor.check_diminishing_returns(entity_id)
@@ -227,7 +221,6 @@ impl AgentEngine {
             return;
         }
 
-        // 2. Consult counter-who (AWAR-03 locked decision)
         let counter_who_confirms = {
             let scope_id = crate::agent::agent_identity::current_agent_scope_id();
             let stores = self.episodic_store.read().await;
@@ -239,7 +232,6 @@ impl AgentEngine {
             .is_some()
         };
 
-        // 3. Evaluate mode shift
         let decision = mode_shift::evaluate_mode_shift(diminishing, counter_who_confirms);
 
         if decision.should_shift {
@@ -335,7 +327,6 @@ mod tests {
     #[test]
     fn check_diminishing_returns_none_when_success_rate_high() {
         let mut monitor = AwarenessMonitor::new();
-        // All successes with same pattern
         for i in 0..5 {
             monitor.record_outcome("e1", "thread", "tool", "same", true, false, i);
         }
@@ -345,7 +336,6 @@ mod tests {
     #[test]
     fn check_diminishing_returns_none_when_pattern_count_low() {
         let mut monitor = AwarenessMonitor::new();
-        // 2 failures with same pattern (below threshold of 3)
         monitor.record_outcome("e1", "thread", "tool", "same", false, false, 1);
         monitor.record_outcome("e1", "thread", "tool", "same", false, false, 2);
         assert!(monitor.check_diminishing_returns("e1").is_none());
@@ -354,7 +344,6 @@ mod tests {
     #[test]
     fn check_diminishing_returns_some_when_stuck() {
         let mut monitor = AwarenessMonitor::new();
-        // 5 failures with same pattern -- consecutive_same_pattern >= 3, success_rate < 0.3
         for i in 0..5 {
             monitor.record_outcome("e1", "thread", "tool", "same", false, false, i);
         }
@@ -432,11 +421,9 @@ mod tests {
     #[test]
     fn aggregate_short_term_success_rate_averages() {
         let mut monitor = AwarenessMonitor::new();
-        // Entity 1: all successes -> 1.0
         for i in 0..5 {
             monitor.record_outcome("e1", "thread", "tool", &format!("h{i}"), true, false, i);
         }
-        // Entity 2: all failures -> 0.0
         for i in 0..5 {
             monitor.record_outcome(
                 "e2",
@@ -449,7 +436,6 @@ mod tests {
             );
         }
         let avg = monitor.aggregate_short_term_success_rate();
-        // (1.0 + 0.0) / 2 = 0.5
         assert!((avg - 0.5).abs() < 0.01);
     }
 

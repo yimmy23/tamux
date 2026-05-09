@@ -5,9 +5,6 @@
 
 use std::collections::HashMap;
 
-// ---------------------------------------------------------------------------
-// Field value
-// ---------------------------------------------------------------------------
 
 /// A stored profile field value with provenance metadata.
 #[derive(Debug, Clone)]
@@ -22,9 +19,6 @@ pub struct ProfileFieldValue {
     pub updated_at: u64,
 }
 
-// ---------------------------------------------------------------------------
-// Field specification
-// ---------------------------------------------------------------------------
 
 /// Input widget hint for profile questions.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,9 +51,6 @@ pub struct ProfileFieldSpec {
     pub required: bool,
 }
 
-// ---------------------------------------------------------------------------
-// Profile snapshot
-// ---------------------------------------------------------------------------
 
 /// Full snapshot of operator profile fields indexed by field key.
 #[derive(Debug, Clone, Default)]

@@ -4,13 +4,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
 
-// ---------------------------------------------------------------------------
-// Task queue
-// ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Sub-agent management
-// ---------------------------------------------------------------------------
 
 /// Configuration for sub-agent supervision — how often to check, when to
 /// consider a sub-agent stuck, and what intervention level to apply.
@@ -120,9 +114,6 @@ pub enum ContextOverflowAction {
     Error,
 }
 
-// ---------------------------------------------------------------------------
-// Task queue
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -263,7 +254,6 @@ pub struct AgentTask {
     #[serde(default)]
     pub logs: Vec<AgentTaskLogEntry>,
 
-    // -- Sub-agent management extensions (Phase 1) --
     /// Restrict which tools this sub-agent may call. `None` = all tools allowed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_whitelist: Option<Vec<String>>,
@@ -289,7 +279,6 @@ pub struct AgentTask {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supervisor_config: Option<SupervisorConfig>,
 
-    // -- Provider/model override for sub-agent dispatch --
     /// Override provider for this task (from SubAgentDefinition).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub override_provider: Option<String>,

@@ -5,9 +5,6 @@ use serde::{Deserialize, Serialize};
 use super::context_item::*;
 use crate::agent::summarize_text;
 
-// ---------------------------------------------------------------------------
-// Data structures
-// ---------------------------------------------------------------------------
 
 /// An archived context item with compressed content and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,9 +51,6 @@ impl Default for RetentionPolicy {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ArchiveManager
-// ---------------------------------------------------------------------------
 
 /// In-memory manager that prepares entries for archival and evaluates
 /// retention rules.  Actual persistence is delegated to `HistoryStore`
@@ -142,9 +136,6 @@ impl ArchiveManager {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Standalone helpers
-// ---------------------------------------------------------------------------
 
 /// Compress content for archival storage.
 ///
@@ -158,10 +149,8 @@ pub fn compress_for_archive(content: &str, max_chars: usize) -> (String, Option<
         return (content.to_owned(), None);
     }
 
-    // Build a simple extractive summary from the first few lines.
     let summary = build_extractive_summary(content);
 
-    // Truncate at a character boundary, trying to land on a whitespace break.
     let truncated = summarize_text(content, max_chars);
 
     (truncated, Some(summary))
@@ -197,9 +186,6 @@ fn build_extractive_summary(content: &str) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -220,7 +206,6 @@ mod tests {
         }
     }
 
-    // 1. prepare_for_archive creates a valid entry --------------------------
     #[test]
     fn prepare_for_archive_creates_valid_entry() {
         let item = make_item("ctx-1", "Hello, world!");
@@ -236,7 +221,6 @@ mod tests {
         assert!(entry.token_count_compressed > 0);
     }
 
-    // 2. Short content preserved as-is -------------------------------------
     #[test]
     fn short_content_preserved_as_is() {
         let short = "Brief note.";
@@ -245,18 +229,16 @@ mod tests {
         assert!(summary.is_none());
     }
 
-    // 3. Long content gets a summary ---------------------------------------
     #[test]
     fn long_content_gets_summary() {
-        let long = "word ".repeat(1_000); // 5 000 chars
+        let long = "word ".repeat(1_000);
         let (compressed, summary) = compress_for_archive(&long, 200);
 
-        assert!(compressed.len() <= 210); // 200 + "..."
+        assert!(compressed.len() <= 210);
         assert!(summary.is_some());
         assert!(!summary.unwrap().is_empty());
     }
 
-    // 4. Retention policy respects max_age_days ----------------------------
     #[test]
     fn retention_policy_respects_max_age_days() {
         let policy = RetentionPolicy {
@@ -279,12 +261,10 @@ mod tests {
             last_accessed_at: None,
         };
 
-        // 8 days in milliseconds — should exceed 7-day policy.
         let eight_days_ms = 8 * 24 * 60 * 60 * 1_000;
         assert!(!mgr.should_retain(&entry, eight_days_ms));
     }
 
-    // 5. Fresh entries pass retention check ---------------------------------
     #[test]
     fn fresh_entries_pass_retention_check() {
         let mgr = ArchiveManager::new(RetentionPolicy::default());
@@ -302,11 +282,9 @@ mod tests {
             last_accessed_at: None,
         };
 
-        // Check 1 second later — still fresh.
         assert!(mgr.should_retain(&entry, 1_001_000));
     }
 
-    // 6. Old entries fail retention check -----------------------------------
     #[test]
     fn old_entries_fail_retention_check() {
         let mgr = ArchiveManager::new(RetentionPolicy {
@@ -327,24 +305,20 @@ mod tests {
             last_accessed_at: None,
         };
 
-        // 2 days later.
         let two_days_ms = 2 * 24 * 60 * 60 * 1_000;
         assert!(!mgr.should_retain(&entry, two_days_ms));
     }
 
-    // 7. FTS query escaping handles special chars --------------------------
     #[test]
     fn fts_query_escaping_handles_special_chars() {
         let raw = r#"hello "world" foo:bar (baz) qux*"#;
         let query = ArchiveManager::build_search_query(raw);
 
-        // No raw special chars should remain unquoted.
         assert!(!query.contains('*'));
         assert!(!query.contains('('));
         assert!(!query.contains(')'));
         assert!(!query.contains(':'));
 
-        // Each token is double-quoted.
         assert!(query.contains("\"hello\""));
         assert!(query.contains("\"world\""));
         assert!(query.contains("\"foo\""));
@@ -352,11 +326,9 @@ mod tests {
         assert!(query.contains("\"baz\""));
         assert!(query.contains("\"qux\""));
 
-        // Tokens joined with AND.
         assert!(query.contains(" AND "));
     }
 
-    // 8. Default retention policy values -----------------------------------
     #[test]
     fn default_retention_policy_values() {
         let policy = RetentionPolicy::default();
@@ -364,7 +336,6 @@ mod tests {
         assert_eq!(policy.max_entries_per_thread, 500);
     }
 
-    // 9. Archive entry roundtrip JSON --------------------------------------
     #[test]
     fn archive_entry_roundtrip_json() {
         let entry = ArchiveEntry {
@@ -403,25 +374,20 @@ mod tests {
         assert_eq!(deserialized.last_accessed_at, entry.last_accessed_at);
     }
 
-    // 10. Compression ratio is reasonable ----------------------------------
     #[test]
     fn compression_ratio_is_reasonable() {
-        // 10 000 characters of content, compressed to at most 2 000.
         let long = "x".repeat(10_000);
         let (compressed, _) = compress_for_archive(&long, 2_000);
 
-        // Compressed output should be noticeably smaller than the original.
         let ratio = compressed.len() as f64 / long.len() as f64;
         assert!(
             ratio < 0.25,
             "compression ratio {ratio:.2} should be < 0.25"
         );
 
-        // But not empty.
         assert!(!compressed.is_empty());
     }
 
-    // Bonus: empty query produces empty string -----------------------------
     #[test]
     fn empty_query_produces_empty_string() {
         assert!(ArchiveManager::build_search_query("").is_empty());
@@ -429,18 +395,14 @@ mod tests {
         assert!(ArchiveManager::build_search_query("***").is_empty());
     }
 
-    // Bonus: prepare_for_archive with long content -------------------------
     #[test]
     fn prepare_for_archive_compresses_long_content() {
         let long_content = "Some detailed context. ".repeat(500);
         let item = make_item("ctx-long", &long_content);
         let entry = ArchiveManager::prepare_for_archive(&item, "thread-b", 9_000);
 
-        // Compressed content should be significantly shorter.
         assert!(entry.compressed_content.len() < long_content.len());
-        // Summary should be present.
         assert!(entry.summary.is_some());
-        // Original token count should reflect the full content.
         assert!(entry.token_count_original > entry.token_count_compressed);
     }
 }

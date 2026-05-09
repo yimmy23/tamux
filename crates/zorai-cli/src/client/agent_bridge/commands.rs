@@ -86,6 +86,7 @@ where
                     limit: None,
                     offset: None,
                     include_internal: false,
+                    agent_filter: None,
                 })
                 .await?;
         }

@@ -133,7 +133,6 @@ pub(super) fn build_system_prompt(
             skills_root.display(),
         ),
     );
-    // Check if any plugin skills exist
     let plugin_skills_dir = skills_root.join("plugins");
     if plugin_skills_dir.exists() && plugin_skills_dir.is_dir() {
         let plugin_count = std::fs::read_dir(&plugin_skills_dir)
@@ -223,7 +222,6 @@ pub(super) fn build_system_prompt(
         prompt.push_str(causal_guidance);
     }
 
-    // D-08: Inject learned patterns from HeuristicStore
     if let Some(patterns) = learned_patterns {
         if !patterns.is_empty() {
             prompt.push_str("\n\n## Learned Patterns\n");
@@ -232,7 +230,6 @@ pub(super) fn build_system_prompt(
         }
     }
 
-    // Phase 1: Inject episodic context (past experiences) when available
     if let Some(ec) = episodic_context {
         if !ec.is_empty() {
             prompt.push_str("\n\n");
@@ -247,7 +244,6 @@ pub(super) fn build_system_prompt(
         }
     }
 
-    // Phase 1: Inject negative knowledge constraints (ruled-out approaches)
     if let Some(nc) = negative_constraints {
         if !nc.is_empty() {
             prompt.push_str("\n\n");
@@ -413,7 +409,6 @@ pub(super) fn build_external_agent_prompt(
     let skills_root = super::skills_dir(&super::agent_data_dir());
     let generated_skills_root = skills_root.join("generated");
 
-    // Environment context — do NOT override the agent's own identity
     context_parts.push(
         "[ENVIRONMENT: zorai]\n\
          You are being invoked through zorai — an agentic runtime app.\n\
@@ -440,12 +435,10 @@ pub(super) fn build_external_agent_prompt(
             .to_string(),
     );
 
-    // Operator's instructions for this session
     if !config.system_prompt.is_empty() {
         context_parts.push(format!("Operator instructions: {}\n", config.system_prompt));
     }
 
-    // Gateway info — the agent can use its own gateway tools if it has them
     let gw = &config.gateway;
     if gw.enabled {
         let mut platforms = Vec::new();
@@ -466,7 +459,6 @@ pub(super) fn build_external_agent_prompt(
         }
     }
 
-    // Memory context from zorai's persistent files
     if !memory.soul.is_empty() {
         context_parts.push(format!("Operator identity notes:\n{}\n", memory.soul));
     }

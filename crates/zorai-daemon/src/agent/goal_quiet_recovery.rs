@@ -73,22 +73,15 @@ impl AgentEngine {
                 .and_then(|value| value.as_str().map(ToOwned::to_owned))
         })
         .collect::<Vec<_>>();
+        let goal_run_ids = goal_runs
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<Vec<_>>();
         let tasks = self
-            .list_task_quiet_recovery_refs_filtered(&crate::history::AgentTaskListQuery {
-                id: None,
-                status: None,
-                statuses: quiet_goal_task_statuses,
-                source: None,
-                thread_id: None,
-                thread_ids: Vec::new(),
-                goal_run_id: None,
-                parent_task_id: None,
-                awaiting_approval_id: None,
-                supervisor_config_present: false,
-                exclude_terminal_statuses: false,
-                order_by_recent_activity_desc: false,
-                limit: None,
-            })
+            .list_task_quiet_recovery_refs_for_goal_runs_statuses(
+                &goal_run_ids,
+                &quiet_goal_task_statuses,
+            )
             .await;
         let threads = self.threads.read().await.clone();
         let streams = self.stream_cancellations.lock().await.clone();
@@ -179,16 +172,25 @@ impl AgentEngine {
         &self,
         candidate: &QuietGoalRecoveryCandidate,
     ) -> Result<()> {
-        let prior_user_message = self
+        let prior_user_message = match self
             .history
             .latest_user_message_content(&candidate.thread_id)
-            .await?
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "thread {} has no prior user message for quiet-goal recovery",
-                    candidate.thread_id
-                )
-            })?;
+            .await
+        {
+            Ok(Some(content)) => content,
+            Ok(None) => anyhow::bail!(
+                "thread {} has no prior user message for quiet-goal recovery",
+                candidate.thread_id
+            ),
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to query persisted prior user message for quiet-goal recovery on thread {}",
+                        candidate.thread_id
+                    )
+                });
+            }
+        };
 
         let recovery_message = quiet_goal_recovery_system_message(candidate);
         {
@@ -685,6 +687,7 @@ mod tests {
                 },
             );
         }
+        engine.persist_thread_by_id(thread_id).await;
 
         engine
             .supervise_quiet_goal_runs()
@@ -761,6 +764,7 @@ mod tests {
                 },
             );
         }
+        engine.persist_thread_by_id(thread_id).await;
 
         engine
             .supervise_quiet_goal_runs()

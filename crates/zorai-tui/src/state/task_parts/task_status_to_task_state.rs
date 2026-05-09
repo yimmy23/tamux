@@ -308,7 +308,6 @@ pub struct FilePreview {
     pub is_text: bool,
 }
 
-// ── TaskAction ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum TaskAction {
@@ -345,7 +344,6 @@ pub enum TaskAction {
     HeartbeatDigestReceived(HeartbeatDigestVm),
 }
 
-// ── TaskState ─────────────────────────────────────────────────────────────────
 
 pub struct TaskState {
     pub(crate) tasks: Vec<AgentTask>,

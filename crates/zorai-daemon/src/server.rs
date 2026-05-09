@@ -34,6 +34,42 @@ pub(crate) enum DispatchOutcome {
     Terminate,
 }
 
+/// Non-blocking handle to the daemon→TUI write side. All daemon code paths
+/// (event broadcast drain in pre_dispatch + dispatch handler responses) push
+/// `DaemonMessage`s into an unbounded channel; a dedicated writer task drains
+/// the channel and performs the actual `sink.send().await` against the
+/// socket.
+///
+/// This breaks the bidirectional deadlock that wedged the daemon for
+/// 5+ minutes per connect: previously, a slow OS socket buffer (TUI read
+/// slow) meant `framed.send().await` inside `pre_dispatch`'s event drain
+/// blocked, which blocked every subsequent client-message read on the same
+/// connection. With ConnectionWriter, sends are channel pushes (instant) —
+/// the read path keeps making progress even while the writer task is
+/// stalled on socket back-pressure.
+#[derive(Clone)]
+pub(crate) struct ConnectionWriter {
+    tx: mpsc::UnboundedSender<DaemonMessage>,
+}
+
+impl ConnectionWriter {
+    pub(crate) fn new(tx: mpsc::UnboundedSender<DaemonMessage>) -> Self {
+        Self { tx }
+    }
+
+    /// API-shape preserved from `framed.send(msg).await?` so dispatch
+    /// handlers don't need to change their call sites — they keep writing
+    /// `framed.send(...).await?` and the underlying I/O happens off-thread.
+    pub(crate) async fn send(&mut self, msg: DaemonMessage) -> std::io::Result<()> {
+        self.tx.send(msg).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "daemon writer task closed",
+            )
+        })
+    }
+}
+
 /// Outcome of the pre-dispatch loop step that drains async events before
 /// reading the next ClientMessage.
 pub(crate) enum PreDispatchOutcome {
@@ -82,6 +118,8 @@ pub(crate) use post_tests::*;
 mod connection_pre_dispatch;
 #[path = "server/dispatch_part1.rs"]
 mod dispatch_part1;
+#[path = "server/dispatch_part10.rs"]
+mod dispatch_part10;
 #[path = "server/dispatch_part2.rs"]
 mod dispatch_part2;
 #[path = "server/dispatch_part3.rs"]
@@ -98,8 +136,6 @@ mod dispatch_part7;
 mod dispatch_part8;
 #[path = "server/dispatch_part9.rs"]
 mod dispatch_part9;
-#[path = "server/dispatch_part10.rs"]
-mod dispatch_part10;
 
 #[derive(Clone)]
 pub(crate) struct StartupReadiness {
@@ -161,6 +197,40 @@ fn client_message_requires_startup_readiness(msg: &ClientMessage) -> bool {
             | ClientMessage::AgentGetOperationStatus { .. }
             | ClientMessage::AgentGetHealthStatus
     )
+}
+
+/// Returns a short, log-safe label for a `ClientMessage` variant. Used in
+/// dispatch tracing so we can see *which* message arrived without dumping the
+/// full payload into the log line.
+fn client_message_variant_name(msg: &ClientMessage) -> &'static str {
+    use ClientMessage::*;
+    match msg {
+        Ping => "Ping",
+        AgentSubscribe => "AgentSubscribe",
+        AgentUnsubscribe => "AgentUnsubscribe",
+        AgentGetConfig => "AgentGetConfig",
+        AgentGetGatewayConfig => "AgentGetGatewayConfig",
+        AgentGetEffectiveConfigState => "AgentGetEffectiveConfigState",
+        AgentGetProviderCatalog => "AgentGetProviderCatalog",
+        AgentGetProviderAuthStates => "AgentGetProviderAuthStates",
+        AgentListSubAgents => "AgentListSubAgents",
+        AgentListThreads { .. } => "AgentListThreads",
+        AgentListTasks => "AgentListTasks",
+        AgentListGoalRuns { .. } => "AgentListGoalRuns",
+        AgentGetThread { .. } => "AgentGetThread",
+        AgentRequestConciergeWelcome => "AgentRequestConciergeWelcome",
+        AgentDismissConciergeWelcome => "AgentDismissConciergeWelcome",
+        AgentGetConciergeConfig => "AgentGetConciergeConfig",
+        AgentSetConciergeConfig { .. } => "AgentSetConciergeConfig",
+        AgentDeclareAsyncCommandCapability { .. } => "AgentDeclareAsyncCommandCapability",
+        AgentGetOperationStatus { .. } => "AgentGetOperationStatus",
+        AgentHeartbeatGetItems => "AgentHeartbeatGetItems",
+        ListAgentEvents { .. } => "ListAgentEvents",
+        UpsertAgentEvent { .. } => "UpsertAgentEvent",
+        PluginList { .. } => "PluginList",
+        PluginListCommands { .. } => "PluginListCommands",
+        _ => "<other>",
+    }
 }
 
 fn client_surface_can_write_thread(
@@ -241,7 +311,31 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     use zorai_protocol::DaemonCodec;
-    let mut framed = Framed::new(stream, DaemonCodec);
+    let framed = Framed::new(stream, DaemonCodec);
+    let (mut sink, mut stream) = framed.split();
+
+    let (write_tx, mut write_rx) = mpsc::unbounded_channel::<DaemonMessage>();
+    let writer_task = tokio::spawn(async move {
+        while let Some(msg) = write_rx.recv().await {
+            let started = std::time::Instant::now();
+            if let Err(error) = sink.send(msg).await {
+                tracing::warn!(
+                    error = %error,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "daemon connection writer task aborting on send error"
+                );
+                return;
+            }
+            let elapsed_ms = started.elapsed().as_millis() as u64;
+            if elapsed_ms > 1000 {
+                tracing::warn!(
+                    elapsed_ms,
+                    "daemon writer: sink.send blocked >1s — likely TUI not draining socket"
+                );
+            }
+        }
+    });
+    let mut framed = ConnectionWriter::new(write_tx);
 
     let mut attached_rxs: Vec<(
         zorai_protocol::SessionId,
@@ -263,6 +357,7 @@ where
     loop {
         let msg = match connection_pre_dispatch::pre_dispatch(
             &agent,
+            &mut stream,
             &mut framed,
             &plugin_manager,
             &mut attached_rxs,
@@ -283,6 +378,10 @@ where
         };
 
         if let Some(msg) = msg {
+            tracing::info!(
+                variant = client_message_variant_name(&msg),
+                "dispatch: incoming client message"
+            );
             if client_message_requires_startup_readiness(&msg) {
                 startup_readiness.wait_until_ready().await;
             }

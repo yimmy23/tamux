@@ -57,6 +57,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await
             .into_iter()
@@ -331,7 +333,6 @@ impl AgentEngine {
             .await;
         }
 
-        // 1. Pull partial outputs from parent task if available
         if let Some(ptid) = parent_task_id {
             if let Some(parent) = self.task_by_id_for_handoff_context(ptid).await {
                 if let Some(ref result) = parent.result {
@@ -344,7 +345,6 @@ impl AgentEngine {
             }
         }
 
-        // 2. Parent context summary: last few messages from the thread
         match self.history.list_messages(thread_id, Some(3)).await {
             Ok(recent_messages) => {
                 let joined = recent_messages
@@ -363,7 +363,6 @@ impl AgentEngine {
             }
         }
 
-        // 3. Enforce token ceiling per HAND-03
         bundle.recompute_estimated_tokens();
         bundle.enforce_token_ceiling(CONTEXT_BUNDLE_TOKEN_CEILING);
 
@@ -384,14 +383,12 @@ impl AgentEngine {
         acceptance_criteria_str: &str,
         current_depth: u8,
     ) -> Result<HandoffResult> {
-        // Depth check (HAND-08)
         if current_depth >= MAX_HANDOFF_DEPTH {
             anyhow::bail!(
                 "Handoff depth limit ({MAX_HANDOFF_DEPTH} hops) reached -- escalating to operator"
             );
         }
 
-        // Read broker profiles
         let broker = self.handoff_broker.read().await;
         let profiles = broker.profiles.clone();
         let threshold = broker.match_threshold;
@@ -429,6 +426,8 @@ impl AgentEngine {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         };
         let occupied_titles = match self
             .history
@@ -511,7 +510,6 @@ impl AgentEngine {
             select_snapshot_candidate(snapshot, routing_cfg.confidence_threshold)
         });
 
-        // Match specialist
         let (selection, routing_confidence_threshold) =
             if let Some((profile_idx, routing_score)) = learned_selection {
                 (
@@ -647,7 +645,6 @@ impl AgentEngine {
             },
         });
 
-        // Assemble context bundle
         let bundle = self
             .assemble_context_bundle(
                 task_description,
@@ -662,10 +659,8 @@ impl AgentEngine {
 
         let bundle_tokens = bundle.estimated_tokens;
 
-        // Generate handoff log ID
         let handoff_log_id = Uuid::new_v4().to_string();
 
-        // Serialize bundle and criteria for audit
         let bundle_json = serde_json::to_string(&bundle).unwrap_or_else(|_| "{}".to_string());
         let criteria_json = serde_json::to_string(&AcceptanceCriteria {
             description: acceptance_criteria_str.to_string(),
@@ -676,13 +671,12 @@ impl AgentEngine {
         let capability_tags_json =
             serde_json::to_string(capability_tags).unwrap_or_else(|_| "[]".to_string());
 
-        // Log detailed handoff record
         if let Err(e) = self
             .log_handoff_detail(
                 &handoff_log_id,
                 parent_task_id.unwrap_or("none"),
                 &specialist_id,
-                None, // to_task_id not yet known
+                None,
                 task_description,
                 &criteria_json,
                 &bundle_json,
@@ -699,12 +693,11 @@ impl AgentEngine {
             tracing::warn!("handoff broker: failed to log detail: {e}");
         }
 
-        // Record WORM audit
         if let Err(e) = self
             .record_handoff_audit(
                 parent_task_id.unwrap_or("none"),
                 &specialist_id,
-                "pending", // task not yet created
+                "pending",
                 task_description,
                 "dispatched",
                 None,
@@ -720,7 +713,6 @@ impl AgentEngine {
             tracing::warn!("handoff broker: failed to record audit: {e}");
         }
 
-        // Build task description with specialist context
         let full_description = {
             let mut desc = format!(
                 "[Handoff to {specialist_name} ({specialist_role})]\n\n\
@@ -748,7 +740,6 @@ impl AgentEngine {
             desc
         };
 
-        // Enqueue task via existing spawn infrastructure
         let task = self
             .enqueue_task(
                 format!(
@@ -757,21 +748,20 @@ impl AgentEngine {
                 ),
                 full_description,
                 "normal",
-                None,                               // command
-                None,                               // session_id
-                Vec::new(),                         // dependencies
-                None,                               // scheduled_at
-                "handoff",                          // source
-                goal_run_id.map(str::to_string),    // goal_run_id
-                parent_task_id.map(str::to_string), // parent_task_id
-                Some(thread_id.to_string()),        // parent_thread_id
-                None,                               // runtime
+                None,
+                None,
+                Vec::new(),
+                None,
+                "handoff",
+                goal_run_id.map(str::to_string),
+                parent_task_id.map(str::to_string),
+                Some(thread_id.to_string()),
+                None,
             )
             .await;
 
         let task_id = task.id.clone();
 
-        // Bind the handoff log to the actual dispatched task ID.
         if let Err(e) = self.bind_handoff_task_id(&handoff_log_id, &task_id).await {
             tracing::warn!("handoff broker: failed to bind to_task_id for handoff log: {e}");
         }
@@ -806,7 +796,6 @@ impl AgentEngine {
         task_id: &str,
         acceptance_criteria: &AcceptanceCriteria,
     ) -> Result<ValidationResult> {
-        // Look up completed task result
         let task_result = self
             .task_by_id_for_handoff_context(task_id)
             .await
@@ -815,14 +804,12 @@ impl AgentEngine {
         let output = match task_result {
             Some(result) => result,
             None => {
-                // Task has no result -- validation fails
                 let result = ValidationResult {
                     passed: false,
                     failures: vec!["specialist task has no result output".to_string()],
                     needs_llm_validation: false,
                 };
 
-                // Record failure in audit
                 if let Err(e) = self
                     .update_handoff_outcome(
                         handoff_log_id,
@@ -835,7 +822,6 @@ impl AgentEngine {
                     tracing::warn!("handoff broker: failed to update outcome: {e}");
                 }
 
-                // WORM audit for rejection
                 if let Err(e) = self
                     .record_handoff_audit(
                         "validation",
@@ -860,10 +846,8 @@ impl AgentEngine {
             }
         };
 
-        // Run structural validation
         let result = acceptance_criteria.validate_structural(&output);
 
-        // Determine outcome
         let outcome = if result.passed {
             "accepted"
         } else {
@@ -875,7 +859,6 @@ impl AgentEngine {
             Some(result.failures.join("; "))
         };
 
-        // Update handoff outcome
         if let Err(e) = self
             .update_handoff_outcome(handoff_log_id, outcome, None, error_msg.as_deref())
             .await
@@ -883,7 +866,6 @@ impl AgentEngine {
             tracing::warn!("handoff broker: failed to update validation outcome: {e}");
         }
 
-        // WORM audit for validation
         if let Err(e) = self
             .record_handoff_audit(
                 "validation",

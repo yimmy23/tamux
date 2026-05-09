@@ -11,9 +11,6 @@ pub mod store;
 
 use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// Episode types
-// ---------------------------------------------------------------------------
 
 /// A structured record of something that happened during agent operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,9 +93,6 @@ pub struct CausalStep {
     pub effect: String,
 }
 
-// ---------------------------------------------------------------------------
-// Episode links
-// ---------------------------------------------------------------------------
 
 /// A directed relationship between two episodes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,9 +117,6 @@ pub enum LinkType {
     CausedBy,
 }
 
-// ---------------------------------------------------------------------------
-// Negative knowledge
-// ---------------------------------------------------------------------------
 
 /// A constraint representing something the agent has ruled out.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,9 +175,6 @@ fn default_direct_observation() -> bool {
     true
 }
 
-// ---------------------------------------------------------------------------
-// Counter-who state
-// ---------------------------------------------------------------------------
 
 /// Persistent internal self-model: "what am I doing, what has changed, what has been tried."
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -226,9 +214,6 @@ pub struct CorrectionPattern {
     pub last_correction_at: u64,
 }
 
-// ---------------------------------------------------------------------------
-// Episodic store and config
-// ---------------------------------------------------------------------------
 
 /// In-memory state for the episodic memory subsystem.
 #[derive(Debug, Clone, Default)]

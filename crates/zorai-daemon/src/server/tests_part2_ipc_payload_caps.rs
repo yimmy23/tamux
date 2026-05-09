@@ -432,6 +432,7 @@ async fn agent_list_threads_without_limit_reads_bounded_recent_threads_from_db()
             limit: None,
             offset: None,
             include_internal: false,
+            agent_filter: None,
         })
         .await
         .expect("request agent thread list");

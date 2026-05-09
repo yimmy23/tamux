@@ -79,12 +79,10 @@ pub async fn attach_session(id: &str) -> Result<()> {
     let uuid: uuid::Uuid = id.parse().context("invalid session ID")?;
     let mut framed = connect().await?;
 
-    // Attach.
     framed
         .send(ClientMessage::AttachSession { id: uuid })
         .await?;
 
-    // Stream output to stdout.
     while let Some(msg) = framed.next().await {
         match msg? {
             DaemonMessage::Output { data, .. } => {

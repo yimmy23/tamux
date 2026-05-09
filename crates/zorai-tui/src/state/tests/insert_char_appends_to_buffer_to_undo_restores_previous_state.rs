@@ -59,7 +59,6 @@ fn submit_returns_buffer_and_clears() {
     state.reduce(InputAction::InsertChar('h'));
     state.reduce(InputAction::InsertChar('i'));
     let submitted = state.take_submitted();
-    // submit hasn't been called yet
     assert!(submitted.is_none());
 
     state.reduce(InputAction::Submit);
@@ -167,7 +166,6 @@ fn clear_line_empties_buffer() {
     assert_eq!(state.cursor_pos(), 0);
 }
 
-// ── Cursor movement tests ────────────────────────────────────────────────
 
 #[test]
 fn cursor_left_right() {
@@ -192,7 +190,7 @@ fn cursor_left_at_start_is_noop() {
     let mut state = InputState::new();
     state.reduce(InputAction::InsertChar('a'));
     state.reduce(InputAction::MoveCursorLeft);
-    state.reduce(InputAction::MoveCursorLeft); // already at 0
+    state.reduce(InputAction::MoveCursorLeft);
     assert_eq!(state.cursor_pos(), 0);
 }
 
@@ -200,7 +198,7 @@ fn cursor_left_at_start_is_noop() {
 fn cursor_right_at_end_is_noop() {
     let mut state = InputState::new();
     state.reduce(InputAction::InsertChar('a'));
-    state.reduce(InputAction::MoveCursorRight); // already at end
+    state.reduce(InputAction::MoveCursorRight);
     assert_eq!(state.cursor_pos(), 1);
 }
 
@@ -210,11 +208,9 @@ fn insert_at_middle_of_buffer() {
     for c in "ac".chars() {
         state.reduce(InputAction::InsertChar(c));
     }
-    // Cursor is at 2, move left once to position 1
     state.reduce(InputAction::MoveCursorLeft);
     assert_eq!(state.cursor_pos(), 1);
 
-    // Insert 'b' at position 1
     state.reduce(InputAction::InsertChar('b'));
     assert_eq!(state.buffer(), "abc");
     assert_eq!(state.cursor_pos(), 2);
@@ -226,11 +222,9 @@ fn backspace_at_middle_of_buffer() {
     for c in "abc".chars() {
         state.reduce(InputAction::InsertChar(c));
     }
-    // Move to position 2 (between 'b' and 'c')
     state.reduce(InputAction::MoveCursorLeft);
     assert_eq!(state.cursor_pos(), 2);
 
-    // Backspace deletes 'b'
     state.reduce(InputAction::Backspace);
     assert_eq!(state.buffer(), "ac");
     assert_eq!(state.cursor_pos(), 1);
@@ -239,7 +233,6 @@ fn backspace_at_middle_of_buffer() {
 #[test]
 fn cursor_up_down_multiline() {
     let mut state = InputState::new();
-    // Build "abc\ndef\nghi"
     for c in "abc".chars() {
         state.reduce(InputAction::InsertChar(c));
     }
@@ -251,37 +244,30 @@ fn cursor_up_down_multiline() {
     for c in "ghi".chars() {
         state.reduce(InputAction::InsertChar(c));
     }
-    // Cursor at end of "ghi" (line 2, col 3)
     assert_eq!(state.cursor_pos(), 11);
 
-    // Move up to line 1 (same col 3 => end of "def")
     state.reduce(InputAction::MoveCursorUp);
     let (line, col) = state.cursor_line_col_public();
     assert_eq!(line, 1);
     assert_eq!(col, 3);
 
-    // Move up to line 0
     state.reduce(InputAction::MoveCursorUp);
     let (line, col) = state.cursor_line_col_public();
     assert_eq!(line, 0);
     assert_eq!(col, 3);
 
-    // Move up again — already at line 0, should stay
     state.reduce(InputAction::MoveCursorUp);
     let (line, _) = state.cursor_line_col_public();
     assert_eq!(line, 0);
 
-    // Move down to line 1
     state.reduce(InputAction::MoveCursorDown);
     let (line, _) = state.cursor_line_col_public();
     assert_eq!(line, 1);
 
-    // Move down to line 2
     state.reduce(InputAction::MoveCursorDown);
     let (line, _) = state.cursor_line_col_public();
     assert_eq!(line, 2);
 
-    // Move down again — already at last line, should stay
     state.reduce(InputAction::MoveCursorDown);
     let (line, _) = state.cursor_line_col_public();
     assert_eq!(line, 2);
@@ -290,7 +276,6 @@ fn cursor_up_down_multiline() {
 #[test]
 fn cursor_up_clamps_col_to_shorter_line() {
     let mut state = InputState::new();
-    // Build "abcdef\nhi" — line 0 has 6 chars, line 1 has 2 chars
     for c in "abcdef".chars() {
         state.reduce(InputAction::InsertChar(c));
     }
@@ -298,26 +283,21 @@ fn cursor_up_clamps_col_to_shorter_line() {
     for c in "hi".chars() {
         state.reduce(InputAction::InsertChar(c));
     }
-    // Cursor at end of line 1, col 2
     assert_eq!(state.cursor_pos(), 9);
 
-    // Move to end of line 0 (col 6) via Home on line 1 then Up
-    // Actually: go up from col 2 => line 0 col 2
     state.reduce(InputAction::MoveCursorUp);
     let (line, col) = state.cursor_line_col_public();
     assert_eq!(line, 0);
     assert_eq!(col, 2);
 
-    // Move cursor to end of line 0 (col 6)
     state.reduce(InputAction::MoveCursorEnd);
     let (_, col) = state.cursor_line_col_public();
     assert_eq!(col, 6);
 
-    // Move down to line 1 — col 6 should clamp to line 1 length (2)
     state.reduce(InputAction::MoveCursorDown);
     let (line, col) = state.cursor_line_col_public();
     assert_eq!(line, 1);
-    assert_eq!(col, 2); // clamped
+    assert_eq!(col, 2);
 }
 
 #[test]
@@ -326,24 +306,18 @@ fn home_and_end() {
     for c in "abc\ndef".chars() {
         state.reduce(InputAction::InsertChar(c));
     }
-    // Cursor at end of "def" (line 1, col 3)
     assert_eq!(state.cursor_pos(), 7);
 
-    // Home moves to start of line 1 (position 4)
     state.reduce(InputAction::MoveCursorHome);
     assert_eq!(state.cursor_pos(), 4);
 
-    // End moves to end of line 1 (position 7)
     state.reduce(InputAction::MoveCursorEnd);
     assert_eq!(state.cursor_pos(), 7);
 
-    // Move up to line 0
     state.reduce(InputAction::MoveCursorUp);
-    // Home on line 0 moves to position 0
     state.reduce(InputAction::MoveCursorHome);
     assert_eq!(state.cursor_pos(), 0);
 
-    // End on line 0 moves to position 3 (before newline)
     state.reduce(InputAction::MoveCursorEnd);
     assert_eq!(state.cursor_pos(), 3);
 }
@@ -357,12 +331,10 @@ fn move_cursor_to_pos() {
     state.reduce(InputAction::MoveCursorToPos(2));
     assert_eq!(state.cursor_pos(), 2);
 
-    // Clamp to buffer length
     state.reduce(InputAction::MoveCursorToPos(100));
     assert_eq!(state.cursor_pos(), 5);
 }
 
-// ── Undo / Redo tests ────────────────────────────────────────────────────
 
 #[test]
 fn undo_restores_previous_state() {

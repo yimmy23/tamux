@@ -4,9 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::types::TaskPriority;
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /// Complexity tier for a task — determines default token allocation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -64,9 +61,6 @@ pub struct ResourcePressure {
     pub is_under_pressure: bool,
 }
 
-// ---------------------------------------------------------------------------
-// ResourcePool
-// ---------------------------------------------------------------------------
 
 /// Pool that tracks concurrent sub-agent slots and token budgets.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,9 +122,7 @@ impl ResourcePool {
             .total_context_budget_tokens
             .saturating_sub(self.allocated_tokens);
 
-        // ---- Slot availability ------------------------------------------
         if self.available_slots() == 0 {
-            // Urgent requests may preempt the lowest-priority non-urgent slot.
             if request.priority == TaskPriority::Urgent {
                 if let Some(preempt_idx) = self.find_preemptable_slot() {
                     let freed = self.active_slots.remove(preempt_idx);
@@ -138,7 +130,6 @@ impl ResourcePool {
                         self.allocated_tokens.saturating_sub(freed.context_budget);
                     return self.do_allocate(request, desired, now);
                 }
-                // All slots are Urgent — cannot preempt.
                 return AllocationResult::Queued {
                     reason: "all slots occupied by urgent tasks".into(),
                 };
@@ -148,7 +139,6 @@ impl ResourcePool {
             };
         }
 
-        // ---- Token availability -----------------------------------------
         if remaining == 0 {
             return AllocationResult::Denied {
                 reason: "token budget exhausted".into(),
@@ -185,12 +175,11 @@ impl ResourcePool {
         ResourcePressure {
             slot_utilization_pct: slot_pct,
             token_utilization_pct: token_pct,
-            queue_depth: 0, // No persistent queue in this implementation.
+            queue_depth: 0,
             is_under_pressure: slot_pct > 80 || token_pct > 80,
         }
     }
 
-    // ----- internal helpers ----------------------------------------------
 
     /// Perform the actual allocation, clamping tokens to what is available.
     fn do_allocate(
@@ -228,9 +217,6 @@ impl ResourcePool {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -258,7 +244,6 @@ mod tests {
         }
     }
 
-    // 1. Default pool has 3 slots and 100K tokens.
     #[test]
     fn default_pool_parameters() {
         let pool = ResourcePool::default();
@@ -268,7 +253,6 @@ mod tests {
         assert!(pool.active_slots.is_empty());
     }
 
-    // 2. Allocating a simple task succeeds.
     #[test]
     fn allocate_simple_task_succeeds() {
         let mut pool = ResourcePool::default();
@@ -283,7 +267,6 @@ mod tests {
         assert_eq!(pool.allocated_tokens, 5_000);
     }
 
-    // 3. Allocating when all slots are full returns Queued.
     #[test]
     fn allocate_when_full_returns_queued() {
         let mut pool = ResourcePool::new(2, 100_000);
@@ -293,7 +276,6 @@ mod tests {
         assert!(matches!(result, AllocationResult::Queued { .. }));
     }
 
-    // 4. Releasing a slot frees it.
     #[test]
     fn release_frees_slot() {
         let mut pool = ResourcePool::default();
@@ -304,7 +286,6 @@ mod tests {
         assert_eq!(pool.allocated_tokens, 0);
     }
 
-    // 5. Urgent preempts the lowest-priority non-urgent slot.
     #[test]
     fn urgent_preempts_low_priority() {
         let mut pool = ResourcePool::new(2, 100_000);
@@ -323,12 +304,10 @@ mod tests {
             3,
         );
         assert!(matches!(result, AllocationResult::Allocated { .. }));
-        // The Low task should have been evicted.
         assert!(pool.active_slots.iter().all(|s| s.task_id != "low"));
         assert_eq!(pool.active_slots.len(), 2);
     }
 
-    // 6. Urgent cannot preempt another Urgent.
     #[test]
     fn urgent_cannot_preempt_urgent() {
         let mut pool = ResourcePool::new(1, 100_000);
@@ -343,24 +322,21 @@ mod tests {
         assert!(matches!(result, AllocationResult::Queued { .. }));
     }
 
-    // 7. Pressure reflects utilisation.
     #[test]
     fn pressure_reflects_utilization() {
         let mut pool = ResourcePool::new(2, 100_000);
         pool.allocate(&simple_request("t1"), 1);
         let p = pool.pressure();
         assert_eq!(p.slot_utilization_pct, 50);
-        assert_eq!(p.token_utilization_pct, 5); // 5_000 / 100_000 = 5 %
+        assert_eq!(p.token_utilization_pct, 5);
         assert!(!p.is_under_pressure);
 
-        // Fill to > 80 % of slots.
         pool.allocate(&simple_request("t2"), 2);
         let p = pool.pressure();
         assert_eq!(p.slot_utilization_pct, 100);
         assert!(p.is_under_pressure);
     }
 
-    // 8. Context allocation is proportional to complexity.
     #[test]
     fn context_proportional_to_complexity() {
         assert_eq!(
@@ -381,7 +357,6 @@ mod tests {
         );
     }
 
-    // 9. Multiple allocations track tokens correctly.
     #[test]
     fn multiple_allocations_track_tokens() {
         let mut pool = ResourcePool::default();
@@ -401,7 +376,6 @@ mod tests {
         assert_eq!(pool.active_slots.len(), 3);
     }
 
-    // 10. Release returns the original allocation.
     #[test]
     fn release_returns_original_allocation() {
         let mut pool = ResourcePool::default();
@@ -416,17 +390,14 @@ mod tests {
         assert_eq!(released.allocated_at, 42);
     }
 
-    // 11. Release of unknown task returns None.
     #[test]
     fn release_unknown_returns_none() {
         let mut pool = ResourcePool::default();
         assert!(pool.release("nonexistent").is_none());
     }
 
-    // 12. Token budget is clamped when insufficient.
     #[test]
     fn token_budget_clamped_when_insufficient() {
-        // Only 10K tokens available — a Research task (50K) should be clamped.
         let mut pool = ResourcePool::new(3, 10_000);
         let result = pool.allocate(
             &request_with("r1", TaskComplexity::Research, TaskPriority::Normal),
@@ -441,12 +412,10 @@ mod tests {
         assert_eq!(pool.allocated_tokens, 10_000);
     }
 
-    // 13. Denied when token budget fully exhausted.
     #[test]
     fn denied_when_tokens_exhausted() {
         let mut pool = ResourcePool::new(5, 5_000);
         pool.allocate(&simple_request("t1"), 1);
-        // 5_000 consumed — nothing left.
         let result = pool.allocate(&simple_request("t2"), 2);
         assert!(matches!(result, AllocationResult::Denied { .. }));
     }

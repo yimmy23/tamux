@@ -46,10 +46,200 @@ pub struct WormIntegrityResult {
     pub message: String,
 }
 
+/// Maximum wall-clock per `ReadPool::call`. If a chosen connection's background
+/// thread is wedged (long-running query, blocked I/O, etc.), the call errors
+/// instead of awaiting forever — caller can retry, and the next `pick()` will
+/// land on a less-loaded connection. Generous default; under healthy load
+/// every read finishes in <1s.
+const READ_POOL_CALL_TIMEOUT_SECS: u64 = 30;
+/// Above this threshold we emit a `WARN` so slow reads are visible in logs
+/// without spamming for every routine query.
+const READ_POOL_SLOW_CALL_WARN_MS: u64 = 2_000;
+
+/// One pooled connection plus its in-flight call counter.
+///
+/// `in_flight` is incremented before forwarding to `tokio_rusqlite::Connection::call`
+/// and decremented when that future settles (Ok, Err, or timeout). It's used
+/// only for load-balanced picking — atomicity around the count itself is best-
+/// effort: a brief mid-pick race may put two callers on the same conn, but it
+/// self-corrects on the next pick.
+struct PoolEntry {
+    conn: tokio_rusqlite::Connection,
+    in_flight: std::sync::atomic::AtomicUsize,
+}
+
+/// Load-balanced pool of read-only `tokio_rusqlite::Connection`s.
+///
+/// Each underlying connection has its own background thread; calls to a single
+/// connection are serialized through that thread. Distributing calls across N
+/// connections lets up to N read queries run truly concurrently (SQLite WAL
+/// permits unbounded concurrent readers).
+///
+/// `pick()` picks the connection with the smallest in-flight count rather than
+/// blindly round-robin'ing. Round-robin's failure mode was: if conn[k] got
+/// stuck on a slow query, every Nth caller still routed to it and awaited
+/// indefinitely — the user-visible signature was "the daemon hangs every few
+/// requests". Least-loaded selection naturally skips a stuck conn (its
+/// in_flight count grows) until it recovers, and the per-call timeout cap
+/// turns any unrecoverable wedge into a clean error rather than an invisible
+/// hang.
+///
+/// API-compatible with `tokio_rusqlite::Connection`: callers keep using
+/// `.call(...)` unchanged.
+#[derive(Clone)]
+pub(crate) struct ReadPool {
+    entries: std::sync::Arc<Vec<PoolEntry>>,
+    cursor: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl ReadPool {
+    pub(crate) fn new(conns: Vec<tokio_rusqlite::Connection>) -> Self {
+        debug_assert!(!conns.is_empty(), "ReadPool requires at least one connection");
+        let entries = conns
+            .into_iter()
+            .map(|conn| PoolEntry {
+                conn,
+                in_flight: std::sync::atomic::AtomicUsize::new(0),
+            })
+            .collect::<Vec<_>>();
+        Self {
+            entries: std::sync::Arc::new(entries),
+            cursor: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }
+    }
+
+    /// Returns the index of the connection with the smallest `in_flight`
+    /// count. Ties are broken by a rolling cursor so equally-idle conns get
+    /// fair round-robin treatment.
+    fn pick_idx(&self) -> usize {
+        use std::sync::atomic::Ordering;
+        let len = self.entries.len();
+        let start = self.cursor.fetch_add(1, Ordering::Relaxed) % len;
+        let mut best_idx = start;
+        let mut best_load = self.entries[start].in_flight.load(Ordering::Relaxed);
+        for offset in 1..len {
+            let idx = (start + offset) % len;
+            let load = self.entries[idx].in_flight.load(Ordering::Relaxed);
+            if load < best_load {
+                best_idx = idx;
+                best_load = load;
+                if best_load == 0 {
+                    break;
+                }
+            }
+        }
+        best_idx
+    }
+
+    pub(crate) async fn call<F, R>(&self, function: F) -> tokio_rusqlite::Result<R>
+    where
+        F: FnOnce(&mut rusqlite::Connection) -> tokio_rusqlite::Result<R> + 'static + Send,
+        R: Send + 'static,
+    {
+        use std::sync::atomic::Ordering;
+        let idx = self.pick_idx();
+        let entry = &self.entries[idx];
+        entry.in_flight.fetch_add(1, Ordering::Relaxed);
+        let started = std::time::Instant::now();
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(READ_POOL_CALL_TIMEOUT_SECS),
+            entry.conn.call(function),
+        )
+        .await;
+        entry.in_flight.fetch_sub(1, Ordering::Relaxed);
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        match outcome {
+            Ok(result) => {
+                if elapsed_ms >= READ_POOL_SLOW_CALL_WARN_MS {
+                    tracing::warn!(
+                        elapsed_ms,
+                        conn_idx = idx,
+                        pool_size = self.entries.len(),
+                        "ReadPool::call slow query — investigate stuck conn or unindexed scan"
+                    );
+                }
+                result
+            }
+            Err(_) => {
+                tracing::warn!(
+                    elapsed_ms,
+                    conn_idx = idx,
+                    pool_size = self.entries.len(),
+                    timeout_secs = READ_POOL_CALL_TIMEOUT_SECS,
+                    "ReadPool::call timed out — connection likely wedged, returning TimedOut error"
+                );
+                Err(tokio_rusqlite::Error::Other(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!(
+                        "ReadPool::call timed out after {READ_POOL_CALL_TIMEOUT_SECS}s on conn {idx}"
+                    ),
+                ))))
+            }
+        }
+    }
+}
+
+/// Per-key caches for hot read paths. All three are bounded LRU-ish
+/// (drop on overflow) with a short TTL safety net plus explicit
+/// invalidation on writes — see `cache.rs` for the design rationale.
+#[derive(Debug)]
+struct HistoryCaches {
+    /// `thread_metadata_json(thread_id) -> Option<String>`. Invalidated by
+    /// any thread upsert/delete touching the same id.
+    thread_metadata_json:
+        cache::TtlCache<String, Option<String>>,
+    /// `get_skill_variant(variant_id) -> Option<SkillVariantRecord>`.
+    /// Invalidated by upsert/update/delete on the variant.
+    skill_variant: cache::TtlCache<String, Option<SkillVariantRecord>>,
+    /// `latest_goal_run_for_thread(thread_id) -> Option<GoalRun>`.
+    /// Goal-run writes can change which run is "latest" for a given
+    /// thread; the safest cheap invalidation is `clear()` on any
+    /// goal_run upsert/delete (the alternative — enumerating every
+    /// thread_id touched — is fragile because a goal_run can be tied to
+    /// multiple thread refs simultaneously).
+    latest_goal_run_for_thread: cache::TtlCache<String, Option<GoalRun>>,
+}
+
+impl HistoryCaches {
+    fn new() -> Self {
+        use std::time::Duration;
+        Self {
+            thread_metadata_json: cache::TtlCache::new(
+                Duration::from_secs(2),
+                256,
+            ),
+            skill_variant: cache::TtlCache::new(Duration::from_secs(5), 128),
+            latest_goal_run_for_thread: cache::TtlCache::new(
+                Duration::from_secs(2),
+                256,
+            ),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct HistoryStore {
     pub(crate) conn: tokio_rusqlite::Connection,
-    pub(crate) read_conn: tokio_rusqlite::Connection,
+    /// Dedicated WRITER connection for embedding-queue maintenance
+    /// (`claim_embedding_jobs`, `complete_embedding_job`, etc.). Without
+    /// this, every embedding tick queued its writes behind the main
+    /// daemon's writer (persist_thread_by_id after every turn, task
+    /// persists, goal-run persists, etc.) — and a single batch of 16
+    /// embedding HTTP requests + LanceDB writes can hold up the writer
+    /// thread for many seconds. This separate connection runs on its own
+    /// `tokio_rusqlite` background thread, so embedding work is *truly*
+    /// off the main lane.
+    pub(crate) embedding_writer_conn: tokio_rusqlite::Connection,
+    /// Reader pool for background work (syncs, indexers, supervision loops).
+    /// These can flood the queue without blocking UI.
+    pub(crate) read_conn: ReadPool,
+    /// Reader pool reserved for user-interactive paths (welcome, thread load,
+    /// message list). Background sync loops never touch these connections, so
+    /// a UI-facing read can never queue behind hundreds of batch jobs. We've
+    /// seen the unified pool wedge for hundreds of seconds under load — split
+    /// pools are the only architectural fix that survives bursty workloads.
+    pub(crate) interactive_read_conn: ReadPool,
+    pub(crate) caches: std::sync::Arc<HistoryCaches>,
     skill_dir: PathBuf,
     telemetry_dir: PathBuf,
     worm_dir: PathBuf,
@@ -90,6 +280,11 @@ pub(crate) struct ThreadDelegatePayloadContext {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct AgentTaskListQuery {
     pub id: Option<String>,
+    /// Batch variant of `id`: returns rows for any task id in the slice.
+    /// Used by `goal_related_task_ids` to collapse a per-id N+1 loop into
+    /// a single query. Empty vec is treated as "no filter on this axis"
+    /// (same as `id = None`).
+    pub ids: Vec<String>,
     pub status: Option<String>,
     pub statuses: Vec<String>,
     pub source: Option<String>,
@@ -97,6 +292,8 @@ pub(crate) struct AgentTaskListQuery {
     pub thread_ids: Vec<String>,
     pub goal_run_id: Option<String>,
     pub parent_task_id: Option<String>,
+    /// Batch variant of `parent_task_id`. Same N+1 fix as `ids`.
+    pub parent_task_ids: Vec<String>,
     pub awaiting_approval_id: Option<String>,
     pub supervisor_config_present: bool,
     pub exclude_terminal_statuses: bool,
@@ -1520,6 +1717,7 @@ pub struct AgentMessagePatch {
 
 mod audit;
 mod browser_profiles;
+mod cache;
 mod causal_traces;
 mod checkpoints;
 mod cognitive_resonance;

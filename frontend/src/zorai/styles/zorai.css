@@ -1345,6 +1345,26 @@
   background: rgba(113, 220, 202, 0.08);
 }
 
+.zorai-thread-filter-tab--loading {
+  position: relative;
+}
+
+.zorai-thread-filter-tab__spinner {
+  display: inline-block;
+  margin-left: 6px;
+  animation: zorai-thread-filter-spin 1s linear infinite;
+}
+
+@keyframes zorai-thread-filter-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .zorai-thread-date-filters {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

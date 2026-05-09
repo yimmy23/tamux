@@ -467,8 +467,6 @@ impl TuiModel {
                 }
             }
             _ => {
-                // Unrecognized commands — insert into input so user can add
-                // context before sending to the agent (plugin commands, etc.)
                 self.input.set_text(&format!("/{command} "));
                 self.focus = FocusArea::Chat;
             }

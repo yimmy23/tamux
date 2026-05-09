@@ -343,7 +343,6 @@ pub(crate) fn render_subagents_tab<'a>(
             theme.fg_dim,
         )));
     } else {
-        // Field 0: subagent_list
         for (i, entry) in subagents.entries.iter().enumerate() {
             let is_selected = subagents.selected == i;
             let marker = if is_selected { "> " } else { "  " };
@@ -451,7 +450,6 @@ pub(crate) fn render_subagents_tab<'a>(
 
     lines.push(Line::raw(""));
 
-    // Field 1: subagent_add
     {
         let is_selected = subagents.actions_focused && subagents.action_cursor == 0;
         let marker = if is_selected { "> " } else { "  " };

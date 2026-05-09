@@ -223,8 +223,6 @@ pub(crate) async fn execute_onecontext_search(args: &serde_json::Value) -> Resul
 }
 
 pub(crate) async fn execute_list_sessions(session_manager: &Arc<SessionManager>) -> Result<String> {
-    // If we have frontend topology, use it for a richer view that includes
-    // browser panels and workspace/surface hierarchy.
     if let Some(topology) = session_manager.read_workspace_topology() {
         let sessions = session_manager.list().await;
         let formatted = zorai_protocol::format_topology(&topology, &sessions);
@@ -234,7 +232,6 @@ pub(crate) async fn execute_list_sessions(session_manager: &Arc<SessionManager>)
         return Ok("No active sessions or panes.".into());
     }
 
-    // Fallback: no topology reported, list raw sessions.
     let sessions = session_manager.list().await;
 
     if sessions.is_empty() {

@@ -159,7 +159,6 @@ fn sample_agent_task_record(id: &str, status: TaskStatus, created_at: u64) -> Ag
 #[tokio::test]
 async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Result<()> {
     let (store, root) = make_test_store().await?;
-    // Drop existing tables and recreate with legacy schema (missing columns)
     store.conn.call(|conn| {
         conn.execute_batch("DROP TABLE IF EXISTS agent_tasks")?;
         conn.execute_batch(
@@ -219,6 +218,20 @@ async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Resu
                 |row| row.get(0),
             )
             .optional()?;
+        let parent_thread_subagent_index_name: Option<String> = conn
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agent_tasks_parent_thread_subagent_status'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let quiet_recovery_index_name: Option<String> = conn
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agent_tasks_goal_run_status_quiet'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
         Ok((
             has_session,
             has_scheduled,
@@ -235,6 +248,8 @@ async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Resu
             has_max_duration,
             has_supervisor_config,
             index_name,
+            parent_thread_subagent_index_name,
+            quiet_recovery_index_name,
         ))
     }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -253,6 +268,14 @@ async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Resu
     assert!(has_cols.12);
     assert!(has_cols.13);
     assert_eq!(has_cols.14.as_deref(), Some("idx_agent_tasks_goal_run"));
+    assert_eq!(
+        has_cols.15.as_deref(),
+        Some("idx_agent_tasks_parent_thread_subagent_status")
+    );
+    assert_eq!(
+        has_cols.16.as_deref(),
+        Some("idx_agent_tasks_goal_run_status_quiet")
+    );
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -441,6 +464,8 @@ async fn list_agent_tasks_filtered_applies_status_and_limit_in_sql() -> Result<(
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
 
@@ -494,6 +519,8 @@ async fn count_agent_tasks_filtered_counts_rows_without_hydrating_task_payloads(
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
     assert_eq!(active, 3);
@@ -513,6 +540,8 @@ async fn count_agent_tasks_filtered_counts_rows_without_hydrating_task_payloads(
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
     assert_eq!(awaiting_count, 1);
@@ -532,6 +561,8 @@ async fn count_agent_tasks_filtered_counts_rows_without_hydrating_task_payloads(
             exclude_terminal_statuses: true,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
     assert_eq!(running_by_id, 1);
@@ -551,6 +582,8 @@ async fn count_agent_tasks_filtered_counts_rows_without_hydrating_task_payloads(
             exclude_terminal_statuses: true,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
     assert_eq!(completed_by_id, 0);
@@ -694,6 +727,8 @@ async fn list_agent_task_refs_filtered_selects_ids_without_hydrating_task_payloa
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
     assert_eq!(
@@ -725,6 +760,8 @@ async fn list_agent_task_refs_filtered_selects_ids_without_hydrating_task_payloa
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
     assert_eq!(
@@ -760,6 +797,8 @@ async fn list_agent_task_refs_filtered_selects_ids_without_hydrating_task_payloa
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
     assert_eq!(
@@ -769,6 +808,107 @@ async fn list_agent_task_refs_filtered_selects_ids_without_hydrating_task_payloa
             .collect::<Vec<_>>(),
         vec!["task-ref-child", "task-ref-parent", "task-ref-unrelated"]
     );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_agent_tasks_for_parent_thread_subagents_hydrates_only_matching_rows() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut matching =
+        sample_agent_task_record("task-parent-thread-match", TaskStatus::InProgress, 30);
+    matching.source = "subagent".to_string();
+    matching.parent_task_id = Some("task-parent-root".to_string());
+    matching.parent_thread_id = Some("thread-parent-scope".to_string());
+    matching.dependencies = vec!["task-blocker".to_string()];
+    matching.logs = vec![AgentTaskLogEntry {
+        id: "log-parent-thread-match".to_string(),
+        timestamp: 31,
+        level: TaskLogLevel::Info,
+        phase: "analysis".to_string(),
+        message: "matching log".to_string(),
+        details: None,
+        attempt: 0,
+    }];
+
+    let mut unrelated =
+        sample_agent_task_record("task-parent-thread-other", TaskStatus::InProgress, 40);
+    unrelated.source = "subagent".to_string();
+    unrelated.parent_task_id = Some("task-other-root".to_string());
+    unrelated.parent_thread_id = Some("thread-other-scope".to_string());
+    unrelated.dependencies = vec!["task-unrelated-blocker".to_string()];
+    unrelated.logs = vec![AgentTaskLogEntry {
+        id: "log-parent-thread-other".to_string(),
+        timestamp: 41,
+        level: TaskLogLevel::Warn,
+        phase: "analysis".to_string(),
+        message: "unrelated log".to_string(),
+        details: None,
+        attempt: 0,
+    }];
+
+    store.upsert_agent_task(&matching).await?;
+    store.upsert_agent_task(&unrelated).await?;
+
+    let tasks = store
+        .list_agent_tasks_for_parent_thread_subagents("thread-parent-scope", None, None)
+        .await?;
+
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].id, matching.id);
+    assert_eq!(tasks[0].dependencies, vec!["task-blocker".to_string()]);
+    assert_eq!(tasks[0].logs.len(), 1);
+    assert_eq!(tasks[0].logs[0].message, "matching log");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn parent_thread_subagents_filter_status_before_hydrating_tasks() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut matching = sample_agent_task_record(
+        "task-parent-thread-status-match",
+        TaskStatus::InProgress,
+        30,
+    );
+    matching.source = "subagent".to_string();
+    matching.parent_task_id = Some("task-parent-root".to_string());
+    matching.parent_thread_id = Some("thread-parent-status-scope".to_string());
+
+    let mut wrong_status =
+        sample_agent_task_record("task-parent-thread-status-other", TaskStatus::Queued, 40);
+    wrong_status.source = "subagent".to_string();
+    wrong_status.parent_task_id = Some("task-parent-root".to_string());
+    wrong_status.parent_thread_id = Some("thread-parent-status-scope".to_string());
+
+    store.upsert_agent_task(&matching).await?;
+    store.upsert_agent_task(&wrong_status).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["task-parent-thread-status-other"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let tasks = store
+        .list_agent_tasks_for_parent_thread_subagents(
+            "thread-parent-status-scope",
+            Some("in_progress"),
+            None,
+        )
+        .await?;
+
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].id, matching.id);
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -824,6 +964,8 @@ async fn list_agent_task_ids_filtered_selects_ids_without_hydrating_task_payload
             exclude_terminal_statuses: true,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
 
@@ -932,6 +1074,8 @@ async fn list_agent_task_titles_filtered_selects_titles_without_hydrating_task_p
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
 
@@ -1087,6 +1231,8 @@ async fn list_agent_task_operational_refs_selects_prompt_fields_without_hydratin
             exclude_terminal_statuses: true,
             order_by_recent_activity_desc: false,
             limit: Some(4),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
 
@@ -1143,6 +1289,8 @@ async fn list_agent_task_summary_refs_selects_summary_fields_without_hydrating_t
             exclude_terminal_statuses: true,
             order_by_recent_activity_desc: false,
             limit: Some(4),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
 
@@ -1206,6 +1354,8 @@ async fn list_agent_task_quiet_recovery_refs_selects_activity_fields_without_hyd
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
 
@@ -1218,6 +1368,53 @@ async fn list_agent_task_quiet_recovery_refs_selects_activity_fields_without_hyd
     assert_eq!(refs[0].thread_id.as_deref(), Some("thread-quiet-active"));
     assert_eq!(refs[1].id, "task-quiet-child");
     assert_eq!(refs[1].parent_task_id.as_deref(), Some("task-quiet-active"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn quiet_recovery_refs_for_goal_runs_statuses_filters_goal_run_ids_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    let mut matching =
+        sample_agent_task_record("task-quiet-goal-match", TaskStatus::InProgress, 30);
+    matching.goal_run_id = Some("goal-quiet-target".to_string());
+
+    let mut wrong_goal =
+        sample_agent_task_record("task-quiet-goal-other", TaskStatus::InProgress, 40);
+    wrong_goal.goal_run_id = Some("goal-quiet-other".to_string());
+
+    let mut wrong_status =
+        sample_agent_task_record("task-quiet-goal-status", TaskStatus::Completed, 50);
+    wrong_status.goal_run_id = Some("goal-quiet-target".to_string());
+
+    store.upsert_agent_task(&matching).await?;
+    store.upsert_agent_task(&wrong_goal).await?;
+    store.upsert_agent_task(&wrong_status).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id IN (?1, ?2)",
+                params!["task-quiet-goal-other", "task-quiet-goal-status"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let refs = store
+        .list_agent_task_quiet_recovery_refs_for_goal_runs_statuses(
+            &["goal-quiet-target".to_string()],
+            &["in_progress".to_string()],
+        )
+        .await?;
+
+    assert_eq!(refs.len(), 1);
+    assert_eq!(refs[0].id, matching.id);
+    assert_eq!(refs[0].goal_run_id.as_deref(), Some("goal-quiet-target"));
+    assert_eq!(refs[0].status, TaskStatus::InProgress);
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -1267,6 +1464,8 @@ async fn list_agent_task_subagent_hierarchy_refs_selects_depth_fields_without_hy
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
 
@@ -1560,6 +1759,8 @@ async fn list_agent_tasks_filtered_finds_active_subagent_children_in_sql() -> Re
             exclude_terminal_statuses: true,
             order_by_recent_activity_desc: false,
             limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         })
         .await?;
 

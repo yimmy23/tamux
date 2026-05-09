@@ -19,6 +19,8 @@ impl AgentEngine {
             exclude_terminal_statuses: true,
             order_by_recent_activity_desc: false,
             limit: Some(4),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         };
         let active_tasks = match self
             .history

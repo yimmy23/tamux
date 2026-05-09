@@ -389,10 +389,8 @@ pub(crate) fn settings_row_hit(
             .filter(|idx| *idx < 4)
             .map(|idx| (idx, None)),
         SettingsTab::Features => match row {
-            // Tier & Security section: rows 4-5 => fields 0-1
             4 => Some((0, None)),
             5 => Some((1, None)),
-            // Heartbeat section: rows 8-14 => fields 2-8
             8 => Some((2, None)),
             9 => Some((3, None)),
             10 => Some((4, None)),
@@ -400,16 +398,14 @@ pub(crate) fn settings_row_hit(
             12 => Some((6, None)),
             13 => Some((7, None)),
             14 => Some((8, None)),
-            // Memory & Learning section: rows 17-20 => fields 9-11
             17 => Some((9, None)),
             18 => Some((10, None)),
             19 => Some((11, None)),
-            // Skills section: rows 23-24 => fields 12-13
             23 => Some((12, None)),
             24 => Some((13, None)),
             _ => None,
         },
-        SettingsTab::Plugins => None, // Plugin tab uses external navigation via PluginSettingsState
+        SettingsTab::Plugins => None,
         SettingsTab::About => None,
     }
 }

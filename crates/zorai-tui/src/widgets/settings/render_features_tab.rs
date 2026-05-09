@@ -28,7 +28,6 @@ pub(crate) fn render_features_tab<'a>(
 ) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
     let raw = config.agent_config_raw.as_ref();
-    // Section: Tier & Security
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "  Tier & Security",
@@ -40,7 +39,6 @@ pub(crate) fn render_features_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // Field 0: tier_override (cycle)
     let tier_val = raw
         .and_then(|r| r.get("tier"))
         .and_then(|t| t.get("user_override"))
@@ -56,7 +54,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 1: managed_security_level (cycle)
     let security_val = raw
         .and_then(|r| r.get("managed_security_level"))
         .and_then(|v| v.as_str())
@@ -71,12 +68,10 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Section: Heartbeat
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled("  Heartbeat", theme.fg_active)));
     lines.push(Line::raw(""));
 
-    // Field 2: heartbeat.cron
     let cron_val = raw
         .and_then(|r| r.get("heartbeat"))
         .and_then(|h| h.get("cron"))
@@ -92,7 +87,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 3: heartbeat.quiet_start
     let quiet_start = raw
         .and_then(|r| r.get("heartbeat"))
         .and_then(|h| h.get("quiet_start"))
@@ -108,7 +102,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 4: heartbeat.quiet_end
     let quiet_end = raw
         .and_then(|r| r.get("heartbeat"))
         .and_then(|h| h.get("quiet_end"))
@@ -124,7 +117,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Fields 5-8: heartbeat check toggles
     let check_toggles: [(usize, &str, &str); 4] = [
         (5, "check_stale_todos", "Check Stale Todos"),
         (6, "check_stuck_goals", "Check Stuck Goals"),
@@ -140,7 +132,6 @@ pub(crate) fn render_features_tab<'a>(
         render_feature_toggle_line(&mut lines, settings, *idx, label, enabled, theme);
     }
 
-    // Section: Memory & Learning
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "  Memory & Learning",
@@ -148,7 +139,6 @@ pub(crate) fn render_features_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // Field 9: consolidation.enabled (toggle)
     let consol_enabled = raw
         .and_then(|r| r.get("consolidation"))
         .and_then(|c| c.get("enabled"))
@@ -163,7 +153,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 10: consolidation.decay_half_life_hours
     let decay_val = raw
         .and_then(|r| r.get("consolidation"))
         .and_then(|c| c.get("decay_half_life_hours"))
@@ -180,7 +169,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 11: heuristic_promotion_threshold
     let heur_val = raw
         .and_then(|r| r.get("consolidation"))
         .and_then(|c| c.get("heuristic_promotion_threshold"))
@@ -197,12 +185,10 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Section: Skills
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled("  Skills", theme.fg_active)));
     lines.push(Line::raw(""));
 
-    // Field 12: skill_recommendation.enabled (toggle)
     let skill_enabled = raw
         .and_then(|r| r.get("skill_recommendation"))
         .and_then(|s| s.get("enabled"))
@@ -217,7 +203,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 13: skill_recommendation.background_community_search (toggle)
     let community_enabled = raw
         .and_then(|r| r.get("skill_recommendation"))
         .and_then(|s| s.get("background_community_search"))
@@ -232,7 +217,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 14: skill_recommendation.community_preapprove_timeout_secs
     let timeout_val = raw
         .and_then(|r| r.get("skill_recommendation"))
         .and_then(|s| s.get("community_preapprove_timeout_secs"))
@@ -249,7 +233,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 15: skill_recommendation.suggest_global_enable_after_approvals
     let approvals_val = raw
         .and_then(|r| r.get("skill_recommendation"))
         .and_then(|s| s.get("suggest_global_enable_after_approvals"))
@@ -266,7 +249,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Section: Audio
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled("  Audio", theme.fg_active)));
     lines.push(Line::from(Span::styled(
@@ -275,7 +257,6 @@ pub(crate) fn render_features_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // Field 16: audio_stt_enabled (toggle)
     render_feature_toggle_line(
         &mut lines,
         settings,
@@ -285,7 +266,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 17: audio_stt_provider
     let stt_provider = config.audio_stt_provider();
     render_feature_field_line(
         &mut lines,
@@ -301,7 +281,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 18: audio_stt_model
     let stt_model = config.audio_stt_model();
     render_feature_field_line(
         &mut lines,
@@ -317,7 +296,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 19: audio_tts_enabled (toggle)
     render_feature_toggle_line(
         &mut lines,
         settings,
@@ -327,7 +305,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 20: audio_tts_provider
     let tts_provider = config.audio_tts_provider();
     render_feature_field_line(
         &mut lines,
@@ -343,7 +320,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 21: audio_tts_model
     let tts_model = config.audio_tts_model();
     render_feature_field_line(
         &mut lines,
@@ -359,7 +335,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Field 22: audio_tts_voice
     let tts_voice = config.audio_tts_voice();
     render_feature_field_line(
         &mut lines,
@@ -479,7 +454,6 @@ pub(crate) fn render_features_tab<'a>(
         theme,
     );
 
-    // Hotkey hint row (non-editable)
     lines.push(Line::raw(""));
     lines.push(Line::from(vec![
         Span::styled("  Hotkeys: ", theme.fg_dim),

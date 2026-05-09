@@ -1,9 +1,5 @@
 use super::*;
 
-// Keep all the items the test parts need at this `tests` mod scope so the
-// descendant test-part submodules can pull them in via `use super::*;`.
-// (Previously the test parts were textually `include!`d into this same module
-// body, so all their `use` declarations were already at this scope.)
 use super::{
     build_gateway_bootstrap_payload, build_session_end_episode_payload,
     concierge_welcome_fingerprint, enqueue_gateway_incoming_event, handle_connection,

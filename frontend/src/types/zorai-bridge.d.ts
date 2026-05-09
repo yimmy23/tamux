@@ -491,7 +491,9 @@ declare global {
             suggestionId: string;
             sessionId?: string | null;
         }) => Promise<{ ok?: boolean; error?: string } | unknown>;
-        agentListThreads?: () => Promise<unknown[]>;
+        agentListThreads?: (options?: {
+            agentFilter?: string | null;
+        }) => Promise<unknown[]>;
         agentGetThread?: (
             threadId: string,
             options?: {

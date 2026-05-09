@@ -57,10 +57,10 @@ pub struct DistillationCandidate {
     pub source_message_span: Option<AgentMessageSpan>,
     pub last_processed_cursor: Option<AgentMessageCursor>,
     pub distilled_fact: String,
-    pub target_file: String, // "MEMORY.md" or "USER.md"
+    pub target_file: String,
     pub category: MemoryCategory,
-    pub confidence: f64,   // 0.0–1.0
-    pub reasoning: String, // why this should be saved
+    pub confidence: f64,
+    pub reasoning: String,
 }
 
 /// Configuration for the distillation pass.
@@ -68,9 +68,9 @@ pub struct DistillationCandidate {
 pub struct DistillationConfig {
     pub enabled: bool,
     pub interval_hours: u64,
-    pub confidence_auto_apply: f64,   // default: 0.7
-    pub confidence_review_queue: f64, // default: 0.5
-    pub max_entries_per_file: usize,  // default: 50
+    pub confidence_auto_apply: f64,
+    pub confidence_review_queue: f64,
+    pub max_entries_per_file: usize,
     pub agent_id: String,
     pub review_notification: bool,
 }

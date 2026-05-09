@@ -350,8 +350,6 @@ impl SettingsState {
                 _ => "",
             },
             SettingsTab::Plugins => {
-                // In list mode, field_cursor indexes into plugin list.
-                // In detail mode, field_cursor indexes into schema fields + actions.
                 "plugin_field"
             }
             SettingsTab::About => "",

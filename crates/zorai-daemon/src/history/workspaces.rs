@@ -4,6 +4,89 @@ use zorai_protocol::{
     WorkspaceTask, WorkspaceTaskRuntimeHistoryEntry, WorkspaceTaskStatus, WorkspaceTaskType,
 };
 
+/// Synchronous workspace-task upsert that takes a borrowed connection.
+/// The single-task `upsert_workspace_task` and the batched variant share
+/// this body — keep INSERT column lists in lockstep here.
+fn upsert_workspace_task_on_connection(
+    conn: &mut rusqlite::Connection,
+    task: &WorkspaceTask,
+) -> std::result::Result<(), tokio_rusqlite::Error> {
+    let reporter_json = serialize_actor(&task.reporter)?;
+    let assignee_json = serialize_optional_actor(&task.assignee)?;
+    let reviewer_json = serialize_optional_actor(&task.reviewer)?;
+    let runtime_history_json = serialize_runtime_history(&task.runtime_history)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO workspace_tasks \
+         (id, workspace_id, title, task_type, description, definition_of_done, priority, status, sort_order, reporter_json, assignee_json, reviewer_json, thread_id, goal_run_id, runtime_history_json, created_at, updated_at, started_at, completed_at, deleted_at, last_notice_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+        params![
+            task.id,
+            task.workspace_id,
+            task.title,
+            workspace_task_type_to_str(task.task_type.clone()),
+            task.description,
+            task.definition_of_done,
+            workspace_priority_to_str(task.priority.clone()),
+            workspace_task_status_to_str(task.status.clone()),
+            task.sort_order,
+            reporter_json,
+            assignee_json,
+            reviewer_json,
+            task.thread_id,
+            task.goal_run_id,
+            runtime_history_json,
+            task.created_at as i64,
+            task.updated_at as i64,
+            task.started_at.map(|value| value as i64),
+            task.completed_at.map(|value| value as i64),
+            task.deleted_at.map(|value| value as i64),
+            task.last_notice_id,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Same body as `upsert_workspace_task_on_connection` but accepts a
+/// transaction handle, for use inside a batched transactional call.
+fn upsert_workspace_task_in_tx(
+    transaction: &rusqlite::Transaction<'_>,
+    task: &WorkspaceTask,
+) -> std::result::Result<(), tokio_rusqlite::Error> {
+    let reporter_json = serialize_actor(&task.reporter)?;
+    let assignee_json = serialize_optional_actor(&task.assignee)?;
+    let reviewer_json = serialize_optional_actor(&task.reviewer)?;
+    let runtime_history_json = serialize_runtime_history(&task.runtime_history)?;
+    transaction.execute(
+        "INSERT OR REPLACE INTO workspace_tasks \
+         (id, workspace_id, title, task_type, description, definition_of_done, priority, status, sort_order, reporter_json, assignee_json, reviewer_json, thread_id, goal_run_id, runtime_history_json, created_at, updated_at, started_at, completed_at, deleted_at, last_notice_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+        params![
+            task.id,
+            task.workspace_id,
+            task.title,
+            workspace_task_type_to_str(task.task_type.clone()),
+            task.description,
+            task.definition_of_done,
+            workspace_priority_to_str(task.priority.clone()),
+            workspace_task_status_to_str(task.status.clone()),
+            task.sort_order,
+            reporter_json,
+            assignee_json,
+            reviewer_json,
+            task.thread_id,
+            task.goal_run_id,
+            runtime_history_json,
+            task.created_at as i64,
+            task.updated_at as i64,
+            task.started_at.map(|value| value as i64),
+            task.completed_at.map(|value| value as i64),
+            task.deleted_at.map(|value| value as i64),
+            task.last_notice_id,
+        ],
+    )?;
+    Ok(())
+}
+
 fn workspace_operator_to_str(operator: WorkspaceOperator) -> &'static str {
     match operator {
         WorkspaceOperator::User => "user",
@@ -218,6 +301,25 @@ impl HistoryStore {
             .map_err(|error| anyhow::anyhow!("{error}"))
     }
 
+    pub async fn list_repo_monitor_workspace_settings(&self) -> Result<Vec<WorkspaceSettings>> {
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at \
+                     FROM workspace_settings \
+                     WHERE repo_monitor_enabled = 1 \
+                       AND json_valid(repo_monitor_include_dirs_json) \
+                       AND json_array_length(repo_monitor_include_dirs_json) > 0 \
+                     ORDER BY workspace_id ASC",
+                )?;
+                let rows = stmt.query_map([], map_workspace_settings)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
     pub async fn list_workspace_settings_by_operator(
         &self,
         operator: WorkspaceOperator,
@@ -240,39 +342,26 @@ impl HistoryStore {
     pub async fn upsert_workspace_task(&self, task: &WorkspaceTask) -> Result<()> {
         let task = task.clone();
         self.conn
+            .call(move |conn| upsert_workspace_task_on_connection(conn, &task))
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    /// Batched upsert. Used by sort-order shift and other multi-task
+    /// updates where the previous per-task `upsert_workspace_task` loop ran
+    /// one round-trip and one BEGIN/COMMIT per task.
+    pub async fn upsert_workspace_tasks_batch(&self, tasks: &[WorkspaceTask]) -> Result<()> {
+        if tasks.is_empty() {
+            return Ok(());
+        }
+        let tasks = tasks.to_vec();
+        self.conn
             .call(move |conn| {
-                let reporter_json = serialize_actor(&task.reporter)?;
-                let assignee_json = serialize_optional_actor(&task.assignee)?;
-                let reviewer_json = serialize_optional_actor(&task.reviewer)?;
-                let runtime_history_json = serialize_runtime_history(&task.runtime_history)?;
-                conn.execute(
-                    "INSERT OR REPLACE INTO workspace_tasks \
-                     (id, workspace_id, title, task_type, description, definition_of_done, priority, status, sort_order, reporter_json, assignee_json, reviewer_json, thread_id, goal_run_id, runtime_history_json, created_at, updated_at, started_at, completed_at, deleted_at, last_notice_id) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
-                    params![
-                        task.id,
-                        task.workspace_id,
-                        task.title,
-                        workspace_task_type_to_str(task.task_type),
-                        task.description,
-                        task.definition_of_done,
-                        workspace_priority_to_str(task.priority),
-                        workspace_task_status_to_str(task.status),
-                        task.sort_order,
-                        reporter_json,
-                        assignee_json,
-                        reviewer_json,
-                        task.thread_id,
-                        task.goal_run_id,
-                        runtime_history_json,
-                        task.created_at as i64,
-                        task.updated_at as i64,
-                        task.started_at.map(|value| value as i64),
-                        task.completed_at.map(|value| value as i64),
-                        task.deleted_at.map(|value| value as i64),
-                        task.last_notice_id,
-                    ],
-                )?;
+                let transaction = conn.transaction()?;
+                for task in &tasks {
+                    upsert_workspace_task_in_tx(&transaction, task)?;
+                }
+                transaction.commit()?;
                 Ok(())
             })
             .await

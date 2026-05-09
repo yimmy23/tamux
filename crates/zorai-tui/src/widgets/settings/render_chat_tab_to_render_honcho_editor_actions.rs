@@ -35,7 +35,6 @@ pub(crate) fn render_chat_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // Fields 0–2: top-level toggles
     let toggles: [(usize, bool, &str); 3] = [
         (0, config.enable_streaming, "Streaming"),
         (1, config.enable_conversation_memory, "Conversation Memory"),

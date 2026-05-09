@@ -118,12 +118,33 @@ impl DaemonClient {
             | DaemonMessage::Error { .. }) => {
                 Self::handle_activity_profile_gateway_daemon_messages(message, event_tx).await
             }
+            DaemonMessage::Pong => {
+            }
+            DaemonMessage::AgentConciergeWelcomeDismissed => {
+            }
+            DaemonMessage::AgentAsyncCommandCapabilityAck { capability } => {
+                debug!(
+                    target: "zorai_tui::client",
+                    ?capability,
+                    "received AgentAsyncCommandCapabilityAck"
+                );
+            }
+            DaemonMessage::OperationAccepted {
+                operation_id,
+                kind,
+                dedup,
+                revision,
+            } => {
+                debug!(
+                    target: "zorai_tui::client",
+                    operation_id = %operation_id,
+                    kind = %kind,
+                    dedup = ?dedup,
+                    revision,
+                    "received OperationAccepted"
+                );
+            }
             other => {
-                // Surface unhandled variants loudly in dev builds so future
-                // protocol drift gets noticed; stay quiet in release so users
-                // aren't spammed if the daemon adds new message types between
-                // releases. To handle a variant, add it to one of the explicit
-                // arms above.
                 #[cfg(debug_assertions)]
                 {
                     warn!(

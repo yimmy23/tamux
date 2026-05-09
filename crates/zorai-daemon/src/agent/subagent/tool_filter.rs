@@ -163,7 +163,6 @@ mod tests {
         }
     }
 
-    // --- Construction ---
 
     #[test]
     fn allow_all_permits_everything() {
@@ -229,7 +228,6 @@ mod tests {
         assert!(filter.is_ok());
     }
 
-    // --- Whitelist-only ---
 
     #[test]
     fn whitelist_allows_listed_tools() {
@@ -257,7 +255,6 @@ mod tests {
         assert!(!filter.is_allowed(zorai_protocol::tool_names::SEARCH_FILES));
     }
 
-    // --- Blacklist-only ---
 
     #[test]
     fn blacklist_blocks_listed_tools() {
@@ -284,7 +281,6 @@ mod tests {
         assert!(filter.is_allowed(zorai_protocol::tool_names::SEARCH_FILES));
     }
 
-    // --- Combined ---
 
     #[test]
     fn combined_whitelist_and_blacklist() {
@@ -296,7 +292,6 @@ mod tests {
             ]),
             Some(vec![zorai_protocol::tool_names::BASH_COMMAND.into()]),
         );
-        // bash_command is in both → conflict
         assert!(filter.is_err());
     }
 
@@ -312,13 +307,10 @@ mod tests {
         .unwrap();
         assert!(filter.is_allowed(zorai_protocol::tool_names::READ_FILE));
         assert!(filter.is_allowed(zorai_protocol::tool_names::LIST_FILES));
-        // Not in whitelist:
         assert!(!filter.is_allowed(zorai_protocol::tool_names::BASH_COMMAND));
-        // In blacklist (but also not in whitelist, so blocked by whitelist first):
         assert!(!filter.is_allowed(zorai_protocol::tool_names::WRITE_FILE));
     }
 
-    // --- filtered_tools ---
 
     #[test]
     fn filtered_tools_returns_only_allowed() {
@@ -376,7 +368,6 @@ mod tests {
         assert!(!filter.is_allowed(zorai_protocol::tool_names::WORKSPACE_CREATE_TASK));
     }
 
-    // --- deny_reason ---
 
     #[test]
     fn deny_reason_none_for_allowed_tool() {

@@ -1,5 +1,3 @@
-// Local wire type copies (will be replaced by crate::wire imports in Task 9)
-// These mirror the types in state.rs
 #![allow(dead_code)]
 
 #[path = "task_parts/goal_step_todo_thread_ids_to_merge_usize_field.rs"]

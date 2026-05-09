@@ -86,7 +86,6 @@ impl DaemonClient {
         self.send(ClientMessage::AuditDismiss { entry_id })
     }
 
-    // Plugin IPC methods (Plan 16-01)
     pub fn plugin_list(&self) -> Result<()> {
         self.send(ClientMessage::PluginList {})
     }

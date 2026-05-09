@@ -57,7 +57,6 @@ fn remove_all_unrelated_modal_preserves_active_picker_state() {
 fn fuzzy_filter_narrows_items() {
     let mut state = ModalState::new();
     state.reduce(ModalAction::SetQuery("pro".into()));
-    // "provider" and "prompt" should match "pro"
     let filtered_commands: Vec<&str> = state
         .filtered_items()
         .iter()

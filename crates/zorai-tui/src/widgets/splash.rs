@@ -9,13 +9,11 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
     let height = area.height as usize;
     let mut lines: Vec<Line> = Vec::new();
 
-    // Vertical centering: put logo ~1/3 from top
     let pad_top = height / 3;
     for _ in 0..pad_top {
         lines.push(Line::raw(""));
     }
 
-    // Logo with gradient
     let logo = Line::from(vec![
         Span::styled("\u{2591}", Style::default().fg(Color::Yellow)),
         Span::styled("\u{2592}", Style::default().fg(Color::LightYellow)),
@@ -29,16 +27,13 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
     ]);
     lines.push(logo);
 
-    // Motto
     lines.push(Line::from(Span::styled(
         "plan \u{00b7} solve \u{00b7} ship",
         theme.fg_dim,
     )));
 
-    // Empty line
     lines.push(Line::raw(""));
 
-    // Hints
     lines.push(Line::from(Span::styled(
         "Type a prompt to begin, or",
         theme.fg_dim,
@@ -52,7 +47,6 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
         Span::styled(" to pick a thread", theme.fg_dim),
     ]));
 
-    // Pad remaining height
     while lines.len() < height {
         lines.push(Line::raw(""));
     }

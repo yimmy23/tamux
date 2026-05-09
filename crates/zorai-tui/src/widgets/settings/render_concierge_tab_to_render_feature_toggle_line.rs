@@ -37,7 +37,6 @@ pub(crate) fn render_concierge_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // Field 0: concierge_enabled
     {
         let is_selected = settings.field_cursor() == 0;
         let marker = if is_selected { "> " } else { "  " };
@@ -71,7 +70,6 @@ pub(crate) fn render_concierge_tab<'a>(
         ]));
     }
 
-    // Field 1: concierge_detail_level
     {
         let is_selected = settings.field_cursor() == 1;
         let marker = if is_selected { "> " } else { "  " };
@@ -96,7 +94,6 @@ pub(crate) fn render_concierge_tab<'a>(
         ]));
     }
 
-    // Field 2: concierge_provider
     {
         let is_selected = settings.field_cursor() == 2;
         let marker = if is_selected { "> " } else { "  " };
@@ -124,7 +121,6 @@ pub(crate) fn render_concierge_tab<'a>(
         ]));
     }
 
-    // Field 3: concierge_model
     {
         let is_selected = settings.field_cursor() == 3;
         let marker = if is_selected { "> " } else { "  " };
@@ -152,7 +148,6 @@ pub(crate) fn render_concierge_tab<'a>(
         ]));
     }
 
-    // Field 4: concierge_reasoning_effort
     {
         let is_selected = settings.field_cursor() == 4;
         let marker = if is_selected { "> " } else { "  " };

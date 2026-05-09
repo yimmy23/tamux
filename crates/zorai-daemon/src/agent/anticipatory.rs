@@ -207,20 +207,22 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await
             .into_iter()
             .collect::<VecDeque<_>>();
         let threads = collect_session_start_prewarm_threads(attention_target, &goal_runs, &tasks);
         let now = now_millis();
-        for thread_id in threads {
-            self.refresh_thread_repo_context(&thread_id).await;
-            self.refresh_anticipatory_prewarm_cache(&thread_id).await;
-            self.anticipatory
-                .write()
-                .await
-                .hydration_by_thread
-                .insert(thread_id, now);
+        let thread_id_strings: Vec<String> = threads.clone();
+        self.refresh_anticipatory_repo_contexts_batch(&thread_id_strings)
+            .await;
+        if !threads.is_empty() {
+            let mut guard = self.anticipatory.write().await;
+            for thread_id in threads {
+                guard.hydration_by_thread.insert(thread_id, now);
+            }
         }
         if let Some(pending_at) = pending_at {
             self.anticipatory.write().await.session_start_prewarmed_at = Some(pending_at);
@@ -319,16 +321,21 @@ impl AgentEngine {
                 .collect::<Vec<_>>()
         };
 
-        for (thread_id, _) in due_threads {
-            self.refresh_thread_repo_context(&thread_id).await;
-            self.refresh_anticipatory_prewarm_cache(&thread_id).await;
-            self.persist_predictive_hydration_causal_trace(&thread_id)
-                .await;
-            self.anticipatory
-                .write()
-                .await
-                .hydration_by_thread
-                .insert(thread_id, now);
+        let due_thread_ids: Vec<String> = due_threads
+            .iter()
+            .map(|(thread_id, _)| thread_id.clone())
+            .collect();
+        self.refresh_anticipatory_repo_contexts_batch(&due_thread_ids)
+            .await;
+        if !due_threads.is_empty() {
+            for (thread_id, _) in &due_threads {
+                self.persist_predictive_hydration_causal_trace(thread_id)
+                    .await;
+            }
+            let mut guard = self.anticipatory.write().await;
+            for (thread_id, _) in due_threads {
+                guard.hydration_by_thread.insert(thread_id, now);
+            }
         }
     }
 
@@ -354,6 +361,8 @@ impl AgentEngine {
             exclude_terminal_statuses: false,
             order_by_recent_activity_desc: false,
             limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         };
         let awaiting_task_threads = match self
             .history
@@ -571,6 +580,72 @@ impl AgentEngine {
         }
     }
 
+    async fn refresh_anticipatory_repo_context_if_enabled(&self, thread_id: &str) {
+        self.refresh_anticipatory_repo_contexts_batch(&[thread_id.to_string()])
+            .await;
+    }
+
+    /// Batched variant. Groups `thread_ids` by their resolved `repo_root`,
+    /// runs `crate::git::list_git_changes` ONCE per repo, then walks each
+    /// thread in the group with the pre-fetched changes. Replaces the
+    /// per-thread N+1 in `run_session_start_prewarm` /
+    /// `run_predictive_hydration` — both used to invoke
+    /// `refresh_anticipatory_repo_context_if_enabled` per thread, doing
+    /// redundant git scans for threads sharing a repo.
+    async fn refresh_anticipatory_repo_contexts_batch(&self, thread_ids: &[String]) {
+        if thread_ids.is_empty() {
+            return;
+        }
+
+        let mut threads_by_repo: std::collections::BTreeMap<String, Vec<String>> =
+            std::collections::BTreeMap::new();
+        let mut to_clear: Vec<String> = Vec::new();
+        for thread_id in thread_ids {
+            let Some((repo_root, _, _, _)) = self.resolve_thread_repo_root(thread_id).await
+            else {
+                to_clear.push(thread_id.clone());
+                continue;
+            };
+            if !self.repo_monitor_enabled_for_repo(&repo_root).await {
+                to_clear.push(thread_id.clone());
+                continue;
+            }
+            threads_by_repo
+                .entry(repo_root)
+                .or_default()
+                .push(thread_id.clone());
+        }
+        if !to_clear.is_empty() {
+            let mut guard = self.anticipatory.write().await;
+            for thread_id in &to_clear {
+                guard.prewarm_cache_by_thread.remove(thread_id);
+            }
+        }
+        if threads_by_repo.is_empty() {
+            return;
+        }
+
+        let mut changes_by_repo: std::collections::HashMap<
+            String,
+            Vec<zorai_protocol::GitChangeEntry>,
+        > = std::collections::HashMap::with_capacity(threads_by_repo.len());
+        for repo_root in threads_by_repo.keys() {
+            let changes = crate::git::list_git_changes(repo_root);
+            changes_by_repo.insert(repo_root.clone(), changes);
+        }
+
+        for threads in threads_by_repo.values() {
+            for thread_id in threads {
+                self.refresh_thread_repo_context_with_changes(
+                    thread_id,
+                    Some(&changes_by_repo),
+                )
+                .await;
+                self.refresh_anticipatory_prewarm_cache(thread_id).await;
+            }
+        }
+    }
+
     async fn resolve_anticipatory_route(
         &self,
         kind: &str,
@@ -762,8 +837,8 @@ impl AgentEngine {
             let Some(thread_id) = opportunity.thread_id.clone() else {
                 continue;
             };
-            self.refresh_thread_repo_context(&thread_id).await;
-            self.refresh_anticipatory_prewarm_cache(&thread_id).await;
+            self.refresh_anticipatory_repo_context_if_enabled(&thread_id)
+                .await;
 
             let snapshot = {
                 let runtime = self.anticipatory.read().await;
@@ -1104,6 +1179,8 @@ impl AgentEngine {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await;
         let candidate = tasks
@@ -1235,6 +1312,9 @@ impl AgentEngine {
             .filter(|entry| entry.kind == WorkContextEntryKind::RepoChange)
             .filter_map(|entry| entry.repo_root.clone())
             .next()?;
+        if !self.repo_monitor_enabled_for_repo(&repo_root).await {
+            return None;
+        }
         let git = crate::git::get_git_status(&repo_root);
         let now = now_millis();
         let degraded_cargo_entries = self
@@ -1575,6 +1655,15 @@ impl AgentEngine {
                 .remove(thread_id);
             return;
         };
+
+        if !self.repo_monitor_enabled_for_repo(&repo_root).await {
+            self.anticipatory
+                .write()
+                .await
+                .prewarm_cache_by_thread
+                .remove(thread_id);
+            return;
+        }
 
         let git = crate::git::get_git_status(&repo_root);
         let changed_entries = {

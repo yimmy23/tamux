@@ -143,9 +143,6 @@ pub(in crate::agent) async fn reconcile_user_profile_from_db(
     history: &HistoryStore,
 ) -> Result<()> {
     if !try_acquire_reconcile() {
-        // A reconcile is already in progress; return no-op success so the caller
-        // does not need to distinguish "skipped" from "done".  The in-flight
-        // reconcile will complete and leave state as Clean (or Dirty on error).
         return Ok(());
     }
     reconcile_inner(agent_data_dir, history).await
@@ -227,14 +224,8 @@ pub(in crate::agent) async fn handle_user_memory_append_with_reconcile(
     history: &HistoryStore,
     content: &str,
 ) -> Result<()> {
-    // Atomically claim the reconcile slot BEFORE any staging work so the state
-    // never escapes the Reconciling→Dirty→re-acquire TOCTOU window.
     let acquired = try_acquire_reconcile();
 
-    // Stage the event to DB only (no state change here); the state transition is
-    // owned by the reconcile-slot logic above and by reconcile_inner below.
-    // If staging fails and we own the reconcile slot, release it to Dirty so the
-    // state machine is never left stuck in Reconciling.
     if let Err(error) = stage_legacy_user_memory_write_events(history, content).await {
         if acquired {
             set_user_sync_state(UserProfileSyncState::Dirty);
@@ -243,13 +234,9 @@ pub(in crate::agent) async fn handle_user_memory_append_with_reconcile(
     }
 
     if !acquired {
-        // A reconcile is already in progress.  The staged event will be picked up
-        // on the next reconcile cycle.  Leave state as Reconciling (owned by the
-        // in-flight reconcile).
         return Ok(());
     }
 
-    // We own the Reconciling state; drive the reconcile directly.
     reconcile_inner(agent_data_dir, history).await
 }
 

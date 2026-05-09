@@ -50,6 +50,8 @@ impl AgentEngine {
                     exclude_terminal_statuses: false,
                     order_by_recent_activity_desc: false,
                     limit: Some(1),
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
                 })
                 .await
                 .into_iter()
@@ -440,7 +442,6 @@ impl AgentEngine {
             if let Some(last_fired_at) = row.last_fired_at {
                 let cooldown_ms = row.cooldown_secs.saturating_mul(1000);
                 if now < last_fired_at.saturating_add(cooldown_ms) {
-                    // Record cooldown suppression
                     if let Err(error) = self
                         .history
                         .insert_trigger_fire_history(&crate::history::TriggerFireHistoryRow {
@@ -469,7 +470,6 @@ impl AgentEngine {
                 }
             }
 
-            // Determine retry count from recent failed attempts for this trigger + event context
             let retry_count = self
                 .history
                 .count_recent_trigger_fire_history(&row.id, "failed", 10)
@@ -478,7 +478,6 @@ impl AgentEngine {
             let is_dead = retry_count >= row.max_retries as u64;
 
             if is_dead {
-                // Record dead_letter and skip execution
                 if let Err(error) = self
                     .history
                     .insert_trigger_fire_history(&crate::history::TriggerFireHistoryRow {
@@ -983,6 +982,8 @@ mod tests {
                 exclude_terminal_statuses: false,
                 order_by_recent_activity_desc: false,
                 limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
             .await
             .into_iter()

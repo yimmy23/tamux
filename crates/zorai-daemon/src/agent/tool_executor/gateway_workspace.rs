@@ -1,7 +1,4 @@
 use super::*;
-// ---------------------------------------------------------------------------
-// Gateway messaging — execute via CLI subprocess
-// ---------------------------------------------------------------------------
 
 /// Helper: get current epoch millis for last_response_at tracking.
 fn now_epoch_millis() -> u64 {
@@ -102,13 +99,11 @@ pub(in crate::agent) async fn execute_gateway_message(
             let channel = channel.as_str();
             block_if_duplicate_gateway_message(agent, "slack", channel, message).await?;
 
-            // Thread context: auto-inject thread_ts from reply_contexts or agent args
             let thread_ts = args
                 .get("thread_ts")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .or_else(|| {
-                    // Look up auto-injected thread context from gateway state
                     let gw_lock = agent.gateway_state.try_lock().ok()?;
                     let gw = gw_lock.as_ref()?;
                     let ctx = gw.reply_contexts.get(&format!("Slack:{channel}"))?;
@@ -159,7 +154,6 @@ pub(in crate::agent) async fn execute_gateway_message(
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            // Fall back to defaults from gateway settings
             if channel_id.is_empty() && user_id.is_empty() {
                 let default_channel = first_csv(&gateway.discord_channel_filter);
                 if !default_channel.is_empty() {
@@ -192,7 +186,6 @@ pub(in crate::agent) async fn execute_gateway_message(
             block_if_duplicate_gateway_message(agent, "discord", &reply_context_channel, message)
                 .await?;
 
-            // Thread context: auto-inject message_reference from reply_contexts or agent args
             let reply_msg_id = args
                 .get("reply_to_message_id")
                 .and_then(|v| v.as_str())
@@ -252,7 +245,6 @@ pub(in crate::agent) async fn execute_gateway_message(
             let chat_id = chat_id.as_str();
             block_if_duplicate_gateway_message(agent, "telegram", chat_id, message).await?;
 
-            // Thread context: auto-inject reply_to_message_id from reply_contexts or agent args
             let reply_to_id = args
                 .get("reply_to_message_id")
                 .and_then(|v| v.as_i64())
@@ -361,9 +353,6 @@ pub(in crate::agent) async fn execute_gateway_message(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Workspace/snippet tools — read/write persistence files
-// ---------------------------------------------------------------------------
 
 pub(crate) async fn execute_workspace_tool(
     tool_name: &str,
@@ -427,7 +416,6 @@ pub(crate) async fn execute_workspace_tool(
                 Err(_) => Ok("No snippets file found.".into()),
             }
         }
-        // Mutation tools — emit WorkspaceCommand event for frontend execution
         other => {
             let _ = event_tx.send(AgentEvent::WorkspaceCommand {
                 command: other.to_string(),
@@ -439,16 +427,13 @@ pub(crate) async fn execute_workspace_tool(
 }
 
 fn strip_ansi_codes(text: &str) -> String {
-    // Simple ANSI escape stripping
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '\x1b' {
-            // Skip escape sequence
             if let Some(&next) = chars.peek() {
                 if next == '[' {
                     chars.next();
-                    // Skip until terminator (letter)
                     while let Some(&c) = chars.peek() {
                         chars.next();
                         if c.is_ascii_alphabetic() || c == '~' {
@@ -457,7 +442,6 @@ fn strip_ansi_codes(text: &str) -> String {
                     }
                 } else if next == ']' {
                     chars.next();
-                    // Skip OSC until BEL or ST
                     while let Some(c) = chars.next() {
                         if c == '\x07' {
                             break;
@@ -491,7 +475,6 @@ pub(crate) fn strip_html_tags(html: &str) -> String {
     let mut i = 0;
     while i < chars.len() {
         if !in_tag && chars[i] == '<' {
-            // Check for script/style
             let remaining: String = lower_chars[i..].iter().take(10).collect();
             if remaining.starts_with("<script") {
                 in_script = true;
@@ -511,7 +494,6 @@ pub(crate) fn strip_html_tags(html: &str) -> String {
         i += 1;
     }
 
-    // Collapse whitespace
     let mut collapsed = String::new();
     let mut last_was_space = false;
     for ch in result.chars() {
@@ -529,7 +511,6 @@ pub(crate) fn strip_html_tags(html: &str) -> String {
     collapsed.trim().to_string()
 }
 
-// Minimal URL encoding (only used for web_search query)
 pub(crate) mod urlencoding {
     pub fn encode(s: &str) -> String {
         let mut result = String::new();

@@ -33,7 +33,6 @@ pub fn compute_trajectory_score(progress_count: u32, failure_count: u32) -> f64 
         return 0.0;
     }
     let ratio = progress_count as f64 / total as f64;
-    // Map [0.0, 1.0] to [-1.0, 1.0]
     (ratio * 2.0 - 1.0).clamp(-1.0, 1.0)
 }
 
@@ -48,9 +47,7 @@ pub fn compute_temperature(recent_message_count: u32, avg_gap_secs: u64) -> f64 
     if recent_message_count == 0 {
         return 0.0;
     }
-    // Frequency component: 3+ messages in 5 min = high urgency
     let freq = (recent_message_count as f64 / 3.0).min(1.0);
-    // Pacing component: rapid-fire (< 30s gaps) = high urgency
     let pacing = if avg_gap_secs == 0 {
         0.5
     } else {
@@ -66,18 +63,15 @@ pub fn compute_temperature(recent_message_count: u32, avg_gap_secs: u64) -> f64 
 /// Unknown tools default to 0.5 (medium weight).
 pub fn compute_weight(tool_name: &str) -> f64 {
     match tool_name {
-        // Heavy actions (state-changing, destructive)
         zorai_protocol::tool_names::EXECUTE_COMMAND
         | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
         | zorai_protocol::tool_names::WRITE_FILE
         | zorai_protocol::tool_names::DELETE_FILE
         | zorai_protocol::tool_names::DEPLOY
         | zorai_protocol::tool_names::CREATE_SESSION => 0.8,
-        // Medium actions (state-changing but bounded)
         zorai_protocol::tool_names::EDIT_FILE
         | zorai_protocol::tool_names::CREATE_FILE
         | zorai_protocol::tool_names::INSTALL_PACKAGE => 0.5,
-        // Light actions (read-only)
         zorai_protocol::tool_names::READ_FILE
         | zorai_protocol::tool_names::SEARCH_FILES
         | zorai_protocol::tool_names::LIST_FILES
@@ -85,7 +79,6 @@ pub fn compute_weight(tool_name: &str) -> f64 {
         | zorai_protocol::tool_names::WEB_SEARCH
         | zorai_protocol::tool_names::WEB_READ
         | zorai_protocol::tool_names::SYMBOL_SEARCH => 0.2,
-        // Default for unknown tools
         _ => 0.5,
     }
 }
@@ -94,9 +87,6 @@ pub fn compute_weight(tool_name: &str) -> f64 {
 mod tests {
     use super::*;
 
-    // -----------------------------------------------------------------------
-    // compute_difficulty
-    // -----------------------------------------------------------------------
 
     #[test]
     fn difficulty_zero_when_no_errors_no_retries() {
@@ -110,7 +100,6 @@ mod tests {
 
     #[test]
     fn difficulty_intermediate_value() {
-        // 0.6 * 0.5 + 0.4 * (2/5) = 0.3 + 0.16 = 0.46
         let result = compute_difficulty(0.5, 2);
         assert!(
             (result - 0.46).abs() < 0.001,
@@ -118,9 +107,6 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // compute_familiarity
-    // -----------------------------------------------------------------------
 
     #[test]
     fn familiarity_zero_when_novel() {
@@ -142,9 +128,6 @@ mod tests {
         assert_eq!(compute_familiarity(10), 1.0);
     }
 
-    // -----------------------------------------------------------------------
-    // compute_trajectory_score
-    // -----------------------------------------------------------------------
 
     #[test]
     fn trajectory_max_when_all_progress() {
@@ -166,9 +149,6 @@ mod tests {
         assert_eq!(compute_trajectory_score(3, 3), 0.0);
     }
 
-    // -----------------------------------------------------------------------
-    // compute_temperature
-    // -----------------------------------------------------------------------
 
     #[test]
     fn temperature_zero_when_no_messages() {
@@ -178,24 +158,15 @@ mod tests {
     #[test]
     fn temperature_high_when_frequent_rapid_messages() {
         let result = compute_temperature(5, 30);
-        // freq = min(5/3, 1.0) = 1.0
-        // pacing = max(1.0 - 30/120, 0.0) = 0.75
-        // 0.6 * 1.0 + 0.4 * 0.75 = 0.9
         assert!(result > 0.7, "expected high temp, got {result}");
     }
 
     #[test]
     fn temperature_low_when_infrequent_slow_messages() {
         let result = compute_temperature(1, 600);
-        // freq = min(1/3, 1.0) = 0.333
-        // pacing = max(1.0 - 600/120, 0.0) = max(1.0 - 5.0, 0.0) = 0.0
-        // 0.6 * 0.333 + 0.4 * 0.0 = 0.2
         assert!(result < 0.3, "expected low temp, got {result}");
     }
 
-    // -----------------------------------------------------------------------
-    // compute_weight
-    // -----------------------------------------------------------------------
 
     #[test]
     fn weight_heavy_for_execute_command() {

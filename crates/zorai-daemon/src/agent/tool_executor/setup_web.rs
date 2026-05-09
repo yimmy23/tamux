@@ -21,7 +21,6 @@ pub(crate) async fn execute_setup_web_browsing(
             } else {
                 report.push("chrome/chromium: not found".to_string());
             }
-            // Check npm availability for install
             let npm_available = which::which("npm").is_ok();
             report.push(format!(
                 "npm: {}",
@@ -31,7 +30,6 @@ pub(crate) async fn execute_setup_web_browsing(
                     "not found (cannot auto-install Lightpanda)"
                 }
             ));
-            // Current config
             let config = agent.config.read().await;
             let current = config
                 .extra
@@ -62,7 +60,6 @@ pub(crate) async fn execute_setup_web_browsing(
                 );
             }
 
-            // Install Lightpanda via npm
             if detect_lightpanda().is_some() {
                 return Ok("Lightpanda is already installed.".to_string());
             }
@@ -93,7 +90,6 @@ pub(crate) async fn execute_setup_web_browsing(
                 );
             }
 
-            // Verify
             let installed = detect_lightpanda().is_some();
             if !installed {
                 anyhow::bail!(
@@ -117,7 +113,6 @@ pub(crate) async fn execute_setup_web_browsing(
                 .and_then(|v| v.as_str())
                 .unwrap_or("auto");
 
-            // Validate the provider value
             if !matches!(provider, "auto" | "lightpanda" | "chrome" | "none") {
                 anyhow::bail!(
                     "Invalid browse_provider: '{}'. Must be auto, lightpanda, chrome, or none.",
@@ -125,12 +120,11 @@ pub(crate) async fn execute_setup_web_browsing(
                 );
             }
 
-            // Verify the chosen provider works
             let works = match provider {
                 "lightpanda" => detect_lightpanda().is_some(),
                 "chrome" => detect_chrome().is_some(),
                 "auto" => detect_lightpanda().or_else(detect_chrome).is_some(),
-                _ => true, // "none" always works
+                _ => true,
             };
 
             if !works && provider == "chrome" {
@@ -140,7 +134,6 @@ pub(crate) async fn execute_setup_web_browsing(
                 );
             }
 
-            // Write to config after validation so a missing browser does not persist a broken choice.
             {
                 let mut config = agent.config.write().await;
                 config.extra.insert(
@@ -167,6 +160,3 @@ pub(crate) async fn execute_setup_web_browsing(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Terminal/session tools — daemon owns sessions directly
-// ---------------------------------------------------------------------------

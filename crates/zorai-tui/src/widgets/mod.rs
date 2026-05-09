@@ -1,4 +1,3 @@
-// Widget modules
 pub mod anticipatory;
 pub mod approval;
 pub mod approval_center;

@@ -568,7 +568,6 @@ async fn fetch_url_openapi_spec_updates_existing_tool_notice_after_status_transi
         .and_then(|value| value.as_str())
         .expect("generated tool id");
 
-    // First fetch should notice the equivalent NEW tool and recommend activation.
     let first_result = execute_tool(
         &ToolCall {
             id: "call-fetch-openapi-existing-status-new".to_string(),
@@ -627,13 +626,11 @@ async fn fetch_url_openapi_spec_updates_existing_tool_notice_after_status_transi
         other => panic!("expected first workflow notice, got {other:?}"),
     }
 
-    // Transition status to active.
     engine
         .activate_generated_tool_json(tool_name)
         .await
         .expect("activate generated OpenAPI tool");
 
-    // Second fetch on the SAME thread should surface updated reuse guidance.
     let second_result = execute_tool(
         &ToolCall {
             id: "call-fetch-openapi-existing-status-active".to_string(),

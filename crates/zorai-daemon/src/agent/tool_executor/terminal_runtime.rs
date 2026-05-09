@@ -19,18 +19,15 @@ pub(crate) async fn execute_read_terminal(
 
     let sid = target_id.unwrap_or(sessions[0].id);
 
-    // Read full scrollback, no line limit — get everything the session has
     match session_manager.get_scrollback(sid, None).await {
         Ok(data) => {
             if data.is_empty() {
                 return Ok("(terminal buffer is empty)".into());
             }
 
-            // Strip ANSI escapes using the strip-ansi-escapes crate (already in deps)
             let stripped = strip_ansi_escapes::strip(&data);
             let text = String::from_utf8_lossy(&stripped);
 
-            // Take last 200 lines to keep output manageable
             let lines: Vec<&str> = text.lines().collect();
             let start = if lines.len() > 200 {
                 lines.len() - 200

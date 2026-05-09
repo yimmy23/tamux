@@ -200,8 +200,6 @@ impl TuiModel {
     pub(super) fn sync_pending_approvals_from_tasks(&mut self) {
         let tasks = self.tasks.tasks().to_vec();
         for task in &tasks {
-            // Task snapshots hydrate approval details, but absence is not authoritative because
-            // the daemon can cap or omit tasks that still have a live approval event.
             if task.awaiting_approval_id.is_some() {
                 self.upsert_task_backed_approval(task);
             }
@@ -272,9 +270,6 @@ impl TuiModel {
         }
         let active_thread_id = self.chat.active_thread_id().map(str::to_string);
         let pending_loading_thread_id = self.thread_loading_id.clone();
-        // ThreadList events can be paginated, filtered, or IPC-truncated refresh pages; absence
-        // from one page is not a deletion signal. Keep locally cached threads until ThreadDeleted
-        // or an explicit detail/list entry replaces them.
         let preserve_missing_threads = self
             .chat
             .threads()
@@ -315,6 +310,9 @@ impl TuiModel {
         }
         self.chat
             .reduce(chat::ChatAction::ThreadListReceived(threads));
+        if self.pending_thread_picker_refresh.is_none() {
+            self.thread_picker_loading_tab = None;
+        }
         self.sync_open_thread_picker();
         self.sync_pending_approvals_from_tasks();
         if self.fallback_pending_reconnect_restore() {

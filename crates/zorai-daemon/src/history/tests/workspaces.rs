@@ -146,6 +146,70 @@ async fn workspace_settings_operator_filter_ignores_unrelated_malformed_rows() -
 }
 
 #[tokio::test]
+async fn repo_monitor_workspace_settings_filter_enabled_non_empty_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .conn
+        .call(|conn| {
+            for (
+                workspace_id,
+                repo_monitor_enabled,
+                repo_monitor_include_dirs_json,
+            ) in [
+                ("enabled-with-includes", 1i64, "[\"src\"]"),
+                ("disabled-with-includes", 0i64, "[\"src\"]"),
+                ("enabled-empty-includes", 1i64, "[]"),
+                ("enabled-malformed-includes", 1i64, "not-json"),
+            ] {
+                conn.execute(
+                    "INSERT INTO workspace_settings \
+                     (workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    rusqlite::params![
+                        workspace_id,
+                        format!("/tmp/{workspace_id}"),
+                        "svarog",
+                        repo_monitor_enabled,
+                        repo_monitor_include_dirs_json,
+                        "[]",
+                        1i64,
+                        2i64
+                    ],
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+
+    let settings = store.list_repo_monitor_workspace_settings().await?;
+
+    assert_eq!(settings.len(), 1);
+    assert_eq!(settings[0].workspace_id, "enabled-with-includes");
+    assert!(settings[0].repo_monitor_enabled);
+    assert_eq!(settings[0].repo_monitor_include_dirs, vec!["src"]);
+
+    let index_sql: String = store
+        .conn
+        .call(|conn| {
+            conn.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_workspace_settings_repo_monitor_enabled'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    assert!(index_sql.contains("repo_monitor_enabled"));
+    assert!(index_sql.contains("WHERE repo_monitor_enabled = 1"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn workspace_tasks_round_trip_and_hide_deleted_by_default() -> Result<()> {
     let (store, root) = make_test_store().await?;
     let mut deleted = sample_task("wtask_deleted", WorkspaceTaskStatus::Todo, 20);

@@ -37,7 +37,6 @@ fn build_rows(tasks: &TaskState, sidebar: &SidebarState, theme: &ThemeTokens) ->
     let selected = sidebar.selected_item();
     let mut item_index = 0usize;
 
-    // Goal-run groups
     for run in goal_runs {
         let expanded = sidebar.is_expanded(&run.id);
         let arrow = if expanded { "\u{25be}" } else { "\u{25b8}" };
@@ -146,7 +145,6 @@ fn build_rows(tasks: &TaskState, sidebar: &SidebarState, theme: &ThemeTokens) ->
         }
     }
 
-    // Daemon group (tasks without goal_run_id)
     let daemon_tasks: Vec<_> = all_tasks
         .iter()
         .filter(|t| t.goal_run_id.is_none())
@@ -201,7 +199,6 @@ fn build_rows(tasks: &TaskState, sidebar: &SidebarState, theme: &ThemeTokens) ->
         }
     }
 
-    // Empty state
     if rows.is_empty() {
         rows.push(SidebarRow {
             line: Line::from(Span::styled(" No agents", theme.fg_dim)),
@@ -210,7 +207,6 @@ fn build_rows(tasks: &TaskState, sidebar: &SidebarState, theme: &ThemeTokens) ->
         });
     }
 
-    // Footer aggregate counts
     if !goal_runs.is_empty() || !all_tasks.is_empty() {
         let running_count = all_tasks
             .iter()

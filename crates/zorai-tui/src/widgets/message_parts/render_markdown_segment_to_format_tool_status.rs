@@ -16,7 +16,6 @@ use zorai_protocol::tool_names;
 pub(crate) fn render_markdown_segment(content: &str, width: usize) -> Vec<Line<'static>> {
     let normalized = normalize_markdown_for_tui(content);
     let md_text = tui_markdown::from_str(&normalized);
-    // Convert ratatui_core::Line to ratatui::Line via plain text + styles
     let mut result = Vec::new();
     for md_line in md_text.lines {
         let mut spans: Vec<Span<'static>> = Vec::new();
@@ -27,7 +26,6 @@ pub(crate) fn render_markdown_segment(content: &str, width: usize) -> Vec<Line<'
         result.push(Line::from(spans).style(convert_style(md_line.style)));
     }
     if result.is_empty() {
-        // Fallback to plain wrap
         wrap_text(content, width)
             .into_iter()
             .map(|s| Line::from(Span::raw(s)))
@@ -245,7 +243,6 @@ pub(crate) fn render_compact(
         return;
     }
 
-    // TOOL messages: compact one-liner or expanded with args + result
     if msg.role == MessageRole::Tool {
         if let Some(name) = &msg.tool_name {
             let status = msg.tool_status.as_deref().unwrap_or("done");
@@ -269,7 +266,6 @@ pub(crate) fn render_compact(
             }
             lines.push(Line::from(header_spans));
 
-            // Expanded tool details
             if is_expanded {
                 let detail_indent = 4;
                 let detail_width = width.saturating_sub(detail_indent + 1);
@@ -278,7 +274,6 @@ pub(crate) fn render_compact(
                     render_weles_review_details(review, theme, detail_width, lines);
                 }
 
-                // Show arguments
                 if let Some(args) = &msg.tool_arguments {
                     if !args.is_empty() {
                         if let Some(diff_lines) =
@@ -314,7 +309,6 @@ pub(crate) fn render_compact(
                     }
                 }
 
-                // Show full result
                 let result_text = &msg.content;
                 if !result_text.is_empty() {
                     if let Some(structured_result) = render_tool_structured_json(
@@ -377,7 +371,6 @@ pub(crate) fn render_compact(
     }
 
     let content = &msg.content;
-    // Skip truly empty non-assistant messages (no content, no reasoning)
     if content.is_empty() && image_lines.is_empty() && msg.role != MessageRole::Assistant {
         return;
     }
@@ -503,7 +496,6 @@ pub(crate) fn render_full(
     expanded_tools: &ExpandedTools,
     lines: &mut Vec<Line<'static>>,
 ) {
-    // Full mode: always expand reasoning and tools
     let mut full_expanded = expanded.clone();
     full_expanded.insert(msg_index);
     let mut full_tools = expanded_tools.clone();

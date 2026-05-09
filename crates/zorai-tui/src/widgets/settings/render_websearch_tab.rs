@@ -35,7 +35,6 @@ pub(crate) fn render_websearch_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // Field 0: web_search_enabled (checkbox — mirrors tool_web_search)
     {
         let is_selected = settings.field_cursor() == 0;
         let marker = if is_selected { "> " } else { "  " };
@@ -67,7 +66,6 @@ pub(crate) fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 1: search_provider (cycle on Enter)
     {
         let is_selected = settings.field_cursor() == 1;
         let marker = if is_selected { "> " } else { "  " };
@@ -98,7 +96,6 @@ pub(crate) fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 2: duckduckgo_region (inline edit)
     {
         let is_selected = settings.field_cursor() == 2;
         let is_editing =
@@ -132,7 +129,6 @@ pub(crate) fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 3: duckduckgo_safe_search (cycle on Enter)
     {
         let is_selected = settings.field_cursor() == 3;
         let marker = if is_selected { "> " } else { "  " };
@@ -157,7 +153,6 @@ pub(crate) fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Fields 4–6: API keys (masked, inline edit)
     let api_key_fields: [(usize, &str, &str, &str); 3] = [
         (
             4,
@@ -216,7 +211,6 @@ pub(crate) fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 7: search_max_results (numeric inline edit)
     {
         let is_selected = settings.field_cursor() == 7;
         let is_editing =
@@ -253,7 +247,6 @@ pub(crate) fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 8: search_timeout_secs (numeric inline edit)
     {
         let is_selected = settings.field_cursor() == 8;
         let is_editing =
@@ -293,7 +286,6 @@ pub(crate) fn render_websearch_tab<'a>(
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("  Web Browsing", theme.fg_active)));
 
-    // Field 9: browse_provider (cycle on Enter)
     {
         let is_selected = settings.field_cursor() == 9;
         let marker = if is_selected { "> " } else { "  " };

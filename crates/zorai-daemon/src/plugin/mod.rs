@@ -93,7 +93,6 @@ impl PluginManager {
     /// Per D-09: skip and warn on failures.
     /// Returns (loaded_count, skipped_count).
     pub async fn load_all_from_disk(&self) -> (usize, usize) {
-        // Create plugins dir if it doesn't exist
         if let Err(e) = std::fs::create_dir_all(&self.plugins_dir) {
             tracing::warn!(
                 path = %self.plugins_dir.display(),
@@ -137,12 +136,10 @@ impl PluginManager {
             plugins_map.insert(plugin.manifest.name.clone(), plugin);
         }
 
-        // Reconcile stale records (Pitfall 6)
         if let Err(e) = self.persistence.remove_stale_plugins(&active_names).await {
             tracing::warn!(error = %e, "failed to reconcile stale plugin records");
         }
 
-        // Install bundled skills for each loaded plugin
         for (name, plugin) in &plugins_map {
             if let Err(e) = skills::install_bundled_skills(
                 &self.plugins_dir,
@@ -156,7 +153,6 @@ impl PluginManager {
 
         *self.plugins.write().await = plugins_map;
 
-        // Rebuild command registry after all plugins are loaded
         self.rebuild_command_registry().await;
 
         tracing::info!(
@@ -233,7 +229,6 @@ impl PluginManager {
             .unwrap_or_default();
         let info = to_plugin_info_from_record(&record, loaded, auth_status, &settings);
 
-        // Extract settings schema from manifest JSON for dynamic form rendering
         let settings_schema = extract_settings_schema(&record.manifest_json);
 
         Some((info, settings_schema))
@@ -254,10 +249,9 @@ impl PluginManager {
 
         for (existing_name, existing) in plugins.iter() {
             if existing_name == &new_manifest.name {
-                continue; // Same plugin (re-install) is not a conflict
+                continue;
             }
 
-            // Check command name conflicts
             if let (Some(new_cmds), Some(existing_cmds)) =
                 (&new_manifest.commands, &existing.manifest.commands)
             {
@@ -271,7 +265,6 @@ impl PluginManager {
                 }
             }
 
-            // Check skill path conflicts
             if let (Some(new_skills), Some(existing_skills)) =
                 (&new_manifest.skills, &existing.manifest.skills)
             {
@@ -311,7 +304,6 @@ impl PluginManager {
         let (manifest, manifest_json) =
             loader::validate_manifest(&raw_bytes, &self.schema_validator)?;
 
-        // Check for command/skill conflicts (INST-07)
         self.check_conflicts(&manifest).await?;
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -345,7 +337,6 @@ impl PluginManager {
             &[],
         );
 
-        // Install bundled skills
         if let Err(e) = skills::install_bundled_skills(
             &self.plugins_dir,
             &manifest.name,
@@ -355,7 +346,6 @@ impl PluginManager {
             tracing::warn!(plugin = %manifest.name, error = %e, "failed to install bundled skills");
         }
 
-        // Add to in-memory map
         self.plugins.write().await.insert(
             manifest.name.clone(),
             loader::LoadedPlugin {
@@ -365,7 +355,6 @@ impl PluginManager {
             },
         );
 
-        // Rebuild command registry
         self.rebuild_command_registry().await;
 
         tracing::info!(plugin = %record.name, source = %install_source, "plugin registered");
@@ -375,7 +364,6 @@ impl PluginManager {
     /// Unregister a plugin: remove from SQLite (plugins + settings + credentials)
     /// and from in-memory map. Does NOT delete files from disk (CLI handles that).
     pub async fn unregister_plugin(&self, name: &str) -> Result<()> {
-        // Remove bundled skills before removing from map
         if let Err(e) = skills::remove_bundled_skills(name, &self.skills_root) {
             tracing::warn!(plugin = %name, error = %e, "failed to remove bundled skills");
         }
@@ -386,7 +374,6 @@ impl PluginManager {
         }
         self.plugins.write().await.remove(name);
 
-        // Rebuild command registry after removal
         self.rebuild_command_registry().await;
 
         tracing::info!(plugin = %name, "plugin unregistered");
@@ -502,7 +489,6 @@ impl PluginManager {
         endpoint_name: &str,
         params: serde_json::Value,
     ) -> Result<String, api_proxy::PluginApiError> {
-        // (a) Look up plugin in loaded map
         let plugins = self.plugins.read().await;
         let plugin =
             plugins
@@ -511,14 +497,12 @@ impl PluginManager {
                     name: plugin_name.to_string(),
                 })?;
 
-        // (b) Check enabled state from persistence
         if !self.check_plugin_enabled(plugin_name).await? {
             return Err(api_proxy::PluginApiError::PluginDisabled {
                 name: plugin_name.to_string(),
             });
         }
 
-        // (c) Get API section and endpoint from manifest
         let api = plugin.manifest.api.as_ref().ok_or_else(|| {
             api_proxy::PluginApiError::EndpointNotFound {
                 plugin: plugin_name.to_string(),
@@ -532,7 +516,6 @@ impl PluginManager {
             }
         })?;
 
-        // Clone what we need before dropping the read lock
         let api_clone = api.clone();
         let endpoint_clone = endpoint.clone();
         let manifest_clone = plugin.manifest.clone();
@@ -542,7 +525,6 @@ impl PluginManager {
             .and_then(|rl| rl.requests_per_minute)
             .unwrap_or(rate_limiter::DEFAULT_REQUESTS_PER_MINUTE);
 
-        // Check if this plugin uses OAuth2 auth
         let plugin_has_oauth = plugin
             .manifest
             .auth
@@ -551,10 +533,8 @@ impl PluginManager {
             .unwrap_or(false);
         let manifest_auth = plugin.manifest.auth.clone();
 
-        // Drop the plugins read lock before acquiring other locks
         drop(plugins);
 
-        // (d) Check rate limit
         {
             let mut limiters = self.rate_limiters.lock().await;
             if !limiters.check(plugin_name, rpm) {
@@ -565,14 +545,12 @@ impl PluginManager {
             }
         }
 
-        // (e) Get raw settings from persistence (NOT masked -- need real values for templates)
         let settings = self
             .persistence
             .get_settings(plugin_name)
             .await
             .unwrap_or_default();
 
-        // (e2) Get OAuth token context if plugin uses OAuth2 per D-08/D-11
         let auth_context = if plugin_has_oauth {
             match self
                 .get_oauth_context_with_refresh(plugin_name, &manifest_auth, &settings)
@@ -589,10 +567,8 @@ impl PluginManager {
             None
         };
 
-        // (f) Build template context with optional auth map per D-11
         let context = template::build_context(params, settings, auth_context);
 
-        // (g) Render request
         let rendered = template::render_request(
             &self.template_registry,
             &api_clone,
@@ -601,16 +577,13 @@ impl PluginManager {
         )
         .await?;
 
-        // (h) SSRF validate (allow_local=false for production safety)
         ssrf::validate_url(&rendered.url, false).await?;
 
-        // (i) Execute HTTP request
         let response_json = match api_proxy::execute_request(&self.http_client, &rendered).await {
             Ok(json) => json,
             Err(api_proxy::PluginApiError::RateLimited {
                 retry_after_secs, ..
             }) => {
-                // Fill in plugin name for upstream 429 errors
                 return Err(api_proxy::PluginApiError::RateLimited {
                     plugin: plugin_name.to_string(),
                     retry_after_secs,
@@ -626,11 +599,9 @@ impl PluginManager {
             }
         };
 
-        // (j) Render response
         let rendered_text =
             template::render_response(&self.template_registry, &endpoint_clone, &response_json)?;
 
-        // (k) Return rendered text
         Ok(rendered_text)
     }
 }

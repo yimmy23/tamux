@@ -263,14 +263,31 @@ impl DaemonClient {
                     .await;
             }
             DaemonMessage::AgentConfigResponse { config_json } => {
+                info!(
+                    json_len = config_json.len(),
+                    "client: received AgentConfigResponse"
+                );
                 match serde_json::from_str::<Value>(&config_json) {
                     Ok(raw) => {
-                        if let Ok(config) =
-                            serde_json::from_value::<AgentConfigSnapshot>(raw.clone())
-                        {
-                            let _ = event_tx.send(ClientEvent::AgentConfig(config)).await;
+                        match serde_json::from_value::<AgentConfigSnapshot>(raw.clone()) {
+                            Ok(config) => {
+                                let _ = event_tx.send(ClientEvent::AgentConfig(config)).await;
+                            }
+                            Err(err) => {
+                                warn!(
+                                    "AgentConfigSnapshot decode failed — settings UI will not populate. \
+                                     This usually means the daemon added a field the TUI's snapshot \
+                                     schema doesn't know about. err={}",
+                                    err
+                                );
+                            }
                         }
-                        let _ = event_tx.send(ClientEvent::AgentConfigRaw(raw)).await;
+                        let raw_send = event_tx.send(ClientEvent::AgentConfigRaw(raw)).await;
+                        if raw_send.is_err() {
+                            warn!("client: AgentConfigRaw event send failed (receiver dropped)");
+                        } else {
+                            info!("client: AgentConfigRaw forwarded to app event loop");
+                        }
                     }
                     Err(err) => warn!("Failed to parse agent config response: {}", err),
                 }

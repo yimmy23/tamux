@@ -143,7 +143,6 @@ pub(crate) fn render_provider_tab<'a>(
         " [Enter: cycle]"
     };
 
-    // Field definitions: (index, label, value, field_name, hint)
     let mut fields: Vec<(usize, &str, String, &str, &str)> = vec![
         (0, "Provider", provider_val, "provider", " [Enter: pick]"),
         (1, "Base URL", base_url_val, "base_url", " [Enter: edit]"),
@@ -231,7 +230,6 @@ pub(crate) fn render_provider_tab<'a>(
         let marker = if is_selected { ">" } else { " " };
 
         let display_value: String = if is_editing {
-            // Show edit buffer with cursor block
             clip_inline_text(&format!("{}\u{2588}", settings.edit_buffer()), 52)
         } else {
             clip_inline_text(value, 52)
@@ -256,7 +254,6 @@ pub(crate) fn render_provider_tab<'a>(
             Span::styled(display_value, value_style),
         ];
 
-        // Show hint on selected but not editing
         if is_selected && !is_editing {
             spans.push(Span::styled(*hint, theme.fg_dim));
         }

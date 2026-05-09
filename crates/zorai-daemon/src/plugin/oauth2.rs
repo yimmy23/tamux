@@ -49,7 +49,6 @@ pub struct OAuthFlowState {
 /// Returns an `OAuthFlowState` containing the auth URL to send to the user and
 /// the listener to await the callback on.
 pub async fn start_oauth_flow(config: &OAuthFlowConfig) -> Result<OAuthFlowState> {
-    // Bind ephemeral port per D-04
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .context("failed to bind OAuth callback listener")?;
@@ -67,16 +66,13 @@ pub async fn start_oauth_flow(config: &OAuthFlowConfig) -> Result<OAuthFlowState
         client = client.set_client_secret(ClientSecret::new(secret.clone()));
     }
 
-    // Build authorization URL
     let mut auth_request = client.authorize_url(CsrfToken::new_random);
     auth_request = auth_request.set_redirect_uri(std::borrow::Cow::Owned(redirect));
 
-    // Add scopes
     for scope in &config.scopes {
         auth_request = auth_request.add_scope(Scope::new(scope.clone()));
     }
 
-    // PKCE support per D-01/AUTH-01
     let pkce_verifier = if config.pkce {
         let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
         auth_request = auth_request.set_pkce_challenge(challenge);
@@ -102,20 +98,17 @@ pub async fn start_oauth_flow(config: &OAuthFlowConfig) -> Result<OAuthFlowState
 /// Expects a GET request like: `GET /callback?code=XXX&state=YYY HTTP/1.1\r\n...`
 /// Returns `(code, state)` on success.
 fn parse_callback_request(raw: &str) -> Result<(String, String)> {
-    // Extract the request line
     let request_line = raw
         .lines()
         .next()
         .ok_or_else(|| anyhow::anyhow!("empty HTTP request"))?;
 
-    // Extract path from "GET /callback?code=XXX&state=YYY HTTP/1.1"
     let parts: Vec<&str> = request_line.split_whitespace().collect();
     if parts.len() < 2 {
         anyhow::bail!("malformed HTTP request line");
     }
     let path = parts[1];
 
-    // Parse as URL to extract query params
     let full_url = format!("http://localhost{}", path);
     let parsed = url::Url::parse(&full_url).context("failed to parse callback URL")?;
 
@@ -141,14 +134,12 @@ fn parse_callback_request(raw: &str) -> Result<(String, String)> {
 /// authorization code, validates the CSRF state, sends a success HTML response,
 /// and returns the authorization code.
 pub async fn await_callback(state: &mut OAuthFlowState) -> Result<String> {
-    // 5-minute timeout per D-06
     let (mut stream, _addr) =
         tokio::time::timeout(Duration::from_secs(300), state.listener.accept())
             .await
             .map_err(|_| anyhow::anyhow!("OAuth callback timed out after 5 minutes"))?
             .context("failed to accept OAuth callback connection")?;
 
-    // Read the HTTP request (4096 bytes is plenty for a callback GET)
     let mut buf = vec![0u8; 4096];
     let n = stream
         .read(&mut buf)
@@ -156,12 +147,9 @@ pub async fn await_callback(state: &mut OAuthFlowState) -> Result<String> {
         .context("failed to read OAuth callback request")?;
     let request_str = String::from_utf8_lossy(&buf[..n]);
 
-    // Parse code and state from callback
     let (code, received_state) = parse_callback_request(&request_str)?;
 
-    // Validate CSRF state
     if received_state != state.csrf_state {
-        // Send error response
         let error_response = "HTTP/1.1 400 Bad Request\r\nContent-Type: text/html\r\n\r\n<html><body><h2>Authentication failed</h2><p>State mismatch. Please try again.</p></body></html>";
         let _ = stream.write_all(error_response.as_bytes()).await;
         let _ = stream.shutdown().await;
@@ -172,7 +160,6 @@ pub async fn await_callback(state: &mut OAuthFlowState) -> Result<String> {
         );
     }
 
-    // Send success response
     let success_response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n<html><body><h2>Authentication successful!</h2><p>You can close this tab.</p></body></html>";
     let _ = stream.write_all(success_response.as_bytes()).await;
     let _ = stream.shutdown().await;
@@ -195,7 +182,6 @@ pub async fn exchange_code(state: &OAuthFlowState, code: &str) -> Result<OAuthFl
         client = client.set_client_secret(ClientSecret::new(secret.clone()));
     }
 
-    // No-redirect HTTP client for SSRF prevention per Pitfall 4
     let http_client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
@@ -205,7 +191,6 @@ pub async fn exchange_code(state: &OAuthFlowState, code: &str) -> Result<OAuthFl
     let mut token_request = client.exchange_code(AuthorizationCode::new(code.to_string()));
     token_request = token_request.set_redirect_uri(std::borrow::Cow::Owned(redirect));
 
-    // Attach PKCE verifier if applicable
     if let Some(ref verifier) = state.pkce_verifier {
         token_request =
             token_request.set_pkce_verifier(PkceCodeVerifier::new(verifier.secret().to_string()));
@@ -216,7 +201,6 @@ pub async fn exchange_code(state: &OAuthFlowState, code: &str) -> Result<OAuthFl
         .await
         .context("OAuth token exchange failed")?;
 
-    // IMPORTANT: Never log token values per Pitfall 2
     tracing::info!("OAuth token exchange successful");
 
     Ok(OAuthFlowResult {
@@ -244,7 +228,6 @@ pub async fn refresh_access_token(
         client = client.set_client_secret(ClientSecret::new(secret.clone()));
     }
 
-    // No-redirect HTTP client for SSRF prevention per Pitfall 4
     let http_client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
@@ -257,7 +240,6 @@ pub async fn refresh_access_token(
         .await
         .context("OAuth token refresh failed")?;
 
-    // IMPORTANT: Never log token values per Pitfall 2
     tracing::info!("OAuth token refresh successful");
 
     Ok(OAuthFlowResult {
@@ -321,7 +303,6 @@ mod tests {
 
         let state = start_oauth_flow(&config).await.unwrap();
 
-        // Auth URL should contain expected parameters
         assert!(state.auth_url.starts_with("https://example.com/auth?"));
         assert!(state.auth_url.contains("client_id=test-client"));
         assert!(state.auth_url.contains("redirect_uri="));
@@ -336,21 +317,17 @@ mod tests {
             "PKCE method missing from URL: {}",
             state.auth_url
         );
-        // Scopes should be present (space-separated and URL-encoded)
         assert!(
             state.auth_url.contains("scope="),
             "scopes missing from URL: {}",
             state.auth_url
         );
 
-        // Redirect URI should be localhost with ephemeral port
         assert!(state.redirect_uri.starts_with("http://127.0.0.1:"));
         assert!(state.redirect_uri.ends_with("/callback"));
 
-        // CSRF state should be non-empty
         assert!(!state.csrf_state.is_empty());
 
-        // PKCE verifier should be present
         assert!(state.pkce_verifier.is_some());
     }
 
@@ -385,14 +362,12 @@ mod tests {
         let mut state = start_oauth_flow(&config).await.unwrap();
         let port = state.listener.local_addr().unwrap().port();
 
-        // Simulate a callback with wrong state
         let client_handle = tokio::spawn(async move {
             let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
                 .await
                 .unwrap();
             let request = "GET /callback?code=authcode123&state=WRONG_STATE HTTP/1.1\r\nHost: localhost\r\n\r\n";
             stream.write_all(request.as_bytes()).await.unwrap();
-            // Read response
             let mut buf = vec![0u8; 4096];
             let _ = stream.read(&mut buf).await;
         });
@@ -423,7 +398,6 @@ mod tests {
         let port = state.listener.local_addr().unwrap().port();
         let csrf = state.csrf_state.clone();
 
-        // Simulate a callback with correct state
         let client_handle = tokio::spawn(async move {
             let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
                 .await
@@ -433,7 +407,6 @@ mod tests {
                 csrf
             );
             stream.write_all(request.as_bytes()).await.unwrap();
-            // Read response
             let mut buf = vec![0u8; 4096];
             let _ = stream.read(&mut buf).await;
         });

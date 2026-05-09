@@ -1,6 +1,5 @@
 use super::*;
 
-// -- checkpoint_save tests --
 
 #[test]
 fn save_creates_valid_checkpoint_with_all_layers() {
@@ -21,25 +20,20 @@ fn save_creates_valid_checkpoint_with_all_layers() {
         5000,
     );
 
-    // Layer 1: Goal
     assert_eq!(cp.goal_run.id, "goal_1");
     assert_eq!(cp.goal_run.status, GoalRunStatus::Running);
 
-    // Layer 2: Execution
     assert_eq!(cp.tasks_snapshot.len(), 2);
     assert_eq!(cp.tasks_snapshot[0].id, "t1");
 
-    // Layer 3: Context
     assert_eq!(cp.thread_id.as_deref(), Some("thread_1"));
     assert_eq!(cp.context_summary.as_deref(), Some("context summary"));
     assert_eq!(cp.context_tokens, Some(4096));
 
-    // Layer 4: Runtime
     assert!(cp.work_context.is_some());
     assert_eq!(cp.todos.len(), 2);
     assert_eq!(cp.memory_updates.len(), 2);
 
-    // Metadata
     assert_eq!(cp.created_at, 5000);
     assert_eq!(cp.version, CHECKPOINT_SCHEMA_VERSION);
     assert_eq!(cp.checkpoint_type, CheckpointType::PostStep);
@@ -76,7 +70,6 @@ fn save_assigns_unique_id() {
     assert!(cp2.id.starts_with("cp_"));
 }
 
-// -- checkpoint_load tests --
 
 #[test]
 fn load_roundtrip_save_serialize_load() {
@@ -132,7 +125,6 @@ fn load_rejects_wrong_schema_version() {
     assert!(err_msg.contains("unsupported checkpoint schema version 999"));
 }
 
-// -- checkpoint_list tests --
 
 #[test]
 fn list_returns_sorted_summaries() {
@@ -181,13 +173,11 @@ fn list_returns_sorted_summaries() {
     let summaries = checkpoint_list(&jsons);
 
     assert_eq!(summaries.len(), 3);
-    // Newest first
     assert_eq!(summaries[0].created_at, 3000);
     assert_eq!(summaries[1].created_at, 2000);
     assert_eq!(summaries[2].created_at, 1000);
 }
 
-// -- checkpoint_prune tests --
 
 #[test]
 fn prune_keeps_n_most_recent() {
@@ -211,7 +201,6 @@ fn prune_keeps_n_most_recent() {
     checkpoint_prune(&mut cps, 2);
 
     assert_eq!(cps.len(), 2);
-    // Should keep the two newest (created_at 1300 and 1400)
     assert_eq!(cps[0].created_at, 1300);
     assert_eq!(cps[1].created_at, 1400);
 }
@@ -246,4 +235,3 @@ fn prune_with_n_greater_than_len_does_nothing() {
     assert_eq!(cps.len(), 3);
 }
 
-// -- summary tests --

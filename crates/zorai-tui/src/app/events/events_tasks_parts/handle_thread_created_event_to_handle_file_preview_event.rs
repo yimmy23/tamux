@@ -8,6 +8,7 @@ impl TuiModel {
         title: String,
         agent_name: Option<String>,
     ) {
+        let agent_name_for_filter_match = agent_name.clone();
         let was_missing_runtime_thread = self.missing_runtime_thread_ids.remove(&thread_id);
         self.empty_hydrated_runtime_thread_ids.remove(&thread_id);
         let pending_local_activity = self
@@ -74,6 +75,20 @@ impl TuiModel {
         }
         self.sync_open_thread_picker();
         self.sync_pending_approvals_from_tasks();
+
+        let active_tab = self.modal.thread_picker_tab();
+        if let Some(filter) = active_tab.agent_filter() {
+            let matches_active = match agent_name_for_filter_match.as_deref() {
+                Some(name) => agent_name_matches_filter(name, &filter),
+                None => filter.eq_ignore_ascii_case(zorai_protocol::AGENT_HANDLE_SVAROG),
+            };
+            if matches_active {
+                self.send_daemon_command(crate::state::DaemonCommand::RefreshThreadsForAgent {
+                    agent_filter: Some(filter),
+                });
+            }
+        }
+
         if was_missing_runtime_thread && self.chat.active_thread_id() == Some(thread_id.as_str()) {
             self.request_latest_thread_page(thread_id, true);
         }
@@ -424,4 +439,47 @@ impl TuiModel {
             }));
         self.clamp_detail_view_scroll();
     }
+}
+
+/// Whether a `ThreadCreated`'s `agent_name` field belongs to the same bucket
+/// as the active picker filter. The match is intentionally lenient because
+/// the daemon's persisted thread filter (`persisted_thread_agent_name_filter`)
+/// resolves a single agent handle (e.g. "svarog") to a fan-out of canonical
+/// IDs, public aliases, legacy aliases, and (for the main agent) treats
+/// empty/null `agent_name` as the same bucket. A precise client-side mirror
+/// would duplicate that whole resolver, so we match conservatively: any of
+/// the obvious case-insensitive equivalents triggers a refresh, and the
+/// daemon then returns the authoritative list.
+fn agent_name_matches_filter(thread_agent_name: &str, filter: &str) -> bool {
+    let thread = thread_agent_name.trim();
+    let filter = filter.trim();
+    if thread.eq_ignore_ascii_case(filter) {
+        return true;
+    }
+    let svarog_aliases = [
+        zorai_protocol::AGENT_HANDLE_SVAROG,
+        zorai_protocol::AGENT_NAME_SWAROG,
+        zorai_protocol::AGENT_ID_SWAROG,
+    ];
+    let filter_is_svarog = svarog_aliases
+        .iter()
+        .any(|alias| filter.eq_ignore_ascii_case(alias));
+    let thread_is_svarog = svarog_aliases
+        .iter()
+        .any(|alias| thread.eq_ignore_ascii_case(alias));
+    if filter_is_svarog && thread_is_svarog {
+        return true;
+    }
+    let rarog_aliases = [
+        zorai_protocol::AGENT_NAME_RAROG,
+        zorai_protocol::AGENT_ID_RAROG,
+    ];
+    let filter_is_rarog = filter.eq_ignore_ascii_case("rarog")
+        || rarog_aliases.iter().any(|a| filter.eq_ignore_ascii_case(a));
+    let thread_is_rarog = thread.eq_ignore_ascii_case("rarog")
+        || rarog_aliases.iter().any(|a| thread.eq_ignore_ascii_case(a));
+    if filter_is_rarog && thread_is_rarog {
+        return true;
+    }
+    false
 }

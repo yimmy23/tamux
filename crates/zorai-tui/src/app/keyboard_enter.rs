@@ -272,8 +272,9 @@ impl TuiModel {
             };
             self.modal
                 .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
-            self.modal.set_thread_picker_tab(tab);
+            self.modal.set_thread_picker_tab(tab.clone());
             self.sync_thread_picker_item_count();
+            self.queue_threads_for_picker_tab_refresh(&tab);
             return true;
         }
         if self.is_builtin_command(cmd) {

@@ -116,7 +116,16 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
         }
     });
     ipcMain.handle('agent-stop-stream', async (_event, threadId) => { try { sendAgentCommand({ type: 'stop-stream', thread_id: threadId }); } catch {} return { ok: true }; });
-    ipcMain.handle('agent-list-threads', async () => { try { return await sendAgentQuery({ type: 'list-threads' }, 'thread-list'); } catch { return []; } });
+    ipcMain.handle('agent-list-threads', async (_event, options) => {
+        try {
+            const agentFilter = typeof options?.agentFilter === 'string' && options.agentFilter.trim()
+                ? options.agentFilter.trim()
+                : null;
+            return await sendAgentQuery({ type: 'list-threads', agent_filter: agentFilter }, 'thread-list');
+        } catch {
+            return [];
+        }
+    });
     ipcMain.handle('agent-get-thread', async (_event, threadId, options) => {
         try {
             const messageLimit = Number.isFinite(options?.messageLimit)

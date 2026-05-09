@@ -4,9 +4,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
 
-// ---------------------------------------------------------------------------
-// Consolidation config (Phase 5 — memory consolidation)
-// ---------------------------------------------------------------------------
 
 /// Configuration for idle-time memory consolidation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,9 +68,6 @@ impl Default for ConsolidationConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Skill maturity lifecycle (Phase 6 — skill discovery)
-// ---------------------------------------------------------------------------
 
 /// Maturity stage of a skill variant as it progresses through discovery.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -112,9 +106,6 @@ impl SkillMaturityStatus {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Skill discovery config (Phase 6)
-// ---------------------------------------------------------------------------
 
 /// Thresholds for deciding whether an execution trace qualifies as a skill candidate.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,9 +227,6 @@ impl Default for SkillRecommendationConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Specialist routing config (Spec 03)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -299,9 +287,6 @@ impl Default for RoutingConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Skill promotion config (Phase 6)
-// ---------------------------------------------------------------------------
 
 /// Success thresholds for promoting a skill variant through maturity stages.
 #[derive(Debug, Clone, Serialize, Deserialize)]

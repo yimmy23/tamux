@@ -34,7 +34,6 @@ pub(crate) fn install_bundled_skills(
             );
             continue;
         }
-        // Use just the file name component for the destination (flatten subdirs)
         let filename = Path::new(skill_path)
             .file_name()
             .unwrap_or_else(|| std::ffi::OsStr::new(skill_path));
@@ -94,7 +93,6 @@ mod tests {
         let skills_root = tmp.path().join("skills");
         std::fs::create_dir_all(&skills_root).unwrap();
 
-        // Create plugin dir with skill files
         let plugin_dir = plugins_dir.join("my-plugin");
         std::fs::create_dir_all(plugin_dir.join("skills")).unwrap();
         std::fs::write(plugin_dir.join("skills/search.yaml"), "name: search").unwrap();
@@ -157,7 +155,6 @@ mod tests {
     fn remove_bundled_skills_noop_when_missing() {
         let tmp = tempfile::TempDir::new().unwrap();
         let skills_root = tmp.path().join("skills");
-        // Dir does not exist -- should not error
         remove_bundled_skills("nonexistent-plugin", &skills_root).unwrap();
     }
 }

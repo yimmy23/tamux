@@ -30,15 +30,12 @@ pub fn checkpoint_save(
         now,
     );
 
-    // Layer 2: Execution State
     cp.tasks_snapshot = tasks.to_vec();
 
-    // Layer 3: Context State
     cp.thread_id = thread_id.map(String::from);
     cp.context_summary = context_summary;
     cp.context_tokens = context_tokens;
 
-    // Layer 4: Runtime State
     cp.work_context = work_context.cloned();
     cp.todos = todos.to_vec();
     cp.memory_updates = goal_run.memory_updates.clone();
@@ -62,7 +59,6 @@ pub async fn checkpoint_store(
             &checkpoint.id,
             &checkpoint.goal_run_id,
             checkpoint.thread_id.as_deref(),
-            // Derive task_id from the goal run's active task, if any.
             checkpoint.goal_run.active_task_id.as_deref(),
             checkpoint.checkpoint_type,
             &state_json,
@@ -116,15 +112,11 @@ pub fn checkpoint_prune(checkpoints: &mut Vec<CheckpointData>, keep_last_n: usiz
         return;
     }
 
-    // Sort oldest-first, then keep only the tail.
     checkpoints.sort_by_key(|cp| cp.created_at);
     let start = checkpoints.len() - keep_last_n;
     *checkpoints = checkpoints.split_off(start);
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[path = "tests/checkpoint/mod.rs"]
