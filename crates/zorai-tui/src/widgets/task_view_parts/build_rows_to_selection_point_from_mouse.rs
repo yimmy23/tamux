@@ -222,6 +222,25 @@ pub(crate) fn build_rows(
     }
 }
 
+/// Cache key for `rows_for_width`. Excludes `tick` deliberately — animation
+/// updates would otherwise force a rebuild every frame, defeating the cache.
+/// Stale-by-one-tick spinners are invisible to the eye and the cache
+/// invalidates on any real state change via `tasks_revision`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RowsCacheKey {
+    tasks_revision: u64,
+    target: SidebarItemTarget,
+    width: usize,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
+}
+
+thread_local! {
+    static ROWS_CACHE: std::cell::RefCell<Option<(RowsCacheKey, Vec<RenderRow>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 pub(crate) fn rows_for_width(
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -232,6 +251,23 @@ pub(crate) fn rows_for_width(
     show_files: bool,
     tick: Option<u64>,
 ) -> Vec<RenderRow> {
+    let key = RowsCacheKey {
+        tasks_revision: tasks.tasks_revision(),
+        target: target.clone(),
+        width,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    };
+    let cached = ROWS_CACHE.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .filter(|(cached_key, _)| cached_key == &key)
+            .map(|(_, rows)| rows.clone())
+    });
+    if let Some(rows) = cached {
+        return rows;
+    }
     let (_, rows) = build_rows(
         tasks,
         target,
@@ -242,6 +278,9 @@ pub(crate) fn rows_for_width(
         show_files,
         tick,
     );
+    ROWS_CACHE.with(|cell| {
+        *cell.borrow_mut() = Some((key, rows.clone()));
+    });
     rows
 }
 

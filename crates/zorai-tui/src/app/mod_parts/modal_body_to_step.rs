@@ -16,7 +16,17 @@ use crate::theme::ThemeTokens;
 use crate::widgets;
 
 pub(crate) const TUI_TICK_RATE_MS: u64 = 50;
-pub(crate) const SPAWNED_SIDEBAR_TASK_REFRESH_TICKS: u64 = 20;
+/// Debounce on `maybe_refresh_spawned_sidebar_tasks`. Tick-based, so the
+/// real cadence depends on whether the loop is in fast (50 ms) or idle
+/// (250 ms) mode. At 200 ticks that's:
+///   * fast tick: 200 × 50 ms = 10 s
+///   * idle tick: 200 × 250 ms = 50 s
+/// Was 20 ticks (1 Hz at fast tick — i.e., 1 full ListTasks/sec while
+/// any goal was running). Daemon already broadcasts TaskUpdate events,
+/// so this poll is a safety net rather than the primary source of
+/// truth — a far longer interval is fine, and the previous setting was
+/// the dominant lag source on the goal view.
+pub(crate) const SPAWNED_SIDEBAR_TASK_REFRESH_TICKS: u64 = 200;
 
 /// A file attached to the next outgoing message.
 #[derive(Debug, Clone)]

@@ -14,6 +14,7 @@ pub(crate) enum GoalWorkspacePlanMarkerState {
     Error,
 }
 
+#[derive(Clone)]
 pub(crate) struct GoalWorkspacePlanRow {
     pub(crate) line: Line<'static>,
     pub(crate) selection: Option<crate::state::goal_workspace::GoalPlanSelection>,
@@ -24,7 +25,55 @@ pub(crate) struct GoalWorkspacePlanRow {
     pub(crate) confidence_span_index: Option<usize>,
 }
 
+/// Cache key for `build_rows`. Hashes the inputs that actually affect the
+/// row tree: the task-state revision (bumped on any state mutation), the
+/// goal_run_id, and the GoalWorkspaceState bits that change row content
+/// (prompt_expanded + expanded_step_ids). Theme is a pure styling input
+/// — same theme during a session — and excluded from the key for now.
+fn build_rows_cache_key(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    tasks.tasks_revision().hash(&mut hasher);
+    goal_run_id.hash(&mut hasher);
+    state.prompt_expanded().hash(&mut hasher);
+    for step_id in state.expanded_step_ids_iter() {
+        step_id.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+thread_local! {
+    static PLAN_ROWS_CACHE: std::cell::RefCell<Option<(u64, Vec<GoalWorkspacePlanRow>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 pub(crate) fn build_rows(
+    tasks: &TaskState,
+    goal_run_id: &str,
+    state: &GoalWorkspaceState,
+    theme: &ThemeTokens,
+) -> Vec<GoalWorkspacePlanRow> {
+    let key = build_rows_cache_key(tasks, goal_run_id, state);
+    if let Some(cached) = PLAN_ROWS_CACHE.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .filter(|(cached_key, _)| *cached_key == key)
+            .map(|(_, rows)| rows.clone())
+    }) {
+        return cached;
+    }
+    let rows = build_rows_inner(tasks, goal_run_id, state, theme);
+    PLAN_ROWS_CACHE.with(|cell| {
+        *cell.borrow_mut() = Some((key, rows.clone()));
+    });
+    rows
+}
+
+fn build_rows_inner(
     tasks: &TaskState,
     goal_run_id: &str,
     state: &GoalWorkspaceState,
@@ -109,6 +158,14 @@ pub(crate) fn build_rows(
             confidence_span_index: None,
         });
     }
+    // Pre-compute the per-step todos in a SINGLE pass over `run.events`
+    // so the per-step lookup below is O(1). The previous code called
+    // `goal_step_todos(goal_run_id, step_index)` per expanded step, each
+    // of which walked `run.events.iter().rev()` end-to-end. With long-
+    // running goals (hundreds of events) and several expanded steps,
+    // that was the dominant per-frame cost — the user-visible "expanding
+    // todos took 7s" lag.
+    let todos_by_step = tasks.goal_step_todos_index(goal_run_id);
 
     for step in steps {
         let expanded = state.is_step_expanded(&step.id);
@@ -142,7 +199,12 @@ pub(crate) fn build_rows(
         });
 
         if expanded {
-            for todo in tasks.goal_step_todos(goal_run_id, step.order as usize) {
+            let empty: Vec<_> = Vec::new();
+            let todos = todos_by_step
+                .get(&(step.order as usize))
+                .cloned()
+                .unwrap_or(empty);
+            for todo in todos {
                 rows.push(GoalWorkspacePlanRow {
                     line: Line::from(vec![
                         Span::raw("    "),

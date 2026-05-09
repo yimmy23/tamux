@@ -243,7 +243,7 @@ impl TuiModel {
                     Some(task::GoalRunStatus::Planning | task::GoalRunStatus::Running)
                 ) =>
             {
-                Some(tick)
+                Some(tick / 4)
             }
             _ if matches!(
                 status,

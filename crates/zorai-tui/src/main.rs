@@ -43,8 +43,9 @@ use crate::state::DaemonCommand;
 
 const MAX_TRANSIENT_TERMINAL_ERRORS: usize = 5;
 const TERMINAL_ERROR_RETRY_DELAY_MS: u64 = 150;
-const MAX_DAEMON_EVENTS_PER_FRAME: usize = 32;
+const MAX_DAEMON_EVENTS_PER_FRAME: usize = 256;
 const IDLE_TICK_RATE_MULTIPLIER: u32 = 5;
+const MIN_REDRAW_INTERVAL_MS: u128 = 33;
 
 fn build_log_filter(tui_log: Option<&str>, zorai_log: Option<&str>) -> EnvFilter {
     tui_log
@@ -333,6 +334,8 @@ fn run_loop(
     let mut next_tick = last_tick + loop_tick_rate(model, tick_rate);
     let mut terminal_error_streak = 0usize;
     let mut needs_draw = true;
+    let mut last_drawn_at = Instant::now() - Duration::from_secs(1);
+    let mut input_pending = false;
 
     loop {
         let now = Instant::now();
@@ -352,11 +355,35 @@ fn run_loop(
             needs_draw = true;
         }
 
-        if needs_draw {
+        // Throttle redraws: when daemon events flood in (active goal run
+        // streaming deltas / tool calls), we used to redraw on every
+        // 32-event batch, which under heavy view-render cost backed up
+        // the event drain by seconds. Cap render rate to ~30 fps unless
+        // the user just pressed a key (input_pending always renders so
+        // typing stays snappy). Tick-driven redraws still run at their
+        // scheduled cadence.
+        let since_last_draw = now.saturating_duration_since(last_drawn_at);
+        let throttled = !input_pending
+            && processed_daemon_events > 0
+            && since_last_draw.as_millis() < MIN_REDRAW_INTERVAL_MS;
+        if needs_draw && !throttled {
+            let render_started = Instant::now();
+            let pumped_for_log = processed_daemon_events;
             match terminal.draw(|frame| {
                 model.render(frame);
             }) {
-                Ok(_) => terminal_error_streak = 0,
+                Ok(_) => {
+                    let elapsed_ms = render_started.elapsed().as_millis() as u64;
+                    if elapsed_ms > 100 {
+                        tracing::warn!(
+                            elapsed_ms,
+                            pumped = pumped_for_log,
+                            input_pending,
+                            "tui: slow render frame (>100ms)"
+                        );
+                    }
+                    terminal_error_streak = 0;
+                }
                 Err(err) => {
                     if should_retry_terminal_error(terminal_error_streak) {
                         terminal_error_streak += 1;
@@ -374,6 +401,8 @@ fn run_loop(
 
             graphics_renderer.render(terminal, model.terminal_image_overlay_spec())?;
             needs_draw = false;
+            last_drawn_at = now;
+            input_pending = false;
         }
 
         let now = Instant::now();
@@ -441,22 +470,27 @@ fn run_loop(
                         return Ok(());
                     }
                     needs_draw = true;
+                    input_pending = true;
                 }
                 Event::Key(key) if key.kind == crossterm::event::KeyEventKind::Release => {
                     model.handle_key_release(key.code, key.modifiers);
                     needs_draw = true;
+                    input_pending = true;
                 }
                 Event::Paste(text) => {
                     model.handle_paste(text);
                     needs_draw = true;
+                    input_pending = true;
                 }
                 Event::Resize(w, h) => {
                     model.handle_resize(w, h);
                     needs_draw = true;
+                    input_pending = true;
                 }
                 Event::Mouse(mouse) => {
                     model.handle_mouse(mouse);
                     needs_draw = true;
+                    input_pending = true;
                 }
                 _ => {}
             }
