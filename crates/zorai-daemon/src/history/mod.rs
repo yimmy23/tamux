@@ -1756,6 +1756,8 @@ mod schema_sql_extra;
 mod semantic_documents;
 pub(crate) use semantic_documents::SemanticDocumentSyncSummary;
 mod skill_generation;
+mod skill_reads;
+pub(crate) use skill_reads::ThreadSkillRead;
 mod statistics;
 mod temporal_foresight;
 #[cfg(feature = "lancedb-vector")]

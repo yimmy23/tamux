@@ -1034,5 +1034,17 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 created_at   INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_workspace_notices_task ON workspace_notices(workspace_id, task_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS thread_skill_reads (
+                thread_id      TEXT NOT NULL,
+                kind           TEXT NOT NULL,
+                name           TEXT NOT NULL,
+                read_count     INTEGER NOT NULL DEFAULT 1,
+                last_read_at   INTEGER NOT NULL,
+                last_content   TEXT NOT NULL,
+                PRIMARY KEY (thread_id, kind, name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_thread_skill_reads_lookup
+                ON thread_skill_reads(thread_id, kind, read_count DESC, last_read_at DESC);
     "#
 }
