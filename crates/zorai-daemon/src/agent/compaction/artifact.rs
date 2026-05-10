@@ -155,10 +155,7 @@ impl AgentEngine {
                 tool_output_preview_path: None,
                 structural_refs,
                 pinned_for_compaction: false,
-                timestamp: messages
-                    .last()
-                    .map(|message| message.timestamp)
-                    .unwrap_or_else(now_millis),
+                timestamp: now_millis(),
             },
             strategy_used,
             fallback_notice,

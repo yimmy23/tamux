@@ -37,7 +37,7 @@ pub(crate) async fn discover_local_skills(
         schedule_background_skill_catalog_sync(history.clone(), skills_root.to_path_buf());
         collect_filesystem_skill_candidates(skills_root)?
     } else {
-        let candidates = collect_registered_skill_candidates(skills_root, records)?;
+        let candidates = collect_registered_skill_candidates(history, skills_root, records).await?;
         if candidates.is_empty() {
             schedule_background_skill_catalog_sync(history.clone(), skills_root.to_path_buf());
             collect_filesystem_skill_candidates(skills_root)?
@@ -72,7 +72,7 @@ pub(crate) async fn discover_local_skills_with_semantic_scores(
         schedule_background_skill_catalog_sync(history.clone(), skills_root.to_path_buf());
         collect_filesystem_skill_candidates(skills_root)?
     } else {
-        let candidates = collect_registered_skill_candidates(skills_root, records)?;
+        let candidates = collect_registered_skill_candidates(history, skills_root, records).await?;
         if candidates.is_empty() {
             schedule_background_skill_catalog_sync(history.clone(), skills_root.to_path_buf());
             collect_filesystem_skill_candidates(skills_root)?
@@ -524,7 +524,8 @@ fn should_include_skill_relative_path(relative_path: &str) -> bool {
                 .any(|component| component.as_os_str() == "generated"))
 }
 
-fn collect_registered_skill_candidates(
+async fn collect_registered_skill_candidates(
+    history: &HistoryStore,
     skills_root: &Path,
     records: Vec<SkillVariantRecord>,
 ) -> Result<Vec<SkillCandidateInput>> {
@@ -540,6 +541,20 @@ fn collect_registered_skill_candidates(
         let (skill_path, metadata_relative_path) =
             resolve_skill_document_path(skills_root, &record.relative_path);
         let Some(content) = read_recommendation_document(&skill_path, "skill")? else {
+            if let Err(error) = history.retire_skill_variant(&record.variant_id).await {
+                tracing::warn!(
+                    variant_id = %record.variant_id,
+                    relative_path = %record.relative_path,
+                    %error,
+                    "failed to retire stale skill variant after missing/unreadable file"
+                );
+            } else {
+                tracing::info!(
+                    variant_id = %record.variant_id,
+                    relative_path = %record.relative_path,
+                    "retired stale skill variant: backing file missing or unreadable"
+                );
+            }
             continue;
         };
         candidates.push(SkillCandidateInput {
@@ -618,23 +633,25 @@ fn read_recommendation_document(path: &Path, document_kind: &str) -> Result<Opti
             return Ok(None);
         }
         Err(error) => {
-            return Err(error).with_context(|| {
-                format!(
-                    "failed to open {document_kind} recommendation file {}",
-                    path.display()
-                )
-            });
+            tracing::warn!(
+                path = %path.display(),
+                document_kind,
+                %error,
+                "failed to open recommendation document; skipping so discovery can continue"
+            );
+            return Ok(None);
         }
     };
     let mut buf = String::with_capacity(RECOMMENDATION_HEAD_BYTES as usize);
     if let Err(error) = file.take(RECOMMENDATION_HEAD_BYTES).read_to_string(&mut buf) {
         if buf.is_empty() {
-            return Err(error).with_context(|| {
-                format!(
-                    "failed to read {document_kind} recommendation file {}",
-                    path.display()
-                )
-            });
+            tracing::warn!(
+                path = %path.display(),
+                document_kind,
+                %error,
+                "failed to read recommendation document; skipping so discovery can continue"
+            );
+            return Ok(None);
         }
     }
     Ok(Some(buf))
