@@ -5,6 +5,268 @@ use bytes::BytesMut;
 use tempfile::tempdir;
 use tokio_util::codec::Encoder;
 
+#[tokio::test]
+async fn compaction_scope_snapshot_resolves_persisted_task_by_id() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let task = engine
+        .enqueue_task(
+            "Compact this task".to_string(),
+            "Preserve task context while compacting".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-compaction-scope".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    engine
+        .history
+        .conn
+        .call({
+            let task_id = task.id.clone();
+            move |conn| {
+                conn.execute(
+                    "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                    rusqlite::params![task_id],
+                )?;
+                Ok(())
+            }
+        })
+        .await
+        .expect("corrupt unrelated hydration column");
+    engine.tasks.lock().await.clear();
+
+    let scope = engine
+        .compaction_scope_snapshot("thread-compaction-scope", Some(&task.id))
+        .await
+        .expect("persisted task should produce a compaction scope");
+
+    assert_eq!(scope.task_id.as_deref(), Some(task.id.as_str()));
+    assert_eq!(scope.active_task_id.as_deref(), Some(task.id.as_str()));
+    assert_eq!(scope.thread_id, "thread-compaction-scope");
+}
+
+#[tokio::test]
+async fn compaction_scope_snapshot_resolves_persisted_goal_without_hydrating_goal() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let mut goal = sample_supervised_goal_run(
+        "goal-compaction-scope-fast",
+        "task-compaction-active",
+        "approval-compaction",
+    );
+    goal.title = "Compaction goal".to_string();
+    goal.goal = "Preserve persisted goal context".to_string();
+    goal.thread_id = Some("thread-compaction-root".to_string());
+    goal.root_thread_id = Some("thread-compaction-root".to_string());
+    goal.active_thread_id = Some("thread-compaction-active".to_string());
+    goal.execution_thread_ids = vec![
+        "thread-compaction-root".to_string(),
+        "thread-compaction-active".to_string(),
+    ];
+    goal.steps[0].title = "Inspect persisted scope".to_string();
+    goal.steps[0].summary = Some("Persisted scope summary".to_string());
+    goal.plan_summary = Some("Persisted compaction plan".to_string());
+    goal.last_error = Some("Persisted scope error".to_string());
+    goal.events = vec![GoalRunEvent {
+        id: "event-compaction-scope-fast".to_string(),
+        timestamp: now_millis(),
+        phase: "progress".to_string(),
+        message: "Persisted event message".to_string(),
+        details: None,
+        step_index: Some(0),
+        todo_snapshot: Vec::new(),
+    }];
+    engine
+        .history
+        .upsert_goal_run(&goal)
+        .await
+        .expect("goal run should persist");
+    engine.goal_runs.lock().await.clear();
+    engine
+        .history
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE goal_run_steps SET started_at = 'not-an-integer' WHERE goal_run_id = ?1",
+                rusqlite::params!["goal-compaction-scope-fast"],
+            )?;
+            conn.execute(
+                "UPDATE goal_run_events SET timestamp = 'not-an-integer' WHERE goal_run_id = ?1",
+                rusqlite::params!["goal-compaction-scope-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("corrupt hydration-only goal columns");
+
+    let scope = engine
+        .compaction_scope_snapshot("thread-compaction-active", None)
+        .await
+        .expect("persisted goal should produce a compaction scope");
+
+    assert_eq!(
+        scope.goal_run_id.as_deref(),
+        Some("goal-compaction-scope-fast")
+    );
+    assert_eq!(scope.task_id.as_deref(), Some("task-compaction-active"));
+    assert_eq!(scope.goal_title.as_deref(), Some("Compaction goal"));
+    assert_eq!(
+        scope.goal.as_deref(),
+        Some("Preserve persisted goal context")
+    );
+    assert_eq!(
+        scope.current_step_title.as_deref(),
+        Some("Inspect persisted scope")
+    );
+    assert_eq!(
+        scope.current_step_summary.as_deref(),
+        Some("Persisted scope summary")
+    );
+    assert_eq!(scope.latest_error.as_deref(), Some("Persisted scope error"));
+    assert_eq!(scope.recent_events, vec!["Persisted event message"]);
+}
+
+#[tokio::test]
+async fn retarget_task_to_weles_updates_persisted_task_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let task = engine
+        .enqueue_task(
+            "Route to Weles".to_string(),
+            "Apply Weles identity to this persisted task".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "event_trigger",
+            None,
+            None,
+            Some("thread-retarget-weles".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine.tasks.lock().await.clear();
+
+    let updated = engine
+        .retarget_task_to_weles(&task.id)
+        .await
+        .expect("persisted task should be retargeted");
+
+    assert_eq!(
+        updated.sub_agent_def_id.as_deref(),
+        Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+    );
+    assert!(updated
+        .override_system_prompt
+        .as_deref()
+        .is_some_and(|prompt| prompt.contains(crate::agent::agent_identity::WELES_AGENT_ID)));
+
+    let persisted = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task.id.clone()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
+        .await
+        .into_iter()
+        .next()
+        .expect("persisted task should remain queryable");
+    assert_eq!(
+        persisted.sub_agent_def_id.as_deref(),
+        Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+    );
+}
+
+#[tokio::test]
+async fn start_goal_run_reuses_matching_persisted_active_goal_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let first = engine
+        .start_goal_run(
+            "Build a persisted duplicate guard".to_string(),
+            Some("Persisted duplicate guard".to_string()),
+            Some("thread-persisted-duplicate-guard".to_string()),
+            Some("session-persisted-duplicate-guard".to_string()),
+            Some("normal"),
+            Some("client-request-persisted-duplicate-guard".to_string()),
+            None,
+            None,
+        )
+        .await;
+    engine.goal_runs.lock().await.clear();
+
+    let persisted_candidates = engine
+        .history
+        .list_active_goal_runs_for_start_request(
+            Some("thread-persisted-duplicate-guard".to_string()),
+            Some("session-persisted-duplicate-guard".to_string()),
+            Some("client-request-persisted-duplicate-guard".to_string()),
+        )
+        .await
+        .expect("persisted active goal run query should succeed");
+    assert_eq!(
+        persisted_candidates
+            .iter()
+            .map(|goal_run| goal_run.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![first.id.as_str()]
+    );
+
+    let second = engine
+        .start_goal_run(
+            "Build a persisted duplicate guard".to_string(),
+            Some("Persisted duplicate guard".to_string()),
+            Some("thread-persisted-duplicate-guard".to_string()),
+            Some("session-persisted-duplicate-guard".to_string()),
+            Some("normal"),
+            Some("client-request-persisted-duplicate-guard".to_string()),
+            None,
+            None,
+        )
+        .await;
+
+    assert_eq!(
+        second.id, first.id,
+        "matching active goal run should be selected from SQLite when the live queue is empty"
+    );
+    let (persisted_ids, persisted_total) = engine
+        .history
+        .list_goal_run_ids_page(10, 0)
+        .await
+        .expect("persisted goal runs should be listed");
+    assert_eq!(persisted_total, 1);
+    assert_eq!(persisted_ids, vec![first.id]);
+}
+
 fn sample_supervised_goal_run(goal_run_id: &str, task_id: &str, approval_id: &str) -> GoalRun {
     GoalRun {
         id: goal_run_id.to_string(),
@@ -567,6 +829,69 @@ async fn explicit_acknowledgment_unblocks_goal_and_current_step_task() {
 }
 
 #[tokio::test]
+async fn explicit_acknowledgment_unblocks_persisted_current_step_task_after_live_queue_clear() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run_id = "goal-supervised-persisted";
+    let task_id = "task-supervised-persisted";
+    let approval_id = "autonomy-ack-persisted";
+
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(sample_supervised_goal_run(
+            goal_run_id,
+            task_id,
+            approval_id,
+        ));
+    sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let changed = engine
+        .control_goal_run(goal_run_id, "acknowledge", None)
+        .await;
+    assert!(changed, "acknowledge should clear supervised gate");
+
+    let task = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
+        .await
+        .into_iter()
+        .next()
+        .expect("persisted task should remain queryable");
+
+    assert_eq!(task.status, TaskStatus::Queued);
+    assert!(task.awaiting_approval_id.is_none());
+    assert!(
+        task.logs.iter().any(|entry| {
+            entry.phase == "autonomy_acknowledgment"
+                && entry.message.contains("task released to queue")
+        }),
+        "persisted task should record acknowledgment release"
+    );
+}
+
+#[tokio::test]
 async fn task_approval_resolution_syncs_parent_goal_run_state() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -585,6 +910,10 @@ async fn task_approval_resolution_syncs_parent_goal_run_state() {
             approval_id,
         ));
     sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     assert!(
         engine
@@ -603,15 +932,129 @@ async fn task_approval_resolution_syncs_parent_goal_run_state() {
     assert!(goal.awaiting_approval_id.is_none());
 
     let task = engine
-        .tasks
-        .lock()
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
         .await
-        .iter()
-        .find(|task| task.id == task_id)
-        .cloned()
+        .into_iter()
+        .next()
         .expect("task should exist");
     assert_eq!(task.status, TaskStatus::Queued);
     assert!(task.awaiting_approval_id.is_none());
+}
+
+#[tokio::test]
+async fn get_run_reads_persisted_task_after_live_queue_clear() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let task = engine
+        .enqueue_task(
+            "Persisted run".to_string(),
+            "get_run should fetch this task directly from history".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            None,
+            Some("thread-persisted-run".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let run = engine
+        .get_run(&task.id)
+        .await
+        .expect("persisted task should project to a run");
+    assert_eq!(run.id, task.id);
+    assert_eq!(run.title, "Persisted run");
+}
+
+#[tokio::test]
+async fn list_runs_reads_persisted_tasks_after_live_queue_clear() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let task = engine
+        .enqueue_task(
+            "Persisted listed run".to_string(),
+            "list_runs should fetch this task from history".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            None,
+            Some("thread-persisted-listed-run".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let runs = engine.list_runs().await;
+    assert!(
+        runs.iter()
+            .any(|run| run.id == task.id && run.title == "Persisted listed run"),
+        "persisted task should project into list_runs after the live queue is cleared"
+    );
+}
+
+#[tokio::test]
+async fn list_tasks_reads_persisted_tasks_after_live_queue_clear() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let task = engine
+        .enqueue_task(
+            "Persisted listed task".to_string(),
+            "list_tasks should fetch this task from history".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            None,
+            Some("thread-persisted-listed-task".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let tasks = engine.list_tasks().await;
+    assert!(
+        tasks
+            .iter()
+            .any(|listed| listed.id == task.id && listed.title == "Persisted listed task"),
+        "persisted task should be included after the live queue is cleared"
+    );
 }
 
 #[tokio::test]
@@ -676,6 +1119,8 @@ async fn create_and_revoke_task_approval_rule_tracks_pending_task_command() {
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     let rule = engine
         .create_task_approval_rule_from_pending(approval_id)
@@ -720,6 +1165,82 @@ async fn create_task_approval_rule_from_live_managed_approval_without_task() {
         .forget_pending_approval_command(&approval.approval_id)
         .await;
     assert!(engine.revoke_task_approval_rule(&rule.id).await);
+}
+
+#[tokio::test]
+async fn mark_task_awaiting_approval_updates_persisted_task_after_live_queue_clear() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-persisted-mark-awaiting-approval";
+    let task = engine
+        .enqueue_task(
+            "Persisted approval task".to_string(),
+            "Mark persisted task as awaiting operator approval".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            None,
+            Some(thread_id.to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+    let approval = ToolPendingApproval {
+        approval_id: "approval-persisted-mark-awaiting".to_string(),
+        execution_id: "exec-persisted-mark-awaiting".to_string(),
+        command: "git status --short".to_string(),
+        rationale: "Check repo status".to_string(),
+        risk_level: "medium".to_string(),
+        blast_radius: "thread".to_string(),
+        reasons: vec!["operator confirmation required".to_string()],
+        session_id: Some("session-persisted-mark-awaiting".to_string()),
+    };
+
+    engine
+        .mark_task_awaiting_approval(&task.id, thread_id, &approval)
+        .await;
+
+    let persisted = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task.id.clone()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
+        .await
+        .pop()
+        .expect("persisted task should remain queryable");
+    assert_eq!(persisted.status, TaskStatus::AwaitingApproval);
+    assert_eq!(
+        persisted.awaiting_approval_id.as_deref(),
+        Some(approval.approval_id.as_str())
+    );
+    assert_eq!(persisted.thread_id.as_deref(), Some(thread_id));
+    assert_eq!(
+        persisted.session_id.as_deref(),
+        approval.session_id.as_deref()
+    );
+    assert!(persisted
+        .logs
+        .iter()
+        .any(|entry| entry.message == "managed command paused for operator approval"));
 }
 
 #[tokio::test]
@@ -854,7 +1375,6 @@ async fn stopping_goal_run_cancels_all_related_goal_tasks_and_streams() {
     goal_run.awaiting_approval_id = None;
     goal_run.active_thread_id = Some(active_thread_id.to_string());
     goal_run.execution_thread_ids = vec![active_thread_id.to_string(), child_thread_id.to_string()];
-    goal_run.child_task_ids.push(child_task_id.to_string());
     engine.goal_runs.lock().await.push_back(goal_run);
 
     sample_awaiting_task(&engine, goal_run_id, active_task_id, approval_id).await;
@@ -878,6 +1398,8 @@ async fn stopping_goal_run_cancels_all_related_goal_tasks_and_streams() {
         child.status = TaskStatus::InProgress;
         tasks.push_back(child);
     }
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     let (_active_generation, active_token, _active_retry) =
         engine.begin_stream_cancellation(active_thread_id).await;
@@ -887,14 +1409,49 @@ async fn stopping_goal_run_cancels_all_related_goal_tasks_and_streams() {
     let changed = engine.control_goal_run(goal_run_id, "stop", None).await;
     assert!(changed, "stop should update goal state");
 
-    let tasks = engine.tasks.lock().await;
-    let active = tasks
-        .iter()
-        .find(|task| task.id == active_task_id)
+    let active = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(active_task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
+        .await
+        .into_iter()
+        .next()
         .expect("active task should remain recorded");
-    let child = tasks
-        .iter()
-        .find(|task| task.id == child_task_id)
+    let child = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(child_task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
+        .await
+        .into_iter()
+        .next()
         .expect("child task should remain recorded");
     assert_eq!(active.status, TaskStatus::Cancelled);
     assert_eq!(child.status, TaskStatus::Cancelled);
@@ -1641,6 +2198,51 @@ async fn list_goal_runs_pagination_obeys_newest_first_limit_and_offset() {
 }
 
 #[tokio::test]
+async fn list_goal_runs_pagination_uses_persisted_goal_runs_after_live_queue_clear() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    {
+        let mut goals = engine.goal_runs.lock().await;
+        for (id, updated_at) in [
+            ("goal-db-one", 30),
+            ("goal-db-two", 20),
+            ("goal-db-three", 10),
+        ] {
+            let mut goal =
+                sample_supervised_goal_run(id, &format!("task-{id}"), &format!("approval-{id}"));
+            goal.updated_at = updated_at;
+            goals.push_back(goal);
+        }
+    }
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    let (first_page, _) = engine
+        .list_goal_runs_paginated_capped_for_ipc(Some(2), Some(0))
+        .await;
+    let (second_page, _) = engine
+        .list_goal_runs_paginated_capped_for_ipc(Some(2), Some(2))
+        .await;
+
+    assert_eq!(
+        first_page
+            .iter()
+            .map(|goal| goal.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["goal-db-one", "goal-db-two"]
+    );
+    assert_eq!(
+        second_page
+            .iter()
+            .map(|goal| goal.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["goal-db-three"]
+    );
+}
+
+#[tokio::test]
 async fn list_tasks_capped_for_ipc_truncates_oversized_task_logs() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -2287,6 +2889,20 @@ async fn delete_goal_run_removes_goal_and_related_tasks() {
         })
         .await
         .expect("persist child task");
+    engine
+        .history
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_tasks SET created_at = 'not-an-integer' WHERE id = ?1",
+                rusqlite::params!["task-delete"],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("corrupt unrelated hydrated task column");
+    engine.goal_runs.lock().await.clear();
+    engine.tasks.lock().await.clear();
 
     let deleted = engine.delete_goal_run("goal-delete").await;
 
@@ -2309,4 +2925,29 @@ async fn delete_goal_run_removes_goal_and_related_tasks() {
         .await
         .expect("read goal run")
         .is_none());
+    assert!(
+        engine
+            .history
+            .list_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some("task-delete".to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+            .expect("read task")
+            .is_empty(),
+        "persisted goal task should be deleted even when it is absent from the live queue"
+    );
 }

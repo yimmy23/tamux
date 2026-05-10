@@ -1,4 +1,6 @@
-fn state_with_messages(count: usize) -> ChatState {
+use super::*;
+use crate::state::chat::*;
+pub(super) fn state_with_messages(count: usize) -> ChatState {
     let mut state = ChatState::new();
     let messages: Vec<AgentMessage> = (0..count)
         .map(|index| AgentMessage {
@@ -139,6 +141,277 @@ fn older_thread_page_prepends_into_loaded_window() {
             .last()
             .and_then(|message| message.id.as_deref()),
         Some("msg-119")
+    );
+}
+
+#[test]
+fn overlapping_older_thread_page_keeps_loaded_window_contiguous() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 240,
+        loaded_message_start: 20,
+        loaded_message_end: 120,
+        messages: (20..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 240,
+        loaded_message_start: 5,
+        loaded_message_end: 128,
+        messages: (5..128)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert_eq!(thread.total_message_count, 240);
+    assert_eq!(thread.loaded_message_start, 5);
+    assert_eq!(thread.loaded_message_end, 128);
+    assert_eq!(thread.messages.len(), 123);
+    assert_eq!(
+        thread
+            .messages
+            .iter()
+            .filter(|message| message.id.as_deref() == Some("msg-20"))
+            .count(),
+        1,
+        "overlap should merge by absolute position instead of duplicating messages"
+    );
+}
+
+#[test]
+fn disjoint_older_thread_page_does_not_sparse_merge_loaded_window() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 166,
+        loaded_message_start: 70,
+        loaded_message_end: 166,
+        messages: (70..166)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 166,
+        loaded_message_start: 66,
+        loaded_message_end: 67,
+        messages: vec![AgentMessage {
+            id: Some("msg-66".into()),
+            role: MessageRole::User,
+            content: "msg 66".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert_eq!(thread.loaded_message_start, 70);
+    assert_eq!(thread.loaded_message_end, 166);
+    assert_eq!(thread.messages.len(), 96);
+    assert_eq!(
+        thread
+            .messages
+            .first()
+            .and_then(|message| message.id.as_deref()),
+        Some("msg-70"),
+        "a non-adjacent one-row backfill must not be treated as a contiguous prepend"
+    );
+}
+
+#[test]
+fn stale_partial_thread_detail_does_not_expand_loaded_end_to_total() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 240,
+        loaded_message_start: 20,
+        loaded_message_end: 240,
+        messages: (20..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert_eq!(thread.total_message_count, 240);
+    assert_eq!(thread.loaded_message_start, 20);
+    assert_eq!(thread.loaded_message_end, 120);
+    assert_eq!(thread.messages.len(), 100);
+    assert_eq!(
+        state.active_thread_next_page_offset(0),
+        Some(220),
+        "older-history fetch offset should point immediately before the loaded window"
+    );
+}
+
+#[test]
+fn deleting_from_partial_window_preserves_older_history_pagination() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 240,
+        loaded_message_start: 20,
+        loaded_message_end: 120,
+        messages: (20..120)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    state.delete_active_message(50);
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert_eq!(thread.total_message_count, 239);
+    assert_eq!(thread.loaded_message_start, 20);
+    assert_eq!(thread.loaded_message_end, 119);
+    assert_eq!(thread.messages.len(), 99);
+    assert_eq!(state.active_thread_next_page_offset(0), Some(219));
+}
+
+#[test]
+fn stale_thread_detail_does_not_restore_locally_deleted_message() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 100,
+        loaded_message_start: 0,
+        loaded_message_end: 100,
+        messages: (0..100)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    state.delete_active_message(42);
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 100,
+        loaded_message_start: 0,
+        loaded_message_end: 100,
+        messages: (0..100)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }));
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert_eq!(thread.total_message_count, 99);
+    assert_eq!(thread.loaded_message_start, 0);
+    assert_eq!(thread.loaded_message_end, 99);
+    assert_eq!(thread.messages.len(), 99);
+    assert!(
+        thread
+            .messages
+            .iter()
+            .all(|message| message.id.as_deref() != Some("msg-42")),
+        "stale refresh should not reinsert a locally deleted message"
+    );
+}
+
+#[test]
+fn stale_thread_list_does_not_restore_locally_deleted_message() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadListReceived(vec![AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 3,
+        loaded_message_start: 0,
+        loaded_message_end: 3,
+        messages: (0..3)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }]));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+
+    state.delete_active_message(1);
+    state.reduce(ChatAction::ThreadListReceived(vec![AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        total_message_count: 3,
+        loaded_message_start: 0,
+        loaded_message_end: 3,
+        messages: (0..3)
+            .map(|index| AgentMessage {
+                id: Some(format!("msg-{index}")),
+                role: MessageRole::User,
+                content: format!("msg {index}"),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }]));
+
+    let thread = state.active_thread().expect("thread should exist");
+    assert_eq!(thread.total_message_count, 2);
+    assert_eq!(thread.loaded_message_end, 2);
+    assert_eq!(
+        thread
+            .messages
+            .iter()
+            .map(|message| message.id.as_deref())
+            .collect::<Vec<_>>(),
+        vec![Some("msg-0"), Some("msg-2")]
     );
 }
 
@@ -463,4 +736,3 @@ fn thread_detail_refresh_preserves_optimistic_local_tail_when_smaller_snapshot_m
     assert_eq!(thread.total_message_count, 3);
     assert_eq!(thread.loaded_message_end, 3);
 }
-

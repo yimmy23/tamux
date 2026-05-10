@@ -1,3 +1,19 @@
+use super::from_tasks_to_is_weles_thread::*;
+use super::is_svarog_agent_name_to_hit_test::*;
+use super::*;
+use crate::state::chat::{AgentThread, ChatState};
+use crate::state::modal::{ModalState, ThreadPickerTab};
+use crate::state::subagents::SubAgentsState;
+use crate::state::task::{GoalRunStatus, TaskState, TaskStatus};
+use crate::state::workspace::WorkspaceState;
+use crate::theme::ThemeTokens;
+use crate::widgets::token_format::format_token_count;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
+use zorai_protocol::{AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
+
 pub fn hit_test_for_workspace(
     area: Rect,
     chat: &ChatState,
@@ -55,7 +71,7 @@ pub fn hit_test_for_workspace(
 }
 
 /// Format millisecond timestamp as "Xm ago" or "Xh ago" etc.
-fn format_time_ago(updated_at: u64) -> String {
+pub(super) fn format_time_ago(updated_at: u64) -> String {
     if updated_at == 0 {
         return String::new();
     }
@@ -76,18 +92,17 @@ fn format_time_ago(updated_at: u64) -> String {
 }
 
 /// Format token count compactly
-fn format_tokens(tokens: u64) -> String {
+pub(super) fn format_tokens(tokens: u64) -> String {
     if tokens == 0 {
         return String::new();
     }
     format_token_count(tokens)
 }
 
-fn now_millis() -> u64 {
+pub(super) fn now_millis() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
 }
-

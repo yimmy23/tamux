@@ -33,18 +33,16 @@ pub fn render(frame: &mut Frame, area: Rect, modal: &ModalState, theme: &ThemeTo
         return;
     }
 
-    // Split: search input (1) + separator (1) + list (flex) + hints (1)
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // search
-            Constraint::Length(1), // separator
-            Constraint::Min(1),    // list
-            Constraint::Length(1), // hints
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
         ])
         .split(inner);
 
-    // Search input
     let query = modal.command_display_query();
     let input_line = Line::from(vec![
         Span::raw(" "),
@@ -54,14 +52,12 @@ pub fn render(frame: &mut Frame, area: Rect, modal: &ModalState, theme: &ThemeTo
     ]);
     frame.render_widget(Paragraph::new(input_line), chunks[0]);
 
-    // Separator
     let sep = Line::from(Span::styled(
         "\u{2500}".repeat(chunks[1].width as usize),
         theme.fg_dim,
     ));
     frame.render_widget(Paragraph::new(sep), chunks[1]);
 
-    // Command list
     let filtered = modal.filtered_items();
     let items = modal.command_items();
     let cursor = modal.picker_cursor();
@@ -101,7 +97,6 @@ pub fn render(frame: &mut Frame, area: Rect, modal: &ModalState, theme: &ThemeTo
     let list = List::new(list_items);
     frame.render_widget(list, chunks[2]);
 
-    // Hints
     let hints = Line::from(vec![
         Span::raw(" "),
         Span::styled("↑↓", theme.fg_active),

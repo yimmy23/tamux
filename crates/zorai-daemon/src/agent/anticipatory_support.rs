@@ -1,4 +1,5 @@
 use super::*;
+use crate::history::GoalRunThreadRef;
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct AttentionFocus {
@@ -95,7 +96,7 @@ pub(super) fn operator_idle_ms(
 
 pub(super) fn collect_session_start_prewarm_threads(
     attention_target: Option<String>,
-    goal_runs: &[GoalRun],
+    goal_runs: &[GoalRunThreadRef],
     tasks: &std::collections::VecDeque<AgentTask>,
 ) -> Vec<String> {
     let mut candidates = Vec::new();
@@ -257,7 +258,11 @@ impl AgentEngine {
 
     async fn sync_anticipatory_notifications(&self, items: &[AnticipatoryItem]) {
         let now = now_millis() as i64;
-        let existing = match self.history.list_notifications(true, Some(500)).await {
+        let existing = match self
+            .history
+            .list_notifications_by_source("anticipatory", true, Some(500))
+            .await
+        {
             Ok(existing) => existing,
             Err(_) => return,
         };
@@ -320,20 +325,16 @@ impl AgentEngine {
             let _ = self.upsert_inbox_notification(notification.clone()).await;
         }
 
-        let active_ids: HashSet<&str> = active_notifications
+        let active_ids = active_notifications
             .iter()
-            .map(|notification| notification.id.as_str())
-            .collect();
-
-        for mut notification in existing.into_iter().filter(|notification| {
-            notification.source == "anticipatory"
-                && notification.archived_at.is_none()
-                && notification.deleted_at.is_none()
-                && !active_ids.contains(notification.id.as_str())
-        }) {
-            notification.archived_at = Some(now);
-            notification.updated_at = now;
-            let _ = self.upsert_inbox_notification(notification).await;
+            .map(|notification| notification.id.clone())
+            .collect::<Vec<_>>();
+        if let Err(error) = self
+            .history
+            .archive_notifications_by_source_except_ids("anticipatory", &active_ids, now)
+            .await
+        {
+            tracing::warn!(%error, "failed to archive stale anticipatory notifications");
         }
     }
 

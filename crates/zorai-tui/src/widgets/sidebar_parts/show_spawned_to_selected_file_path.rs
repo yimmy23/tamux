@@ -1,8 +1,22 @@
+use super::spawned_agents;
+use super::tab_layout::*;
+use super::*;
+use crate::app::RecentActionVm;
+use crate::state::chat::{ChatState, GatewayStatusVm, MessageRole};
+use crate::state::sidebar::{SidebarState, SidebarTab};
+use crate::state::task::TaskState;
+use crate::state::tier::TierState;
+use crate::theme::ThemeTokens;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use std::hash::{Hash, Hasher};
 use tab_layout::{tab_cells, tab_hit_test, tab_label};
 
 #[derive(Debug, Clone)]
-struct SidebarRow {
-    line: Line<'static>,
+pub(crate) struct SidebarRow {
+    pub(crate) line: Line<'static>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,39 +29,39 @@ pub enum SidebarHitTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct SidebarSnapshotKey {
-    width: u16,
-    active_tab: SidebarTab,
-    thread_id: Option<String>,
-    files_filter: String,
-    show_spawned: bool,
-    show_pinned: bool,
-    body_hash: u64,
+pub(crate) struct SidebarSnapshotKey {
+    pub(crate) width: u16,
+    pub(crate) active_tab: SidebarTab,
+    pub(crate) thread_id: Option<String>,
+    pub(crate) files_filter: String,
+    pub(crate) show_spawned: bool,
+    pub(crate) show_pinned: bool,
+    pub(crate) body_hash: u64,
 }
 
 #[derive(Debug, Clone)]
-struct FileSidebarItem {
-    path: String,
-    label: String,
-    display_path: String,
+pub(crate) struct FileSidebarItem {
+    pub(crate) path: String,
+    pub(crate) label: String,
+    pub(crate) display_path: String,
 }
 
 #[derive(Debug, Clone)]
-struct TodoSidebarItem {
-    index: usize,
-    marker: &'static str,
-    text: String,
+pub(crate) struct TodoSidebarItem {
+    pub(crate) index: usize,
+    pub(crate) marker: &'static str,
+    pub(crate) text: String,
 }
 
 #[derive(Debug, Clone)]
-struct PinnedSidebarItem {
-    index: usize,
-    metadata: String,
-    snippet: String,
+pub(crate) struct PinnedSidebarItem {
+    pub(crate) index: usize,
+    pub(crate) metadata: String,
+    pub(crate) snippet: String,
 }
 
 #[derive(Debug, Clone)]
-enum SidebarBodySnapshot {
+pub(crate) enum SidebarBodySnapshot {
     Empty { message: String },
     Files(Vec<FileSidebarItem>),
     Todos(Vec<TodoSidebarItem>),
@@ -57,16 +71,16 @@ enum SidebarBodySnapshot {
 
 #[derive(Debug, Clone)]
 pub struct CachedSidebarSnapshot {
-    key: SidebarSnapshotKey,
-    body: SidebarBodySnapshot,
+    pub(crate) key: SidebarSnapshotKey,
+    pub(crate) body: SidebarBodySnapshot,
 }
 
 impl CachedSidebarSnapshot {
-    fn show_spawned(&self) -> bool {
+    pub(crate) fn show_spawned(&self) -> bool {
         self.key.show_spawned
     }
 
-    fn show_pinned(&self) -> bool {
+    pub(crate) fn show_pinned(&self) -> bool {
         self.key.show_pinned
     }
 
@@ -123,7 +137,7 @@ impl CachedSidebarSnapshot {
         chat.active_thread_pinned_messages().into_iter().nth(index)
     }
 
-    fn row_target(&self, row_index: usize) -> Option<SidebarHitTarget> {
+    pub(crate) fn row_target(&self, row_index: usize) -> Option<SidebarHitTarget> {
         match &self.body {
             SidebarBodySnapshot::Empty { .. } => None,
             SidebarBodySnapshot::Files(items) => items
@@ -144,12 +158,15 @@ impl CachedSidebarSnapshot {
 
 #[cfg(test)]
 thread_local! {
-    static BUILD_CACHED_SNAPSHOT_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(super) static BUILD_CACHED_SNAPSHOT_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-type PinnedSidebarRows = Vec<crate::state::chat::PinnedThreadMessage>;
+pub(crate) type PinnedSidebarRows = Vec<crate::state::chat::PinnedThreadMessage>;
 
-fn file_entry_matches(entry: &crate::state::task::WorkContextEntry, filter: &str) -> bool {
+pub(crate) fn file_entry_matches(
+    entry: &crate::state::task::WorkContextEntry,
+    filter: &str,
+) -> bool {
     let query = filter.trim();
     if query.is_empty() {
         return true;
@@ -166,7 +183,7 @@ fn file_entry_matches(entry: &crate::state::task::WorkContextEntry, filter: &str
             .is_some_and(|kind| kind.to_ascii_lowercase().contains(&query))
 }
 
-fn filtered_file_entries<'a>(
+pub(crate) fn filtered_file_entries<'a>(
     tasks: &'a TaskState,
     thread_id: Option<&str>,
     sidebar: &SidebarState,
@@ -184,7 +201,7 @@ fn filtered_file_entries<'a>(
         .collect()
 }
 
-fn hash_sidebar_tab<H: Hasher>(hasher: &mut H, tab: SidebarTab) {
+pub(crate) fn hash_sidebar_tab<H: Hasher>(hasher: &mut H, tab: SidebarTab) {
     match tab {
         SidebarTab::Files => 0u8.hash(hasher),
         SidebarTab::Todos => 1u8.hash(hasher),
@@ -193,7 +210,7 @@ fn hash_sidebar_tab<H: Hasher>(hasher: &mut H, tab: SidebarTab) {
     }
 }
 
-fn hash_message_role<H: Hasher>(hasher: &mut H, role: MessageRole) {
+pub(crate) fn hash_message_role<H: Hasher>(hasher: &mut H, role: MessageRole) {
     match role {
         MessageRole::User => 0u8.hash(hasher),
         MessageRole::Assistant => 1u8.hash(hasher),
@@ -203,7 +220,10 @@ fn hash_message_role<H: Hasher>(hasher: &mut H, role: MessageRole) {
     }
 }
 
-fn hash_task_status<H: Hasher>(hasher: &mut H, status: Option<crate::state::task::TaskStatus>) {
+pub(crate) fn hash_task_status<H: Hasher>(
+    hasher: &mut H,
+    status: Option<crate::state::task::TaskStatus>,
+) {
     match status {
         Some(crate::state::task::TaskStatus::Queued) => 0u8.hash(hasher),
         Some(crate::state::task::TaskStatus::InProgress) => 1u8.hash(hasher),
@@ -218,7 +238,7 @@ fn hash_task_status<H: Hasher>(hasher: &mut H, status: Option<crate::state::task
     }
 }
 
-fn sidebar_snapshot_key(
+pub(crate) fn sidebar_snapshot_key(
     area: Rect,
     chat: &ChatState,
     sidebar: &SidebarState,
@@ -304,7 +324,7 @@ fn sidebar_snapshot_key(
     }
 }
 
-fn truncate_tail(text: &str, max_len: usize) -> String {
+pub(crate) fn truncate_tail(text: &str, max_len: usize) -> String {
     if text.chars().count() <= max_len {
         return text.to_string();
     }
@@ -322,7 +342,7 @@ fn truncate_tail(text: &str, max_len: usize) -> String {
     format!("…{tail}")
 }
 
-fn build_body_snapshot(
+pub(crate) fn build_body_snapshot(
     area: Rect,
     chat: &ChatState,
     sidebar: &SidebarState,
@@ -454,7 +474,7 @@ fn build_body_snapshot(
     }
 }
 
-pub fn build_cached_snapshot(
+pub(crate) fn build_cached_snapshot(
     area: Rect,
     chat: &ChatState,
     sidebar: &SidebarState,
@@ -467,7 +487,7 @@ pub fn build_cached_snapshot(
     }
 }
 
-pub fn cached_snapshot_matches_render(
+pub(crate) fn cached_snapshot_matches_render(
     snapshot: &CachedSidebarSnapshot,
     area: Rect,
     chat: &ChatState,
@@ -478,7 +498,7 @@ pub fn cached_snapshot_matches_render(
     snapshot.key == sidebar_snapshot_key(area, chat, sidebar, tasks, thread_id)
 }
 
-pub fn selected_file_path(
+pub(crate) fn selected_file_path(
     tasks: &TaskState,
     sidebar: &SidebarState,
     thread_id: Option<&str>,
@@ -492,4 +512,3 @@ pub fn selected_file_path(
     )
     .selected_file_path(sidebar.selected_item())
 }
-

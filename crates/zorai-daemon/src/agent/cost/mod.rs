@@ -16,9 +16,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-// ---------------------------------------------------------------------------
-// CostConfig
-// ---------------------------------------------------------------------------
 
 /// Operator-configurable cost tracking settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,9 +45,6 @@ impl Default for CostConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// CostSummary
-// ---------------------------------------------------------------------------
 
 /// Accumulated cost snapshot for a goal run.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -63,9 +57,6 @@ pub struct CostSummary {
     pub estimated_cost_usd: Option<f64>,
 }
 
-// ---------------------------------------------------------------------------
-// CostTracker
-// ---------------------------------------------------------------------------
 
 /// Tracks per-goal-run token usage and estimated cost.
 ///
@@ -195,8 +186,6 @@ mod tests {
         let cost = tracker.accumulate(1000, 500, PROVIDER_ID_OPENAI, "gpt-4o", &cards, None);
         assert!(cost.is_some());
         let c = cost.unwrap();
-        // gpt-4o: 2.50/M input + 10.00/M output
-        // 1000 input -> 0.0025, 500 output -> 0.005
         let expected = (1000.0 * 2.50 / 1_000_000.0) + (500.0 * 10.00 / 1_000_000.0);
         assert!((c - expected).abs() < 1e-10, "expected {expected}, got {c}");
 
@@ -213,7 +202,6 @@ mod tests {
 
         let cost = tracker.accumulate(500, 200, "unknown", "fake-model-9000", &cards, None);
         assert!(cost.is_none());
-        // Tokens should still be accumulated
         assert_eq!(tracker.summary().total_prompt_tokens, 500);
         assert_eq!(tracker.summary().total_completion_tokens, 200);
         assert!(tracker.summary().estimated_cost_usd.is_none());
@@ -223,17 +211,14 @@ mod tests {
     fn cost_tracker_budget_alert_fires_once() {
         let mut tracker = CostTracker::new();
         let cards = default_rate_cards();
-        let threshold = Some(0.001); // very low threshold for testing
+        let threshold = Some(0.001);
 
-        // First call: below threshold
         tracker.accumulate(100, 50, PROVIDER_ID_OPENAI, "gpt-4o", &cards, None);
         assert!(!tracker.budget_alert_needed(threshold));
 
-        // Push over threshold
         tracker.accumulate(100_000, 50_000, PROVIDER_ID_OPENAI, "gpt-4o", &cards, None);
         assert!(tracker.budget_alert_needed(threshold));
 
-        // Second check: should NOT fire again
         assert!(!tracker.budget_alert_needed(threshold));
     }
 
@@ -249,7 +234,6 @@ mod tests {
             &cards,
             None,
         );
-        // No threshold set -> never fires
         assert!(!tracker.budget_alert_needed(None));
     }
 
@@ -309,7 +293,6 @@ mod tests {
 
     #[test]
     fn cost_summary_default_deserialize() {
-        // Verify that an empty JSON object deserializes to defaults
         let decoded: CostSummary = serde_json::from_str("{}").unwrap();
         assert_eq!(decoded.total_prompt_tokens, 0);
         assert_eq!(decoded.total_completion_tokens, 0);
@@ -318,7 +301,6 @@ mod tests {
 
     #[test]
     fn cost_goal_run_serde_backward_compat() {
-        // A GoalRun JSON without cost fields should deserialize fine via #[serde(default)]
         let json = r#"{
             "id": "goal_1",
             "title": "Test",
@@ -338,7 +320,6 @@ mod tests {
         assert_eq!(goal_run.total_completion_tokens, 0);
         assert!(goal_run.estimated_cost_usd.is_none());
 
-        // Round-trip with cost fields populated
         let mut gr = goal_run;
         gr.total_prompt_tokens = 1000;
         gr.total_completion_tokens = 500;

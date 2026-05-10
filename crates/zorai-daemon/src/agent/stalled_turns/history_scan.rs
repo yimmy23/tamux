@@ -3,7 +3,7 @@ use super::types::{StalledTurnClass, ThreadStallObservation, TurnEvidence};
 use super::*;
 use crate::agent::liveness::stuck_detection::{DetectionSnapshot, StuckDetector};
 use crate::agent::types::StuckReason;
-use crate::history::SubagentMetrics;
+use crate::history::{GoalRunThreadRef, SubagentMetrics};
 
 impl AgentEngine {
     pub(super) async fn collect_stalled_turn_observations(&self) -> Vec<ThreadStallObservation> {
@@ -19,8 +19,76 @@ impl AgentEngine {
             .map(|(thread_id, _)| thread_id.clone())
             .collect::<HashSet<_>>();
         let threads = self.threads.read().await.clone();
-        let goal_runs = self.goal_runs.lock().await.clone();
-        let tasks = self.tasks.lock().await.clone();
+        let task_thread_ids = threads.keys().cloned().collect::<Vec<_>>();
+        let mut goal_runs = match self
+            .history
+            .list_goal_run_thread_refs_for_thread_ids(&task_thread_ids)
+            .await
+        {
+            Ok(goal_runs) => VecDeque::from(goal_runs),
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted goal runs for stalled-turn scan: {error}"
+                );
+                VecDeque::new()
+            }
+        };
+        let mut seen_goal_ids = goal_runs
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<HashSet<_>>();
+        {
+            let live_goal_runs = self.goal_runs.lock().await;
+            for goal_run in live_goal_runs.iter() {
+                let goal_run_ref = GoalRunThreadRef::from(goal_run);
+                if !task_thread_ids
+                    .iter()
+                    .any(|thread_id| goal_run_matches_thread_ref(&goal_run_ref, thread_id))
+                {
+                    continue;
+                }
+                if seen_goal_ids.insert(goal_run_ref.id.clone()) {
+                    goal_runs.push_back(goal_run_ref);
+                }
+            }
+        }
+        let unanswered_tool_call_thread_ids = match self
+            .history
+            .thread_ids_with_unanswered_tool_calls(&task_thread_ids)
+            .await
+        {
+            Ok(thread_ids) => Some(thread_ids.into_iter().collect::<HashSet<_>>()),
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted unanswered tool call thread ids for stalled-turn scan; falling back to live thread scans: {error}"
+                );
+                None
+            }
+        };
+        let tasks = if task_thread_ids.is_empty() {
+            VecDeque::new()
+        } else {
+            self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: stalled_turn_task_statuses(),
+                source: None,
+                thread_id: None,
+                thread_ids: task_thread_ids,
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: true,
+                limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+            .into_iter()
+            .collect::<VecDeque<_>>()
+        };
         let subagent_runtime = self.subagent_runtime.read().await.clone();
         let pending_operator_question_thread_ids =
             self.pending_operator_question_thread_ids().await;
@@ -35,7 +103,13 @@ impl AgentEngine {
             .values()
             .filter(|thread| !active_stream_ids.contains(&thread.id))
             .filter(|thread| !pending_operator_question_thread_ids.contains(&thread.id))
-            .filter(|thread| !thread_has_unanswered_tool_calls(thread))
+            .filter(|thread| {
+                let in_db = unanswered_tool_call_thread_ids
+                    .as_ref()
+                    .map(|thread_ids| thread_ids.contains(&thread.id))
+                    .unwrap_or(false);
+                !(in_db || thread_has_unanswered_tool_calls(thread))
+            })
             .filter(|thread| latest_thread_activity_at(thread) >= recent_cutoff)
             .filter_map(|thread| latest_stalled_turn_observation(thread, &tasks, &goal_runs))
             .collect::<Vec<_>>();
@@ -55,7 +129,11 @@ impl AgentEngine {
             {
                 return None;
             }
-            if thread_has_unanswered_tool_calls(thread) {
+            let in_db_unanswered = unanswered_tool_call_thread_ids
+                .as_ref()
+                .map(|thread_ids| thread_ids.contains(thread.id.as_str()))
+                .unwrap_or(false);
+            if in_db_unanswered || thread_has_unanswered_tool_calls(thread) {
                 return None;
             }
             if latest_stream_activity_at(thread, &entry) < recent_cutoff {
@@ -78,6 +156,7 @@ impl AgentEngine {
                 recent_window_ms,
                 &observed_ids,
                 &pending_operator_question_thread_ids,
+                unanswered_tool_call_thread_ids.as_ref(),
             )
             .await,
         );
@@ -89,12 +168,13 @@ impl AgentEngine {
         &self,
         threads: &HashMap<String, AgentThread>,
         tasks: &VecDeque<AgentTask>,
-        goal_runs: &VecDeque<GoalRun>,
+        goal_runs: &VecDeque<GoalRunThreadRef>,
         subagent_runtime: &HashMap<String, SubagentRuntimeStats>,
         now_ms: u64,
         recent_window_ms: u64,
         observed_ids: &HashSet<String>,
         pending_operator_question_thread_ids: &HashSet<String>,
+        unanswered_tool_call_thread_ids: Option<&HashSet<String>>,
     ) -> Vec<ThreadStallObservation> {
         let mut observations = Vec::new();
         let mut seen_thread_ids = observed_ids.clone();
@@ -122,7 +202,10 @@ impl AgentEngine {
             let Some(thread) = threads.get(thread_id) else {
                 continue;
             };
-            if thread_has_unanswered_tool_calls(thread) {
+            let in_db_unanswered = unanswered_tool_call_thread_ids
+                .map(|thread_ids| thread_ids.contains(thread_id))
+                .unwrap_or(false);
+            if in_db_unanswered || thread_has_unanswered_tool_calls(thread) {
                 continue;
             }
 
@@ -192,10 +275,31 @@ impl AgentEngine {
     }
 }
 
+fn stalled_turn_task_statuses() -> Vec<String> {
+    [
+        TaskStatus::Queued,
+        TaskStatus::InProgress,
+        TaskStatus::AwaitingApproval,
+        TaskStatus::Blocked,
+        TaskStatus::FailedAnalyzing,
+        TaskStatus::BudgetExceeded,
+        TaskStatus::Completed,
+        TaskStatus::Failed,
+        TaskStatus::Cancelled,
+    ]
+    .into_iter()
+    .filter_map(|status| {
+        serde_json::to_value(status)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned))
+    })
+    .collect()
+}
+
 fn latest_stalled_turn_observation(
     thread: &AgentThread,
     tasks: &VecDeque<AgentTask>,
-    goal_runs: &VecDeque<GoalRun>,
+    goal_runs: &VecDeque<GoalRunThreadRef>,
 ) -> Option<ThreadStallObservation> {
     if terminal_work_owns_thread(thread.id.as_str(), tasks, goal_runs)
         && !active_work_owns_thread(thread.id.as_str(), tasks, goal_runs)
@@ -250,7 +354,7 @@ fn latest_stalled_turn_observation(
 fn idle_stream_stall_observation(
     thread: &AgentThread,
     tasks: &VecDeque<AgentTask>,
-    goal_runs: &VecDeque<GoalRun>,
+    goal_runs: &VecDeque<GoalRunThreadRef>,
     stream: &StreamCancellationEntry,
 ) -> Option<ThreadStallObservation> {
     Some(ThreadStallObservation {
@@ -286,17 +390,20 @@ fn active_task_id_for_thread(thread_id: &str, tasks: &VecDeque<AgentTask>) -> Op
         .map(|task| task.id.clone())
 }
 
-fn goal_run_id_for_thread(thread_id: &str, goal_runs: &VecDeque<GoalRun>) -> Option<String> {
+fn goal_run_id_for_thread(
+    thread_id: &str,
+    goal_runs: &VecDeque<GoalRunThreadRef>,
+) -> Option<String> {
     goal_runs
         .iter()
-        .find(|goal_run| goal_run_matches_thread(goal_run, thread_id))
+        .find(|goal_run| goal_run_matches_thread_ref(goal_run, thread_id))
         .map(|goal_run| goal_run.id.clone())
 }
 
 fn active_work_owns_thread(
     thread_id: &str,
     tasks: &VecDeque<AgentTask>,
-    goal_runs: &VecDeque<GoalRun>,
+    goal_runs: &VecDeque<GoalRunThreadRef>,
 ) -> bool {
     tasks.iter().any(|task| {
         task.thread_id.as_deref() == Some(thread_id)
@@ -305,7 +412,7 @@ fn active_work_owns_thread(
                 TaskStatus::InProgress | TaskStatus::Blocked | TaskStatus::AwaitingApproval
             )
     }) || goal_runs.iter().any(|goal_run| {
-        goal_run_matches_thread(goal_run, thread_id)
+        goal_run_matches_thread_ref(goal_run, thread_id)
             && !goal_run_status_is_terminal(goal_run.status)
     })
 }
@@ -352,17 +459,18 @@ pub(super) fn thread_has_unanswered_tool_calls(thread: &AgentThread) -> bool {
 fn terminal_work_owns_thread(
     thread_id: &str,
     tasks: &VecDeque<AgentTask>,
-    goal_runs: &VecDeque<GoalRun>,
+    goal_runs: &VecDeque<GoalRunThreadRef>,
 ) -> bool {
     tasks.iter().any(|task| {
         task.thread_id.as_deref() == Some(thread_id)
             && crate::agent::task_scheduler::is_task_terminal_status(task.status)
     }) || goal_runs.iter().any(|goal_run| {
-        goal_run_matches_thread(goal_run, thread_id) && goal_run_status_is_terminal(goal_run.status)
+        goal_run_matches_thread_ref(goal_run, thread_id)
+            && goal_run_status_is_terminal(goal_run.status)
     })
 }
 
-fn goal_run_matches_thread(goal_run: &GoalRun, thread_id: &str) -> bool {
+fn goal_run_matches_thread_ref(goal_run: &GoalRunThreadRef, thread_id: &str) -> bool {
     goal_run.thread_id.as_deref() == Some(thread_id)
         || goal_run.root_thread_id.as_deref() == Some(thread_id)
         || goal_run.active_thread_id.as_deref() == Some(thread_id)
@@ -383,7 +491,7 @@ fn goal_progressed_after(
     thread_id: &str,
     message_timestamp: u64,
     tasks: &VecDeque<AgentTask>,
-    goal_runs: &VecDeque<GoalRun>,
+    goal_runs: &VecDeque<GoalRunThreadRef>,
 ) -> bool {
     tasks.iter().any(|task| {
         task.thread_id.as_deref() == Some(thread_id)

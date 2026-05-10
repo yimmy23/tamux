@@ -391,7 +391,6 @@ impl AgentEngine {
             return None;
         }
 
-        // Record provenance for settle-time promotion (D-07)
         self.record_provenance_event(
             "skill_lifecycle_promotion",
             &format!(
@@ -423,7 +422,6 @@ impl AgentEngine {
             "skill promoted at settle time"
         );
 
-        // Announce promotion via HeartbeatDigest (and WorkflowNotice for canonical)
         self.announce_skill_promotion(&variant.skill_name, current, next, variant.success_count);
 
         Some(next.to_string())

@@ -2,9 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /// Classification of an observed pattern.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,9 +29,6 @@ pub struct ToolPattern {
     pub created_at: u64,
 }
 
-// ---------------------------------------------------------------------------
-// PatternStore
-// ---------------------------------------------------------------------------
 
 /// In-memory, serializable store of mined patterns.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,7 +89,6 @@ impl PatternStore {
             .iter_mut()
             .find(|p| p.tool_sequence == tool_sequence && p.task_type == task_type)
         {
-            // Update existing pattern.
             let total = existing.occurrences as f64 * existing.success_rate;
             existing.occurrences += 1;
             let new_successes = if succeeded { total + 1.0 } else { total };
@@ -103,14 +96,12 @@ impl PatternStore {
             existing.confidence = compute_confidence(existing.occurrences, existing.success_rate);
             existing.last_seen_at = now;
 
-            // Re-derive pattern type.
             existing.pattern_type = if existing.success_rate >= 0.5 {
                 PatternType::SuccessSequence
             } else {
                 PatternType::FailureSequence
             };
         } else {
-            // Create a new pattern.
             let success_rate = if succeeded { 1.0 } else { 0.0 };
             let pattern_type = if succeeded {
                 PatternType::SuccessSequence
@@ -132,7 +123,6 @@ impl PatternStore {
 
             self.patterns.push(pattern);
 
-            // Enforce capacity — evict the oldest pattern when over limit.
             if self.patterns.len() > self.max_patterns {
                 if let Some(oldest_idx) = self
                     .patterns
@@ -193,15 +183,12 @@ impl PatternStore {
         let cutoff = now.saturating_sub(self.decay_days as u64 * SECONDS_PER_DAY);
         let half_cutoff = now.saturating_sub((self.decay_days as u64 * SECONDS_PER_DAY) / 2);
 
-        // Remove expired patterns.
         self.patterns.retain(|p| p.last_seen_at >= cutoff);
 
-        // Reduce confidence of aging patterns (older than half the window).
         for pattern in &mut self.patterns {
             if pattern.last_seen_at < half_cutoff {
                 let age_secs = now.saturating_sub(pattern.last_seen_at);
                 let window_secs = self.decay_days as u64 * SECONDS_PER_DAY;
-                // Linear decay factor: 1.0 at half-window, 0.0 at full window.
                 let factor = 1.0 - (age_secs as f64 / window_secs as f64).min(1.0);
                 pattern.confidence =
                     compute_confidence(pattern.occurrences, pattern.success_rate) * factor.max(0.0);
@@ -210,9 +197,6 @@ impl PatternStore {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /// Derive a confidence score from occurrence count and success rate.
 ///
@@ -222,9 +206,6 @@ pub fn compute_confidence(occurrences: u32, success_rate: f64) -> f64 {
     base * success_rate
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -269,7 +250,6 @@ mod tests {
         assert!((store.patterns[0].success_rate - 0.5).abs() < f64::EPSILON);
 
         store.record_sequence(&tools, "debug", true, 3000);
-        // 2 successes out of 3
         let expected = 2.0 / 3.0;
         assert!((store.patterns[0].success_rate - expected).abs() < 1e-9);
     }
@@ -320,11 +300,9 @@ mod tests {
         );
 
         let suggested = store.suggest_tools("coding");
-        // Should contain all three unique tools.
         assert!(suggested.contains(&zorai_protocol::tool_names::READ_FILE.to_string()));
         assert!(suggested.contains(&zorai_protocol::tool_names::EDIT_FILE.to_string()));
         assert!(suggested.contains(&"search".to_string()));
-        // No duplicates.
         assert_eq!(suggested.len(), 3);
     }
 
@@ -334,7 +312,7 @@ mod tests {
         let old_time = 0_u64;
         store.record_sequence(&seq(&["a"]), "task", true, old_time);
 
-        let now = 31 * SECONDS_PER_DAY; // 31 days later
+        let now = 31 * SECONDS_PER_DAY;
         store.decay(now);
         assert_eq!(store.len(), 0);
     }
@@ -346,7 +324,6 @@ mod tests {
             store.record_sequence(&seq(&[&format!("tool_{i}")]), "task", true, i as u64 * 1000);
         }
         assert_eq!(store.len(), 3);
-        // The oldest pattern (tool_0 at time 0) should have been evicted.
         assert!(store
             .patterns
             .iter()
@@ -373,17 +350,15 @@ mod tests {
     fn decay_reduces_confidence_of_aging_patterns() {
         let mut store = PatternStore::new(200, 30);
         let tools = seq(&["x"]);
-        // Record many times to build high confidence.
         for i in 0..10 {
             store.record_sequence(&tools, "task", true, i);
         }
         let original_confidence = store.patterns[0].confidence;
         assert!((original_confidence - 1.0).abs() < f64::EPSILON);
 
-        // Advance to 20 days (past the half-window of 15 days).
         let now = 20 * SECONDS_PER_DAY;
         store.decay(now);
-        assert_eq!(store.len(), 1); // still within window
+        assert_eq!(store.len(), 1);
         assert!(store.patterns[0].confidence < original_confidence);
     }
 

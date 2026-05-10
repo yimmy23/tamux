@@ -65,21 +65,14 @@ pub(super) fn policy_scope_for_task(
 }
 
 fn build_runtime_self_assessment(
-    goal_run: Option<&GoalRun>,
+    goal_context: Option<&crate::history::GoalRunPolicyContextRef>,
     task_retry_count: u32,
     short_term_success_rate: f64,
     awareness_stuck: bool,
     repeated_approach: bool,
 ) -> super::metacognitive::self_assessment::Assessment {
-    let (steps_completed, steps_total) = goal_run
-        .map(|goal_run| {
-            let completed = goal_run
-                .steps
-                .iter()
-                .filter(|step| step.status == GoalRunStepStatus::Completed)
-                .count();
-            (completed, goal_run.steps.len())
-        })
+    let (steps_completed, steps_total) = goal_context
+        .map(|context| (context.steps_completed, context.steps_total))
         .unwrap_or((0, 0));
     let goal_distance_pct = if steps_total == 0 {
         0.0
@@ -121,6 +114,38 @@ fn build_runtime_self_assessment(
             },
         },
     )
+}
+
+async fn goal_run_context_for_policy(
+    engine: &AgentEngine,
+    goal_run_id: &str,
+) -> Option<crate::history::GoalRunPolicyContextRef> {
+    let live_context = {
+        let goal_runs = engine.goal_runs.lock().await;
+        goal_runs
+            .iter()
+            .find(|goal_run| goal_run.id == goal_run_id)
+            .map(crate::history::GoalRunPolicyContextRef::from)
+    };
+    if live_context.is_some() {
+        return live_context;
+    }
+
+    match engine.history.goal_run_policy_context(goal_run_id).await {
+        Ok(context) => context,
+        Err(error) => {
+            tracing::warn!(
+                goal_run_id,
+                %error,
+                "failed to query goal context for policy evaluation"
+            );
+            engine
+                .get_goal_run(goal_run_id)
+                .await
+                .as_ref()
+                .map(crate::history::GoalRunPolicyContextRef::from)
+        }
+    }
 }
 
 fn has_three_recent_non_success_matches(
@@ -188,12 +213,12 @@ async fn build_policy_context_for_tool_result(
         (stuck, summary, rate)
     };
 
-    let goal_run = match task.goal_run_id.as_deref() {
-        Some(goal_run_id) => engine.get_goal_run(goal_run_id).await,
+    let goal_context = match task.goal_run_id.as_deref() {
+        Some(goal_run_id) => goal_run_context_for_policy(engine, goal_run_id).await,
         None => None,
     };
     let assessment = build_runtime_self_assessment(
-        goal_run.as_ref(),
+        goal_context.as_ref(),
         task.retry_count,
         short_term_success_rate,
         awareness_stuck,
@@ -221,12 +246,14 @@ async fn build_policy_context_for_tool_result(
         task.goal_step_title
             .as_deref()
             .or(Some(task.title.as_str())),
-        goal_run.as_ref().map(|goal_run| goal_run.goal.as_str()),
+        goal_context.as_ref().map(|goal_run| goal_run.goal.as_str()),
         None,
     );
     let runtime_work_scope = format_runtime_work_scope_label(
-        goal_run.as_ref().map(|goal_run| goal_run.title.as_str()),
-        task.goal_step_title.as_deref().or(goal_run
+        goal_context
+            .as_ref()
+            .map(|goal_run| goal_run.title.as_str()),
+        task.goal_step_title.as_deref().or(goal_context
             .as_ref()
             .and_then(|goal_run| goal_run.current_step_title.as_deref())),
         Some(task.title.as_str()),
@@ -247,7 +274,7 @@ async fn build_policy_context_for_tool_result(
             (!formatted.trim().is_empty()).then_some(formatted)
         })
     };
-    let thread_context = goal_run.as_ref().map(|goal_run| {
+    let thread_context = goal_context.as_ref().map(|goal_run| {
         format!(
             "Goal: {}\nCurrent step: {}\nTask: {}",
             goal_run.goal,

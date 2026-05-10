@@ -1,3 +1,5 @@
+use super::tests_part2_support::*;
+use super::*;
 #[tokio::test]
 async fn gateway_register_rejects_incompatible_protocol_version() {
     let mut conn = spawn_test_connection().await;

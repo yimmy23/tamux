@@ -8,11 +8,9 @@ pub fn parse_osc_notifications(data: &[u8]) -> (Vec<OscNotificationPayload>, Vec
     let mut i = 0;
 
     while i < data.len() {
-        // OSC starts with ESC ] (0x1b 0x5d) or 0x9d (C1 control)
         if (i + 1 < data.len() && data[i] == 0x1b && data[i + 1] == 0x5d) || data[i] == 0x9d {
             let osc_start = if data[i] == 0x9d { i + 1 } else { i + 2 };
 
-            // Find the end: ST = ESC \ (0x1b 0x5c) or BEL (0x07)
             let mut end = osc_start;
             let mut st_len = 0;
             while end < data.len() {
@@ -38,7 +36,6 @@ pub fn parse_osc_notifications(data: &[u8]) -> (Vec<OscNotificationPayload>, Vec
                 }
             }
 
-            // Not a recognized notification OSC — pass through
             cleaned.push(data[i]);
             i += 1;
         } else {
@@ -51,7 +48,6 @@ pub fn parse_osc_notifications(data: &[u8]) -> (Vec<OscNotificationPayload>, Vec
 }
 
 fn try_parse_osc(text: &str) -> Option<OscNotificationPayload> {
-    // OSC 9 ; <message> — iTerm2 Growl notification
     if let Some(rest) = text.strip_prefix("9;") {
         return Some(OscNotificationPayload {
             source: OscSource::Osc9,
@@ -63,7 +59,6 @@ fn try_parse_osc(text: &str) -> Option<OscNotificationPayload> {
         });
     }
 
-    // OSC 777 ; notify ; <title> ; <body> — rxvt-unicode
     if let Some(rest) = text.strip_prefix("777;notify;") {
         let mut parts = rest.splitn(2, ';');
         let title = parts.next().unwrap_or("").to_string();
@@ -78,23 +73,16 @@ fn try_parse_osc(text: &str) -> Option<OscNotificationPayload> {
         });
     }
 
-    // OSC 99 — Kitty notification protocol (key=value pairs separated by ;)
-    // Format: 99;i=<id>:d=0:p=body;<text>
-    // or simple: 99;<text>
     if let Some(rest) = text.strip_prefix("99;") {
-        // Simple form: just text
         let mut title = String::new();
         let mut body = rest.to_string();
 
-        // Try to parse key=value pairs
         if rest.contains(':') || rest.contains(';') {
             let parts: Vec<&str> = rest.splitn(2, ';').collect();
             if parts.len() == 2 {
-                // First part has key=value metadata, second is content
                 body = parts[1].to_string();
                 for kv in parts[0].split(':') {
                     if let Some((_k, _v)) = kv.split_once('=') {
-                        // Could extract i=, d=, p= etc.
                     }
                 }
             }
@@ -123,7 +111,6 @@ mod tests {
 
     #[test]
     fn parse_osc9() {
-        // ESC ] 9 ; Hello BEL
         let data = b"\x1b]9;Hello World\x07rest";
         let (notifs, cleaned) = parse_osc_notifications(data);
         assert_eq!(notifs.len(), 1);
@@ -142,11 +129,9 @@ mod tests {
 
     #[test]
     fn non_notification_osc_passes_through() {
-        // OSC 0 (set title) should pass through
         let data = b"\x1b]0;my title\x07hello";
         let (notifs, cleaned) = parse_osc_notifications(data);
         assert_eq!(notifs.len(), 0);
-        // The OSC 0 is passed through to cleaned
         assert!(cleaned.len() > 0);
     }
 }

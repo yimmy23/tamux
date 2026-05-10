@@ -548,9 +548,15 @@ impl AgentEngine {
         let reading_signal = detect_reading_signal(content);
         let current_hour_utc = current_utc_hour(now);
 
-        let thread_created_at = {
-            let threads = self.threads.read().await;
-            threads.get(thread_id).map(|thread| thread.created_at)
+        let thread_created_at = match self.history.thread_created_at(thread_id).await {
+            Ok(created_at) => created_at,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    "failed to load persisted thread creation time for operator observation: {error}"
+                );
+                None
+            }
         };
 
         let observed_minutes_delta = {
@@ -1228,48 +1234,65 @@ impl AgentEngine {
             .collect::<Vec<_>>();
         let emergent_protocols = {
             let mut pending_proposals = Vec::new();
-            let mut accepted_protocols = Vec::new();
-
-            for thread in self.threads.read().await.values() {
-                let thread_id = thread.id.as_str();
-                if let Ok(store) = self.get_thread_protocol_candidate_store(thread_id).await {
-                    pending_proposals.extend(
-                        store.candidates
-                            .into_iter()
-                            .filter(|candidate| {
-                                candidate.state
-                                    == crate::agent::emergent_protocol::types::ProtocolCandidateState::Proposed
-                            })
-                            .map(|candidate| {
-                                serde_json::json!({
-                                    "thread_id": candidate.thread_id,
-                                    "candidate_id": candidate.id,
-                                    "signal_kind": candidate.kind.as_str(),
-                                    "trigger_phrase": candidate.trigger_phrase,
-                                    "normalized_pattern": candidate.normalized_pattern,
-                                    "confidence": candidate.confidence,
-                                    "observation_count": candidate.observation_count,
-                                    "last_seen_at_ms": candidate.last_seen_at_ms,
-                                })
-                            }),
-                    );
-                }
-                if let Ok(entries) = self.list_thread_protocol_registry_entries(thread_id).await {
-                    accepted_protocols.extend(entries.into_iter().map(|entry| {
-                        serde_json::json!({
-                            "thread_id": entry.thread_id,
-                            "protocol_id": entry.protocol_id,
-                            "token": entry.token,
-                            "signal_kind": entry.signal_kind.as_str(),
-                            "normalized_pattern": entry.normalized_pattern,
-                            "usage_count": entry.usage_count,
-                            "success_rate": entry.success_rate,
-                            "last_used_ms": entry.last_used_ms,
-                            "source_candidate_id": entry.source_candidate_id,
+            for row in self
+                .history
+                .list_thread_protocol_candidates()
+                .await
+                .unwrap_or_default()
+            {
+                let Ok(store) = serde_json::from_value::<
+                    crate::agent::emergent_protocol::types::ProtocolCandidateStore,
+                >(row.state_json) else {
+                    continue;
+                };
+                pending_proposals.extend(
+                    store
+                        .candidates
+                        .into_iter()
+                        .filter(|candidate| {
+                            candidate.state
+                                == crate::agent::emergent_protocol::types::ProtocolCandidateState::Proposed
                         })
-                    }));
-                }
+                        .map(|candidate| {
+                            serde_json::json!({
+                                "thread_id": candidate.thread_id,
+                                "candidate_id": candidate.id,
+                                "signal_kind": candidate.kind.as_str(),
+                                "trigger_phrase": candidate.trigger_phrase,
+                                "normalized_pattern": candidate.normalized_pattern,
+                                "confidence": candidate.confidence,
+                                "observation_count": candidate.observation_count,
+                                "last_seen_at_ms": candidate.last_seen_at_ms,
+                            })
+                        }),
+                );
             }
+            let mut accepted_protocols = self
+                .history
+                .list_emergent_protocols()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|row| {
+                    let signal_kind =
+                        crate::agent::emergent_protocol::types::ProtocolSignalKind::from_str(
+                            &row.signal_kind,
+                        )
+                        .map(|kind| kind.as_str().to_string())
+                        .unwrap_or_else(|| row.signal_kind.clone());
+                    serde_json::json!({
+                        "thread_id": row.thread_id,
+                        "protocol_id": row.protocol_id,
+                        "token": row.token,
+                        "signal_kind": signal_kind,
+                        "normalized_pattern": row.normalized_pattern,
+                        "usage_count": row.usage_count,
+                        "success_rate": row.success_rate,
+                        "last_used_ms": row.last_used_at,
+                        "source_candidate_id": row.source_candidate_id,
+                    })
+                })
+                .collect::<Vec<_>>();
 
             pending_proposals.sort_by(|left, right| {
                 right
@@ -1351,7 +1374,69 @@ impl AgentEngine {
                     })
                 })
             });
-        let all_tasks = self.list_tasks().await;
+        let subagent_task_query = crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: Some("subagent".to_string()),
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        };
+        let mut subagent_tasks = match self
+            .history
+            .list_agent_task_subagent_hierarchy_refs_filtered(&subagent_task_query)
+            .await
+        {
+            Ok(task_refs) => task_refs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query subagent task hierarchy refs for operator model diagnostics: {error}"
+                );
+                self.list_tasks_filtered(&subagent_task_query)
+                    .await
+                    .iter()
+                    .map(crate::history::AgentTaskSubagentHierarchyRef::from)
+                    .collect()
+            }
+        };
+        let mut live_overrides: std::collections::HashMap<
+            String,
+            crate::history::AgentTaskSubagentHierarchyRef,
+        > = std::collections::HashMap::new();
+        let mut live_only: Vec<crate::history::AgentTaskSubagentHierarchyRef> = Vec::new();
+        let persisted_ids = subagent_tasks
+            .iter()
+            .map(|task| task.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        for task in self
+            .tasks
+            .lock()
+            .await
+            .iter()
+            .filter(|task| task.source == "subagent")
+        {
+            let live_ref = crate::history::AgentTaskSubagentHierarchyRef::from(task);
+            if persisted_ids.contains(&task.id) {
+                live_overrides.insert(task.id.clone(), live_ref);
+            } else {
+                live_only.push(live_ref);
+            }
+        }
+        for task in subagent_tasks.iter_mut() {
+            if let Some(live) = live_overrides.remove(&task.id) {
+                *task = live;
+            }
+        }
+        subagent_tasks.extend(live_only);
         let parse_subagent_containment_scope = |scope: Option<&str>| -> Option<(u8, u8)> {
             let scope = scope?.trim();
             let payload = scope.strip_prefix("subagent-depth:")?;
@@ -1360,33 +1445,31 @@ impl AgentEngine {
             let max_depth = max_depth.trim().parse::<u8>().ok()?;
             Some((depth, max_depth))
         };
-        let compute_task_delegation_depth = |task: &AgentTask| -> u8 {
-            let mut depth = 0u8;
-            let mut current_parent_id = task.parent_task_id.as_deref();
-            while let Some(parent_id) = current_parent_id {
-                depth = depth.saturating_add(1);
-                current_parent_id = all_tasks
-                    .iter()
-                    .find(|candidate| candidate.id == parent_id)
-                    .and_then(|parent| parent.parent_task_id.as_deref());
-            }
-            depth
-        };
-        let effective_subagent_max_depth = |task: &AgentTask| -> u8 {
-            parse_subagent_containment_scope(task.containment_scope.as_deref())
-                .map(|(_, max_depth)| max_depth)
-                .unwrap_or_else(|| compute_task_delegation_depth(task).max(1))
-        };
-        let active_subagents = all_tasks
-            .iter()
-            .filter(|task| task.source == "subagent")
-            .collect::<Vec<_>>();
-        let max_observed_depth = active_subagents
+        let compute_task_delegation_depth =
+            |task: &crate::history::AgentTaskSubagentHierarchyRef| -> u8 {
+                let mut depth = 0u8;
+                let mut current_parent_id = task.parent_task_id.as_deref();
+                while let Some(parent_id) = current_parent_id {
+                    depth = depth.saturating_add(1);
+                    current_parent_id = subagent_tasks
+                        .iter()
+                        .find(|candidate| candidate.id == parent_id)
+                        .and_then(|parent| parent.parent_task_id.as_deref());
+                }
+                depth
+            };
+        let effective_subagent_max_depth =
+            |task: &crate::history::AgentTaskSubagentHierarchyRef| -> u8 {
+                parse_subagent_containment_scope(task.containment_scope.as_deref())
+                    .map(|(_, max_depth)| max_depth)
+                    .unwrap_or_else(|| compute_task_delegation_depth(task).max(1))
+            };
+        let max_observed_depth = subagent_tasks
             .iter()
             .map(|task| compute_task_delegation_depth(task))
             .max()
             .unwrap_or(0);
-        let max_observed_allowed_depth = active_subagents
+        let max_observed_allowed_depth = subagent_tasks
             .iter()
             .map(|task| {
                 parse_subagent_containment_scope(task.containment_scope.as_deref())
@@ -1395,12 +1478,12 @@ impl AgentEngine {
             })
             .max()
             .unwrap_or(0);
-        let root_parent_task_ids = active_subagents
+        let root_parent_task_ids = subagent_tasks
             .iter()
             .filter_map(|task| {
                 let mut current_parent_id = task.parent_task_id.as_deref()?;
                 loop {
-                    let next_parent = all_tasks
+                    let next_parent = subagent_tasks
                         .iter()
                         .find(|candidate| candidate.id == current_parent_id)
                         .and_then(|parent| parent.parent_task_id.as_deref());
@@ -1414,7 +1497,7 @@ impl AgentEngine {
             .into_iter()
             .collect::<Vec<_>>();
         let recursive_subagents = serde_json::json!({
-            "active_subagent_count": active_subagents.len(),
+            "active_subagent_count": subagent_tasks.len(),
             "max_observed_depth": max_observed_depth,
             "max_observed_allowed_depth": max_observed_allowed_depth,
             "root_parent_task_ids": root_parent_task_ids,

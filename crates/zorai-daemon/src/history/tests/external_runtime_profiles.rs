@@ -147,6 +147,55 @@ async fn openclaw_config_parser_round_trips_through_runtime_profile_persistence(
 }
 
 #[tokio::test]
+async fn filtered_external_runtime_profiles_ignore_unrelated_malformed_rows() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "INSERT INTO external_runtime_profiles \
+                 (runtime, profile_json, session_id, source_config_path, source_fingerprint, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    "hermes",
+                    "{}",
+                    "session-target",
+                    "~/.hermes/config.yaml",
+                    "abc",
+                    100i64
+                ],
+            )?;
+            conn.execute(
+                "INSERT INTO external_runtime_profiles \
+                 (runtime, profile_json, session_id, source_config_path, source_fingerprint, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    "openclaw",
+                    "{}",
+                    "session-other",
+                    "~/.openclaw/openclaw.json",
+                    "def",
+                    "not-an-integer"
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let rows = store
+        .list_external_runtime_profiles_filtered(Some("HERMES"), Some(1))
+        .await?;
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].runtime, "hermes");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn import_session_assets_and_shadow_runs_round_trip() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
@@ -216,6 +265,120 @@ async fn import_session_assets_and_shadow_runs_round_trip() -> Result<()> {
         .await?;
     assert_eq!(loaded_runs.len(), 1);
     assert_eq!(loaded_runs[0].workflow, "migration_readiness");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn filtered_imported_runtime_assets_ignore_unrelated_malformed_rows() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "INSERT INTO imported_runtime_assets \
+                 (asset_id, session_id, runtime, asset_kind, bucket, severity, recommended_action, source_path, source_fingerprint, conflict_policy, asset_json, created_at_ms, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, NULL, ?7, ?8, ?9, ?10)",
+                rusqlite::params![
+                    "asset-target",
+                    "session-target",
+                    "hermes",
+                    "profile",
+                    "imported",
+                    "safe",
+                    "stage_for_review",
+                    "{}",
+                    100i64,
+                    100i64
+                ],
+            )?;
+            conn.execute(
+                "INSERT INTO imported_runtime_assets \
+                 (asset_id, session_id, runtime, asset_kind, bucket, severity, recommended_action, source_path, source_fingerprint, conflict_policy, asset_json, created_at_ms, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, NULL, ?7, ?8, ?9, ?10)",
+                rusqlite::params![
+                    "asset-unrelated",
+                    "session-other",
+                    "openclaw",
+                    "profile",
+                    "imported",
+                    "safe",
+                    "stage_for_review",
+                    "{}",
+                    "not-an-integer",
+                    200i64
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let assets = store
+        .list_imported_runtime_assets(Some("hermes"), Some("session-target"))
+        .await?;
+
+    assert_eq!(assets.len(), 1);
+    assert_eq!(assets[0].asset_id, "asset-target");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn filtered_external_runtime_shadow_runs_ignore_unrelated_malformed_rows() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "INSERT INTO external_runtime_shadow_runs \
+                 (run_id, runtime, session_id, workflow, readiness_score, blocker_count, summary, payload_json, created_at_ms, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                rusqlite::params![
+                    "shadow-target",
+                    "hermes",
+                    "session-target",
+                    "migration_readiness",
+                    90i64,
+                    0i64,
+                    "ok",
+                    "{}",
+                    100i64,
+                    100i64
+                ],
+            )?;
+            conn.execute(
+                "INSERT INTO external_runtime_shadow_runs \
+                 (run_id, runtime, session_id, workflow, readiness_score, blocker_count, summary, payload_json, created_at_ms, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                rusqlite::params![
+                    "shadow-unrelated",
+                    "openclaw",
+                    "session-other",
+                    "migration_readiness",
+                    "not-an-integer",
+                    0i64,
+                    "bad",
+                    "{}",
+                    200i64,
+                    200i64
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let runs = store
+        .list_external_runtime_shadow_runs(Some("hermes"), Some("session-target"))
+        .await?;
+
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].run_id, "shadow-target");
 
     fs::remove_dir_all(root)?;
     Ok(())

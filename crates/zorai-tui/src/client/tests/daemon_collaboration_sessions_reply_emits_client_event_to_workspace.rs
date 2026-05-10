@@ -1,3 +1,9 @@
+use super::whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task::handle_daemon_message_for_test;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::*;
+use serde_json::Value;
+use tokio::sync::mpsc;
+use zorai_protocol::DaemonMessage;
 #[tokio::test]
 async fn daemon_collaboration_sessions_reply_emits_client_event() {
     let (event_tx, mut event_rx) = mpsc::channel(8);
@@ -23,9 +29,14 @@ async fn daemon_collaboration_sessions_reply_emits_client_event() {
     .await;
 
     assert!(should_continue);
-    match event_rx.recv().await.expect("expected collaboration sessions event") {
+    match event_rx
+        .recv()
+        .await
+        .expect("expected collaboration sessions event")
+    {
         ClientEvent::CollaborationSessions { sessions_json } => {
-            let parsed: Value = serde_json::from_str(&sessions_json).expect("valid collaboration sessions json");
+            let parsed: Value =
+                serde_json::from_str(&sessions_json).expect("valid collaboration sessions json");
             assert_eq!(parsed[0]["id"], "session-1");
         }
         other => panic!("expected collaboration sessions event, got {:?}", other),
@@ -52,9 +63,14 @@ async fn daemon_generated_tools_reply_emits_client_event() {
     .await;
 
     assert!(should_continue);
-    match event_rx.recv().await.expect("expected generated tools event") {
+    match event_rx
+        .recv()
+        .await
+        .expect("expected generated tools event")
+    {
         ClientEvent::GeneratedTools { tools_json } => {
-            let parsed: Value = serde_json::from_str(&tools_json).expect("valid generated tools json");
+            let parsed: Value =
+                serde_json::from_str(&tools_json).expect("valid generated tools json");
             assert_eq!(parsed[0]["id"], "tool-1");
             assert_eq!(parsed[0]["status"], "active");
         }
@@ -79,9 +95,14 @@ async fn daemon_collaboration_vote_result_reply_emits_client_event() {
     .await;
 
     assert!(should_continue);
-    match event_rx.recv().await.expect("expected collaboration vote result event") {
+    match event_rx
+        .recv()
+        .await
+        .expect("expected collaboration vote result event")
+    {
         ClientEvent::CollaborationVoteResult { report_json } => {
-            let parsed: Value = serde_json::from_str(&report_json).expect("valid collaboration vote result json");
+            let parsed: Value =
+                serde_json::from_str(&report_json).expect("valid collaboration vote result json");
             assert_eq!(parsed["session_id"], "session-1");
             assert_eq!(parsed["resolution"], "resolved");
         }
@@ -136,7 +157,10 @@ async fn workspace_task_agent_event_emits_workspace_task_update() {
             assert_eq!(task.id, "wtask-1");
             assert_eq!(task.workspace_id, "main");
             assert_eq!(task.status, zorai_protocol::WorkspaceTaskStatus::InProgress);
-            assert_eq!(task.assignee, Some(zorai_protocol::WorkspaceActor::Agent("svarog".to_string())));
+            assert_eq!(
+                task.assignee,
+                Some(zorai_protocol::WorkspaceActor::Agent("svarog".to_string()))
+            );
         }
         other => panic!("expected workspace task update event, got {:?}", other),
     }

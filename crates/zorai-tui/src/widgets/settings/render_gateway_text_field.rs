@@ -1,4 +1,26 @@
-fn render_gateway_tab<'a>(
+use super::render_about_tab::*;
+use super::render_advanced_value_to_render_advanced_tab::*;
+use super::render_auth_tab_to_render_agent_tab::*;
+use super::render_chat_tab_to_render_honcho_editor_actions::*;
+use super::render_concierge_tab_to_render_feature_toggle_line::*;
+use super::render_features_tab::*;
+use super::render_plugins_tab_to_connector_readiness_style::*;
+use super::render_provider_tab_to_render_tools_tab::*;
+use super::render_websearch_tab::*;
+use super::*;
+use crate::providers;
+use crate::state::concierge::ConciergeState;
+use crate::state::config::ConfigState;
+use crate::state::modal::{ModalState, WhatsAppLinkPhase};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use zorai_protocol::has_whatsapp_allowed_contacts;
+pub(crate) fn render_gateway_tab<'a>(
     settings: &'a SettingsState,
     config: &'a ConfigState,
     modal: &'a ModalState,
@@ -14,7 +36,6 @@ fn render_gateway_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // ── Field 0: gateway_enabled (toggle) ─────────────────────────────────────
     {
         let is_selected = settings.field_cursor() == 0;
         let marker = if is_selected { "> " } else { "  " };
@@ -46,7 +67,6 @@ fn render_gateway_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // ── Field 1: gateway_prefix (plain text) ──────────────────────────────────
     render_gateway_text_field(
         settings,
         theme,
@@ -58,7 +78,6 @@ fn render_gateway_tab<'a>(
         false,
     );
 
-    // ── Slack section ─────────────────────────────────────────────────────────
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "  \u{2500}\u{2500} Slack \u{2500}\u{2500}",
@@ -85,7 +104,6 @@ fn render_gateway_tab<'a>(
         false,
     );
 
-    // ── Telegram section ──────────────────────────────────────────────────────
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "  \u{2500}\u{2500} Telegram \u{2500}\u{2500}",
@@ -112,7 +130,6 @@ fn render_gateway_tab<'a>(
         false,
     );
 
-    // ── Discord section ───────────────────────────────────────────────────────
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "  \u{2500}\u{2500} Discord \u{2500}\u{2500}",
@@ -149,7 +166,6 @@ fn render_gateway_tab<'a>(
         false,
     );
 
-    // ── WhatsApp section ──────────────────────────────────────────────────────
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         "  \u{2500}\u{2500} WhatsApp \u{2500}\u{2500}",
@@ -289,7 +305,7 @@ fn render_gateway_tab<'a>(
 
 /// Render a single editable gateway field row.
 /// `password` — if true and value is non-empty, the stored value is masked (dots).
-fn render_gateway_text_field<'a>(
+pub(crate) fn render_gateway_text_field<'a>(
     settings: &SettingsState,
     theme: &ThemeTokens,
     lines: &mut Vec<Line<'a>>,

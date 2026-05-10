@@ -9,7 +9,6 @@ impl AgentEngine {
     pub(super) async fn append_episodic_worm(&self, episode: &Episode) -> Result<()> {
         let worm_path = self.data_dir.join("worm/episodic-ledger.jsonl");
 
-        // Ensure worm directory exists
         if let Some(parent) = worm_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
@@ -17,7 +16,6 @@ impl AgentEngine {
         let payload = serde_json::to_value(episode)?;
         let payload_json = serde_json::to_string(&payload)?;
 
-        // Read last entry for chain continuity
         let (prev_hash, seq) = {
             let path = worm_path.clone();
             tokio::task::spawn_blocking(move || read_last_worm_entry(&path))
@@ -34,7 +32,6 @@ impl AgentEngine {
             "payload": payload,
         }))?;
 
-        // Append to ledger file
         use tokio::io::AsyncWriteExt;
         let mut file = tokio::fs::OpenOptions::new()
             .create(true)

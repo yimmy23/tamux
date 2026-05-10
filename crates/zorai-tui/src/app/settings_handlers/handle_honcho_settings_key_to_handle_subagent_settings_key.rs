@@ -1,5 +1,13 @@
+use super::*;
+use crate::providers;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn handle_honcho_settings_key(&mut self, code: KeyCode) -> bool {
+    pub(crate) fn handle_honcho_settings_key(&mut self, code: KeyCode) -> bool {
         let Some(editor) = self.config.honcho_editor.as_mut() else {
             return false;
         };
@@ -35,11 +43,13 @@ impl TuiModel {
                     }
                     crate::state::config::HonchoEditorField::ApiKey => {
                         let current = editor.api_key.clone();
-                        self.settings.start_editing("honcho_editor_api_key", &current);
+                        self.settings
+                            .start_editing("honcho_editor_api_key", &current);
                     }
                     crate::state::config::HonchoEditorField::BaseUrl => {
                         let current = editor.base_url.clone();
-                        self.settings.start_editing("honcho_editor_base_url", &current);
+                        self.settings
+                            .start_editing("honcho_editor_base_url", &current);
                     }
                     crate::state::config::HonchoEditorField::WorkspaceId => {
                         let current = editor.workspace_id.clone();
@@ -59,7 +69,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn handle_auth_settings_key(&mut self, code: KeyCode) -> bool {
+    pub(crate) fn handle_auth_settings_key(&mut self, code: KeyCode) -> bool {
         if self.auth.login_target.is_some() {
             match code {
                 KeyCode::Esc => {
@@ -154,7 +164,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn handle_subagent_settings_key(&mut self, code: KeyCode) -> bool {
+    pub(crate) fn handle_subagent_settings_key(&mut self, code: KeyCode) -> bool {
         if self.subagents.editor.is_some() {
             match code {
                 KeyCode::Esc => {

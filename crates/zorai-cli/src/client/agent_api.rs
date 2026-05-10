@@ -442,6 +442,7 @@ pub async fn send_thread_list_query(limit: usize, offset: usize) -> Result<Vec<A
         limit: Some(limit),
         offset: Some(offset),
         include_internal: false,
+        agent_filter: None,
     })
     .await?
     {

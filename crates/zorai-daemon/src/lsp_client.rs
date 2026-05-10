@@ -53,9 +53,6 @@ fn symbol_kind_name(kind: u64) -> &'static str {
     }
 }
 
-// ---------------------------------------------------------------------------
-// JSON-RPC framing helpers
-// ---------------------------------------------------------------------------
 
 static REQUEST_ID: AtomicI64 = AtomicI64::new(1);
 
@@ -73,12 +70,11 @@ fn encode_message(msg: &Value) -> Vec<u8> {
 ///
 /// Returns `None` on EOF or framing error.
 fn read_message(reader: &mut BufReader<impl std::io::Read>) -> Option<Value> {
-    // Read headers until we find an empty line.
     let mut content_length: Option<usize> = None;
     loop {
         let mut header_line = String::new();
         if reader.read_line(&mut header_line).ok()? == 0 {
-            return None; // EOF
+            return None;
         }
         let trimmed = header_line.trim();
         if trimmed.is_empty() {
@@ -95,9 +91,6 @@ fn read_message(reader: &mut BufReader<impl std::io::Read>) -> Option<Value> {
     serde_json::from_slice(&body).ok()
 }
 
-// ---------------------------------------------------------------------------
-// LspClient
-// ---------------------------------------------------------------------------
 
 /// A thin wrapper around a language-server child process.
 pub struct LspClient {
@@ -110,7 +103,6 @@ impl LspClient {
     ///
     /// Returns `None` if the binary is not found or fails to launch.
     fn start(binary: &str, workspace_root: &str) -> Option<Self> {
-        // Verify the binary exists on PATH.
         let status = Command::new("which")
             .arg(binary)
             .stdout(Stdio::null())
@@ -122,11 +114,9 @@ impl LspClient {
         }
 
         let mut args: Vec<&str> = Vec::new();
-        // typescript-language-server requires --stdio flag.
         if binary == "typescript-language-server" {
             args.push("--stdio");
         }
-        // pyright-langserver requires --stdio flag.
         if binary == "pyright-langserver" {
             args.push("--stdio");
         }
@@ -161,14 +151,11 @@ impl LspClient {
         stdin.write_all(&encoded).ok()?;
         stdin.flush().ok()?;
 
-        // Read responses until we find our matching id.
-        // Language servers may send notifications or other messages interleaved.
         for _ in 0..200 {
             let response = read_message(&mut self.reader)?;
             if response.get("id").and_then(|v| v.as_i64()) == Some(id) {
                 return response.get("result").cloned();
             }
-            // If we get an error response for our id, bail.
             if response.get("id").and_then(|v| v.as_i64()) == Some(id)
                 && response.get("error").is_some()
             {
@@ -223,7 +210,6 @@ impl LspClient {
 
         let _init_result = self.request("initialize", params)?;
 
-        // Send the initialized notification.
         self.notify("initialized", json!({}))?;
 
         Some(())
@@ -237,33 +223,23 @@ impl LspClient {
 
     /// Send `shutdown` + `exit` to gracefully terminate the server.
     fn shutdown(&mut self) {
-        // shutdown is a request – wait for the response.
         let _ = self.request("shutdown", json!(null));
-        // exit is a notification.
         let _ = self.notify("exit", json!(null));
-        // Give the process a moment then reap it.
         let _ = self.child.wait();
     }
 }
 
 impl Drop for LspClient {
     fn drop(&mut self) {
-        // Best-effort cleanup: kill if still running.
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 /// Detect which language servers are available on `$PATH` for files under
 /// `workspace_root`.
 fn detect_servers(workspace_root: &str) -> Vec<&'static str> {
-    // First, figure out which file extensions are present in the workspace
-    // so we only launch relevant servers.  We do a shallow scan (max depth 4)
-    // to keep this fast.
     let mut extensions_present: std::collections::HashSet<String> =
         std::collections::HashSet::new();
     for entry in walkdir::WalkDir::new(workspace_root)
@@ -283,7 +259,6 @@ fn detect_servers(workspace_root: &str) -> Vec<&'static str> {
         if !relevant {
             continue;
         }
-        // Check if the binary exists on PATH.
         let found = Command::new("which")
             .arg(binary)
             .stdout(Stdio::null())
@@ -316,7 +291,6 @@ fn parse_symbol_results(result: &Value, limit: usize) -> Vec<SymbolMatch> {
         let kind_num = item.get("kind").and_then(|v| v.as_u64()).unwrap_or(0);
         let kind = symbol_kind_name(kind_num);
 
-        // LSP SymbolInformation has a `location` field.
         let location = item.get("location");
         let (path, line) = if let Some(loc) = location {
             let uri = loc.get("uri").and_then(|v| v.as_str()).unwrap_or("");
@@ -326,11 +300,10 @@ fn parse_symbol_results(result: &Value, limit: usize) -> Vec<SymbolMatch> {
                 .and_then(|r| r.get("start"))
                 .and_then(|s| s.get("line"))
                 .and_then(|l| l.as_u64())
-                .map(|l| (l + 1) as usize) // LSP lines are 0-indexed
+                .map(|l| (l + 1) as usize)
                 .unwrap_or(1);
             (path.to_string(), line)
         } else {
-            // WorkspaceSymbol may use `location` with just a uri (no range).
             let uri = item
                 .get("location")
                 .and_then(|l| l.get("uri"))
@@ -340,7 +313,6 @@ fn parse_symbol_results(result: &Value, limit: usize) -> Vec<SymbolMatch> {
             (path.to_string(), 1)
         };
 
-        // Build a snippet from the container name and symbol name.
         let container = item
             .get("containerName")
             .and_then(|v| v.as_str())
@@ -416,7 +388,6 @@ pub fn find_symbols(workspace_root: &str, query: &str, limit: usize) -> Vec<Symb
         client.shutdown();
     }
 
-    // Deduplicate by (path, line).
     let mut seen: HashMap<(String, usize), bool> = HashMap::new();
     all_matches.retain(|m| seen.insert((m.path.clone(), m.line), true).is_none());
 

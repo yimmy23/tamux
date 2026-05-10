@@ -86,6 +86,11 @@ impl TuiModel {
             ClientEvent::ThreadDeleted { thread_id, deleted } => {
                 if deleted {
                     self.deleted_thread_ids.insert(thread_id.clone());
+                    self.pending_local_message_delete_reload_suppression
+                        .remove(&thread_id);
+                    self.pending_local_message_delete_backfills
+                        .remove(&thread_id);
+                    self.pending_local_message_delete_fetches.remove(&thread_id);
                     self.chat.reduce(chat::ChatAction::ThreadDeleted {
                         thread_id: thread_id.clone(),
                     });

@@ -1,4 +1,9 @@
-fn is_code_like_path(path: &str) -> bool {
+use crate::theme::ThemeTokens;
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use unicode_width::UnicodeWidthChar;
+
+pub(super) fn is_code_like_path(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     let file_name = lower
         .rsplit(['/', '\\'])
@@ -193,7 +198,8 @@ fn syntax_highlight_line(text: String, theme: &ThemeTokens) -> Line<'static> {
         if ch == '_' || ch.is_ascii_alphabetic() {
             let start = index;
             index += 1;
-            while index < chars.len() && (chars[index] == '_' || chars[index].is_ascii_alphanumeric())
+            while index < chars.len()
+                && (chars[index] == '_' || chars[index].is_ascii_alphanumeric())
             {
                 index += 1;
             }
@@ -215,7 +221,7 @@ fn syntax_highlight_line(text: String, theme: &ThemeTokens) -> Line<'static> {
     Line::from(spans)
 }
 
-fn push_syntax_highlighted(
+pub(super) fn push_syntax_highlighted(
     lines: &mut Vec<Line<'static>>,
     content: &str,
     width: usize,

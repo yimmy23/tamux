@@ -1,4 +1,5 @@
-async fn run_native_assistant(
+use super::*;
+pub(crate) async fn run_native_assistant(
     client: &reqwest::Client,
     provider: &str,
     config: &ProviderConfig,
@@ -46,9 +47,9 @@ async fn run_native_assistant(
                 copilot_initiator,
                 force_connection_close,
             )
-                .body("{}".to_string())
-                .send()
-                .await?;
+            .body("{}".to_string())
+            .send()
+            .await?;
             if !response.status().is_success() {
                 let status = response.status();
                 let retry_after_ms = extract_retry_after_ms(Some(response.headers()), "");
@@ -95,18 +96,17 @@ async fn run_native_assistant(
         "role": "user",
         "content": user_text,
     });
-    let add_message_response =
-        build_openai_auth_request(
-            client,
-            &message_url,
-            provider,
-            config,
-            copilot_initiator,
-            force_connection_close,
-        )
-            .body(add_message_body.to_string())
-            .send()
-            .await?;
+    let add_message_response = build_openai_auth_request(
+        client,
+        &message_url,
+        provider,
+        config,
+        copilot_initiator,
+        force_connection_close,
+    )
+    .body(add_message_body.to_string())
+    .send()
+    .await?;
     if !add_message_response.status().is_success() {
         let status = add_message_response.status();
         let retry_after_ms = extract_retry_after_ms(Some(add_message_response.headers()), "");
@@ -150,9 +150,9 @@ async fn run_native_assistant(
         copilot_initiator,
         force_connection_close,
     )
-        .body(run_body.to_string())
-        .send()
-        .await?;
+    .body(run_body.to_string())
+    .send()
+    .await?;
     if !run_response.status().is_success() {
         let status = run_response.status();
         let retry_after_ms = extract_retry_after_ms(Some(run_response.headers()), "");
@@ -243,17 +243,16 @@ async fn run_native_assistant(
         {
             "queued" | "in_progress" => continue,
             "completed" => {
-                let content =
-                    fetch_native_assistant_message(
-                        client,
-                        provider,
-                        config,
-                        &base_url,
-                        &thread_id,
-                        copilot_initiator,
-                        force_connection_close,
-                    )
-                        .await?;
+                let content = fetch_native_assistant_message(
+                    client,
+                    provider,
+                    config,
+                    &base_url,
+                    &thread_id,
+                    copilot_initiator,
+                    force_connection_close,
+                )
+                .await?;
                 let _ = tx
                     .send(Ok(CompletionChunk::Done {
                         content,

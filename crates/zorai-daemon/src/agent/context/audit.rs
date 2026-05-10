@@ -25,10 +25,8 @@ pub fn context_audit(
     let mut ranked_items: Vec<(String, RelevanceCategory, f64)> = Vec::with_capacity(items.len());
 
     for item in items.iter_mut() {
-        // Compute and store the relevance score.
         item.relevance_score = item.compute_relevance(now, max_age_ms);
 
-        // Categorize based on the freshly computed score.
         let category = item.categorize(now, recent_threshold_ms);
 
         let tokens = item.estimated_tokens;
@@ -56,7 +54,6 @@ pub fn context_audit(
         ranked_items.push((item.id.clone(), category, item.relevance_score));
     }
 
-    // Sort by relevance descending (highest first).
     ranked_items.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
 
     ContextAuditReport {
@@ -118,7 +115,6 @@ pub fn format_audit_report(report: &ContextAuditReport) -> String {
     )
     .unwrap();
 
-    // Top items — show up to 5.
     let top: Vec<String> = report
         .ranked_items
         .iter()
@@ -150,8 +146,8 @@ fn format_number(n: u32) -> String {
 mod tests {
     use super::*;
 
-    const RECENT_THRESHOLD: u64 = 300_000; // 5 min
-    const MAX_AGE: u64 = 1_800_000; // 30 min
+    const RECENT_THRESHOLD: u64 = 300_000;
+    const MAX_AGE: u64 = 1_800_000;
 
     fn make_item(
         id: &str,
@@ -172,9 +168,6 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // 1. Empty items returns zeroes
-    // -----------------------------------------------------------------------
     #[test]
     fn empty_items_returns_zeroes() {
         let mut items: Vec<ContextItem> = vec![];
@@ -193,9 +186,6 @@ mod tests {
         assert!(report.ranked_items.is_empty());
     }
 
-    // -----------------------------------------------------------------------
-    // 2. All items recent -> all Critical
-    // -----------------------------------------------------------------------
     #[test]
     fn all_recent_items_are_critical() {
         let now = 1_000_000;
@@ -212,44 +202,31 @@ mod tests {
         assert_eq!(report.archivable_count, 0);
     }
 
-    // -----------------------------------------------------------------------
-    // 3. Mix of categories counted correctly
-    // -----------------------------------------------------------------------
     #[test]
     fn mix_of_categories_counted_correctly() {
         let now = 2_000_000;
         let mut items = vec![
-            // Recent -> Critical
             make_item("recent", ContextType::Conversation, now - 1_000, 0),
-            // SystemPrompt -> always Critical
             make_item("sys", ContextType::SystemPrompt, 0, 0),
-            // Old, high access -> will get Active (relevance > 0.5 due to access)
             make_item("active", ContextType::Conversation, now - 500_000, 10),
-            // Old, some access but low relevance -> Dormant
             make_item("dormant", ContextType::FileContent, 0, 1),
-            // Old, zero access -> Archivable
             make_item("archive", ContextType::FileContent, 0, 0),
         ];
         let report = context_audit(&mut items, now, RECENT_THRESHOLD, MAX_AGE);
 
-        assert_eq!(report.critical_count, 2); // recent + sys
-        assert_eq!(report.active_count, 1); // active
-        assert_eq!(report.dormant_count, 1); // dormant
-        assert_eq!(report.archivable_count, 1); // archive
+        assert_eq!(report.critical_count, 2);
+        assert_eq!(report.active_count, 1);
+        assert_eq!(report.dormant_count, 1);
+        assert_eq!(report.archivable_count, 1);
         assert_eq!(report.total_items, 5);
     }
 
-    // -----------------------------------------------------------------------
-    // 4. Tokens summed per category
-    // -----------------------------------------------------------------------
     #[test]
     fn tokens_summed_per_category() {
         let now = 2_000_000;
         let mut items = vec![
-            // Recent -> Critical
             make_item("crit1", ContextType::Conversation, now - 1_000, 0),
             make_item("crit2", ContextType::Conversation, now - 2_000, 0),
-            // Old, zero access -> Archivable
             make_item("arch1", ContextType::FileContent, 0, 0),
         ];
 
@@ -266,23 +243,16 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // 5. Ranked items sorted by relevance descending
-    // -----------------------------------------------------------------------
     #[test]
     fn ranked_items_sorted_descending() {
         let now = 2_000_000;
         let mut items = vec![
-            // Old file -> low relevance
             make_item("low", ContextType::FileContent, 0, 0),
-            // Recent conversation -> high relevance
             make_item("high", ContextType::Conversation, now - 1_000, 5),
-            // Mid-age tool result with some access
             make_item("mid", ContextType::ToolResult, now - 600_000, 3),
         ];
         let report = context_audit(&mut items, now, RECENT_THRESHOLD, MAX_AGE);
 
-        // Verify descending order.
         for window in report.ranked_items.windows(2) {
             assert!(
                 window[0].2 >= window[1].2,
@@ -291,13 +261,9 @@ mod tests {
                 window[1]
             );
         }
-        // Highest should be the recent conversation.
         assert_eq!(report.ranked_items[0].0, "high");
     }
 
-    // -----------------------------------------------------------------------
-    // 6. System prompts always Critical (even when very old)
-    // -----------------------------------------------------------------------
     #[test]
     fn system_prompts_always_critical() {
         let now = 10_000_000;
@@ -313,9 +279,6 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // 7. Old unaccessed items are Archivable
-    // -----------------------------------------------------------------------
     #[test]
     fn old_unaccessed_items_are_archivable() {
         let now = 10_000_000;
@@ -332,9 +295,6 @@ mod tests {
         assert_eq!(report.dormant_count, 0);
     }
 
-    // -----------------------------------------------------------------------
-    // 8. Format report includes key metrics
-    // -----------------------------------------------------------------------
     #[test]
     fn format_report_includes_key_metrics() {
         let now = 2_000_000;
@@ -350,13 +310,9 @@ mod tests {
         assert!(text.contains("Critical: 1 items"), "missing critical");
         assert!(text.contains("Archivable: 1 items"), "missing archivable");
         assert!(text.contains("Top items:"), "missing top items");
-        // Verify the highest-ranked item's id appears first in the list.
         assert!(text.contains("r1"), "top item id missing from report");
     }
 
-    // -----------------------------------------------------------------------
-    // Bonus: format_number helper
-    // -----------------------------------------------------------------------
     #[test]
     fn format_number_with_commas() {
         assert_eq!(format_number(0), "0");

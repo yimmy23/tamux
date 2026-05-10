@@ -1,18 +1,24 @@
+use super::super::*;
+use crate::state::chat::{AgentMessage, AgentThread, ChatAction, ChatState, MessageRole};
+use crate::theme::ThemeTokens;
+use ratatui::backend::TestBackend;
+use ratatui::Terminal;
 #[test]
 fn compaction_artifact_lines_use_standard_message_left_padding() {
-    let chat = chat_with_messages(vec![AgentMessage {
+    let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Assistant,
         content: "Compacted summary line".into(),
         message_kind: "compaction_artifact".into(),
         ..Default::default()
     }]);
+    chat.toggle_reasoning(0);
 
     let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 40, 0, false);
     let content_line = lines
         .iter()
         .find(|line| {
             line.message_index == Some(0)
-                && matches!(line.kind, RenderedLineKind::MessageBody)
+                && matches!(line.kind, RenderedLineKind::ReasoningContent)
                 && rendered_line_plain_text(line).contains("Compacted summary line")
         })
         .expect("compaction artifact content line should render");
@@ -27,7 +33,7 @@ fn compaction_artifact_lines_use_standard_message_left_padding() {
 
 #[test]
 fn compaction_artifact_renders_trigger_summary_above_payload_preview() {
-    let chat = chat_with_messages(vec![AgentMessage {
+    let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Assistant,
         content:
             "Pre-compaction context: ~182,400 / 200,000 tokens (threshold 160,000)\nTrigger: message-count\nStrategy: rule based\n\nContent:\n# Compact summary\n- preserved goals"
@@ -35,6 +41,7 @@ fn compaction_artifact_renders_trigger_summary_above_payload_preview() {
         message_kind: "compaction_artifact".into(),
         ..Default::default()
     }]);
+    chat.toggle_reasoning(0);
 
     let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
     let plain_lines = lines
@@ -74,7 +81,7 @@ fn compaction_artifact_renders_trigger_summary_above_payload_preview() {
 
 #[test]
 fn compaction_artifact_uses_hidden_payload_when_visible_content_is_header_only() {
-    let chat = chat_with_messages(vec![AgentMessage {
+    let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Assistant,
         content:
             "Pre-compaction context: ~542,139 / 400,000 tokens (threshold 320,000)\nTrigger: token-threshold\nStrategy: custom model generated"
@@ -86,6 +93,7 @@ fn compaction_artifact_uses_hidden_payload_when_visible_content_is_header_only()
         message_kind: "compaction_artifact".into(),
         ..Default::default()
     }]);
+    chat.toggle_reasoning(0);
 
     let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
     let plain_lines = lines
@@ -437,4 +445,3 @@ fn concierge_thread_messages_render_rarog_as_the_responder() {
         "expected concierge responder label to use Rarog, got: {message_lines:?}"
     );
 }
-

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 pub struct TokenBucket {
     capacity: u32,
     tokens: f64,
-    refill_rate: f64, // tokens per second
+    refill_rate: f64,
     last_refill_at: u64,
 }
 
@@ -67,10 +67,6 @@ impl RateLimiter {
 
     /// Set a custom limit for a specific tool.
     pub fn with_tool_limit(&mut self, tool_name: &str, capacity: u32, rate_per_sec: f64) {
-        // If a bucket already exists, replace it; otherwise just record the
-        // config by inserting a fresh bucket that will be created lazily.
-        // We insert eagerly here so the config is captured even before the
-        // first `check` call.
         self.buckets.insert(
             tool_name.to_string(),
             TokenBucket::new(capacity, rate_per_sec, 0),
@@ -122,17 +118,14 @@ impl Default for RateLimiter {
 pub fn build_default_limiter() -> RateLimiter {
     let mut limiter = RateLimiter::new();
 
-    // Shell commands — moderate limit
     limiter.with_tool_limit(zorai_protocol::tool_names::BASH_COMMAND, 30, 0.5);
 
-    // File-writing tools — slightly more generous
-    let file_rate = 40.0 / 60.0; // ~0.667/sec
+    let file_rate = 40.0 / 60.0;
     limiter.with_tool_limit(zorai_protocol::tool_names::WRITE_FILE, 40, file_rate);
     limiter.with_tool_limit(zorai_protocol::tool_names::CREATE_FILE, 40, file_rate);
     limiter.with_tool_limit(zorai_protocol::tool_names::REPLACE_IN_FILE, 40, file_rate);
 
-    // Network tools — most conservative
-    let net_rate = 20.0 / 60.0; // ~0.333/sec
+    let net_rate = 20.0 / 60.0;
     limiter.with_tool_limit(zorai_protocol::tool_names::WEB_SEARCH, 20, net_rate);
     limiter.with_tool_limit(zorai_protocol::tool_names::FETCH_URL, 20, net_rate);
 
@@ -143,7 +136,6 @@ pub fn build_default_limiter() -> RateLimiter {
 mod tests {
     use super::*;
 
-    // ── TokenBucket tests ──────────────────────────────────────────────
 
     #[test]
     fn new_bucket_starts_full() {
@@ -169,35 +161,27 @@ mod tests {
     #[test]
     fn tokens_refill_over_time() {
         let mut bucket = TokenBucket::new(5, 1.0, 0);
-        // Drain all tokens
         for _ in 0..5 {
             bucket.try_acquire(0);
         }
         assert_eq!(bucket.tokens_available(), 0);
 
-        // 3 seconds later → 3 tokens refilled
         assert!(bucket.try_acquire(3));
-        // We consumed 1 of the 3 refilled tokens → 2 left
         assert_eq!(bucket.tokens_available(), 2);
     }
 
     #[test]
     fn refill_does_not_exceed_capacity() {
         let mut bucket = TokenBucket::new(5, 1.0, 0);
-        // Consume 1 token
         bucket.try_acquire(0);
-        // Wait a long time — should cap at capacity
         bucket.try_acquire(1000);
-        // After consuming 1 at t=1000, we should have capacity - 1
         assert_eq!(bucket.tokens_available(), 4);
     }
 
-    // ── RateLimiter tests ──────────────────────────────────────────────
 
     #[test]
     fn default_limiter_allows_normal_usage() {
         let mut limiter = RateLimiter::new();
-        // First call for an unknown tool should succeed (lazy creation, full bucket)
         assert!(limiter.check("some_tool", 100));
     }
 
@@ -205,7 +189,6 @@ mod tests {
     fn bash_command_limited_to_30_per_min() {
         let mut limiter = build_default_limiter();
         let now = 1000;
-        // Drain all 30 tokens
         for i in 0..30 {
             assert!(
                 limiter.check(zorai_protocol::tool_names::BASH_COMMAND, now),
@@ -213,7 +196,6 @@ mod tests {
                 i
             );
         }
-        // 31st call at the same instant should fail
         assert!(!limiter.check(zorai_protocol::tool_names::BASH_COMMAND, now));
     }
 
@@ -231,11 +213,8 @@ mod tests {
     #[test]
     fn lazy_bucket_creation() {
         let mut limiter = RateLimiter::new();
-        // No bucket exists yet
         assert!(limiter.deny_reason("unknown_tool").is_none());
-        // First check lazily creates the bucket and succeeds
         assert!(limiter.check("unknown_tool", 0));
-        // Bucket now exists
         assert!(limiter.buckets.contains_key("unknown_tool"));
     }
 
@@ -244,9 +223,7 @@ mod tests {
         let mut limiter = RateLimiter::new();
         limiter.with_tool_limit("tiny", 1, 0.1);
         let now = 1000;
-        // Consume the single token
         assert!(limiter.check("tiny", now));
-        // Now throttled
         assert!(!limiter.check("tiny", now));
         let reason = limiter.deny_reason("tiny").expect("should have a reason");
         assert!(reason.contains("tiny"));
@@ -260,12 +237,10 @@ mod tests {
         limiter.with_tool_limit("tool_b", 2, 1.0);
         let now = 100;
 
-        // Drain tool_a
         assert!(limiter.check("tool_a", now));
         assert!(limiter.check("tool_a", now));
         assert!(!limiter.check("tool_a", now));
 
-        // tool_b should still be available
         assert!(limiter.check("tool_b", now));
         assert!(limiter.check("tool_b", now));
         assert!(!limiter.check("tool_b", now));

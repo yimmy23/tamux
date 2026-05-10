@@ -1,3 +1,17 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
 impl TuiModel {
     pub(crate) fn thread_participants_modal_body(&self) -> String {
         let Some(thread) = self.chat.active_thread() else {
@@ -396,7 +410,7 @@ impl TuiModel {
         self.request_statistics_window(windows[next_index]);
     }
 
-    fn show_input_notice(
+    pub(crate) fn show_input_notice(
         &mut self,
         text: impl Into<String>,
         kind: InputNoticeKind,
@@ -411,7 +425,7 @@ impl TuiModel {
         });
     }
 
-    fn clear_dismissable_input_notice(&mut self) {
+    pub(crate) fn clear_dismissable_input_notice(&mut self) {
         if self
             .input_notice
             .as_ref()
@@ -421,7 +435,7 @@ impl TuiModel {
         }
     }
 
-    fn begin_thread_loading(&mut self, thread_id: impl Into<String>) {
+    pub(crate) fn begin_thread_loading(&mut self, thread_id: impl Into<String>) {
         let thread_id = thread_id.into();
         self.thread_loading_id = Some(thread_id.clone());
         self.status_line = match self.chat.active_thread() {
@@ -432,13 +446,13 @@ impl TuiModel {
         };
     }
 
-    fn finish_thread_loading(&mut self, thread_id: &str) {
+    pub(crate) fn finish_thread_loading(&mut self, thread_id: &str) {
         if self.thread_loading_id.as_deref() == Some(thread_id) {
             self.thread_loading_id = None;
         }
     }
 
-    fn should_show_thread_loading(&self) -> bool {
+    pub(crate) fn should_show_thread_loading(&self) -> bool {
         self.thread_loading_id
             .as_deref()
             .is_some_and(|thread_id| self.chat.active_thread_id() == Some(thread_id))
@@ -449,16 +463,16 @@ impl TuiModel {
             && !self.chat.is_streaming()
     }
 
-    fn clear_pending_stop(&mut self) {
+    pub(crate) fn clear_pending_stop(&mut self) {
         self.pending_stop = false;
         self.clear_dismissable_input_notice();
     }
 
-    fn pending_stop_active(&self) -> bool {
+    pub(crate) fn pending_stop_active(&self) -> bool {
         self.pending_stop && self.tick_counter.saturating_sub(self.pending_stop_tick) < 100
     }
 
-    fn current_thread_agent_activity(&self) -> Option<&str> {
+    pub(crate) fn current_thread_agent_activity(&self) -> Option<&str> {
         self.chat
             .active_thread_id()
             .and_then(|thread_id| self.thread_agent_activity.get(thread_id))
@@ -466,7 +480,11 @@ impl TuiModel {
             .or(self.agent_activity.as_deref())
     }
 
-    fn set_agent_activity_for(&mut self, thread_id: Option<String>, activity: impl Into<String>) {
+    pub(crate) fn set_agent_activity_for(
+        &mut self,
+        thread_id: Option<String>,
+        activity: impl Into<String>,
+    ) {
         let activity = activity.into();
         if let Some(thread_id) = thread_id {
             if activity != "thinking" {
@@ -478,21 +496,21 @@ impl TuiModel {
         }
     }
 
-    fn set_active_thread_activity(&mut self, activity: impl Into<String>) {
+    pub(crate) fn set_active_thread_activity(&mut self, activity: impl Into<String>) {
         self.set_agent_activity_for(self.chat.active_thread_id().map(str::to_string), activity);
     }
 
-    fn mark_bootstrap_pending_activity_thread(&mut self, thread_id: impl Into<String>) {
+    pub(crate) fn mark_bootstrap_pending_activity_thread(&mut self, thread_id: impl Into<String>) {
         self.bootstrap_pending_activity_threads
             .insert(thread_id.into());
     }
 
-    fn mark_pending_prompt_response_thread(&mut self, thread_id: impl Into<String>) {
-        self.pending_prompt_response_threads.insert(thread_id.into());
+    pub(crate) fn mark_pending_prompt_response_thread(&mut self, thread_id: impl Into<String>) {
+        self.pending_prompt_response_threads
+            .insert(thread_id.into());
     }
 
-    fn clear_bootstrap_pending_activity_thread(&mut self, thread_id: &str) {
+    pub(crate) fn clear_bootstrap_pending_activity_thread(&mut self, thread_id: &str) {
         self.bootstrap_pending_activity_threads.remove(thread_id);
     }
-
 }

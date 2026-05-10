@@ -1,6 +1,23 @@
 use super::*;
 use crate::history::schema_helpers::table_has_column;
 
+#[test]
+fn table_has_column_detects_generated_columns() -> Result<()> {
+    let conn = rusqlite::Connection::open_in_memory()?;
+    conn.execute_batch(
+        "CREATE TABLE agent_threads (
+            id           TEXT PRIMARY KEY,
+            metadata_json TEXT,
+            pinned       INTEGER GENERATED ALWAYS AS (
+                CASE WHEN metadata_json IS NOT NULL THEN 1 ELSE 0 END
+            ) VIRTUAL
+        );",
+    )?;
+
+    assert!(table_has_column(&conn, "agent_threads", "pinned")?);
+    Ok(())
+}
+
 /// FOUN-01: WAL journal mode is active after HistoryStore construction.
 #[tokio::test]
 async fn wal_mode_enabled() -> Result<()> {
@@ -43,8 +60,8 @@ async fn wal_pragmas_applied() -> Result<()> {
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     assert_eq!(pragmas.0.to_lowercase(), "wal");
-    assert_eq!(pragmas.1, 1); // NORMAL
-    assert_eq!(pragmas.2, 1); // ON
+    assert_eq!(pragmas.1, 1);
+    assert_eq!(pragmas.2, 1);
     assert_eq!(pragmas.3, 1000);
     assert_eq!(pragmas.4, 5000);
     fs::remove_dir_all(root)?;
@@ -110,6 +127,113 @@ async fn agent_messages_have_cursor_friendly_thread_created_id_index() -> Result
     Ok(())
 }
 
+#[tokio::test]
+async fn init_schema_adds_visible_thread_list_index_after_deleted_at_migration() -> Result<()> {
+    let root = std::env::temp_dir().join(format!("zorai-history-test-{}", Uuid::new_v4()));
+    let history_dir = root.join("history");
+    fs::create_dir_all(&history_dir)?;
+    let db_path = history_dir.join("command-history.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path)?;
+        conn.execute_batch(
+            "CREATE TABLE agent_threads (
+                id             TEXT PRIMARY KEY,
+                workspace_id   TEXT,
+                surface_id     TEXT,
+                pane_id        TEXT,
+                agent_name     TEXT,
+                title          TEXT NOT NULL,
+                created_at     INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL,
+                message_count  INTEGER NOT NULL DEFAULT 0,
+                total_tokens   INTEGER NOT NULL DEFAULT 0,
+                last_preview   TEXT NOT NULL DEFAULT '',
+                metadata_json  TEXT
+            );",
+        )?;
+    }
+
+    let store = HistoryStore::new_test_store(&root).await?;
+    let (has_deleted_at, index_sql) = store
+        .conn
+        .call(|conn| {
+            let has_deleted_at = table_has_column(conn, "agent_threads", "deleted_at")?;
+            let index_sql = conn.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_threads_visible_updated'",
+                [],
+                |row| row.get::<_, String>(0),
+            )?;
+            Ok((has_deleted_at, index_sql))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(has_deleted_at);
+    assert!(index_sql.contains("updated_at DESC"));
+    assert!(index_sql.contains("id"));
+    assert!(index_sql.contains("WHERE deleted_at IS NULL"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn init_schema_handles_existing_generated_pinned_thread_column() -> Result<()> {
+    let root = std::env::temp_dir().join(format!("zorai-history-test-{}", Uuid::new_v4()));
+    let history_dir = root.join("history");
+    fs::create_dir_all(&history_dir)?;
+    let db_path = history_dir.join("command-history.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path)?;
+        conn.execute_batch(
+            "CREATE TABLE agent_threads (
+                id             TEXT PRIMARY KEY,
+                workspace_id   TEXT,
+                surface_id     TEXT,
+                pane_id        TEXT,
+                agent_name     TEXT,
+                title          TEXT NOT NULL,
+                created_at     INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL,
+                message_count  INTEGER NOT NULL DEFAULT 0,
+                total_tokens   INTEGER NOT NULL DEFAULT 0,
+                last_preview   TEXT NOT NULL DEFAULT '',
+                metadata_json  TEXT,
+                pinned         INTEGER GENERATED ALWAYS AS (
+                    CASE WHEN metadata_json IS NOT NULL AND json_valid(metadata_json) AND (
+                        json_extract(metadata_json, '$.pinned') = 1
+                        OR json_extract(metadata_json, '$.pinnedThread') = 1
+                    ) THEN 1 ELSE 0 END
+                ) VIRTUAL
+            );",
+        )?;
+    }
+
+    let store = HistoryStore::new_test_store(&root).await?;
+    let (has_pinned, index_sql) = store
+        .conn
+        .call(|conn| {
+            let has_pinned = table_has_column(conn, "agent_threads", "pinned")?;
+            let index_sql = conn.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_threads_pinned_active_updated'",
+                [],
+                |row| row.get::<_, String>(0),
+            )?;
+            Ok((has_pinned, index_sql))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(has_pinned);
+    assert!(index_sql.contains("ON agent_threads(pinned, updated_at DESC)"));
+    assert!(index_sql.contains("WHERE deleted_at IS NULL"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 /// FOUN-02: HistoryStore can perform a basic async roundtrip through .call().
 #[tokio::test]
 async fn async_connection_roundtrip() -> Result<()> {
@@ -134,6 +258,1456 @@ async fn async_connection_roundtrip() -> Result<()> {
     let loaded = loaded.unwrap();
     assert_eq!(loaded.title, "Test Thread");
     assert_eq!(loaded.agent_name, Some("test-agent".to_string()));
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn has_thread_id_checks_existence_without_hydrating_thread_row() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread = AgentDbThread {
+        id: "thread-exists-fast".to_string(),
+        workspace_id: None,
+        surface_id: None,
+        pane_id: None,
+        agent_name: Some("test-agent".to_string()),
+        title: "Existence check".to_string(),
+        created_at: 1000,
+        updated_at: 1000,
+        message_count: 0,
+        total_tokens: 0,
+        last_preview: String::new(),
+        metadata_json: None,
+    };
+    store.create_thread(&thread).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_threads SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["thread-exists-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(store.has_thread_id("thread-exists-fast").await?);
+    assert!(!store.has_thread_id("thread-missing-fast").await?);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_created_at_selects_timestamp_without_hydrating_thread_row() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread = AgentDbThread {
+        id: "thread-created-at-fast".to_string(),
+        workspace_id: None,
+        surface_id: None,
+        pane_id: None,
+        agent_name: Some("test-agent".to_string()),
+        title: "Created at check".to_string(),
+        created_at: 4242,
+        updated_at: 5000,
+        message_count: 0,
+        total_tokens: 0,
+        last_preview: String::new(),
+        metadata_json: None,
+    };
+    store.create_thread(&thread).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_threads SET title = x'ff' WHERE id = ?1",
+                params!["thread-created-at-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert_eq!(
+        store.thread_created_at("thread-created-at-fast").await?,
+        Some(4242)
+    );
+    assert_eq!(store.thread_created_at("thread-missing-fast").await?, None);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_metadata_json_selects_metadata_without_hydrating_thread_row() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread = AgentDbThread {
+        id: "thread-metadata-fast".to_string(),
+        workspace_id: None,
+        surface_id: None,
+        pane_id: None,
+        agent_name: Some("test-agent".to_string()),
+        title: "Metadata check".to_string(),
+        created_at: 1000,
+        updated_at: 1000,
+        message_count: 0,
+        total_tokens: 0,
+        last_preview: String::new(),
+        metadata_json: Some("{\"mode\":\"visible\"}".to_string()),
+    };
+    store.create_thread(&thread).await?;
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_threads SET title = x'ff' WHERE id = ?1",
+                params!["thread-metadata-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert_eq!(
+        store.thread_metadata_json("thread-metadata-fast").await?,
+        Some("{\"mode\":\"visible\"}".to_string())
+    );
+    assert_eq!(
+        store.thread_metadata_json("thread-missing-fast").await?,
+        None
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_delegate_payload_context_selects_title_and_recent_messages_only() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "thread-delegate-context-fast";
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("test-agent".to_string()),
+            title: "Delegate Context".to_string(),
+            created_at: 1000,
+            updated_at: 1000,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+
+    for index in 0..10 {
+        store
+            .add_message(&AgentDbMessage {
+                id: format!("delegate-message-{index}"),
+                thread_id: thread_id.to_string(),
+                created_at: 1100 + index,
+                role: if index % 2 == 0 { "assistant" } else { "user" }.to_string(),
+                content: format!("message {index}"),
+                provider: Some("provider-that-should-not-be-read".to_string()),
+                model: None,
+                input_tokens: Some(index),
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_threads SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["thread-delegate-context-fast"],
+            )?;
+            conn.execute(
+                "UPDATE agent_messages SET metadata_json = x'ff' WHERE thread_id = ?1",
+                params!["thread-delegate-context-fast"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let context = store
+        .thread_delegate_payload_context(thread_id, 8)
+        .await?
+        .expect("thread context should be selected");
+
+    assert_eq!(context.title, "Delegate Context");
+    assert_eq!(context.messages.len(), 8);
+    assert_eq!(context.messages[0].content, "message 2");
+    assert_eq!(context.messages[7].content, "message 9");
+    assert_eq!(context.messages[0].role, "assistant");
+    assert_eq!(context.messages[7].role, "user");
+    assert!(store
+        .thread_delegate_payload_context("thread-missing-fast", 8)
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn has_non_heartbeat_user_message_after_uses_sql_exists() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for (id, title) in [
+        ("normal-before", "Normal before"),
+        ("normal-after", "Normal after"),
+        ("heartbeat-title", "Heartbeat check: ignored"),
+        ("heartbeat-message", "Normal title but heartbeat content"),
+    ] {
+        store
+            .create_thread(&AgentDbThread {
+                id: id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: None,
+                title: title.to_string(),
+                created_at: 100,
+                updated_at: 200,
+                message_count: 0,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    for (id, thread_id, created_at, content) in [
+        (
+            "normal-before-message",
+            "normal-before",
+            900,
+            "before cutoff",
+        ),
+        ("normal-after-message", "normal-after", 1100, "after cutoff"),
+        (
+            "heartbeat-title-message",
+            "heartbeat-title",
+            1200,
+            "after cutoff from title heartbeat",
+        ),
+        (
+            "heartbeat-content-marker",
+            "heartbeat-message",
+            800,
+            "HEARTBEAT SYNTHESIS should mark the thread hidden",
+        ),
+        (
+            "heartbeat-content-after",
+            "heartbeat-message",
+            1300,
+            "after cutoff but heartbeat thread",
+        ),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: "user".to_string(),
+                content: content.to_string(),
+                provider: Some("provider-that-should-not-be-read".to_string()),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute("UPDATE agent_threads SET created_at = 'not-an-integer'", [])?;
+            conn.execute("UPDATE agent_messages SET metadata_json = x'ff'", [])?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(
+        store.has_non_heartbeat_user_message_after(1000).await?,
+        "normal user message after cutoff should be selected"
+    );
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_messages SET deleted_at = 1400 WHERE id = ?1",
+                params!["normal-after-message"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(
+        !store.has_non_heartbeat_user_message_after(1000).await?,
+        "heartbeat threads should not count after the normal message is deleted"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_thread_id_by_message_timestamp_uses_persisted_messages() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for (id, updated_at) in [
+        ("thread-old-message", 9_000),
+        ("thread-latest-message", 100),
+        ("thread-empty-newer", 10_000),
+    ] {
+        store
+            .create_thread(&AgentDbThread {
+                id: id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: None,
+                title: format!("Thread {id}"),
+                created_at: 100,
+                updated_at,
+                message_count: 0,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    for (id, thread_id, created_at) in [
+        ("old-message", "thread-old-message", 1000),
+        ("latest-message", "thread-latest-message", 2000),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: "user".to_string(),
+                content: id.to_string(),
+                provider: Some("provider-that-should-not-be-read".to_string()),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute("UPDATE agent_threads SET created_at = 'not-an-integer'", [])?;
+            conn.execute("UPDATE agent_threads SET title = x'ff'", [])?;
+            conn.execute("UPDATE agent_messages SET metadata_json = x'ff'", [])?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert_eq!(
+        store
+            .latest_thread_id_by_message_timestamp()
+            .await?
+            .as_deref(),
+        Some("thread-latest-message"),
+        "latest persisted message timestamp should choose the active thread"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_thread_context_hint_selects_newest_non_empty_preview_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for (id, updated_at, preview, deleted_at) in [
+        ("thread-old-preview", 100, "old preview", None),
+        ("thread-empty-preview", 300, "   ", None),
+        ("thread-deleted-preview", 400, "deleted preview", Some(500)),
+        ("thread-new-preview", 200, "new preview", None),
+    ] {
+        store
+            .create_thread(&AgentDbThread {
+                id: id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: None,
+                title: format!("Thread {id}"),
+                created_at: 1,
+                updated_at,
+                message_count: if preview.trim().is_empty() { 0 } else { 1 },
+                total_tokens: 0,
+                last_preview: preview.to_string(),
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+        if let Some(deleted_at) = deleted_at {
+            let id = id.to_string();
+            store
+                .conn
+                .call(move |conn| {
+                    conn.execute(
+                        "UPDATE agent_threads SET deleted_at = ?2 WHERE id = ?1",
+                        params![id, deleted_at],
+                    )?;
+                    Ok(())
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
+    }
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "INSERT INTO agent_messages (id, thread_id, created_at, role, content)
+                 VALUES ('poison-message', 'thread-old-preview', 'not-a-time', x'ff', x'ff')",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert_eq!(
+        store.latest_thread_context_hint().await?,
+        Some((
+            "thread-new-preview".to_string(),
+            "new preview".to_string(),
+            200
+        )),
+        "latest context restoration hint should be selected from thread summary columns"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_has_message_substring_checks_live_message_rows_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for thread_id in ["thread-hidden-marker", "thread-visible-marker"] {
+        store
+            .create_thread(&AgentDbThread {
+                id: thread_id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: None,
+                title: format!("Marker {thread_id}"),
+                created_at: 1,
+                updated_at: 3,
+                message_count: 1,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: None,
+            })
+            .await?;
+    }
+
+    store
+        .add_message(&AgentDbMessage {
+            id: "marker-hidden".to_string(),
+            thread_id: "thread-hidden-marker".to_string(),
+            created_at: 2,
+            role: "system".to_string(),
+            content: "Route as persona_id_marker weles-governance".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await?;
+    store
+        .add_message(&AgentDbMessage {
+            id: "marker-deleted".to_string(),
+            thread_id: "thread-visible-marker".to_string(),
+            created_at: 2,
+            role: "system".to_string(),
+            content: "Route as persona_id_marker weles-governance".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await?;
+    assert_eq!(
+        store
+            .delete_messages("thread-visible-marker", &["marker-deleted"])
+            .await?,
+        1
+    );
+
+    let markers = vec!["PERSONA_ID_MARKER WELES-GOVERNANCE".to_string()];
+    assert!(
+        store
+            .thread_has_message_substring("thread-hidden-marker", &markers)
+            .await?,
+        "helper should find case-insensitive markers in non-deleted messages"
+    );
+    assert!(
+        !store
+            .thread_has_message_substring("thread-visible-marker", &markers)
+            .await?,
+        "helper should ignore deleted marker messages"
+    );
+    assert!(
+        !store
+            .thread_has_message_substring("thread-hidden-marker", &[])
+            .await?,
+        "empty marker lists should not match"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_non_empty_message_content_for_thread_ids_uses_sql_projection() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for thread_id in [
+        "thread-excerpt-fast",
+        "thread-empty-fast",
+        "thread-unrequested-excerpt-fast",
+    ] {
+        store
+            .create_thread(&AgentDbThread {
+                id: thread_id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: None,
+                title: format!("Excerpt {thread_id}"),
+                created_at: 100,
+                updated_at: 100,
+                message_count: 0,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    for (id, thread_id, created_at, content) in [
+        (
+            "excerpt-old",
+            "thread-excerpt-fast",
+            1000,
+            "old visible text",
+        ),
+        ("excerpt-blank", "thread-excerpt-fast", 2000, "   \n\t  "),
+        (
+            "excerpt-latest",
+            "thread-excerpt-fast",
+            3000,
+            "latest visible text",
+        ),
+        (
+            "unrequested-latest",
+            "thread-unrequested-excerpt-fast",
+            4000,
+            "should not be returned",
+        ),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: "assistant".to_string(),
+                content: content.to_string(),
+                provider: Some("provider-that-should-not-be-read".to_string()),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute("UPDATE agent_threads SET created_at = 'not-an-integer'", [])?;
+            conn.execute("UPDATE agent_threads SET title = x'ff'", [])?;
+            conn.execute("UPDATE agent_messages SET metadata_json = x'ff'", [])?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let requested = vec![
+        "thread-empty-fast".to_string(),
+        "thread-excerpt-fast".to_string(),
+    ];
+    let excerpts = store
+        .latest_non_empty_message_content_for_thread_ids(&requested)
+        .await?;
+
+    assert_eq!(excerpts.len(), 1);
+    assert_eq!(
+        excerpts.get("thread-excerpt-fast").map(String::as_str),
+        Some("latest visible text")
+    );
+    assert!(
+        !excerpts.contains_key("thread-empty-fast"),
+        "thread with no non-empty messages should not get a fabricated excerpt"
+    );
+    assert!(
+        store
+            .latest_non_empty_message_content_for_thread_ids(&Vec::<String>::new())
+            .await?
+            .is_empty(),
+        "empty input should avoid scanning all messages"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn gateway_approval_ids_for_thread_extracts_ids_in_sql_order() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for thread_id in ["thread-gateway-approval", "thread-other-gateway-approval"] {
+        store
+            .create_thread(&AgentDbThread {
+                id: thread_id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: None,
+                title: format!("Thread {thread_id}"),
+                created_at: 100,
+                updated_at: 100,
+                message_count: 0,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    for (id, thread_id, created_at, content) in [
+        (
+            "approval-old-message",
+            "thread-gateway-approval",
+            1000,
+            "Approval required.\nApproval ID: approval-old\nRisk: low",
+        ),
+        (
+            "approval-latest-message",
+            "thread-gateway-approval",
+            2000,
+            "Approval required.\nApproval ID:\tapproval-latest\nRisk: high",
+        ),
+        (
+            "approval-space-message",
+            "thread-gateway-approval",
+            1500,
+            "Approval ID: approval-middle extra words",
+        ),
+        (
+            "approval-other-thread-message",
+            "thread-other-gateway-approval",
+            3000,
+            "Approval ID: approval-other",
+        ),
+        (
+            "approval-no-id-message",
+            "thread-gateway-approval",
+            2500,
+            "Approval ID: \n\t   ",
+        ),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: "assistant".to_string(),
+                content: content.to_string(),
+                provider: Some("provider-that-should-not-be-read".to_string()),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_messages SET deleted_at = 1400 WHERE id = ?1",
+                params!["approval-space-message"],
+            )?;
+            conn.execute("UPDATE agent_threads SET title = x'ff'", [])?;
+            conn.execute("UPDATE agent_messages SET metadata_json = x'ff'", [])?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert_eq!(
+        store
+            .gateway_approval_ids_for_thread("thread-gateway-approval")
+            .await?,
+        vec!["approval-latest".to_string(), "approval-old".to_string()],
+        "approval ids should be extracted and ordered from persisted messages"
+    );
+    assert!(
+        store
+            .gateway_approval_ids_for_thread("thread-missing-gateway-approval")
+            .await?
+            .is_empty(),
+        "missing threads should not fabricate approval ids"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn gateway_turn_auto_send_projection_uses_latest_turn_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for thread_id in [
+        "thread-gateway-auto-send",
+        "thread-gateway-send-used",
+        "thread-gateway-missing-response",
+    ] {
+        store
+            .create_thread(&AgentDbThread {
+                id: thread_id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: None,
+                title: format!("Thread {thread_id}"),
+                created_at: 100,
+                updated_at: 100,
+                message_count: 0,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    for (id, thread_id, created_at, role, content, tool_calls_json, metadata_json) in [
+        (
+            "auto-old-user",
+            "thread-gateway-auto-send",
+            1000,
+            "user",
+            "old request",
+            None,
+            None,
+        ),
+        (
+            "auto-old-assistant",
+            "thread-gateway-auto-send",
+            1010,
+            "assistant",
+            "old response",
+            None,
+            None,
+        ),
+        (
+            "auto-old-tool",
+            "thread-gateway-auto-send",
+            1020,
+            "tool",
+            "sent old response",
+            None,
+            Some(r#"{"tool_name":"send_discord_message"}"#),
+        ),
+        (
+            "auto-latest-user",
+            "thread-gateway-auto-send",
+            2000,
+            "user",
+            "latest request",
+            None,
+            None,
+        ),
+        (
+            "auto-ack",
+            "thread-gateway-auto-send",
+            2010,
+            "assistant",
+            "On it.",
+            None,
+            None,
+        ),
+        (
+            "auto-earlier-tool",
+            "thread-gateway-auto-send",
+            2020,
+            "tool",
+            "sent ack",
+            None,
+            Some(r#"{"tool_name":"send_discord_message"}"#),
+        ),
+        (
+            "auto-final",
+            "thread-gateway-auto-send",
+            2030,
+            "assistant",
+            "Final answer for gateway",
+            None,
+            None,
+        ),
+        (
+            "used-user",
+            "thread-gateway-send-used",
+            3000,
+            "user",
+            "post an update",
+            None,
+            None,
+        ),
+        (
+            "used-assistant",
+            "thread-gateway-send-used",
+            3010,
+            "assistant",
+            "",
+            Some(
+                r#"[{"id":"call-send","function":{"name":"send_discord_message","arguments":"{}"}}]"#,
+            ),
+            None,
+        ),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: role.to_string(),
+                content: content.to_string(),
+                provider: Some("provider-that-should-not-be-read".to_string()),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: tool_calls_json.map(ToOwned::to_owned),
+                metadata_json: metadata_json.map(ToOwned::to_owned),
+            })
+            .await?;
+    }
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute("UPDATE agent_threads SET title = x'ff'", [])?;
+            conn.execute(
+                "UPDATE agent_messages SET metadata_json = x'ff' WHERE id = ?1",
+                params!["auto-final"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let projection = store
+        .gateway_turn_auto_send_projection("thread-gateway-auto-send")
+        .await?
+        .expect("projection should exist for latest gateway turn");
+    assert!(
+        !projection.used_send_tool,
+        "send tools before the latest assistant response should not suppress auto-send"
+    );
+    assert_eq!(
+        projection.latest_assistant_response.as_deref(),
+        Some("Final answer for gateway")
+    );
+
+    let used_projection = store
+        .gateway_turn_auto_send_projection("thread-gateway-send-used")
+        .await?
+        .expect("send-tool projection should exist");
+    assert!(
+        used_projection.used_send_tool,
+        "assistant send tool calls should suppress auto-send"
+    );
+
+    assert!(
+        store
+            .gateway_turn_auto_send_projection("thread-gateway-missing-response")
+            .await?
+            .is_none(),
+        "threads without messages should not fabricate auto-send state"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_message_count_counts_visible_messages_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for thread_id in ["thread-message-count", "thread-message-count-empty"] {
+        store
+            .create_thread(&AgentDbThread {
+                id: thread_id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: None,
+                title: format!("Thread {thread_id}"),
+                created_at: 100,
+                updated_at: 100,
+                message_count: 99,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    for (id, created_at) in [
+        ("count-user-1", 1000),
+        ("count-assistant-1", 1010),
+        ("count-deleted-1", 1020),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: "thread-message-count".to_string(),
+                created_at,
+                role: "user".to_string(),
+                content: id.to_string(),
+                provider: Some("provider-that-should-not-be-read".to_string()),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_messages SET deleted_at = 1500 WHERE id = ?1",
+                params!["count-deleted-1"],
+            )?;
+            conn.execute(
+                "UPDATE agent_threads SET title = x'ff', message_count = 99",
+                [],
+            )?;
+            conn.execute("UPDATE agent_messages SET metadata_json = x'ff'", [])?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert_eq!(
+        store.thread_message_count("thread-message-count").await?,
+        Some(2),
+        "message count should be computed by SQL over non-deleted messages"
+    );
+    assert_eq!(
+        store
+            .thread_message_count("thread-message-count-empty")
+            .await?,
+        Some(0),
+        "existing empty threads should return zero"
+    );
+    assert_eq!(
+        store
+            .thread_message_count("thread-message-count-missing")
+            .await?,
+        None,
+        "missing threads should not fabricate a count"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_ids_with_unanswered_tool_calls_filters_requested_threads_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for thread_id in [
+        "thread-unanswered-fast",
+        "thread-answered-fast",
+        "thread-unrequested-fast",
+    ] {
+        store
+            .create_thread(&AgentDbThread {
+                id: thread_id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: None,
+                title: format!("Tool call check {thread_id}"),
+                created_at: 100,
+                updated_at: 100,
+                message_count: 0,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    for (thread_id, call_id, created_at) in [
+        ("thread-unanswered-fast", "call-missing", 1000),
+        ("thread-answered-fast", "call-done", 2000),
+        ("thread-unrequested-fast", "call-unrequested", 3000),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: format!("{thread_id}-assistant"),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: "assistant".to_string(),
+                content: String::new(),
+                provider: Some("provider-that-should-not-be-read".to_string()),
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: Some(format!(
+                    r#"[{{"id":"{call_id}","function":{{"name":"read_file","arguments":"{{}}"}}}}]"#
+                )),
+                metadata_json: Some("{\"ignored\":true}".to_string()),
+            })
+            .await?;
+    }
+
+    store
+        .add_message(&AgentDbMessage {
+            id: "thread-answered-fast-tool".to_string(),
+            thread_id: "thread-answered-fast".to_string(),
+            created_at: 2010,
+            role: "tool".to_string(),
+            content: "done".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: Some(r#"{"tool_call_id":"call-done"}"#.to_string()),
+        })
+        .await?;
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute("UPDATE agent_threads SET created_at = 'not-an-integer'", [])?;
+            conn.execute("UPDATE agent_threads SET title = x'ff'", [])?;
+            conn.execute(
+                "UPDATE agent_messages SET metadata_json = x'ff' WHERE role = 'assistant'",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let requested = vec![
+        "thread-answered-fast".to_string(),
+        "thread-unanswered-fast".to_string(),
+    ];
+    let blocked = store
+        .thread_ids_with_unanswered_tool_calls(&requested)
+        .await?;
+
+    assert_eq!(blocked, vec!["thread-unanswered-fast".to_string()]);
+    assert!(
+        store
+            .thread_ids_with_unanswered_tool_calls(&Vec::<String>::new())
+            .await?
+            .is_empty(),
+        "empty input should avoid scanning all persisted messages"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_has_unanswered_tool_calls_uses_sql_window() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "thread-unanswered-tool-fast";
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: None,
+            title: "Unanswered tool call projection".to_string(),
+            created_at: 100,
+            updated_at: 100,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: Some("{\"ignored\":true}".to_string()),
+        })
+        .await?;
+
+    store
+        .add_message(&AgentDbMessage {
+            id: "tool-user".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1000,
+            role: "user".to_string(),
+            content: "inspect files".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await?;
+    store
+        .add_message(&AgentDbMessage {
+            id: "tool-assistant".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1010,
+            role: "assistant".to_string(),
+            content: String::new(),
+            provider: Some("provider-that-should-not-be-read".to_string()),
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: Some(
+                r#"[{"id":"call-a","function":{"name":"read_file","arguments":"{}"}},{"id":"call-b","function":{"name":"search_files","arguments":"{}"}}]"#
+                    .to_string(),
+            ),
+            metadata_json: Some("{\"ignored\":true}".to_string()),
+        })
+        .await?;
+    store
+        .add_message(&AgentDbMessage {
+            id: "tool-result-a".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1020,
+            role: "tool".to_string(),
+            content: "file contents".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: Some(r#"{"tool_call_id":"call-a","toolCallId":"call-a"}"#.to_string()),
+        })
+        .await?;
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "UPDATE agent_threads SET created_at = 'not-an-integer' WHERE id = ?1",
+                params!["thread-unanswered-tool-fast"],
+            )?;
+            conn.execute(
+                "UPDATE agent_messages SET metadata_json = x'ff' WHERE id = ?1",
+                params!["tool-assistant"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(
+        store.thread_has_unanswered_tool_calls(thread_id).await?,
+        "missing call-b result should be detected"
+    );
+
+    store
+        .add_message(&AgentDbMessage {
+            id: "tool-result-b".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1030,
+            role: "tool".to_string(),
+            content: "search results".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: Some(r#"{"toolCallId":"call-b"}"#.to_string()),
+        })
+        .await?;
+
+    assert!(
+        !store.thread_has_unanswered_tool_calls(thread_id).await?,
+        "both contiguous tool results should satisfy the assistant call"
+    );
+
+    store
+        .add_message(&AgentDbMessage {
+            id: "late-assistant".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1040,
+            role: "assistant".to_string(),
+            content: String::new(),
+            provider: None,
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: Some(
+                r#"[{"id":"call-late","function":{"name":"read_file","arguments":"{}"}}]"#
+                    .to_string(),
+            ),
+            metadata_json: None,
+        })
+        .await?;
+    store
+        .add_message(&AgentDbMessage {
+            id: "late-user-boundary".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1050,
+            role: "user".to_string(),
+            content: "boundary".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await?;
+    store
+        .add_message(&AgentDbMessage {
+            id: "late-tool-result".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1060,
+            role: "tool".to_string(),
+            content: "too late".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: None,
+            output_tokens: None,
+            total_tokens: None,
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: Some(r#"{"tool_call_id":"call-late"}"#.to_string()),
+        })
+        .await?;
+
+    assert!(
+        store.thread_has_unanswered_tool_calls(thread_id).await?,
+        "a non-tool boundary before the tool result should leave the call unanswered"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn filtered_thread_list_applies_persisted_context_filters_before_limit() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for (id, title, updated_at, message_count) in [
+        ("concierge", "Concierge", 50, 1),
+        ("dm:svarog:weles", "Internal DM", 40, 1),
+        ("playground:visible:weles", "Participant Playground", 30, 1),
+        ("heartbeat", "HEARTBEAT SYNTHESIS nightly", 20, 1),
+        ("empty", "No messages yet", 10, 0),
+        ("visible", "Visible work", 5, 2),
+    ] {
+        store
+            .create_thread(&AgentDbThread {
+                id: id.to_string(),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: Some("Svarog".to_string()),
+                title: title.to_string(),
+                created_at: updated_at,
+                updated_at,
+                message_count,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: None,
+            })
+            .await?;
+    }
+
+    let rows = store
+        .list_threads_filtered(&AgentThreadListQuery {
+            excluded_ids: vec!["concierge".to_string()],
+            hidden_id_prefixes: vec!["dm:".to_string(), "playground:".to_string()],
+            title_excluded_prefixes: vec![
+                "HEARTBEAT SYNTHESIS".to_string(),
+                "Heartbeat check:".to_string(),
+            ],
+            min_message_count: Some(1),
+            limit: Some(1),
+            ..AgentThreadListQuery::default()
+        })
+        .await?;
+
+    assert_eq!(
+        rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        vec!["visible"]
+    );
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn limited_transcript_index_reads_only_requested_recent_rows() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    for index in 0..5 {
+        store
+            .upsert_transcript_index(&TranscriptIndexEntry {
+                id: format!("transcript-{index}"),
+                pane_id: None,
+                workspace_id: None,
+                surface_id: None,
+                filename: format!("transcript-{index}.jsonl"),
+                reason: None,
+                captured_at: index,
+                size_bytes: Some(0),
+                preview: None,
+            })
+            .await?;
+    }
+
+    let rows = store.list_transcript_index_limited(None, Some(2)).await?;
+
+    assert_eq!(
+        rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        vec!["transcript-4", "transcript-3"]
+    );
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn matching_transcript_index_filters_query_before_limit_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    store
+        .upsert_transcript_index(&TranscriptIndexEntry {
+            id: "newest-unrelated".to_string(),
+            pane_id: None,
+            workspace_id: None,
+            surface_id: None,
+            filename: "other.jsonl".to_string(),
+            reason: None,
+            captured_at: 300,
+            size_bytes: Some(0),
+            preview: Some("no match".to_string()),
+        })
+        .await?;
+    store
+        .upsert_transcript_index(&TranscriptIndexEntry {
+            id: "matched-preview".to_string(),
+            pane_id: None,
+            workspace_id: None,
+            surface_id: None,
+            filename: "session.jsonl".to_string(),
+            reason: None,
+            captured_at: 200,
+            size_bytes: Some(0),
+            preview: Some("contains rust target".to_string()),
+        })
+        .await?;
+    store
+        .upsert_transcript_index(&TranscriptIndexEntry {
+            id: "matched-filename".to_string(),
+            pane_id: None,
+            workspace_id: None,
+            surface_id: None,
+            filename: "rust-build.jsonl".to_string(),
+            reason: None,
+            captured_at: 100,
+            size_bytes: Some(0),
+            preview: None,
+        })
+        .await?;
+
+    let rows = store.list_transcript_index_matching("rust", 1).await?;
+
+    assert_eq!(
+        rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        vec!["matched-preview"]
+    );
     fs::remove_dir_all(root)?;
     Ok(())
 }
@@ -979,6 +2553,566 @@ async fn list_messages_with_limit_returns_latest_messages_in_chronological_order
     Ok(())
 }
 
+#[tokio::test]
+async fn latest_assistant_message_selects_newest_non_empty_assistant_row() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "latest-assistant-thread";
+
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("test-agent".to_string()),
+            title: "Latest assistant".to_string(),
+            created_at: 1_000,
+            updated_at: 1_000,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+
+    for (id, created_at, role, content) in [
+        ("user-latest", 1_300, "user", "newer user request"),
+        ("assistant-old", 1_100, "assistant", "old answer"),
+        ("assistant-empty", 1_400, "assistant", "   "),
+        ("tool-latest", 1_500, "tool", "newer tool output"),
+        ("assistant-new", 1_200, "assistant", "new answer"),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: role.to_string(),
+                content: content.to_string(),
+                provider: None,
+                model: None,
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(0),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            })
+            .await?;
+    }
+
+    let latest = store
+        .latest_assistant_message(thread_id)
+        .await?
+        .expect("assistant message should be selected");
+    assert_eq!(latest.id, "assistant-new");
+    assert_eq!(latest.content, "new answer");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_participant_assistant_message_selects_author_metadata_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "latest-participant-thread";
+
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("test-agent".to_string()),
+            title: "Latest participant".to_string(),
+            created_at: 1_000,
+            updated_at: 1_000,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+
+    for (id, created_at, content, metadata_json) in [
+        ("assistant-main", 1_100, "main answer", None),
+        (
+            "assistant-empty",
+            1_300,
+            " ",
+            Some(serde_json::json!({
+                "author_agent_id": "agent-empty",
+                "author_agent_name": "Empty Agent",
+            })),
+        ),
+        (
+            "assistant-participant",
+            1_200,
+            "participant answer",
+            Some(serde_json::json!({
+                "author_agent_id": "agent-participant",
+                "author_agent_name": "Participant Agent",
+            })),
+        ),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: "assistant".to_string(),
+                content: content.to_string(),
+                provider: None,
+                model: None,
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(0),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: metadata_json
+                    .map(|value| serde_json::to_string(&value))
+                    .transpose()?,
+            })
+            .await?;
+    }
+
+    let latest = store
+        .latest_participant_assistant_message(thread_id)
+        .await?
+        .expect("participant assistant message should be selected");
+    assert_eq!(latest.0, "agent-participant");
+    assert_eq!(latest.1.as_deref(), Some("Participant Agent"));
+    assert_eq!(latest.2, "participant answer");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_visible_main_assistant_message_timestamp_selects_latest_visible_row_in_sql(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "latest-visible-main-assistant-thread";
+
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("test-agent".to_string()),
+            title: "Latest visible main assistant".to_string(),
+            created_at: 1_000,
+            updated_at: 1_000,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+
+    for (id, created_at, role, content, metadata_json) in [
+        ("main-old", 1_100, "assistant", "main answer", None),
+        (
+            "participant-newer",
+            1_200,
+            "assistant",
+            "participant answer",
+            Some(serde_json::json!({"author_agent_id": "weles"})),
+        ),
+        (
+            "hidden-delegate",
+            1_300,
+            "assistant",
+            "hidden delegate chatter",
+            Some(serde_json::json!({"tool_name": "internal_delegate"})),
+        ),
+        ("tool-newest", 1_400, "tool", "tool output", None),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: role.to_string(),
+                content: content.to_string(),
+                provider: None,
+                model: None,
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(0),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: metadata_json
+                    .map(|value| serde_json::to_string(&value))
+                    .transpose()?,
+            })
+            .await?;
+    }
+
+    let participant_newer = store
+        .latest_visible_main_assistant_message_timestamp(thread_id, &["weles".to_string()])
+        .await?;
+    assert_eq!(participant_newer, None);
+
+    store
+        .add_message(&AgentDbMessage {
+            id: "main-newest".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: 1_500,
+            role: "assistant".to_string(),
+            content: "fresh main answer".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await?;
+
+    let main_newer = store
+        .latest_visible_main_assistant_message_timestamp(thread_id, &["weles".to_string()])
+        .await?;
+    assert_eq!(main_newer, Some(1_500));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_user_pacing_counts_recent_user_rows_and_averages_last_gaps_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "user-pacing-thread";
+
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("test-agent".to_string()),
+            title: "User pacing".to_string(),
+            created_at: 1_000,
+            updated_at: 5_000,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+
+    for (id, created_at, role) in [
+        ("user-old", 1_000, "user"),
+        ("assistant-ignored", 1_500, "assistant"),
+        ("user-middle", 2_000, "user"),
+        ("user-recent-a", 4_000, "user"),
+        ("user-recent-b", 5_000, "user"),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: role.to_string(),
+                content: id.to_string(),
+                provider: None,
+                model: None,
+                input_tokens: Some(0),
+                output_tokens: Some(0),
+                total_tokens: Some(0),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            })
+            .await?;
+    }
+
+    let pacing = store.thread_user_pacing(thread_id, 5_000, 1_000, 5).await?;
+
+    assert_eq!(pacing.recent_message_count, 2);
+    assert_eq!(pacing.avg_gap_secs, 1);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn visible_continuation_obsolete_predicate_filters_progress_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "visible-continuation-obsolete-thread";
+    let queued_at = 2_000;
+
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("test-agent".to_string()),
+            title: "Continuation obsolete".to_string(),
+            created_at: 1_000,
+            updated_at: 1_000,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+
+    store
+        .add_message(&AgentDbMessage {
+            id: "tool-after-queue".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: queued_at + 10,
+            role: "tool".to_string(),
+            content: "tool made progress".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: None,
+        })
+        .await?;
+
+    store
+        .add_message(&AgentDbMessage {
+            id: "other-assistant-after-queue".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: queued_at + 20,
+            role: "assistant".to_string(),
+            content: "other agent response".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: Some(
+                serde_json::json!({
+                    "author_agent_id": "other-agent",
+                })
+                .to_string(),
+            ),
+        })
+        .await?;
+
+    assert!(
+        !store
+            .visible_continuation_obsoleted_by_progress(thread_id, queued_at as u64, "target-agent")
+            .await?
+    );
+
+    store
+        .add_message(&AgentDbMessage {
+            id: "target-assistant-after-queue".to_string(),
+            thread_id: thread_id.to_string(),
+            created_at: queued_at + 30,
+            role: "assistant".to_string(),
+            content: "target agent response".to_string(),
+            provider: None,
+            model: None,
+            input_tokens: Some(0),
+            output_tokens: Some(0),
+            total_tokens: Some(0),
+            cost_usd: None,
+            reasoning: None,
+            tool_calls_json: None,
+            metadata_json: Some(
+                serde_json::json!({
+                    "author_agent_id": "target-agent",
+                })
+                .to_string(),
+            ),
+        })
+        .await?;
+
+    assert!(
+        store
+            .visible_continuation_obsoleted_by_progress(thread_id, queued_at as u64, "target-agent")
+            .await?
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_structural_memory_bulk_loader_filters_thread_ids_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    for (thread_id, language_hint) in [
+        ("thread-1", "rust"),
+        ("thread-2", "typescript"),
+        ("thread-3", "python"),
+    ] {
+        store
+            .upsert_thread_structural_memory(
+                thread_id,
+                &serde_json::json!({
+                    "language_hints": [language_hint],
+                }),
+                1_000,
+            )
+            .await?;
+    }
+    store.delete_thread_structural_memory("thread-2").await?;
+
+    let rows = store
+        .list_thread_structural_memory_for_threads(&[
+            "thread-1".to_string(),
+            "thread-2".to_string(),
+        ])
+        .await?;
+
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.thread_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["thread-1"]
+    );
+    assert_eq!(rows[0].state_json["language_hints"][0], "rust");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_active_context_window_starts_at_latest_compaction_artifact() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "active-context-window";
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: None,
+            title: "Active context".to_string(),
+            created_at: 1,
+            updated_at: 1,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+
+    for index in 0..6 {
+        let metadata_json = (index == 3).then(|| {
+            serde_json::json!({
+                "message_kind": "compaction_artifact",
+                "compaction_payload": "active summary"
+            })
+            .to_string()
+        });
+        store
+            .add_message(&AgentDbMessage {
+                id: format!("m{index}"),
+                thread_id: thread_id.to_string(),
+                created_at: index,
+                role: "assistant".to_string(),
+                content: format!("message-{index}"),
+                provider: None,
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json,
+            })
+            .await?;
+    }
+
+    let (messages, loaded_start, loaded_end) = store.list_active_context_window(thread_id).await?;
+
+    assert_eq!((loaded_start, loaded_end), (3, 6));
+    assert_eq!(
+        messages
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["m3", "m4", "m5"]
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_message_token_totals_sum_visible_message_token_columns() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let thread_id = "token-total-thread";
+    store
+        .create_thread(&AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: None,
+            title: "Token totals".to_string(),
+            created_at: 1,
+            updated_at: 1,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await?;
+
+    for (id, input_tokens, output_tokens) in [
+        ("m1", Some(7), Some(3)),
+        ("m2", Some(11), None),
+        ("m3", None, Some(13)),
+        ("m4", Some(100), Some(200)),
+    ] {
+        store
+            .add_message(&AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at: 1,
+                role: "assistant".to_string(),
+                content: id.to_string(),
+                provider: None,
+                model: None,
+                input_tokens,
+                output_tokens,
+                total_tokens: input_tokens
+                    .zip(output_tokens)
+                    .map(|(input, output)| input + output),
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            })
+            .await?;
+    }
+    assert_eq!(store.delete_messages(thread_id, &["m4"]).await?, 1);
+
+    assert_eq!(
+        store.thread_message_token_totals(thread_id).await?,
+        (18, 16)
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 /// FOUN-01 + FOUN-02: Concurrent reads and writes do not produce "database is locked" errors.
 #[tokio::test]
 async fn concurrent_read_write() -> Result<()> {
@@ -1016,12 +3150,10 @@ async fn concurrent_read_write() -> Result<()> {
     Ok(())
 }
 
-// ── action_audit user_action column tests (BEAT-09/D-04) ────────────
 
 #[tokio::test]
 async fn ensure_column_adds_user_action_to_action_audit() -> Result<()> {
     let (store, root) = make_test_store().await?;
-    // Verify the column exists by inserting and querying
     let has = store
         .conn
         .call(|conn| Ok(table_has_column(conn, "action_audit", "user_action")?))
@@ -1122,7 +3254,6 @@ async fn dismiss_audit_entry_sets_user_action() -> Result<()> {
 #[tokio::test]
 async fn count_dismissals_by_type_returns_correct_counts() -> Result<()> {
     let (store, root) = make_test_store().await?;
-    // Insert 3 heartbeat entries, dismiss 2
     for i in 0..3 {
         let entry = AuditEntryRow {
             id: format!("hb-{}", i),
@@ -1143,7 +3274,6 @@ async fn count_dismissals_by_type_returns_correct_counts() -> Result<()> {
     store.dismiss_audit_entry("hb-0").await?;
     store.dismiss_audit_entry("hb-1").await?;
 
-    // Insert 1 escalation entry, dismiss it
     let esc_entry = AuditEntryRow {
         id: "esc-0".to_string(),
         timestamp: 2000,

@@ -224,12 +224,51 @@ impl HistoryStore {
         Ok(page.variants)
     }
 
+    pub async fn list_discoverable_skill_variants(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<SkillVariantRecord>> {
+        let limit = limit.clamp(1, 2000) as i64;
+        self.conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
+                     FROM skill_variants \
+                     WHERE status NOT IN ('archived', 'merged', 'draft') \
+                       AND relative_path LIKE '%.md' \
+                     ORDER BY CASE status \
+                         WHEN 'promoted-to-canonical' THEN 4 \
+                         WHEN 'active' THEN 3 \
+                         WHEN 'deprecated' THEN 2 \
+                         ELSE 0 \
+                       END DESC, \
+                       fitness_score DESC, \
+                       CASE WHEN use_count > 0 THEN CAST(success_count AS REAL) / CAST(use_count AS REAL) ELSE 0.0 END DESC, \
+                       use_count DESC, \
+                       CASE WHEN variant_name = 'canonical' THEN 1 ELSE 0 END DESC, \
+                       updated_at DESC, \
+                       relative_path ASC \
+                     LIMIT ?1",
+                )?;
+                let rows = stmt.query_map(params![limit], map_skill_variant_row)?;
+                let mut variants = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+                let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
+                variants.sort_by(|left, right| {
+                    compare_skill_variants(left, right, &[], &trend_by_variant)
+                });
+                Ok(variants)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     /// Update the maturity status of a skill variant and bump `updated_at`.
     pub async fn update_skill_variant_status(
         &self,
         variant_id: &str,
         new_status: &str,
     ) -> Result<()> {
+        self.caches.skill_variant.invalidate(&variant_id.to_string());
         let variant_id = variant_id.to_string();
         let new_status = new_status.to_string();
         self.conn
@@ -247,8 +286,13 @@ impl HistoryStore {
 
     /// Retrieve a single skill variant by its `variant_id`.
     pub async fn get_skill_variant(&self, variant_id: &str) -> Result<Option<SkillVariantRecord>> {
-        let variant_id = variant_id.to_string();
-        self.conn
+        let variant_id_owned = variant_id.to_string();
+        if let Some(cached) = self.caches.skill_variant.get(&variant_id_owned) {
+            return Ok(cached);
+        }
+        let variant_id = variant_id_owned.clone();
+        let value: Option<SkillVariantRecord> = self
+            .conn
             .call(move |conn| {
                 conn.query_row(
                     "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
@@ -260,7 +304,11 @@ impl HistoryStore {
                 .map_err(Into::into)
             })
             .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.caches
+            .skill_variant
+            .insert(variant_id_owned, value.clone());
+        Ok(value)
     }
 
     pub async fn resolve_skill_variant(
@@ -536,7 +584,7 @@ impl HistoryStore {
                     let mut stmt = conn.prepare(
                         "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
                          FROM skill_variants \
-                         WHERE lower(skill_name) LIKE ?1 OR lower(variant_name) LIKE ?1 OR lower(relative_path) LIKE ?1 OR lower(context_tags_json) LIKE ?1",
+                         WHERE skill_name LIKE ?1 OR variant_name LIKE ?1 OR relative_path LIKE ?1 OR context_tags_json LIKE ?1",
                     )?;
                     let rows = stmt.query_map(params![like], map_skill_variant_row)?;
                     rows.filter_map(|row| row.ok()).collect::<Vec<_>>()

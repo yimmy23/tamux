@@ -1,3 +1,4 @@
+use super::*;
 use std::future::Future;
 use std::sync::OnceLock;
 use std::{
@@ -254,7 +255,7 @@ pub(super) enum BackgroundSideEffectOutcome {
 pub(super) fn spawn_background_operation<Fut>(
     subsystem: BackgroundSubsystem,
     operation_id: Option<String>,
-    background_daemon_tx: tokio::sync::mpsc::UnboundedSender<BackgroundSignal>,
+    background_daemon_tx: tokio::sync::mpsc::Sender<BackgroundSignal>,
     background_daemon_pending: &mut BackgroundPendingCounts,
     future: Fut,
 ) where
@@ -279,15 +280,17 @@ pub(super) fn spawn_background_operation<Fut>(
             }
         }
 
-        let _ = background_daemon_tx.send(BackgroundSignal::Deliver(daemon_msg));
-        let _ = background_daemon_tx.send(BackgroundSignal::Finished);
+        let _ = background_daemon_tx
+            .send(BackgroundSignal::Deliver(daemon_msg))
+            .await;
+        let _ = background_daemon_tx.send(BackgroundSignal::Finished).await;
     });
 }
 
 pub(super) fn spawn_background_side_effect<Fut>(
     subsystem: BackgroundSubsystem,
     operation_id: Option<String>,
-    background_daemon_tx: tokio::sync::mpsc::UnboundedSender<BackgroundSignal>,
+    background_daemon_tx: tokio::sync::mpsc::Sender<BackgroundSignal>,
     background_daemon_pending: &mut BackgroundPendingCounts,
     future: Fut,
 ) where
@@ -309,6 +312,6 @@ pub(super) fn spawn_background_side_effect<Fut>(
             }
         }
 
-        let _ = background_daemon_tx.send(BackgroundSignal::Finished);
+        let _ = background_daemon_tx.send(BackgroundSignal::Finished).await;
     });
 }

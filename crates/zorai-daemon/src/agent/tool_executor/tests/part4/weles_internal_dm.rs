@@ -210,9 +210,11 @@ async fn execute_dispatched_weles_task_uses_internal_dm_thread() {
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.provider = "openai".to_string();
-    config.base_url =
-        spawn_stub_assistant_server_for_tool_executor(recorded_bodies, "Acknowledged.".to_string())
-            .await;
+    config.base_url = spawn_stub_assistant_server_for_tool_executor(
+        recorded_bodies.clone(),
+        "Acknowledged.".to_string(),
+    )
+    .await;
     config.model = "gpt-4o-mini".to_string();
     config.api_key = "test-key".to_string();
     config.api_transport = crate::agent::types::ApiTransport::ChatCompletions;
@@ -313,6 +315,24 @@ async fn execute_dispatched_weles_task_uses_internal_dm_thread() {
         .expect("task should remain persisted");
     assert_eq!(stored.thread_id.as_deref(), Some(dm_thread_id.as_str()));
     assert_eq!(stored.status, crate::agent::types::TaskStatus::Completed);
+
+    let recorded = recorded_bodies
+        .lock()
+        .expect("lock recorded assistant bodies");
+    let latest_body = recorded
+        .back()
+        .expect("stub assistant should record at least one request body");
+    let latest_json: serde_json::Value =
+        serde_json::from_str(latest_body).expect("request body should be valid json");
+    assert!(
+        latest_json
+            .get("tools")
+            .and_then(|value| value.as_array())
+            .is_some_and(|tools| tools.iter().any(|tool| {
+                tool.get("name").and_then(|value| value.as_str()) == Some("bash_command")
+            })),
+        "task-scoped WELES internal DM should expose bash tooling: {latest_body}"
+    );
 }
 
 #[tokio::test]

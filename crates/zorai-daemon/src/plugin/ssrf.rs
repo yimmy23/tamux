@@ -20,7 +20,6 @@ pub fn is_blocked_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => is_blocked_ipv4(&v4),
         IpAddr::V6(v6) => {
-            // Check IPv4-mapped IPv6 first (e.g. ::ffff:127.0.0.1)
             if is_ipv4_mapped_blocked(&v6) {
                 return true;
             }
@@ -71,7 +70,6 @@ pub async fn validate_url(url: &str, allow_local: bool) -> Result<(), PluginApiE
         return Ok(());
     }
 
-    // Parse the URL to extract host and port
     let parsed = url::Url::parse(url).map_err(|e| PluginApiError::SsrfBlocked {
         url: format!("{url} (invalid URL: {e})"),
     })?;
@@ -85,7 +83,6 @@ pub async fn validate_url(url: &str, allow_local: bool) -> Result<(), PluginApiE
     let port = parsed.port_or_known_default().unwrap_or(443);
     let addr_str = format!("{host}:{port}");
 
-    // Resolve DNS and check all addresses
     let addrs =
         tokio::net::lookup_host(&addr_str)
             .await
@@ -109,9 +106,6 @@ mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-    // -----------------------------------------------------------------------
-    // IPv4 blocked ranges
-    // -----------------------------------------------------------------------
 
     #[test]
     fn blocks_loopback() {
@@ -148,9 +142,6 @@ mod tests {
         assert!(!is_blocked_ip(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
     }
 
-    // -----------------------------------------------------------------------
-    // IPv6 blocked ranges
-    // -----------------------------------------------------------------------
 
     #[test]
     fn blocks_ipv6_loopback() {
@@ -159,7 +150,6 @@ mod tests {
 
     #[test]
     fn blocks_ipv4_mapped_ipv6_loopback() {
-        // ::ffff:127.0.0.1
         let v6 = Ipv4Addr::new(127, 0, 0, 1).to_ipv6_mapped();
         assert!(is_blocked_ip(IpAddr::V6(v6)));
     }
@@ -172,19 +162,13 @@ mod tests {
 
     #[test]
     fn allows_public_ipv6() {
-        // Google public DNS IPv6
         let v6: Ipv6Addr = "2001:4860:4860::8888".parse().unwrap();
         assert!(!is_blocked_ip(IpAddr::V6(v6)));
     }
 
-    // -----------------------------------------------------------------------
-    // allow_local bypass
-    // -----------------------------------------------------------------------
 
     #[tokio::test]
     async fn allow_local_bypasses_ssrf_check() {
-        // This would normally fail if DNS resolved to 127.0.0.1,
-        // but allow_local=true skips the check entirely.
         let result = validate_url("http://localhost:8080/api", true).await;
         assert!(result.is_ok());
     }

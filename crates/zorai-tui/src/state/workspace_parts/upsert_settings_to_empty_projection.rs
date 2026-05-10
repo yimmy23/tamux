@@ -1,4 +1,12 @@
-fn upsert_settings(settings: &mut Vec<WorkspaceSettings>, next: WorkspaceSettings) {
+use std::collections::HashMap;
+
+use zorai_protocol::{
+    WorkspaceActor, WorkspaceNotice, WorkspaceOperator, WorkspaceSettings, WorkspaceTaskStatus,
+};
+
+use super::{WorkspaceColumn, WorkspaceProjection, WorkspaceState};
+
+pub(super) fn upsert_settings(settings: &mut Vec<WorkspaceSettings>, next: WorkspaceSettings) {
     if let Some(existing) = settings
         .iter_mut()
         .find(|settings| settings.workspace_id == next.workspace_id)
@@ -10,13 +18,13 @@ fn upsert_settings(settings: &mut Vec<WorkspaceSettings>, next: WorkspaceSetting
     }
 }
 
-fn push_unique_id(ids: &mut Vec<String>, id: &str) {
+pub(super) fn push_unique_id(ids: &mut Vec<String>, id: &str) {
     if !id.is_empty() && !ids.iter().any(|candidate| candidate == id) {
         ids.push(id.to_string());
     }
 }
 
-fn review_task_id_from_notice(message: &str) -> Option<String> {
+pub(super) fn review_task_id_from_notice(message: &str) -> Option<String> {
     let marker = "queued review task ";
     let (_, suffix) = message.rsplit_once(marker)?;
     suffix
@@ -27,7 +35,7 @@ fn review_task_id_from_notice(message: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn latest_notice_summaries(notices: &[WorkspaceNotice]) -> HashMap<String, String> {
+pub(super) fn latest_notice_summaries(notices: &[WorkspaceNotice]) -> HashMap<String, String> {
     let mut latest: HashMap<String, &WorkspaceNotice> = HashMap::new();
     for notice in notices {
         let replace = latest
@@ -43,11 +51,11 @@ fn latest_notice_summaries(notices: &[WorkspaceNotice]) -> HashMap<String, Strin
         .collect()
 }
 
-fn notice_summary(notice: &WorkspaceNotice) -> String {
+pub(super) fn notice_summary(notice: &WorkspaceNotice) -> String {
     format!("{}: {}", notice.notice_type, notice.message)
 }
 
-fn actor_label(actor: Option<&WorkspaceActor>) -> String {
+pub(super) fn actor_label(actor: Option<&WorkspaceActor>) -> String {
     match actor {
         None => "none".to_string(),
         Some(WorkspaceActor::User) => "user".to_string(),
@@ -62,7 +70,10 @@ impl Default for WorkspaceState {
     }
 }
 
-fn empty_projection(workspace_id: &str, operator: WorkspaceOperator) -> WorkspaceProjection {
+pub(super) fn empty_projection(
+    workspace_id: &str,
+    operator: WorkspaceOperator,
+) -> WorkspaceProjection {
     WorkspaceProjection {
         workspace_id: workspace_id.to_string(),
         operator,
@@ -92,4 +103,3 @@ fn empty_projection(workspace_id: &str, operator: WorkspaceOperator) -> Workspac
         notice_summaries: HashMap::new(),
     }
 }
-

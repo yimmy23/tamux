@@ -1,3 +1,13 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use std::fs;
+use std::path::PathBuf;
+use crate::test_support::{env_var_lock, EnvVarGuard, ZORAI_DATA_DIR_ENV};
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 #[test]
 fn goal_sidebar_row_selection_clamps_per_active_tab() {
     let mut state = GoalSidebarState::new();
@@ -234,7 +244,8 @@ fn goal_workspace_mouse_clicks_focus_timeline_and_details_panes() {
 fn goal_workspace_mode_tabs_are_clickable_and_keyboard_focusable() {
     let mut model = goal_sidebar_model();
     model.focus = FocusArea::Chat;
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_focused_pane(goal_workspace::GoalWorkspacePane::CommandBar);
 
     let handled = model.handle_key(KeyCode::Right, KeyModifiers::NONE);
@@ -435,5 +446,3 @@ fn goal_workspace_footer_omits_refresh_button_and_keeps_ctrl_r_rerun() {
     assert!(!plain.contains("[Refresh]"), "{plain}");
     assert!(!plain.contains("[Rerun from here] Shift+R"), "{plain}");
 }
-
-

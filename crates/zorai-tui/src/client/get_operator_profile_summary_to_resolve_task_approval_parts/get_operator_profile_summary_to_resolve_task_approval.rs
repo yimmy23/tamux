@@ -1,3 +1,21 @@
+use super::*;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::{
+    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
+    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
+    ThreadWorkContext,
+};
+use anyhow::Result;
+use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
+use serde_json::Value;
+use std::sync::Mutex;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio::time::{Instant, MissedTickBehavior};
+use tokio_util::codec::Framed;
+use tracing::{debug, error, info, warn};
+use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
 impl DaemonClient {
     pub fn get_operator_profile_summary(&self) -> Result<()> {
         self.send(ClientMessage::AgentGetOperatorProfileSummary)
@@ -68,7 +86,6 @@ impl DaemonClient {
         self.send(ClientMessage::AuditDismiss { entry_id })
     }
 
-    // Plugin IPC methods (Plan 16-01)
     pub fn plugin_list(&self) -> Result<()> {
         self.send(ClientMessage::PluginList {})
     }

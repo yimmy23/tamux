@@ -1,3 +1,14 @@
+use super::part1::*;
+use super::part5_support::*;
+use super::*;
+use crate::agent::provider_auth_store;
+use crate::agent::types::{AgentMessage, MessageRole};
+use crate::test_support::EnvGuard;
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+use std::sync::Mutex;
+use tempfile::tempdir;
 #[tokio::test]
 async fn anthropic_batch_results_parse_tool_references_content_blocks() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -25,7 +36,10 @@ async fn anthropic_batch_results_parse_tool_references_content_blocks() {
             body.len(),
             body
         );
-        socket.write_all(response.as_bytes()).await.expect("write response");
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
     });
 
     let results = retrieve_message_batch_results(
@@ -108,7 +122,10 @@ async fn anthropic_batch_results_parse_code_execution_content_blocks() {
             body.len(),
             body
         );
-        socket.write_all(response.as_bytes()).await.expect("write response");
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
     });
 
     let results = retrieve_message_batch_results(
@@ -151,7 +168,10 @@ async fn anthropic_batch_results_parse_code_execution_content_blocks() {
             assert_eq!(message.content.len(), 1);
             let exec = &message.content[0];
             assert_eq!(exec.block_type(), "code_execution_result");
-            assert_eq!(exec.content.as_ref().and_then(|value| value.as_text()), Some("done"));
+            assert_eq!(
+                exec.content.as_ref().and_then(|value| value.as_text()),
+                Some("done")
+            );
             assert_eq!(exec.return_code, Some(0));
             assert_eq!(exec.stderr.as_deref(), Some(""));
             assert_eq!(exec.is_file_update, Some(false));
@@ -187,7 +207,10 @@ async fn anthropic_batch_results_parse_error_content_blocks() {
             body.len(),
             body
         );
-        socket.write_all(response.as_bytes()).await.expect("write response");
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
     });
 
     let results = retrieve_message_batch_results(
@@ -230,7 +253,10 @@ async fn anthropic_batch_results_parse_error_content_blocks() {
             assert_eq!(message.content.len(), 1);
             let error_block = &message.content[0];
             assert_eq!(error_block.block_type(), "tool_search_tool_result_error");
-            assert_eq!(error_block.error_code.as_deref(), Some("invalid_tool_input"));
+            assert_eq!(
+                error_block.error_code.as_deref(),
+                Some("invalid_tool_input")
+            );
             assert_eq!(error_block.error_message.as_deref(), Some("bad query"));
         }
         other => panic!("expected succeeded batch result, got {other:?}"),

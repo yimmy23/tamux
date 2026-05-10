@@ -2,6 +2,16 @@
 
 use super::*;
 
+/// Number of dedicated reader connections for the *background* pool. Each
+/// tokio-rusqlite Connection runs on its own background thread, so this is
+/// the maximum number of read queries that can execute in parallel under
+/// WAL mode for sync loops, indexers, and supervision ticks.
+const READ_POOL_SIZE: usize = 8;
+/// Reader connections reserved exclusively for user-interactive paths
+/// (concierge welcome, thread load, message list). Kept separate so a flood
+/// of background reads can never queue ahead of a UI-facing query.
+const INTERACTIVE_READ_POOL_SIZE: usize = 4;
+
 async fn apply_sqlite_connection_pragmas(
     conn: &tokio_rusqlite::Connection,
     query_only: bool,
@@ -12,6 +22,9 @@ async fn apply_sqlite_connection_pragmas(
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.pragma_update(None, "wal_autocheckpoint", "1000")?;
         conn.pragma_update(None, "busy_timeout", "5000")?;
+        conn.pragma_update(None, "cache_size", "-65536")?;
+        conn.pragma_update(None, "mmap_size", "268435456")?;
+        conn.pragma_update(None, "temp_store", "MEMORY")?;
         conn.pragma_update(None, "query_only", if query_only { "ON" } else { "OFF" })?;
         Ok(())
     })
@@ -48,14 +61,37 @@ impl HistoryStore {
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let read_conn = tokio_rusqlite::Connection::open(&db_path)
+        let mut read_conns = Vec::with_capacity(READ_POOL_SIZE);
+        for _ in 0..READ_POOL_SIZE {
+            let read_conn = tokio_rusqlite::Connection::open(&db_path)
+                .await
+                .context("failed to open read SQLite connection via tokio-rusqlite")?;
+            apply_sqlite_connection_pragmas(&read_conn, true).await?;
+            read_conns.push(read_conn);
+        }
+        let read_conn = super::ReadPool::new(read_conns);
+
+        let mut interactive_read_conns = Vec::with_capacity(INTERACTIVE_READ_POOL_SIZE);
+        for _ in 0..INTERACTIVE_READ_POOL_SIZE {
+            let conn = tokio_rusqlite::Connection::open(&db_path)
+                .await
+                .context("failed to open interactive reader SQLite connection")?;
+            apply_sqlite_connection_pragmas(&conn, true).await?;
+            interactive_read_conns.push(conn);
+        }
+        let interactive_read_conn = super::ReadPool::new(interactive_read_conns);
+
+        let embedding_writer_conn = tokio_rusqlite::Connection::open(&db_path)
             .await
-            .context("failed to open read SQLite connection via tokio-rusqlite")?;
-        apply_sqlite_connection_pragmas(&read_conn, true).await?;
+            .context("failed to open embedding writer SQLite connection")?;
+        apply_sqlite_connection_pragmas(&embedding_writer_conn, false).await?;
 
         let store = Self {
             conn,
+            embedding_writer_conn,
             read_conn,
+            interactive_read_conn,
+            caches: std::sync::Arc::new(super::HistoryCaches::new()),
             skill_dir,
             telemetry_dir,
             worm_dir,

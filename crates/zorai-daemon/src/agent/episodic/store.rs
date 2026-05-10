@@ -110,15 +110,12 @@ impl AgentEngine {
     pub(crate) async fn record_episode(&self, mut episode: Episode) -> Result<()> {
         let config = self.config.read().await.episodic.clone();
 
-        // Check suppression
         if is_episode_suppressed(&config) || is_episode_suppressed_for_episode(&config, &episode) {
             return Ok(());
         }
 
-        // Scrub PII
         scrub_episode(&mut episode);
 
-        // Compute expires_at if not already set
         if episode.expires_at.is_none() {
             episode.expires_at = compute_expires_at(episode.created_at, config.episode_ttl_days);
         }
@@ -130,7 +127,6 @@ impl AgentEngine {
         let entities_json = ep.entities_json();
         let causal_chain_json = ep.causal_chain_json();
 
-        // Insert into SQLite
         self.history
             .conn
             .call(move |conn| {
@@ -170,7 +166,6 @@ impl AgentEngine {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        // Emit event
         let _ = self.event_tx.send(AgentEvent::EpisodeRecorded {
             episode_id: episode.id.clone(),
             episode_type: episode_type_to_str(&episode.episode_type).to_string(),
@@ -178,7 +173,6 @@ impl AgentEngine {
             summary: episode.summary.clone(),
         });
 
-        // WORM ledger append
         if let Err(e) = self.append_episodic_worm(&episode).await {
             tracing::warn!(episode_id = %episode.id, error = %e, "failed to append episodic WORM entry");
         }
@@ -234,7 +228,6 @@ impl AgentEngine {
             _ => EpisodeType::GoalFailure,
         };
 
-        // Build summary: truncated to 500 chars
         let raw_summary = format!("{}: {}", goal_run.title, goal_run.goal);
         let summary = if raw_summary.len() > 500 {
             format!("{}...", &raw_summary[..497])
@@ -242,7 +235,6 @@ impl AgentEngine {
             raw_summary
         };
 
-        // Root cause: for failures, use last_error or failure_cause
         let root_cause = if outcome == EpisodeOutcome::Failure {
             goal_run
                 .last_error
@@ -252,11 +244,9 @@ impl AgentEngine {
             None
         };
 
-        // Build entities from steps
         let mut entities = Vec::new();
         let file_re =
             regex::Regex::new(r"(?:^|\s)((?:[\w.\-]+/)*[\w.\-]+\.\w+)").unwrap_or_else(|_| {
-                // Fallback: this regex should always compile
                 regex::Regex::new(r"\S+\.\w+").unwrap()
             });
         for step in &goal_run.steps {
@@ -270,7 +260,6 @@ impl AgentEngine {
         entities.sort();
         entities.dedup();
 
-        // Build causal chain from failed steps
         let causal_chain: Vec<CausalStep> = goal_run
             .steps
             .iter()
@@ -284,7 +273,6 @@ impl AgentEngine {
             })
             .collect();
 
-        // Duration
         let duration_ms =
             goal_run
                 .duration_ms
@@ -329,7 +317,6 @@ impl AgentEngine {
         let episode_ref = episode.clone();
         self.record_episode(episode).await?;
 
-        // Auto-create negative knowledge constraint from failed episodes (NKNO-01, NKNO-02)
         if outcome == EpisodeOutcome::Failure {
             if let Err(e) = self
                 .record_negative_knowledge_from_episode(&episode_ref)
@@ -445,7 +432,6 @@ impl AgentEngine {
                     rusqlite::params![now_ms, now_ms],
                 )?;
                 if deleted > 0 {
-                    // Rebuild FTS5 index to remove stale entries
                     conn.execute(
                         "INSERT INTO episodes_fts(episodes_fts) VALUES('rebuild')",
                         [],

@@ -336,6 +336,9 @@ declare global {
         workspace_id: string;
         workspace_root?: string | null;
         operator: ZoraiWorkspaceOperator;
+        repo_monitor_enabled?: boolean;
+        repo_monitor_include_dirs?: string[];
+        repo_monitor_exclude_dirs?: string[];
         created_at: number;
         updated_at: number;
     };
@@ -417,6 +420,7 @@ declare global {
         agentListWorkspaceSettings?: () => Promise<ZoraiWorkspaceSettings[] | unknown>;
         agentGetWorkspaceSettings?: (workspaceId: string) => Promise<ZoraiWorkspaceSettings | unknown>;
         agentSetWorkspaceOperator?: (workspaceId: string, operator: ZoraiWorkspaceOperator) => Promise<ZoraiWorkspaceSettings | unknown>;
+        agentSetWorkspaceRepoMonitor?: (workspaceId: string, payload: { repo_monitor_enabled: boolean; repo_monitor_include_dirs: string[]; repo_monitor_exclude_dirs: string[] }) => Promise<ZoraiWorkspaceSettings | unknown>;
         agentListWorkspaceTasks?: (workspaceId: string, includeDeleted?: boolean) => Promise<unknown[] | unknown>;
         agentCreateWorkspaceTask?: (request: ZoraiWorkspaceTaskCreate) => Promise<unknown>;
         agentUpdateWorkspaceTask?: (taskId: string, update: ZoraiWorkspaceTaskUpdate) => Promise<unknown>;
@@ -487,7 +491,9 @@ declare global {
             suggestionId: string;
             sessionId?: string | null;
         }) => Promise<{ ok?: boolean; error?: string } | unknown>;
-        agentListThreads?: () => Promise<unknown[]>;
+        agentListThreads?: (options?: {
+            agentFilter?: string | null;
+        }) => Promise<unknown[]>;
         agentGetThread?: (
             threadId: string,
             options?: {

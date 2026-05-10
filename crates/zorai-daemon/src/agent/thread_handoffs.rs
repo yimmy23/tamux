@@ -656,8 +656,6 @@ impl AgentEngine {
             thread.updated_at = now;
         }
 
-        // A responder switch must start a fresh upstream conversation stream so we do
-        // not reuse provider/thread continuity state from the previous responder.
         self.clear_thread_continuation_state(thread_id).await;
         let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
             thread_id: thread_id.to_string(),

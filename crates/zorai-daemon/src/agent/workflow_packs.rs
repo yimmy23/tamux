@@ -33,10 +33,21 @@ impl AgentEngine {
     pub(crate) async fn list_browser_profiles_with_current_health(
         &self,
     ) -> Result<Vec<crate::history::BrowserProfileRow>> {
+        self.list_browser_profiles_with_current_health_filtered(None, None)
+            .await
+    }
+
+    pub(crate) async fn list_browser_profiles_with_current_health_filtered(
+        &self,
+        health_state: Option<&str>,
+        workspace_id: Option<&str>,
+    ) -> Result<Vec<crate::history::BrowserProfileRow>> {
         self.history
             .detect_and_classify_expired_profiles(now_millis())
             .await?;
-        self.history.list_browser_profiles().await
+        self.history
+            .list_browser_profiles_filtered(health_state, workspace_id)
+            .await
     }
 
     pub(crate) async fn run_workflow_pack_json(
@@ -141,7 +152,8 @@ impl AgentEngine {
             .await
             .unwrap_or_default();
         let notices = self
-            .list_workspace_notices(&workspace_id, None)
+            .history
+            .list_workspace_notices_limited(&workspace_id, None, 5)
             .await
             .unwrap_or_default();
         let routines = self
@@ -157,7 +169,6 @@ impl AgentEngine {
         let routine_health = summarize_routines(&routines);
         let notice_lines = notices
             .iter()
-            .take(5)
             .map(|notice| format!("- [{}] {}", notice.notice_type, notice.message))
             .collect::<Vec<_>>();
 
@@ -613,10 +624,26 @@ impl AgentEngine {
                         .await;
                 }
                 let created_task = self
-                    .list_tasks()
+                    .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: Some(task.id.clone()),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                        ids: Vec::new(),
+                        parent_task_ids: Vec::new(),
+                    })
                     .await
                     .into_iter()
-                    .find(|candidate| candidate.id == task.id)
+                    .next()
                     .unwrap_or(task);
                 Ok(WorkflowPackExecution {
                     payload: json!({
@@ -668,7 +695,8 @@ impl AgentEngine {
             .await
             .unwrap_or_default();
         let notices = self
-            .list_workspace_notices(&workspace_id, None)
+            .history
+            .list_workspace_notices_limited(&workspace_id, None, 5)
             .await
             .unwrap_or_default();
         let routines = self
@@ -680,22 +708,14 @@ impl AgentEngine {
         let pending_approval_count = pending_approvals.len();
         drop(pending_approvals);
 
-        // Trigger fire activity (last 24h)
-        let trigger_fires = self
+        let now_ms = Utc::now().timestamp_millis().max(0) as u64;
+        let recent_fire_cutoff_ms = now_ms.saturating_sub(86_400_000);
+        let recent_fires = self
             .history
-            .list_trigger_fire_history(None, None, 50)
+            .list_trigger_fire_history_since(recent_fire_cutoff_ms, 10)
             .await
             .unwrap_or_default();
-        let recent_fires: Vec<_> = trigger_fires
-            .iter()
-            .filter(|fire| {
-                let age_ms = Utc::now().timestamp_millis() as u64 - fire.fired_at_ms;
-                age_ms < 86_400_000 // 24h
-            })
-            .take(10)
-            .collect();
 
-        // Browser profile health
         let browser_profiles = self
             .list_browser_profiles_with_current_health()
             .await
@@ -705,12 +725,10 @@ impl AgentEngine {
             .filter(|profile| profile.health_state != "healthy")
             .collect();
 
-        // Build sections
         let task_summary = summarize_workspace_tasks(&tasks);
         let routine_health = summarize_routines(&routines);
         let notice_lines: Vec<_> = notices
             .iter()
-            .take(5)
             .map(|notice| format!("- [{}] {}", notice.notice_type, notice.message))
             .collect();
 
@@ -742,11 +760,9 @@ impl AgentEngine {
                 .collect()
         };
 
-        // Knowledge connector path
         let knowledge_connectors: Vec<_> = connectors
             .iter()
             .filter(|(_, info)| {
-                // Show knowledge connectors and any connector that isn't a standard repo/tracker/mail/calendar
                 let kind = info.plugin_name.to_ascii_lowercase();
                 kind.contains("notion") || kind.contains("confluence") || kind.contains("knowledge")
             })
@@ -777,7 +793,6 @@ impl AgentEngine {
             })
         };
 
-        // All connector health (not just subset)
         let all_connector_health: Vec<_> = connectors
             .iter()
             .map(|(kind, info)| {
@@ -855,11 +870,43 @@ impl AgentEngine {
 
         let stats = self.history.get_agent_statistics(window).await?;
 
-        // Recent activity context
-        let tasks = self.list_tasks().await;
-        let recent_tasks: Vec<_> = tasks
+        let task_summary_query = crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(10),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        };
+        let task_refs = match self
+            .history
+            .list_agent_task_summary_refs_filtered(&task_summary_query)
+            .await
+        {
+            Ok(refs) => refs,
+            Err(_) => self
+                .list_tasks_filtered(&task_summary_query)
+                .await
+                .into_iter()
+                .map(|task| crate::history::AgentTaskSummaryRef {
+                    id: task.id,
+                    title: task.title,
+                    status: task.status,
+                    priority: task.priority,
+                })
+                .collect(),
+        };
+        let recent_tasks: Vec<_> = task_refs
             .iter()
-            .take(10)
             .map(|task| {
                 json!({
                     "id": task.id,

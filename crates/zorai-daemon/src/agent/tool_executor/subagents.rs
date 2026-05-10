@@ -1,5 +1,8 @@
+use super::*;
 use crate::agent::operator_model::SatisfactionAdaptationMode;
 use crate::agent::types::AgentTask;
+use crate::history::AgentTaskListQuery;
+use std::collections::HashSet;
 
 const MAX_RECURSIVE_SUBAGENT_DEPTH: u8 = 3;
 const RECURSIVE_SUBAGENT_BUDGET_CURVE: [f64; 3] = [1.0, 0.6, 0.3];
@@ -8,18 +11,18 @@ const DEFAULT_SUBAGENT_MAX_TOOL_CALLS: u32 = 50;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct RequestedSubagentBudget {
-    max_tokens: Option<u32>,
-    max_wall_time_secs: Option<u64>,
-    max_tool_calls: Option<u32>,
+    pub(crate) max_tokens: Option<u32>,
+    pub(crate) max_wall_time_secs: Option<u64>,
+    pub(crate) max_tool_calls: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct DerivedSubagentLimits {
-    child_depth: u8,
-    max_depth: u8,
-    context_budget_tokens: Option<u32>,
-    max_duration_secs: Option<u64>,
-    max_tool_calls: Option<u32>,
+    pub(crate) child_depth: u8,
+    pub(crate) max_depth: u8,
+    pub(crate) context_budget_tokens: Option<u32>,
+    pub(crate) max_duration_secs: Option<u64>,
+    pub(crate) max_tool_calls: Option<u32>,
 }
 
 fn budget_fraction_for_depth(depth: u8) -> f64 {
@@ -56,7 +59,11 @@ fn adapt_derived_context_budget(
     mode: SatisfactionAdaptationMode,
 ) -> Option<u32> {
     let factor = adaptive_subagent_budget_factor(mode);
-    value.map(|current| ((current as f64 * factor).round() as u32).max(256).min(current))
+    value.map(|current| {
+        ((current as f64 * factor).round() as u32)
+            .max(256)
+            .min(current)
+    })
 }
 
 fn adapt_derived_duration_budget(
@@ -64,7 +71,11 @@ fn adapt_derived_duration_budget(
     mode: SatisfactionAdaptationMode,
 ) -> Option<u64> {
     let factor = adaptive_subagent_budget_factor(mode);
-    value.map(|current| ((current as f64 * factor).round() as u64).max(30).min(current))
+    value.map(|current| {
+        ((current as f64 * factor).round() as u64)
+            .max(30)
+            .min(current)
+    })
 }
 
 fn adapt_derived_tool_call_budget(
@@ -72,7 +83,11 @@ fn adapt_derived_tool_call_budget(
     mode: SatisfactionAdaptationMode,
 ) -> Option<u32> {
     let factor = adaptive_subagent_budget_factor(mode);
-    value.map(|current| ((current as f64 * factor).round() as u32).max(1).min(current))
+    value.map(|current| {
+        ((current as f64 * factor).round() as u32)
+            .max(1)
+            .min(current)
+    })
 }
 
 pub(super) fn parse_subagent_containment_scope(scope: Option<&str>) -> Option<(u8, u8)> {
@@ -138,6 +153,79 @@ fn merge_tool_call_limit(existing: Option<String>, max_tool_calls: Option<u32>) 
 
 async fn reserve_subagent_thread_id(agent: &AgentEngine) -> String {
     agent.reserve_unique_thread_id().await
+}
+
+async fn find_task_for_spawn(agent: &AgentEngine, task_id: &str) -> Option<AgentTask> {
+    let persisted_task = agent
+        .list_tasks_filtered(&AgentTaskListQuery {
+            id: Some(task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
+        .await
+        .into_iter()
+        .next();
+    if persisted_task.is_some() {
+        return persisted_task;
+    }
+
+    agent
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .find(|task| task.id == task_id)
+        .cloned()
+}
+
+async fn list_subagent_tasks_for_spawn(agent: &AgentEngine) -> Vec<AgentTask> {
+    let mut tasks = agent
+        .list_tasks_filtered(&AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: Some("subagent".to_string()),
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
+        .await;
+    let mut task_ids = tasks
+        .iter()
+        .map(|task| task.id.clone())
+        .collect::<HashSet<_>>();
+    for task in agent
+        .tasks
+        .lock()
+        .await
+        .iter()
+        .filter(|task| task.source == "subagent")
+    {
+        if task_ids.insert(task.id.clone()) {
+            tasks.push(task.clone());
+        }
+    }
+    tasks
 }
 
 async fn resolve_effective_subagent_provider_config(
@@ -324,16 +412,16 @@ fn derive_subagent_limits(
         context_budget_tokens: requested_budget
             .max_tokens
             .or_else(|| adapt_derived_context_budget(derived_context_budget, adaptation_mode)),
-        max_duration_secs: requested_budget.max_wall_time_secs.or_else(|| {
-            adapt_derived_duration_budget(derived_max_duration, adaptation_mode)
-        }),
-        max_tool_calls: requested_budget.max_tool_calls.or_else(|| {
-            adapt_derived_tool_call_budget(derived_max_tool_calls, adaptation_mode)
-        }),
+        max_duration_secs: requested_budget
+            .max_wall_time_secs
+            .or_else(|| adapt_derived_duration_budget(derived_max_duration, adaptation_mode)),
+        max_tool_calls: requested_budget
+            .max_tool_calls
+            .or_else(|| adapt_derived_tool_call_budget(derived_max_tool_calls, adaptation_mode)),
     })
 }
 
-async fn execute_spawn_subagent(
+pub(crate) async fn execute_spawn_subagent(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -432,15 +520,12 @@ async fn execute_spawn_subagent(
         })
         .unwrap_or_default();
 
-    let existing_tasks = agent.list_tasks().await;
     let task_snapshot = if let Some(current_task_id) = task_id {
-        existing_tasks
-            .iter()
-            .find(|task| task.id == current_task_id)
-            .cloned()
+        find_task_for_spawn(agent, current_task_id).await
     } else {
         None
     };
+    let subagent_tasks = list_subagent_tasks_for_spawn(agent).await;
     let inherited_client_surface = match agent.get_thread_client_surface(thread_id).await {
         Some(client_surface) => Some(client_surface),
         None => match task_snapshot
@@ -559,7 +644,11 @@ async fn execute_spawn_subagent(
         resolve_effective_subagent_provider_config(agent, &subagent).await?;
     if let Some(reasoning_effort) = reasoning_effort_override
         .clone()
-        .or_else(|| matched_def.as_ref().and_then(|def| def.reasoning_effort.clone()))
+        .or_else(|| {
+            matched_def
+                .as_ref()
+                .and_then(|def| def.reasoning_effort.clone())
+        })
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
     {
@@ -571,7 +660,7 @@ async fn execute_spawn_subagent(
     };
     let derived_limits = derive_subagent_limits(
         task_snapshot.as_ref(),
-        &existing_tasks,
+        &subagent_tasks,
         requested_max_depth,
         requested_budget,
         effective_provider_config.context_window_tokens,
@@ -634,7 +723,11 @@ async fn execute_spawn_subagent(
         .as_ref()
         .map(|def| def.id.as_str())
         .map(str::to_string)
-        .or_else(|| crate::agent::agent_identity::extract_persona_id(subagent.override_system_prompt.as_deref()));
+        .or_else(|| {
+            crate::agent::agent_identity::extract_persona_id(
+                subagent.override_system_prompt.as_deref(),
+            )
+        });
     agent
         .set_thread_identity_from_task(&reserved_thread_id, &subagent)
         .await;
@@ -697,7 +790,7 @@ async fn execute_spawn_subagent(
     ))
 }
 
-async fn execute_fetch_authenticated_providers(agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_fetch_authenticated_providers(agent: &AgentEngine) -> Result<String> {
     let authenticated = agent
         .get_provider_auth_states()
         .await
@@ -708,13 +801,13 @@ async fn execute_fetch_authenticated_providers(agent: &AgentEngine) -> Result<St
         .map_err(|error| anyhow::anyhow!("failed to serialize authenticated providers: {error}"))
 }
 
-async fn execute_list_providers(agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_providers(agent: &AgentEngine) -> Result<String> {
     let providers = agent.get_provider_auth_states().await;
     serde_json::to_string_pretty(&providers)
         .map_err(|error| anyhow::anyhow!("failed to serialize providers: {error}"))
 }
 
-async fn execute_fetch_provider_models(
+pub(crate) async fn execute_fetch_provider_models(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -746,11 +839,14 @@ async fn execute_fetch_provider_models(
         .map_err(|error| anyhow::anyhow!("failed to serialize provider models: {error}"))
 }
 
-async fn execute_list_models(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_models(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     execute_fetch_provider_models(args, agent).await
 }
 
-async fn execute_list_agents(agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_agents(agent: &AgentEngine) -> Result<String> {
     let config = agent.get_config().await;
     let mut rows = vec![
         serde_json::json!({
@@ -853,7 +949,10 @@ async fn execute_list_agents(agent: &AgentEngine) -> Result<String> {
         .map_err(|error| anyhow::anyhow!("failed to serialize agent targets: {error}"))
 }
 
-async fn execute_list_participants(agent: &AgentEngine, thread_id: &str) -> Result<String> {
+pub(crate) async fn execute_list_participants(
+    agent: &AgentEngine,
+    thread_id: &str,
+) -> Result<String> {
     let thread_id = thread_id.trim();
     if thread_id.is_empty() {
         anyhow::bail!("list_participants requires a thread context");
@@ -890,7 +989,10 @@ async fn execute_list_participants(agent: &AgentEngine, thread_id: &str) -> Resu
         .map_err(|error| anyhow::anyhow!("failed to serialize thread participants: {error}"))
 }
 
-async fn execute_switch_model(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_switch_model(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     if current_agent_scope_id() != MAIN_AGENT_ID {
         anyhow::bail!("`switch_model` is only available to svarog");
     }
@@ -1020,11 +1122,7 @@ pub(in crate::agent) async fn spawn_weles_internal_subagent(
         _ => format!("Internal governance review for {tool_name}"),
     };
     let task_snapshot = if let Some(current_task_id) = parent_task_id {
-        let tasks = agent.tasks.lock().await;
-        tasks
-            .iter()
-            .find(|task| task.id == current_task_id)
-            .cloned()
+        find_task_for_spawn(agent, current_task_id).await
     } else {
         None
     };
@@ -1119,7 +1217,7 @@ pub(in crate::agent) async fn spawn_weles_internal_subagent(
     Ok(subagent)
 }
 
-async fn execute_route_to_specialist(
+pub(crate) async fn execute_route_to_specialist(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1165,7 +1263,7 @@ async fn execute_route_to_specialist(
             &task_description,
             &capability_tags,
             task_id,
-            None, // goal_run_id
+            None,
             thread_id,
             &acceptance_criteria,
             current_depth,
@@ -1192,7 +1290,7 @@ async fn execute_route_to_specialist(
     }
 }
 
-async fn execute_run_divergent(
+pub(crate) async fn execute_run_divergent(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1216,7 +1314,6 @@ async fn execute_run_divergent(
         .ok_or_else(|| anyhow::anyhow!("missing 'problem_statement' argument"))?
         .to_string();
 
-    // Parse optional custom framings
     let custom_framings = args
         .get("custom_framings")
         .and_then(|v| v.as_array())
@@ -1233,7 +1330,7 @@ async fn execute_run_divergent(
                     if label.is_empty() || prompt.is_empty() {
                         return None;
                     }
-                    Some(super::handoff::divergent::Framing {
+                    Some(super::super::handoff::divergent::Framing {
                         label,
                         system_prompt_override: prompt,
                         task_id: None,
@@ -1302,7 +1399,7 @@ async fn execute_run_divergent(
     }
 }
 
-async fn execute_get_divergent_session(
+pub(crate) async fn execute_get_divergent_session(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1321,7 +1418,7 @@ async fn execute_get_divergent_session(
     }
 }
 
-async fn execute_run_debate(
+pub(crate) async fn execute_run_debate(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1351,7 +1448,7 @@ async fn execute_run_debate(
                     if label.is_empty() || prompt.is_empty() {
                         return None;
                     }
-                    Some(super::handoff::divergent::Framing {
+                    Some(super::super::handoff::divergent::Framing {
                         label,
                         system_prompt_override: prompt,
                         task_id: None,
@@ -1390,7 +1487,7 @@ async fn execute_run_debate(
     }
 }
 
-async fn execute_get_debate_session(
+pub(crate) async fn execute_get_debate_session(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1409,7 +1506,7 @@ async fn execute_get_debate_session(
     }
 }
 
-async fn execute_get_critique_session(
+pub(crate) async fn execute_get_critique_session(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1428,7 +1525,7 @@ async fn execute_get_critique_session(
     }
 }
 
-async fn execute_lookup_emergent_protocol(
+pub(crate) async fn execute_lookup_emergent_protocol(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1484,7 +1581,7 @@ async fn execute_lookup_emergent_protocol(
     .unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_emergent_protocol_proposals(
+pub(crate) async fn execute_list_emergent_protocol_proposals(
     _args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1493,7 +1590,7 @@ async fn execute_list_emergent_protocol_proposals(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_respond_emergent_protocol_proposal(
+pub(crate) async fn execute_respond_emergent_protocol_proposal(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1515,7 +1612,7 @@ async fn execute_respond_emergent_protocol_proposal(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_reload_emergent_protocol_registry(
+pub(crate) async fn execute_reload_emergent_protocol_registry(
     _args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1524,7 +1621,7 @@ async fn execute_reload_emergent_protocol_registry(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_decode_emergent_protocol(
+pub(crate) async fn execute_decode_emergent_protocol(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1559,7 +1656,7 @@ async fn execute_decode_emergent_protocol(
     .unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_get_emergent_protocol_usage_log(
+pub(crate) async fn execute_get_emergent_protocol_usage_log(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1574,7 +1671,7 @@ async fn execute_get_emergent_protocol_usage_log(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_append_debate_argument(
+pub(crate) async fn execute_append_debate_argument(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1652,7 +1749,7 @@ async fn execute_append_debate_argument(
     .unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_advance_debate_round(
+pub(crate) async fn execute_advance_debate_round(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1675,7 +1772,7 @@ async fn execute_advance_debate_round(
     }
 }
 
-async fn execute_complete_debate_session(
+pub(crate) async fn execute_complete_debate_session(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1694,7 +1791,7 @@ async fn execute_complete_debate_session(
     }
 }
 
-async fn execute_handoff_thread_agent(
+pub(crate) async fn execute_handoff_thread_agent(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1866,7 +1963,7 @@ async fn execute_message_agent_internal_dm(
     }))
 }
 
-async fn execute_message_agent(
+pub(crate) async fn execute_message_agent(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1890,8 +1987,8 @@ async fn execute_message_agent(
         .and_then(|value| value.as_bool());
 
     let sender = if let Some(current_task_id) = task_id {
-        let tasks = agent.tasks.lock().await;
-        sender_name_for_task(tasks.iter().find(|task| task.id == current_task_id))
+        let task = find_task_for_spawn(agent, current_task_id).await;
+        sender_name_for_task(task.as_ref())
     } else {
         canonical_agent_name(&current_agent_scope_id()).to_string()
     };
@@ -1905,25 +2002,23 @@ async fn execute_message_agent(
         && !crate::agent::agent_identity::is_internal_dm_thread(thread_id)
         && !crate::agent::agent_identity::is_participant_playground_thread(thread_id)
         && !crate::agent::is_internal_handoff_thread(thread_id);
-    if requested_visible_thread_continuation == Some(true) && !visible_operator_thread
-    {
+    if requested_visible_thread_continuation == Some(true) && !visible_operator_thread {
         anyhow::bail!(
             "request_visible_thread_continuation requires a visible operator thread, not an internal thread"
         );
     }
-    let defaults_to_visible_thread_continuation =
-        requested_visible_thread_continuation.is_none()
-            && visible_operator_thread
-            && agent
-                .list_thread_participants(thread_id)
-                .await
-                .iter()
-                .any(|participant| {
-                    participant.status == crate::agent::ThreadParticipantStatus::Active
-                        && participant
-                            .agent_id
-                            .eq_ignore_ascii_case(&resolved_target_id)
-                });
+    let defaults_to_visible_thread_continuation = requested_visible_thread_continuation.is_none()
+        && visible_operator_thread
+        && agent
+            .list_thread_participants(thread_id)
+            .await
+            .iter()
+            .any(|participant| {
+                participant.status == crate::agent::ThreadParticipantStatus::Active
+                    && participant
+                        .agent_id
+                        .eq_ignore_ascii_case(&resolved_target_id)
+            });
     let request_visible_thread_continuation =
         requested_visible_thread_continuation.unwrap_or(defaults_to_visible_thread_continuation);
 

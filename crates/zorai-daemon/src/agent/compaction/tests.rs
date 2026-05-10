@@ -304,6 +304,8 @@ async fn persisted_goal_thread_compaction_derives_scope_from_goal_run_record() {
         .lock()
         .await
         .push_back(sample_goal_run_for_compaction(thread_id));
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
     {
         let mut threads = engine.threads.write().await;
         let mut thread = sample_thread(vec![
@@ -649,7 +651,7 @@ fn heuristic_message_count_alone_still_triggers_compaction() {
 }
 
 #[test]
-fn custom_model_message_count_alone_does_not_trigger_compaction() {
+fn custom_model_message_count_alone_triggers_compaction() {
     let mut config = AgentConfig::default();
     config.compaction.strategy = CompactionStrategy::CustomModel;
     config.max_context_messages = 100;
@@ -665,11 +667,97 @@ fn custom_model_message_count_alone_does_not_trigger_compaction() {
         .map(|idx| AgentMessage::user(format!("m{idx}"), idx as u64 + 1))
         .collect::<Vec<_>>();
 
-    assert_eq!(compaction_candidate(&messages, &config, &provider), None);
+    let candidate = compaction_candidate(&messages, &config, &provider).expect(
+        "CustomModel strategy must compact when message count exceeds max_context_messages",
+    );
+    assert_eq!(candidate.trigger, CompactionTrigger::MessageCount);
 }
 
 #[test]
-fn weles_message_count_alone_does_not_trigger_compaction() {
+fn ensure_payload_scope_markers_injects_goal_run_id_when_missing() {
+    let scope = CompactionScopeSnapshot {
+        thread_id: "thread-1".to_string(),
+        task_id: Some("task-99".to_string()),
+        goal_run_id: Some("goal-abc-123".to_string()),
+        ..Default::default()
+    };
+    let payload = "Discussed the build pipeline and decided to retry step 4.".to_string();
+    let injected = ensure_payload_scope_markers(payload.clone(), Some(&scope));
+
+    assert!(
+        injected.starts_with("[scope: goal_run_id=goal-abc-123; task_id=task-99]\n"),
+        "scope header should be prepended: {injected}"
+    );
+    assert!(
+        injected.ends_with(&payload),
+        "original payload should follow the injected header"
+    );
+    assert!(
+        compaction_payload_matches_scope(&injected, Some(&scope)),
+        "injected payload must satisfy the existing scope-match check"
+    );
+}
+
+#[test]
+fn ensure_payload_scope_markers_is_idempotent_when_marker_already_present() {
+    let scope = CompactionScopeSnapshot {
+        thread_id: "thread-1".to_string(),
+        goal_run_id: Some("goal-already-mentioned".to_string()),
+        ..Default::default()
+    };
+    let payload = "Summary references goal-already-mentioned in the body.".to_string();
+    let result = ensure_payload_scope_markers(payload.clone(), Some(&scope));
+    assert_eq!(
+        result, payload,
+        "no header injected when payload already contains the goal_run_id"
+    );
+}
+
+#[test]
+fn ensure_payload_scope_markers_is_noop_when_no_scope() {
+    let payload = "summary".to_string();
+    assert_eq!(
+        ensure_payload_scope_markers(payload.clone(), None),
+        payload,
+        "no scope → no injection"
+    );
+}
+
+#[test]
+fn compaction_llm_failure_with_capacity_is_downcastable_from_anyhow() {
+    let typed = CompactionLlmFailureWithCapacity {
+        strategy: CompactionStrategy::CustomModel,
+        provider_id: "openrouter".to_string(),
+        model_window_tokens: 1_000_000,
+        input_tokens: 290_000,
+        source: anyhow::anyhow!("simulated network failure"),
+    };
+    let display = typed.to_string();
+    assert!(
+        display.contains("CustomModel"),
+        "display should mention strategy: {display}"
+    );
+    assert!(
+        display.contains("simulated network failure"),
+        "display should expose the underlying cause: {display}"
+    );
+    assert!(
+        display.contains("1000000") || display.contains("1_000_000"),
+        "display should mention model window tokens: {display}"
+    );
+
+    let wrapped: anyhow::Error = anyhow::Error::new(typed);
+    let downcast = wrapped
+        .downcast_ref::<CompactionLlmFailureWithCapacity>()
+        .expect("typed error must be downcastable from anyhow::Error");
+    assert_eq!(downcast.strategy, CompactionStrategy::CustomModel);
+    assert_eq!(downcast.provider_id, "openrouter");
+    assert_eq!(downcast.model_window_tokens, 1_000_000);
+    assert_eq!(downcast.input_tokens, 290_000);
+}
+
+#[test]
+fn weles_message_count_alone_triggers_compaction() {
     let mut config = AgentConfig::default();
     config.compaction.strategy = CompactionStrategy::Weles;
     config.max_context_messages = 100;
@@ -686,7 +774,9 @@ fn weles_message_count_alone_does_not_trigger_compaction() {
         .map(|idx| AgentMessage::user(format!("m{idx}"), idx as u64 + 1))
         .collect::<Vec<_>>();
 
-    assert_eq!(compaction_candidate(&messages, &config, &provider), None);
+    let candidate = compaction_candidate(&messages, &config, &provider)
+        .expect("Weles strategy must compact when message count exceeds max_context_messages");
+    assert_eq!(candidate.trigger, CompactionTrigger::MessageCount);
 }
 
 #[test]
@@ -3084,7 +3174,7 @@ fn compaction_candidate_keeps_unanswered_tool_turn_out_of_summary_boundary() {
 }
 
 #[test]
-fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
+fn prepare_llm_request_drops_hidden_tool_turn_after_compaction_artifact() {
     let mut config = AgentConfig::default();
     config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();
     config.auto_compact_context = false;
@@ -3208,23 +3298,149 @@ fn prepare_llm_request_repairs_hidden_tool_turn_after_compaction_artifact() {
 
     assert_eq!(prepared.transport, ApiTransport::Responses);
     assert!(prepared.previous_response_id.is_none());
-    assert_eq!(prepared.messages.len(), 4);
+    assert_eq!(prepared.messages.len(), 2);
     assert_eq!(prepared.messages[0].role, "assistant");
-    assert_eq!(prepared.messages[1].role, "assistant");
+    assert_eq!(prepared.messages[1].role, "user");
+}
+
+#[test]
+fn prepare_llm_request_never_reintroduces_pre_artifact_messages() {
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();
+    config.auto_compact_context = false;
+
+    let mut provider = sample_provider_config();
+    provider.base_url = "https://api.githubcopilot.com".to_string();
+    provider.model = "gpt-5.4".to_string();
+    provider.auth_source = AuthSource::GithubCopilot;
+    provider.api_transport = ApiTransport::Responses;
+
+    let thread = sample_thread(vec![
+        AgentMessage::user("old user message must stay stored only", 1),
+        AgentMessage {
+            id: "old-assistant-tool-call".to_string(),
+            role: MessageRole::Assistant,
+            content: "old assistant message must stay stored only".to_string(),
+            content_blocks: Vec::new(),
+            tool_calls: Some(vec![ToolCall {
+                id: "call_old".to_string(),
+                function: ToolFunction {
+                    name: zorai_protocol::tool_names::READ_FILE.to_string(),
+                    arguments: "{\"path\":\"/tmp/old.md\"}".to_string(),
+                },
+                weles_review: None,
+            }]),
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            weles_review: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: None,
+            provider: Some(PROVIDER_ID_GITHUB_COPILOT.to_string()),
+            model: Some("gpt-5.4".to_string()),
+            api_transport: Some(ApiTransport::Responses),
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning: None,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
+            offloaded_payload_id: None,
+            tool_output_preview_path: None,
+            structural_refs: Vec::new(),
+            pinned_for_compaction: false,
+            timestamp: 2,
+        },
+        AgentMessage {
+            id: "compaction-1".to_string(),
+            role: MessageRole::Assistant,
+            content: "Pre-compaction context: ~330,000 / 400,000 tokens".to_string(),
+            content_blocks: Vec::new(),
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            weles_review: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: None,
+            provider: None,
+            model: None,
+            api_transport: None,
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning: None,
+            message_kind: AgentMessageKind::CompactionArtifact,
+            compaction_strategy: Some(CompactionStrategy::CustomModel),
+            compaction_payload: Some("checkpoint summary only".to_string()),
+            offloaded_payload_id: None,
+            tool_output_preview_path: None,
+            structural_refs: Vec::new(),
+            pinned_for_compaction: false,
+            timestamp: 3,
+        },
+        AgentMessage {
+            id: "orphan-tool-after-compaction".to_string(),
+            role: MessageRole::Tool,
+            content: "old tool result must not force the old assistant back into live context"
+                .to_string(),
+            content_blocks: Vec::new(),
+            tool_calls: None,
+            tool_call_id: Some("call_old".to_string()),
+            tool_name: Some(zorai_protocol::tool_names::READ_FILE.to_string()),
+            tool_arguments: Some("{\"path\":\"/tmp/old.md\"}".to_string()),
+            tool_status: Some("done".to_string()),
+            weles_review: None,
+            input_tokens: 0,
+            output_tokens: 0,
+            cost: None,
+            provider: None,
+            model: None,
+            api_transport: None,
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning: None,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
+            offloaded_payload_id: None,
+            tool_output_preview_path: None,
+            structural_refs: Vec::new(),
+            pinned_for_compaction: false,
+            timestamp: 4,
+        },
+        AgentMessage::user("new user message after compaction", 5),
+    ]);
+
+    let prepared = prepare_llm_request(&thread, &config, &provider);
+    let rendered = serde_json::to_string(&prepared.messages).expect("messages should encode");
+
+    assert_eq!(prepared.transport, ApiTransport::Responses);
+    assert!(rendered.contains("checkpoint summary only"));
+    assert!(rendered.contains("new user message after compaction"));
+    assert!(!rendered.contains("old user message must stay stored only"));
+    assert!(!rendered.contains("old assistant message must stay stored only"));
+    assert!(!rendered.contains("old tool result must not force"));
     assert_eq!(
-        prepared.messages[1]
-            .tool_calls
-            .as_ref()
-            .and_then(|tool_calls| tool_calls.first())
-            .map(|tool_call| tool_call.id.as_str()),
-        Some("call_read")
+        prepared
+            .messages
+            .iter()
+            .map(|message| message.role.as_str())
+            .collect::<Vec<_>>(),
+        vec!["assistant", "user"]
     );
-    assert_eq!(prepared.messages[2].role, "tool");
-    assert_eq!(
-        prepared.messages[2].tool_call_id.as_deref(),
-        Some("call_read")
-    );
-    assert_eq!(prepared.messages[3].role, "user");
 }
 
 #[tokio::test]

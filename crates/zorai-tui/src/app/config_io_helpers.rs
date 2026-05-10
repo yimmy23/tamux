@@ -1,7 +1,7 @@
 use super::*;
 use zorai_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENROUTER};
 
-pub(super) fn normalize_provider_auth_source(provider_id: &str, auth_source: &str) -> String {
+pub(crate) fn normalize_provider_auth_source(provider_id: &str, auth_source: &str) -> String {
     if providers::supported_auth_sources_for(provider_id).contains(&auth_source) {
         auth_source.to_string()
     } else {
@@ -9,7 +9,7 @@ pub(super) fn normalize_provider_auth_source(provider_id: &str, auth_source: &st
     }
 }
 
-pub(super) fn normalize_provider_transport(provider_id: &str, api_transport: &str) -> String {
+pub(crate) fn normalize_provider_transport(provider_id: &str, api_transport: &str) -> String {
     if providers::supported_transports_for(provider_id).contains(&api_transport) {
         api_transport.to_string()
     } else {
@@ -17,7 +17,7 @@ pub(super) fn normalize_provider_transport(provider_id: &str, api_transport: &st
     }
 }
 
-pub(super) fn normalize_compliance_mode(mode: &str) -> String {
+pub(crate) fn normalize_compliance_mode(mode: &str) -> String {
     match mode {
         "standard" | "soc2" | "hipaa" | "fedramp" => mode.to_string(),
         _ => "standard".to_string(),
@@ -81,5 +81,8 @@ pub(super) fn flatten_config_value(
     }
 }
 
-include!("config_io_helpers_parts/provider_field_str_to_refresh_snapshot_stats.rs");
-include!("config_io_helpers_parts/build_config_patch_value.rs");
+#[path = "config_io_helpers_parts/provider_field_str_to_refresh_snapshot_stats.rs"]
+mod provider_field_str_to_refresh_snapshot_stats;
+
+#[path = "config_io_helpers_parts/build_config_patch_value.rs"]
+mod build_config_patch_value;

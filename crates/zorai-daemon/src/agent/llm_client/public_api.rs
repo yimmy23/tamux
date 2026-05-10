@@ -1,28 +1,26 @@
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+use super::*;
 
 const MAX_RETRY_DELAY_MS: u64 = 60_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct AttemptTarget {
-    api_type: ApiType,
-    branch: &'static str,
-    url: String,
+pub(crate) struct AttemptTarget {
+    pub(crate) api_type: ApiType,
+    pub(crate) branch: &'static str,
+    pub(crate) url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RetryFailureAnalysis {
-    structured_class: Option<String>,
-    failure_class: &'static str,
-    retry_after_ms: Option<u64>,
-    response_observed: bool,
-    is_rate_limited: bool,
-    is_transient_transport: bool,
-    is_temporary_upstream: bool,
+pub(crate) struct RetryFailureAnalysis {
+    pub(crate) structured_class: Option<String>,
+    pub(crate) failure_class: &'static str,
+    pub(crate) retry_after_ms: Option<u64>,
+    pub(crate) response_observed: bool,
+    pub(crate) is_rate_limited: bool,
+    pub(crate) is_transient_transport: bool,
+    pub(crate) is_temporary_upstream: bool,
 }
 
-fn effective_attempt_target(
+pub(crate) fn effective_attempt_target(
     provider: &str,
     config: &ProviderConfig,
     transport: ApiTransport,
@@ -66,7 +64,7 @@ fn effective_attempt_target(
     }
 }
 
-fn analyze_retry_failure(err: &anyhow::Error) -> RetryFailureAnalysis {
+pub(crate) fn analyze_retry_failure(err: &anyhow::Error) -> RetryFailureAnalysis {
     let structured_failure = upstream_failure_error(err);
     let structured_class = structured_failure.map(|failure| failure.class);
     let response_observed = structured_class.is_some();
@@ -78,9 +76,10 @@ fn analyze_retry_failure(err: &anyhow::Error) -> RetryFailureAnalysis {
         structured_class,
         Some(UpstreamFailureClass::TransientTransport)
     ) || is_transient_transport_error(err);
-    let is_temporary_upstream =
-        matches!(structured_class, Some(UpstreamFailureClass::TemporaryUpstream))
-            || is_temporary_upstream_error(err);
+    let is_temporary_upstream = matches!(
+        structured_class,
+        Some(UpstreamFailureClass::TemporaryUpstream)
+    ) || is_temporary_upstream_error(err);
     let failure_class = if is_rate_limited {
         "rate_limit"
     } else if is_transient_transport {
@@ -308,7 +307,10 @@ pub(crate) fn send_completion_request_with_options(
                             } if retry_attempt < max_retries => {
                                 retry_attempt += 1;
                                 let delay_ms = analysis.retry_after_ms.unwrap_or_else(|| {
-                                    compute_retry_delay_ms_for_attempt(retry_delay_ms, retry_attempt)
+                                    compute_retry_delay_ms_for_attempt(
+                                        retry_delay_ms,
+                                        retry_attempt,
+                                    )
                                 });
                                 tracing::info!(
                                     provider = %provider,
@@ -413,7 +415,7 @@ pub async fn count_request_tokens(
 }
 
 /// Convert `AgentMessage` history to API format.
-pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<ApiMessage> {
+pub fn messages_to_api_format(messages: &[crate::agent::types::AgentMessage]) -> Vec<ApiMessage> {
     let mut pending_tool_results = std::collections::VecDeque::new();
 
     messages
@@ -421,14 +423,14 @@ pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<Ap
         .filter(|m| {
             matches!(
                 m.role,
-                super::types::MessageRole::User
-                    | super::types::MessageRole::Assistant
-                    | super::types::MessageRole::Tool
+                crate::agent::types::MessageRole::User
+                    | crate::agent::types::MessageRole::Assistant
+                    | crate::agent::types::MessageRole::Tool
             )
         })
         .filter_map(|m| {
             let mut normalized_tool_calls = None;
-            if matches!(m.role, super::types::MessageRole::Assistant) {
+            if matches!(m.role, crate::agent::types::MessageRole::Assistant) {
                 pending_tool_results.clear();
                 if let Some(tool_calls) = &m.tool_calls {
                     let normalized: Vec<ApiToolCall> = tool_calls
@@ -461,7 +463,7 @@ pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<Ap
             }
 
             let mut normalized_tool_call_id = m.tool_call_id.clone();
-            if matches!(m.role, super::types::MessageRole::Tool) {
+            if matches!(m.role, crate::agent::types::MessageRole::Tool) {
                 let resolved_tool_call_id = if let Some(tool_call_id) = m
                     .tool_call_id
                     .as_ref()
@@ -486,7 +488,7 @@ pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<Ap
                 if normalized_tool_call_id.as_deref().is_none() {
                     return None;
                 }
-            } else if !matches!(m.role, super::types::MessageRole::Assistant)
+            } else if !matches!(m.role, crate::agent::types::MessageRole::Assistant)
                 && !pending_tool_results.is_empty()
             {
                 pending_tool_results.clear();
@@ -494,10 +496,10 @@ pub fn messages_to_api_format(messages: &[super::types::AgentMessage]) -> Vec<Ap
 
             Some(ApiMessage {
                 role: match m.role {
-                    super::types::MessageRole::System => "system".into(),
-                    super::types::MessageRole::User => "user".into(),
-                    super::types::MessageRole::Assistant => "assistant".into(),
-                    super::types::MessageRole::Tool => "tool".into(),
+                    crate::agent::types::MessageRole::System => "system".into(),
+                    crate::agent::types::MessageRole::User => "user".into(),
+                    crate::agent::types::MessageRole::Assistant => "assistant".into(),
+                    crate::agent::types::MessageRole::Tool => "tool".into(),
                 },
                 content: agent_message_content_to_api_content(m),
                 reasoning: m.reasoning.clone(),
@@ -536,7 +538,7 @@ fn normalize_tool_call_arguments_for_api(arguments: &str) -> String {
     serde_json::json!({ "_invalid_tool_arguments": arguments }).to_string()
 }
 
-fn agent_message_content_to_api_content(message: &super::types::AgentMessage) -> ApiContent {
+fn agent_message_content_to_api_content(message: &crate::agent::types::AgentMessage) -> ApiContent {
     let blocks = agent_content_blocks_to_api_blocks(&message.content_blocks);
     if blocks.is_empty() {
         ApiContent::Text(message.content.clone())
@@ -546,18 +548,20 @@ fn agent_message_content_to_api_content(message: &super::types::AgentMessage) ->
 }
 
 fn agent_content_blocks_to_api_blocks(
-    blocks: &[super::types::AgentContentBlock],
+    blocks: &[crate::agent::types::AgentContentBlock],
 ) -> Vec<serde_json::Value> {
     blocks
         .iter()
         .filter_map(|block| match block {
-            super::types::AgentContentBlock::Text { text } => {
-                (!text.is_empty()).then(|| serde_json::json!({
-                    "type": "input_text",
-                    "text": text,
-                }))
+            crate::agent::types::AgentContentBlock::Text { text } => {
+                (!text.is_empty()).then(|| {
+                    serde_json::json!({
+                        "type": "input_text",
+                        "text": text,
+                    })
+                })
             }
-            super::types::AgentContentBlock::Image {
+            crate::agent::types::AgentContentBlock::Image {
                 url,
                 data_url,
                 mime_type: _,
@@ -571,7 +575,7 @@ fn agent_content_blocks_to_api_blocks(
                         "image_url": image_url,
                     })
                 }),
-            super::types::AgentContentBlock::Audio {
+            crate::agent::types::AgentContentBlock::Audio {
                 url,
                 data_url,
                 mime_type,
@@ -637,14 +641,14 @@ fn api_content_to_json(content: &ApiContent) -> serde_json::Value {
 }
 
 #[cfg(test)]
-fn build_chat_completion_messages(
+pub(crate) fn build_chat_completion_messages(
     system_prompt: &str,
     messages: &[ApiMessage],
 ) -> Result<Vec<serde_json::Value>> {
     build_chat_completion_messages_with_options(system_prompt, messages, false, false, false, false)
 }
 
-fn build_chat_completion_messages_with_options(
+pub(crate) fn build_chat_completion_messages_with_options(
     system_prompt: &str,
     messages: &[ApiMessage],
     include_tool_reasoning_content: bool,
@@ -694,8 +698,8 @@ fn build_chat_completion_messages_with_options(
         } else {
             obj.insert("content".to_string(), api_content_to_json(&message.content));
             if message.role == "assistant" {
-                let include_after_tool_call =
-                    include_non_tool_reasoning_content_after_tool_call && current_turn_has_tool_call;
+                let include_after_tool_call = include_non_tool_reasoning_content_after_tool_call
+                    && current_turn_has_tool_call;
                 if include_non_tool_reasoning_content || include_after_tool_call {
                     insert_reasoning_content(
                         &mut obj,

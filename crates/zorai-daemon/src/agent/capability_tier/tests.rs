@@ -117,7 +117,6 @@ fn self_assessment_elevates_behavioral() {
     let mut signals = make_signals();
     signals.session_count = 5;
     signals.unique_tools_used = 3;
-    // behavioral = Familiar
     signals.user_self_assessment = Some(CapabilityTier::PowerUser);
     assert_eq!(resolve_tier(&signals), CapabilityTier::PowerUser);
 }
@@ -127,7 +126,6 @@ fn self_assessment_does_not_demote_behavioral() {
     let mut signals = make_signals();
     signals.session_count = 5;
     signals.unique_tools_used = 3;
-    // behavioral = Familiar
     signals.user_self_assessment = Some(CapabilityTier::Newcomer);
     assert_eq!(resolve_tier(&signals), CapabilityTier::Familiar);
 }

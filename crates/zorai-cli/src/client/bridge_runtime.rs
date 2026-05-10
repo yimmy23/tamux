@@ -56,8 +56,6 @@ pub async fn run_bridge(
         session_id: session_id.to_string(),
     })?;
 
-    // Replay recent daemon scrollback so renderer reloads can reconstruct terminal state
-    // even when the Electron-side bridge process is recreated.
     framed
         .send(ClientMessage::GetScrollback {
             id: session_id,
@@ -66,8 +64,6 @@ pub async fn run_bridge(
         .await
         .ok();
 
-    // Nudge the PTY with a resize so that shells (especially wsl.exe on Windows)
-    // redraw their prompt even if the initial output was produced before we subscribed.
     framed
         .send(ClientMessage::Resize {
             id: session_id,

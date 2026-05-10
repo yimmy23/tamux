@@ -96,7 +96,6 @@ pub async fn execute_request(
     {
         Ok(Ok(resp)) => resp,
         Ok(Err(e)) => {
-            // reqwest-level error (DNS, connection, etc.)
             return Err(PluginApiError::HttpError {
                 status: 0,
                 body: format!("request failed: {e}"),
@@ -109,7 +108,6 @@ pub async fn execute_request(
 
     let status = response.status();
 
-    // Handle 429 (Too Many Requests) from upstream
     if status.as_u16() == 429 {
         let retry_after = response
             .headers()
@@ -118,15 +116,13 @@ pub async fn execute_request(
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(DEFAULT_RETRY_AFTER_SECS);
         return Err(PluginApiError::RateLimited {
-            plugin: String::new(), // caller fills in plugin name context
+            plugin: String::new(),
             retry_after_secs: retry_after,
         });
     }
 
-    // Read body text
     let body_text = response.text().await.unwrap_or_default();
 
-    // Handle other error statuses
     if !status.is_success() {
         let truncated = if body_text.len() > MAX_ERROR_BODY_CHARS {
             format!("{}...", &body_text[..MAX_ERROR_BODY_CHARS])
@@ -139,7 +135,6 @@ pub async fn execute_request(
         });
     }
 
-    // Parse response as JSON; wrap raw text if not valid JSON
     match serde_json::from_str::<serde_json::Value>(&body_text) {
         Ok(json) => Ok(json),
         Err(_) => Ok(serde_json::json!({ "text": body_text })),

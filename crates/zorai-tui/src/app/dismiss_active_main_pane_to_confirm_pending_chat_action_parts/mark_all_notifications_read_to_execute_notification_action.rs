@@ -1,5 +1,19 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
 impl TuiModel {
-    fn mark_all_notifications_read(&mut self) {
+    pub(crate) fn mark_all_notifications_read(&mut self) {
         let ids = self
             .notifications
             .active_items()
@@ -12,7 +26,7 @@ impl TuiModel {
         }
     }
 
-    fn archive_read_notifications(&mut self) {
+    pub(crate) fn archive_read_notifications(&mut self) {
         let ids = self
             .notifications
             .active_items()
@@ -25,7 +39,11 @@ impl TuiModel {
         }
     }
 
-    fn execute_notification_row_action(&mut self, notification_id: &str, action_index: usize) {
+    pub(crate) fn execute_notification_row_action(
+        &mut self,
+        notification_id: &str,
+        action_index: usize,
+    ) {
         match action_index {
             0 => self.toggle_notification_expand(notification_id.to_string()),
             1 => self.mark_notification_read(notification_id),
@@ -37,7 +55,7 @@ impl TuiModel {
         }
     }
 
-    fn execute_notification_action(
+    pub(crate) fn execute_notification_action(
         &mut self,
         notification_id: &str,
         action_id: &str,

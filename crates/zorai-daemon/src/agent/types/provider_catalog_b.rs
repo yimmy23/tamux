@@ -1,3 +1,9 @@
+use super::*;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
+
 pub const ALIBABA_CODING_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
         id: "qwen3-coder-plus",
@@ -266,14 +272,12 @@ pub const OPENCODE_ZEN_MODELS: &[ModelDefinition] = &[
     },
 ];
 
-pub const ARCEE_MODELS: &[ModelDefinition] = &[
-    ModelDefinition {
-        id: "trinity-large-thinking",
-        name: "Trinity Large Thinking",
-        context_window: 256000,
-        modalities: TEXT_ONLY,
-    },
-];
+pub const ARCEE_MODELS: &[ModelDefinition] = &[ModelDefinition {
+    id: "trinity-large-thinking",
+    name: "Trinity Large Thinking",
+    context_window: 256000,
+    modalities: TEXT_ONLY,
+}];
 
 pub const OPENROUTER_MODELS: &[ModelDefinition] = &[
     ModelDefinition {

@@ -15,6 +15,13 @@ impl TuiModel {
                 None
             }
             ClientEvent::WorkspaceSettings(settings) => {
+                if self.workspace.workspace_id() == settings.workspace_id.as_str() {
+                    self.config.workspace_repo_monitor_enabled = settings.repo_monitor_enabled;
+                    self.config.workspace_repo_monitor_include_dirs =
+                        settings.repo_monitor_include_dirs.join("\n");
+                    self.config.workspace_repo_monitor_exclude_dirs =
+                        settings.repo_monitor_exclude_dirs.join("\n");
+                }
                 self.workspace.set_settings(settings);
                 None
             }
@@ -98,6 +105,15 @@ impl TuiModel {
             ClientEvent::GoalRunDetail(None) => None,
             ClientEvent::GoalRunUpdate(run) => {
                 self.handle_goal_run_update_event(run);
+                None
+            }
+            ClientEvent::GoalRunControlled { goal_run_id, ok } => {
+                if ok {
+                    self.request_authoritative_goal_run_refresh(goal_run_id);
+                    self.status_line = "Goal run updated".to_string();
+                } else {
+                    self.status_line = "Goal run update failed".to_string();
+                }
                 None
             }
             ClientEvent::GoalRunDeleted {

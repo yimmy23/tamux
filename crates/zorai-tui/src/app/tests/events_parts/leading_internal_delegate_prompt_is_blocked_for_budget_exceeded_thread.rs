@@ -1,3 +1,10 @@
+use super::done_event_persists_final_reasoning_into_chat_message_to_mission_control::*;
+use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
+use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn leading_internal_delegate_prompt_is_blocked_for_budget_exceeded_thread() {
     let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
@@ -486,4 +493,3 @@ fn openai_codex_auth_events_update_config_and_modal_state() {
     ));
     assert_eq!(model.status_line, "ChatGPT subscription auth cleared");
 }
-

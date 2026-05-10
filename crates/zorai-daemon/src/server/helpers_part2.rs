@@ -1,4 +1,5 @@
-async fn persist_gateway_health_update(
+use super::*;
+pub(crate) async fn persist_gateway_health_update(
     agent: &Arc<AgentEngine>,
     update: GatewayHealthState,
 ) -> Result<()> {
@@ -141,11 +142,13 @@ async fn persist_gateway_health_update(
     Ok(())
 }
 
-fn gateway_response_channel_key(platform: &str, channel_id: &str) -> Option<String> {
-    Some(crate::agent::gateway::gateway_channel_key(platform, channel_id))
+pub(crate) fn gateway_response_channel_key(platform: &str, channel_id: &str) -> Option<String> {
+    Some(crate::agent::gateway::gateway_channel_key(
+        platform, channel_id,
+    ))
 }
 
-fn is_expected_disconnect_error(error: &anyhow::Error) -> bool {
+pub(crate) fn is_expected_disconnect_error(error: &anyhow::Error) -> bool {
     let expected_io_error = |kind: std::io::ErrorKind| {
         matches!(
             kind,
@@ -326,21 +329,25 @@ where
 
 const MAX_THREAD_DETAIL_CHUNK_BYTES: usize = 64 * 1024;
 
-fn thread_detail_fits_single_ipc_frame(thread_json: &str) -> bool {
+pub(crate) fn thread_detail_fits_single_ipc_frame(thread_json: &str) -> bool {
     zorai_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentThreadDetail {
         thread_json: thread_json.to_string(),
     })
 }
 
-fn thread_detail_chunks_for_ipc(thread_json: &str) -> impl Iterator<Item = &[u8]> {
-    thread_json
-        .as_bytes()
-        .chunks(MAX_THREAD_DETAIL_CHUNK_BYTES)
+pub(crate) fn thread_detail_chunks_for_ipc(thread_json: &str) -> impl Iterator<Item = &[u8]> {
+    thread_json.as_bytes().chunks(MAX_THREAD_DETAIL_CHUNK_BYTES)
 }
 
-fn cap_agent_thread_list_for_ipc(
+pub(crate) fn cap_agent_thread_list_for_ipc(
     threads: Vec<crate::agent::types::AgentThread>,
 ) -> (Vec<crate::agent::types::AgentThread>, bool) {
+    if let Ok(threads_json) = serde_json::to_string(&threads) {
+        if agent_event_payload_fits_ipc_fast(threads_json.len()) {
+            return (threads, false);
+        }
+    }
+
     cap_vec_prefix_for_ipc(threads, |candidate| {
         let Ok(threads_json) = serde_json::to_string(candidate) else {
             return false;
@@ -349,10 +356,13 @@ fn cap_agent_thread_list_for_ipc(
     })
 }
 
-fn cap_scrollback_for_ipc(
+pub(crate) fn cap_scrollback_for_ipc(
     id: zorai_protocol::SessionId,
     data: Vec<u8>,
 ) -> (Vec<u8>, bool) {
+    if agent_event_payload_fits_ipc_fast(data.len()) {
+        return (data, false);
+    }
     cap_bytes_suffix_for_ipc(data, |candidate| {
         zorai_protocol::daemon_message_fits_ipc(&DaemonMessage::Scrollback {
             id,
@@ -361,10 +371,13 @@ fn cap_scrollback_for_ipc(
     })
 }
 
-fn cap_analysis_result_for_ipc(
+pub(crate) fn cap_analysis_result_for_ipc(
     id: zorai_protocol::SessionId,
     result: String,
 ) -> (String, bool) {
+    if agent_event_payload_fits_ipc_fast(result.len()) {
+        return (result, false);
+    }
     cap_string_suffix_for_ipc(result, |candidate| {
         zorai_protocol::daemon_message_fits_ipc(&DaemonMessage::AnalysisResult {
             id,
@@ -373,15 +386,23 @@ fn cap_analysis_result_for_ipc(
     })
 }
 
-fn cap_history_search_result_for_ipc(
+pub(crate) fn cap_history_search_result_for_ipc(
     query: &str,
     summary: String,
     hits: Vec<zorai_protocol::HistorySearchHit>,
 ) -> (String, Vec<zorai_protocol::HistorySearchHit>, bool) {
-    let query = query.to_string();
+    let raw_estimate = query
+        .len()
+        .saturating_add(summary.len())
+        .saturating_add(hits.iter().map(estimate_hit_size).sum::<usize>());
+    if agent_event_payload_fits_ipc_fast(raw_estimate) {
+        return (summary, hits, false);
+    }
+
+    let query_owned = query.to_string();
     let fits = |summary: &str, hits: &[zorai_protocol::HistorySearchHit]| {
         zorai_protocol::daemon_message_fits_ipc(&DaemonMessage::HistorySearchResult {
-            query: query.clone(),
+            query: query_owned.clone(),
             summary: summary.to_string(),
             hits: hits.to_vec(),
         })
@@ -391,7 +412,8 @@ fn cap_history_search_result_for_ipc(
         return (summary, hits, false);
     }
 
-    let (hits, hits_truncated) = cap_vec_prefix_for_ipc(hits, |candidate| fits(&summary, candidate));
+    let (hits, hits_truncated) =
+        cap_vec_prefix_for_ipc(hits, |candidate| fits(&summary, candidate));
     if fits(&summary, &hits) {
         return (summary, hits, true);
     }
@@ -401,7 +423,15 @@ fn cap_history_search_result_for_ipc(
     (summary, hits, hits_truncated || summary_truncated)
 }
 
-fn cap_agent_db_thread_detail_for_ipc(
+fn estimate_hit_size(hit: &zorai_protocol::HistorySearchHit) -> usize {
+    64 + hit.id.len()
+        + hit.kind.len()
+        + hit.title.len()
+        + hit.excerpt.len()
+        + hit.path.as_deref().map(str::len).unwrap_or(0)
+}
+
+pub(crate) fn cap_agent_db_thread_detail_for_ipc(
     thread: Option<zorai_protocol::AgentDbThread>,
     messages: Vec<zorai_protocol::AgentDbMessage>,
 ) -> ((String, String), bool) {
@@ -409,24 +439,59 @@ fn cap_agent_db_thread_detail_for_ipc(
         return ((String::new(), String::new()), true);
     };
 
-    let fits = |candidate: &[zorai_protocol::AgentDbMessage]| {
-        let Ok(messages_json) = serde_json::to_string(candidate) else {
-            return false;
-        };
-        zorai_protocol::daemon_message_fits_ipc(&DaemonMessage::AgentDbThreadDetail {
-            thread_json: thread_json.clone(),
-            messages_json,
-        })
+    let messages_json = match serde_json::to_string(&messages) {
+        Ok(json) => json,
+        Err(_) => return ((thread_json, String::new()), true),
     };
+    if agent_event_payload_fits_ipc_fast(thread_json.len() + messages_json.len()) {
+        return ((thread_json, messages_json), false);
+    }
 
-    let (messages, truncated) = cap_vec_suffix_for_ipc(messages, fits);
-    let messages_json = serde_json::to_string(&messages).unwrap_or_default();
+    let per_message_json: Vec<String> = messages
+        .iter()
+        .map(|message| serde_json::to_string(message).unwrap_or_default())
+        .collect();
+
+    let array_overhead = |count: usize| -> usize {
+        if count == 0 {
+            2
+        } else {
+            2 + (count - 1)
+        }
+    };
+    let budget = zorai_protocol::MAX_IPC_FRAME_SIZE_BYTES
+        .saturating_sub(thread_json.len() + 4096);
+
+    let mut keep_count = 0usize;
+    let mut total_len = 0usize;
+    for json in per_message_json.iter().rev() {
+        let next_len = total_len + json.len() + array_overhead(keep_count + 1)
+            - array_overhead(keep_count);
+        if next_len > budget {
+            break;
+        }
+        total_len = next_len;
+        keep_count += 1;
+    }
+
+    let truncated = keep_count < messages.len();
+    let kept_messages: Vec<zorai_protocol::AgentDbMessage> = messages
+        .into_iter()
+        .skip(per_message_json.len() - keep_count)
+        .collect();
+    let messages_json = serde_json::to_string(&kept_messages).unwrap_or_default();
     ((thread_json, messages_json), truncated)
 }
 
-fn cap_agent_event_rows_for_ipc(
+pub(crate) fn cap_agent_event_rows_for_ipc(
     events: Vec<zorai_protocol::AgentEventRow>,
 ) -> (String, bool) {
+    if let Ok(events_json) = serde_json::to_string(&events) {
+        if agent_event_payload_fits_ipc_fast(events_json.len()) {
+            return (events_json, false);
+        }
+    }
+
     let fits = |candidate: &[zorai_protocol::AgentEventRow]| {
         let Ok(events_json) = serde_json::to_string(candidate) else {
             return false;
@@ -435,14 +500,22 @@ fn cap_agent_event_rows_for_ipc(
     };
 
     let (events, truncated) = cap_vec_suffix_for_ipc(events, fits);
-    (serde_json::to_string(&events).unwrap_or_default(), truncated)
+    (
+        serde_json::to_string(&events).unwrap_or_default(),
+        truncated,
+    )
 }
 
-fn cap_git_diff_for_ipc(
+pub(crate) fn cap_git_diff_for_ipc(
     repo_path: &str,
     file_path: Option<&str>,
     diff: String,
 ) -> (String, bool) {
+    if agent_event_payload_fits_ipc_fast(
+        diff.len() + repo_path.len() + file_path.map(str::len).unwrap_or(0),
+    ) {
+        return (diff, false);
+    }
     let repo_path = repo_path.to_string();
     let file_path = file_path.map(ToOwned::to_owned);
     cap_string_prefix_for_ipc(diff, |candidate| {
@@ -454,7 +527,7 @@ fn cap_git_diff_for_ipc(
     })
 }
 
-fn cap_plugin_api_call_result_for_ipc(
+pub(crate) fn cap_plugin_api_call_result_for_ipc(
     operation_id: Option<&str>,
     plugin_name: &str,
     endpoint_name: &str,
@@ -462,6 +535,14 @@ fn cap_plugin_api_call_result_for_ipc(
     result: String,
     error_type: Option<&str>,
 ) -> (String, bool) {
+    let raw_estimate = result.len()
+        + plugin_name.len()
+        + endpoint_name.len()
+        + operation_id.map(str::len).unwrap_or(0)
+        + error_type.map(str::len).unwrap_or(0);
+    if agent_event_payload_fits_ipc_fast(raw_estimate) {
+        return (result, false);
+    }
     let operation_id = operation_id.map(ToOwned::to_owned);
     let plugin_name = plugin_name.to_string();
     let endpoint_name = endpoint_name.to_string();
@@ -484,8 +565,27 @@ fn agent_event_frame_fits_ipc(event_json: &str) -> bool {
     })
 }
 
-fn cap_agent_event_for_ipc(event: &crate::agent::types::AgentEvent) -> Option<(String, bool)> {
+/// Cheap upper-bound check: if the raw payload plus a small wrapper budget
+/// fits the IPC frame, sending is guaranteed to succeed.
+///
+/// The IPC codec uses bincode (see `zorai-protocol::codec::serialize_payload`),
+/// so the wrapper around an already-serialized `String` field adds only a
+/// length prefix (~8 bytes per field) plus the variant tag — tens of bytes
+/// total. 4 KiB of slack is wildly more than that and lets us avoid the
+/// ~O(payload_size) allocation that `daemon_message_fits_ipc` does just to
+/// measure the encoded length.
+fn agent_event_payload_fits_ipc_fast(payload_len: usize) -> bool {
+    const WRAPPER_BUDGET: usize = 4096;
+    payload_len.saturating_add(WRAPPER_BUDGET) <= zorai_protocol::MAX_IPC_FRAME_SIZE_BYTES
+}
+
+pub(crate) fn cap_agent_event_for_ipc(
+    event: &crate::agent::types::AgentEvent,
+) -> Option<(String, bool)> {
     let event_json = serde_json::to_string(event).ok()?;
+    if agent_event_payload_fits_ipc_fast(event_json.len()) {
+        return Some((event_json, false));
+    }
     if agent_event_frame_fits_ipc(&event_json) {
         return Some((event_json, false));
     }
@@ -508,17 +608,18 @@ fn cap_agent_event_for_ipc(event: &crate::agent::types::AgentEvent) -> Option<(S
             return Some((without_details_json, true));
         }
 
-        let (capped_message, _truncated) = cap_string_prefix_for_ipc(message.clone(), |candidate| {
-            let candidate_event = crate::agent::types::AgentEvent::WorkflowNotice {
-                thread_id: thread_id.clone(),
-                kind: kind.clone(),
-                message: candidate.to_string(),
-                details: None,
-            };
-            serde_json::to_string(&candidate_event)
-                .map(|json| agent_event_frame_fits_ipc(&json))
-                .unwrap_or(false)
-        });
+        let (capped_message, _truncated) =
+            cap_string_prefix_for_ipc(message.clone(), |candidate| {
+                let candidate_event = crate::agent::types::AgentEvent::WorkflowNotice {
+                    thread_id: thread_id.clone(),
+                    kind: kind.clone(),
+                    message: candidate.to_string(),
+                    details: None,
+                };
+                serde_json::to_string(&candidate_event)
+                    .map(|json| agent_event_frame_fits_ipc(&json))
+                    .unwrap_or(false)
+            });
         let candidate_event = crate::agent::types::AgentEvent::WorkflowNotice {
             thread_id: thread_id.clone(),
             kind: kind.clone(),
@@ -572,7 +673,7 @@ fn summarize_session_output(recent_output: Option<&str>) -> Option<String> {
     Some(condensed.chars().take(MAX_CHARS - 3).collect::<String>() + "...")
 }
 
-fn build_session_end_episode_payload(
+pub(crate) fn build_session_end_episode_payload(
     session_id: &str,
     info: Option<&SessionInfo>,
     recent_output: Option<&str>,
@@ -627,7 +728,7 @@ fn build_session_end_episode_payload(
     (summary, entities)
 }
 
-fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str> {
+pub(crate) fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str> {
     use crate::agent::types::AgentEvent;
 
     match event {
@@ -665,12 +766,12 @@ fn agent_event_thread_id(event: &crate::agent::types::AgentEvent) -> Option<&str
 }
 
 #[cfg(not(test))]
-async fn start_whatsapp_link_backend(agent: Arc<AgentEngine>) -> Result<()> {
+pub(crate) async fn start_whatsapp_link_backend(agent: Arc<AgentEngine>) -> Result<()> {
     crate::agent::start_whatsapp_link_native(agent).await
 }
 
 #[cfg(not(test))]
-async fn maybe_autostart_whatsapp_link(agent: Arc<AgentEngine>) {
+pub(crate) async fn maybe_autostart_whatsapp_link(agent: Arc<AgentEngine>) {
     let gateway = agent.config.read().await.gateway.clone();
     if !gateway.enabled {
         return;

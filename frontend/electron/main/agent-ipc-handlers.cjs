@@ -116,7 +116,16 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
         }
     });
     ipcMain.handle('agent-stop-stream', async (_event, threadId) => { try { sendAgentCommand({ type: 'stop-stream', thread_id: threadId }); } catch {} return { ok: true }; });
-    ipcMain.handle('agent-list-threads', async () => { try { return await sendAgentQuery({ type: 'list-threads' }, 'thread-list'); } catch { return []; } });
+    ipcMain.handle('agent-list-threads', async (_event, options) => {
+        try {
+            const agentFilter = typeof options?.agentFilter === 'string' && options.agentFilter.trim()
+                ? options.agentFilter.trim()
+                : null;
+            return await sendAgentQuery({ type: 'list-threads', agent_filter: agentFilter }, 'thread-list');
+        } catch {
+            return [];
+        }
+    });
     ipcMain.handle('agent-get-thread', async (_event, threadId, options) => {
         try {
             const messageLimit = Number.isFinite(options?.messageLimit)
@@ -191,6 +200,7 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
     ipcMain.handle('agent-list-workspace-settings', async () => { try { return await sendAgentQuery({ type: 'list-workspace-settings' }, 'workspace-settings-list'); } catch { return []; } });
     ipcMain.handle('agent-get-workspace-settings', async (_event, workspaceId) => { try { return await sendAgentQuery({ type: 'get-workspace-settings', workspace_id: workspaceId || 'main' }, 'workspace-settings'); } catch { return null; } });
     ipcMain.handle('agent-set-workspace-operator', async (_event, workspaceId, operator) => { try { return await sendAgentQuery({ type: 'set-workspace-operator', workspace_id: workspaceId || 'main', operator: operator === 'svarog' ? 'svarog' : 'user' }, 'workspace-settings'); } catch { return null; } });
+    ipcMain.handle('agent-set-workspace-repo-monitor', async (_event, workspaceId, payload) => { try { return await sendAgentQuery({ type: 'set-workspace-repo-monitor', workspace_id: workspaceId || 'main', repo_monitor_enabled: payload?.repo_monitor_enabled === true, repo_monitor_include_dirs: Array.isArray(payload?.repo_monitor_include_dirs) ? payload.repo_monitor_include_dirs : [], repo_monitor_exclude_dirs: Array.isArray(payload?.repo_monitor_exclude_dirs) ? payload.repo_monitor_exclude_dirs : [] }, 'workspace-settings'); } catch { return null; } });
     ipcMain.handle('agent-list-workspace-tasks', async (_event, workspaceId, includeDeleted) => { try { return await sendAgentQuery({ type: 'list-workspace-tasks', workspace_id: workspaceId || 'main', include_deleted: Boolean(includeDeleted) }, 'workspace-task-list'); } catch { return []; } });
     ipcMain.handle('agent-create-workspace-task', async (_event, request) => { try { return await sendAgentQuery({ type: 'create-workspace-task', request }, 'workspace-task-updated'); } catch { return null; } });
     ipcMain.handle('agent-update-workspace-task', async (_event, taskId, update) => { try { return await sendAgentQuery({ type: 'update-workspace-task', task_id: taskId, update }, ['workspace-task-updated', 'workspace-task-detail']); } catch { return null; } });

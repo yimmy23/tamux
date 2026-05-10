@@ -54,8 +54,6 @@ pub fn evaluate_mode_shift_with_index(
             }
         }
         Some(reason) => {
-            // Awareness detected diminishing returns but counter-who says
-            // the repetition is legitimate -- suppress the mode shift.
             ModeShiftDecision {
                 should_shift: false,
                 reason: format!("Suppressed: {reason} (counter-who did not confirm)"),
@@ -104,7 +102,6 @@ mod tests {
         assert_eq!(d1.suggested_strategy, "broaden search");
         assert_eq!(d2.suggested_strategy, "ask operator");
         assert_eq!(d3.suggested_strategy, "simplify approach");
-        // Wraps around
         let d4 = evaluate_mode_shift_with_index(Some("stuck".to_string()), true, 4);
         assert_eq!(d4.suggested_strategy, "try different tool");
     }

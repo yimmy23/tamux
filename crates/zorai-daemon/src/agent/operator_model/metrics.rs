@@ -354,11 +354,6 @@ pub(crate) fn risk_tolerance_label(value: RiskTolerance) -> &'static str {
 }
 
 pub(crate) fn satisfaction_label(score: f64) -> &'static str {
-    // Boundary semantics are intentional and should stay aligned with tests/diagnostics.
-    // [0.00, 0.35) => strained
-    // [0.35, 0.55) => fragile
-    // [0.55, 0.80) => healthy
-    // [0.80, 1.00] => strong
     if score < 0.35 {
         "strained"
     } else if score < 0.55 {

@@ -104,10 +104,8 @@ impl AgentEngine {
             if let Some(cycle_id) = cycle.id {
                 evaluations.extend(
                     self.history
-                        .list_counterfactual_evaluations(cycle_id)
-                        .await?
-                        .into_iter()
-                        .take(5),
+                        .list_counterfactual_evaluations_limited(cycle_id, 5)
+                        .await?,
                 );
             }
         }

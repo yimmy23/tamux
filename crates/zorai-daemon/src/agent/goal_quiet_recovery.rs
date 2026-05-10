@@ -27,19 +27,92 @@ struct QuietGoalRecoveryCandidate {
 impl AgentEngine {
     pub(super) async fn supervise_quiet_goal_runs(&self) -> Result<()> {
         let now = now_millis();
-        let goal_runs = {
-            let goal_runs = self.goal_runs.lock().await;
-            goal_runs.iter().cloned().collect::<Vec<_>>()
+        let mut goal_runs = match self
+            .history
+            .list_goal_run_quiet_recovery_refs_for_statuses(&[GoalRunStatus::Running])
+            .await
+        {
+            Ok(goal_runs) => goal_runs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted running goal run refs for quiet-goal recovery: {error}"
+                );
+                self.history
+                    .list_goal_runs_for_statuses(&[GoalRunStatus::Running])
+                    .await
+                    .unwrap_or_default()
+                    .iter()
+                    .map(crate::history::GoalRunQuietRecoveryRef::from)
+                    .collect()
+            }
         };
-        let tasks = {
-            let tasks = self.tasks.lock().await;
-            tasks.iter().cloned().collect::<Vec<_>>()
-        };
+        let mut seen_goal_ids = goal_runs
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        {
+            let live_goal_runs = self.goal_runs.lock().await;
+            for goal_run in live_goal_runs
+                .iter()
+                .filter(|goal_run| goal_run.status == GoalRunStatus::Running)
+            {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    goal_runs.push(crate::history::GoalRunQuietRecoveryRef::from(goal_run));
+                }
+            }
+        }
+        let quiet_goal_task_statuses = [
+            TaskStatus::InProgress,
+            TaskStatus::Blocked,
+            TaskStatus::Queued,
+        ]
+        .into_iter()
+        .filter_map(|status| {
+            serde_json::to_value(status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        })
+        .collect::<Vec<_>>();
+        let goal_run_ids = goal_runs
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<Vec<_>>();
+        let tasks = self
+            .list_task_quiet_recovery_refs_for_goal_runs_statuses(
+                &goal_run_ids,
+                &quiet_goal_task_statuses,
+            )
+            .await;
         let threads = self.threads.read().await.clone();
         let streams = self.stream_cancellations.lock().await.clone();
         let runtimes = self.subagent_runtime.read().await.clone();
         let todos = self.thread_todos.read().await.clone();
         let inflight = self.inflight_goal_runs.lock().await.clone();
+        let goal_thread_ids = goal_runs
+            .iter()
+            .filter_map(|goal_run| {
+                goal_run
+                    .root_thread_id
+                    .as_deref()
+                    .or(goal_run.thread_id.as_deref())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+            })
+            .collect::<Vec<_>>();
+        let persisted_last_message_contents = match self
+            .history
+            .latest_non_empty_message_content_for_thread_ids(&goal_thread_ids)
+            .await
+        {
+            Ok(messages) => Some(messages),
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted latest message excerpts for quiet-goal recovery; falling back to live thread scans: {error}"
+                );
+                None
+            }
+        };
 
         let mut states = self.quiet_goal_recovery.lock().await;
         let mut retained_goal_ids = std::collections::HashSet::new();
@@ -47,7 +120,14 @@ impl AgentEngine {
         for goal_run in goal_runs {
             retained_goal_ids.insert(goal_run.id.clone());
             let Some(candidate) = build_quiet_goal_recovery_candidate(
-                &goal_run, &tasks, &threads, &streams, &runtimes, &todos, &inflight,
+                &goal_run,
+                &tasks,
+                &threads,
+                &streams,
+                &runtimes,
+                &todos,
+                &inflight,
+                persisted_last_message_contents.as_ref(),
             ) else {
                 states.remove(&goal_run.id);
                 continue;
@@ -92,26 +172,24 @@ impl AgentEngine {
         &self,
         candidate: &QuietGoalRecoveryCandidate,
     ) -> Result<()> {
-        let prior_user_message = {
-            let threads = self.threads.read().await;
-            let Some(thread) = threads.get(&candidate.thread_id) else {
-                anyhow::bail!(
-                    "root goal thread {} disappeared before quiet-goal recovery",
-                    candidate.thread_id
-                );
-            };
-            thread
-                .messages
-                .iter()
-                .rev()
-                .find(|message| message.role == MessageRole::User)
-                .map(|message| message.content.clone())
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "thread {} has no prior user message for quiet-goal recovery",
+        let prior_user_message = match self
+            .history
+            .latest_user_message_content(&candidate.thread_id)
+            .await
+        {
+            Ok(Some(content)) => content,
+            Ok(None) => anyhow::bail!(
+                "thread {} has no prior user message for quiet-goal recovery",
+                candidate.thread_id
+            ),
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to query persisted prior user message for quiet-goal recovery on thread {}",
                         candidate.thread_id
                     )
-                })?
+                });
+            }
         };
 
         let recovery_message = quiet_goal_recovery_system_message(candidate);
@@ -158,13 +236,14 @@ impl AgentEngine {
 }
 
 fn build_quiet_goal_recovery_candidate(
-    goal_run: &GoalRun,
-    tasks: &[AgentTask],
+    goal_run: &crate::history::GoalRunQuietRecoveryRef,
+    tasks: &[crate::history::AgentTaskQuietRecoveryRef],
     threads: &HashMap<String, AgentThread>,
     streams: &HashMap<String, StreamCancellationEntry>,
     runtimes: &HashMap<String, SubagentRuntimeStats>,
     todos: &HashMap<String, Vec<TodoItem>>,
     inflight: &HashSet<String>,
+    persisted_last_message_contents: Option<&HashMap<String, String>>,
 ) -> Option<QuietGoalRecoveryCandidate> {
     if goal_run.status != GoalRunStatus::Running || inflight.contains(&goal_run.id) {
         return None;
@@ -232,27 +311,33 @@ fn build_quiet_goal_recovery_candidate(
         }
     }
 
-    let current_step = goal_run.steps.get(goal_run.current_step_index);
     let todo_items = todos.get(&thread_id).cloned().unwrap_or_default();
-    let last_message_excerpt = threads
-        .get(&thread_id)
-        .and_then(|thread| {
-            thread
-                .messages
-                .iter()
-                .rev()
-                .find(|message| !message.content.trim().is_empty())
-        })
-        .map(|message| summarize_goal_recovery_message(&message.content))
-        .unwrap_or_default();
+    let last_message_excerpt = if let Some(messages) = persisted_last_message_contents {
+        messages
+            .get(&thread_id)
+            .map(|content| summarize_goal_recovery_message(content))
+            .unwrap_or_default()
+    } else {
+        threads
+            .get(&thread_id)
+            .and_then(|thread| {
+                thread
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|message| !message.content.trim().is_empty())
+            })
+            .map(|message| summarize_goal_recovery_message(&message.content))
+            .unwrap_or_default()
+    };
 
     Some(QuietGoalRecoveryCandidate {
         goal_run_id: goal_run.id.clone(),
         thread_id,
         task_id,
         current_step_index: goal_run.current_step_index,
-        current_step_id: current_step.map(|step| step.id.clone()),
-        current_step_title: current_step.map(|step| step.title.clone()),
+        current_step_id: goal_run.current_step_id.clone(),
+        current_step_title: goal_run.current_step_title.clone(),
         active_task_status: active_task.status,
         active_task_progress: active_task.progress,
         todo_items,
@@ -544,6 +629,8 @@ mod tests {
             .lock()
             .await
             .push_back(sample_main_goal_task(now, thread_id, task_id));
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
         engine.thread_todos.write().await.insert(
             thread_id.to_string(),
             vec![
@@ -600,6 +687,7 @@ mod tests {
                 },
             );
         }
+        engine.persist_thread_by_id(thread_id).await;
 
         engine
             .supervise_quiet_goal_runs()
@@ -618,6 +706,80 @@ mod tests {
                     .content
                     .contains("Write short implementation spec for autosearch plugin scaffold")
         }));
+        assert!(thread.messages.iter().any(|message| {
+            message.role == MessageRole::Assistant && message.content.contains("Recovered.")
+        }));
+    }
+
+    #[tokio::test]
+    async fn supervise_quiet_goal_runs_resumes_persisted_goal_after_live_queue_clear() {
+        let engine = build_test_engine("Recovered.").await;
+        let now = now_millis();
+        let thread_id = "thread-goal-quiet-persisted";
+        let task_id = "task-goal-quiet-persisted";
+
+        engine
+            .goal_runs
+            .lock()
+            .await
+            .push_back(sample_running_goal(now, thread_id, task_id));
+        engine.persist_goal_runs().await;
+        engine.goal_runs.lock().await.clear();
+        engine
+            .tasks
+            .lock()
+            .await
+            .push_back(sample_main_goal_task(now, thread_id, task_id));
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                AgentThread {
+                    id: thread_id.to_string(),
+                    agent_name: None,
+                    title: "Persisted quiet goal thread".to_string(),
+                    messages: vec![
+                        AgentMessage::user(
+                            "Continue the persisted goal until it is actually complete",
+                            now.saturating_sub(900_000),
+                        ),
+                        assistant_message(
+                            "I finished the immediate task but the goal is still running.",
+                            now.saturating_sub(600_000),
+                        ),
+                    ],
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                    created_at: now.saturating_sub(900_000),
+                    updated_at: now.saturating_sub(600_000),
+                },
+            );
+        }
+        engine.persist_thread_by_id(thread_id).await;
+
+        engine
+            .supervise_quiet_goal_runs()
+            .await
+            .expect("persisted quiet goal recovery should succeed");
+
+        let threads = engine.threads.read().await;
+        let thread = threads.get(thread_id).expect("goal thread should exist");
+        assert!(
+            thread.messages.iter().any(|message| {
+                message.role == MessageRole::System
+                    && message.content.contains("WELES quiet-goal recovery")
+            }),
+            "quiet-goal recovery should use persisted running goals after the live queue is cleared"
+        );
         assert!(thread.messages.iter().any(|message| {
             message.role == MessageRole::Assistant && message.content.contains("Recovered.")
         }));

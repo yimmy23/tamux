@@ -3,14 +3,49 @@ use crate::agent::cost::CostTracker;
 
 impl AgentEngine {
     pub(super) async fn find_active_goal_run_for_thread(&self, thread_id: &str) -> Option<String> {
-        let goal_runs = self.goal_runs.lock().await;
-        goal_runs
-            .iter()
-            .find(|gr| {
-                matches!(gr.status, GoalRunStatus::Running | GoalRunStatus::Planning)
-                    && gr.thread_id.as_deref() == Some(thread_id)
-            })
-            .map(|gr| gr.id.clone())
+        let persisted_latest = match self
+            .history
+            .latest_goal_run_id_and_updated_at_for_thread_ids_and_statuses(
+                &[thread_id.to_string()],
+                &[GoalRunStatus::Running, GoalRunStatus::Planning],
+            )
+            .await
+        {
+            Ok(goal_run) => goal_run,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id,
+                    "failed to query latest persisted active goal run for cost accounting: {error}"
+                );
+                None
+            }
+        };
+
+        let live_latest = {
+            let live_goal_runs = self.goal_runs.lock().await;
+            live_goal_runs
+                .iter()
+                .filter(|goal_run| {
+                    matches!(
+                        goal_run.status,
+                        GoalRunStatus::Running | GoalRunStatus::Planning
+                    ) && (goal_run.thread_id.as_deref() == Some(thread_id)
+                        || goal_run.root_thread_id.as_deref() == Some(thread_id)
+                        || goal_run.active_thread_id.as_deref() == Some(thread_id)
+                        || goal_run
+                            .execution_thread_ids
+                            .iter()
+                            .any(|candidate| candidate == thread_id))
+                })
+                .max_by_key(|goal_run| goal_run.updated_at)
+                .map(|goal_run| (goal_run.id.clone(), goal_run.updated_at))
+        };
+
+        [persisted_latest, live_latest]
+            .into_iter()
+            .flatten()
+            .max_by_key(|(_, updated_at)| *updated_at)
+            .map(|(goal_run_id, _)| goal_run_id)
     }
 
     pub(super) async fn accumulate_goal_run_cost(
@@ -102,5 +137,46 @@ impl AgentEngine {
             self.persist_goal_runs().await;
             self.emit_goal_run_update(&goal_run, None);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session_manager::SessionManager;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn find_active_goal_run_for_thread_uses_persisted_goal_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+        let goal_run = engine
+            .start_goal_run(
+                "Persisted cost goal".to_string(),
+                Some("Persisted cost goal".to_string()),
+                Some("thread-persisted-cost-goal".to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        {
+            let mut goal_runs = engine.goal_runs.lock().await;
+            let goal = goal_runs
+                .iter_mut()
+                .find(|goal| goal.id == goal_run.id)
+                .expect("goal should be live before persistence");
+            goal.status = GoalRunStatus::Running;
+        }
+        engine.persist_goal_runs().await;
+        engine.goal_runs.lock().await.clear();
+
+        let thread_id = goal_run.thread_id.as_deref().expect("goal thread id");
+        let active_goal_run_id = engine.find_active_goal_run_for_thread(thread_id).await;
+
+        assert_eq!(active_goal_run_id.as_deref(), Some(goal_run.id.as_str()));
     }
 }

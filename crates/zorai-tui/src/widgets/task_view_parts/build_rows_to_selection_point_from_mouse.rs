@@ -1,4 +1,19 @@
-fn build_rows(
+use super::sections;
+use super::sections::*;
+use super::selection;
+use super::selection::*;
+use super::*;
+use crate::state::sidebar::{SidebarItemTarget, SidebarTab};
+use crate::state::task::*;
+use crate::theme::ThemeTokens;
+use crate::widgets::chat::SelectionPoint;
+use crate::widgets::duration_format::format_duration_ms;
+use ratatui::layout::{Position, Rect};
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+pub(crate) fn build_rows(
     tasks: &TaskState,
     target: &SidebarItemTarget,
     theme: &ThemeTokens,
@@ -207,7 +222,26 @@ fn build_rows(
     }
 }
 
-fn rows_for_width(
+/// Cache key for `rows_for_width`. Excludes `tick` deliberately — animation
+/// updates would otherwise force a rebuild every frame, defeating the cache.
+/// Stale-by-one-tick spinners are invisible to the eye and the cache
+/// invalidates on any real state change via `tasks_revision`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RowsCacheKey {
+    tasks_revision: u64,
+    target: SidebarItemTarget,
+    width: usize,
+    show_live_todos: bool,
+    show_timeline: bool,
+    show_files: bool,
+}
+
+thread_local! {
+    static ROWS_CACHE: std::cell::RefCell<Option<(RowsCacheKey, Vec<RenderRow>)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+pub(crate) fn rows_for_width(
     tasks: &TaskState,
     target: &SidebarItemTarget,
     theme: &ThemeTokens,
@@ -217,6 +251,23 @@ fn rows_for_width(
     show_files: bool,
     tick: Option<u64>,
 ) -> Vec<RenderRow> {
+    let key = RowsCacheKey {
+        tasks_revision: tasks.tasks_revision(),
+        target: target.clone(),
+        width,
+        show_live_todos,
+        show_timeline,
+        show_files,
+    };
+    let cached = ROWS_CACHE.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .filter(|(cached_key, _)| cached_key == &key)
+            .map(|(_, rows)| rows.clone())
+    });
+    if let Some(rows) = cached {
+        return rows;
+    }
     let (_, rows) = build_rows(
         tasks,
         target,
@@ -227,10 +278,13 @@ fn rows_for_width(
         show_files,
         tick,
     );
+    ROWS_CACHE.with(|cell| {
+        *cell.borrow_mut() = Some((key, rows.clone()));
+    });
     rows
 }
 
-fn scrollbar_layout_from_metrics(
+pub(crate) fn scrollbar_layout_from_metrics(
     area: Rect,
     total_rows: usize,
     scroll: usize,
@@ -279,7 +333,7 @@ fn scrollbar_layout_from_metrics(
     })
 }
 
-pub fn hit_test(
+pub(crate) fn hit_test(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -335,7 +389,7 @@ pub fn hit_test(
     })
 }
 
-fn selection_snapshot(
+pub(crate) fn selection_snapshot(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -379,7 +433,7 @@ fn selection_snapshot(
     })
 }
 
-fn selection_point_from_snapshot(
+pub(crate) fn selection_point_from_snapshot(
     snapshot: &SelectionSnapshot,
     mouse: Position,
 ) -> Option<SelectionPoint> {
@@ -402,7 +456,7 @@ fn selection_point_from_snapshot(
     })
 }
 
-pub fn selection_points_from_mouse(
+pub(crate) fn selection_points_from_mouse(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -430,7 +484,7 @@ pub fn selection_points_from_mouse(
     ))
 }
 
-pub fn selection_point_from_mouse(
+pub(crate) fn selection_point_from_mouse(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -453,4 +507,3 @@ pub fn selection_point_from_mouse(
     )?;
     selection_point_from_snapshot(&snapshot, mouse)
 }
-

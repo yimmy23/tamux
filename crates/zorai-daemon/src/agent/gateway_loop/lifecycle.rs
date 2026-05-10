@@ -172,28 +172,29 @@ impl AgentEngine {
             "gateway: config loaded"
         );
 
-        let telegram_replay_cursor =
-            match self.history.load_gateway_replay_cursors("telegram").await {
-                Ok(rows) => rows
-                    .into_iter()
-                    .filter(|row| row.channel_id == "global")
-                    .find_map(|row| match row.cursor_value.parse::<i64>() {
-                        Ok(cursor) => Some(cursor),
-                        Err(error) => {
-                            tracing::warn!(
-                                channel_id = %row.channel_id,
-                                cursor_value = %row.cursor_value,
-                                %error,
-                                "gateway: ignoring invalid telegram replay cursor"
-                            );
-                            None
-                        }
-                    }),
+        let telegram_replay_cursor = match self
+            .history
+            .load_gateway_replay_cursor("telegram", "global")
+            .await
+        {
+            Ok(Some(row)) => match row.cursor_value.parse::<i64>() {
+                Ok(cursor) => Some(cursor),
                 Err(error) => {
-                    tracing::warn!(%error, "gateway: failed to load telegram replay cursors");
+                    tracing::warn!(
+                        channel_id = %row.channel_id,
+                        cursor_value = %row.cursor_value,
+                        %error,
+                        "gateway: ignoring invalid telegram replay cursor"
+                    );
                     None
                 }
-            };
+            },
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(%error, "gateway: failed to load telegram replay cursor");
+                None
+            }
+        };
         let slack_replay_cursors = match self.history.load_gateway_replay_cursors("slack").await {
             Ok(rows) => rows
                 .into_iter()

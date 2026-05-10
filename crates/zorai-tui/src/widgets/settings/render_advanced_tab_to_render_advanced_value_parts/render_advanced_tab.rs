@@ -1,4 +1,35 @@
-fn render_advanced_tab<'a>(
+use super::super::advanced_single_line_edit_layout_to_subagent_row_action_offsets::*;
+use super::super::render_advanced_value_to_render_advanced_tab::*;
+use super::super::render_edit_buffer_with_cursor_to_editing_cursor_hit_test_to_content::*;
+use super::super::wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render::*;
+use super::*;
+use crate::providers;
+use crate::state::concierge::ConciergeState;
+use crate::state::config::ConfigState;
+use crate::state::modal::{ModalState, WhatsAppLinkPhase};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use zorai_protocol::has_whatsapp_allowed_contacts;
+
+fn format_directory_list(raw: &str) -> String {
+    let entries = raw
+        .lines()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if entries.is_empty() {
+        "(none)".to_string()
+    } else {
+        entries.join(", ")
+    }
+}
+
+pub(crate) fn render_advanced_tab<'a>(
     settings: &'a SettingsState,
     config: &'a ConfigState,
     theme: &ThemeTokens,
@@ -436,6 +467,47 @@ fn render_advanced_tab<'a>(
         "Auto Refresh (s):",
         config.auto_refresh_interval_secs.to_string(),
         "auto_refresh_interval_secs",
+        "  [Enter: edit]",
+        theme,
+    );
+
+    let repo_monitor_start = snapshot_start + 5;
+    lines.push(Line::raw(""));
+    lines.push(Line::from(Span::styled(
+        "  ── Workspace Repo Monitor ──",
+        theme.fg_dim,
+    )));
+    render_advanced_toggle(
+        &mut lines,
+        settings,
+        repo_monitor_start,
+        "Enable Repo Monitor",
+        config.workspace_repo_monitor_enabled,
+        theme,
+    );
+    lines.push(Line::from(Span::styled(
+        "    Only included directories are monitored; excludes subtract from that set.",
+        theme.fg_dim,
+    )));
+    render_advanced_value(
+        &mut lines,
+        settings,
+        config,
+        repo_monitor_start + 1,
+        "Include Dirs:    ",
+        format_directory_list(&config.workspace_repo_monitor_include_dirs),
+        "workspace_repo_monitor_include_dirs",
+        "  [Enter: edit]",
+        theme,
+    );
+    render_advanced_value(
+        &mut lines,
+        settings,
+        config,
+        repo_monitor_start + 2,
+        "Exclude Dirs:    ",
+        format_directory_list(&config.workspace_repo_monitor_exclude_dirs),
+        "workspace_repo_monitor_exclude_dirs",
         "  [Enter: edit]",
         theme,
     );

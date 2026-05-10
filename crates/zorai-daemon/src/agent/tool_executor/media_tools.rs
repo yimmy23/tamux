@@ -35,7 +35,6 @@ enum AudioToolRoute {
     OpenAiCompatibleDirect,
     MiniMaxTts,
     ProviderMultimodalCompletion,
-    OpenRouterTts,
     XiaomiChatCompletionsTts,
     XaiStt,
     XaiTts,
@@ -50,7 +49,10 @@ enum ImageGenerationRoute {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum OrderedMultipartField {
-    Text { name: String, value: String },
+    Text {
+        name: String,
+        value: String,
+    },
     File {
         name: String,
         filename: String,
@@ -385,14 +387,10 @@ async fn resolve_media_input_source(
 ) -> Result<MediaInputSource> {
     let provided = media_input_source_arg_count(args);
     if provided == 0 {
-        anyhow::bail!(
-            "provide exactly one of 'path', 'url', 'base64', or 'data_url'"
-        );
+        anyhow::bail!("provide exactly one of 'path', 'url', 'base64', or 'data_url'");
     }
     if provided > 1 {
-        anyhow::bail!(
-            "arguments 'path', 'url', 'base64', and 'data_url' are mutually exclusive"
-        );
+        anyhow::bail!("arguments 'path', 'url', 'base64', and 'data_url' are mutually exclusive");
     }
 
     if let Some(url) = args
@@ -733,10 +731,7 @@ fn apply_media_auth_headers(
         return Ok(request
             .header("HTTP-Referer", OPENROUTER_ATTRIBUTION_URL)
             .header("X-OpenRouter-Title", OPENROUTER_ATTRIBUTION_TITLE)
-            .header(
-                "X-OpenRouter-Categories",
-                OPENROUTER_ATTRIBUTION_CATEGORIES,
-            ));
+            .header("X-OpenRouter-Categories", OPENROUTER_ATTRIBUTION_CATEGORIES));
     }
     Ok(request)
 }
@@ -773,9 +768,11 @@ fn audio_tool_route(
     if provider_id == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
         return match audio_tool_kind {
             zorai_shared::providers::AudioToolKind::SpeechToText => {
-                AudioToolRoute::ProviderMultimodalCompletion
+                AudioToolRoute::OpenAiCompatibleDirect
             }
-            zorai_shared::providers::AudioToolKind::TextToSpeech => AudioToolRoute::OpenRouterTts,
+            zorai_shared::providers::AudioToolKind::TextToSpeech => {
+                AudioToolRoute::OpenAiCompatibleDirect
+            }
         };
     }
 
@@ -834,9 +831,7 @@ fn stt_endpoint_for_route(base_url: &str, route: AudioToolRoute) -> String {
 
 fn tts_endpoint_for_route(base_url: &str, route: AudioToolRoute) -> String {
     match route {
-        AudioToolRoute::OpenRouterTts | AudioToolRoute::XaiTts => {
-            openai_like_endpoint(base_url, "tts")
-        }
+        AudioToolRoute::XaiTts => openai_like_endpoint(base_url, "tts"),
         _ => openai_like_endpoint(base_url, "audio/speech"),
     }
 }
@@ -939,7 +934,10 @@ async fn execute_minimax_text_to_speech(
         .filter(|value| !value.is_empty());
     let codec = minimax_tts_codec(requested_format);
     let body = build_minimax_tts_body(&provider_config.model, input, voice, codec);
-    let url = format!("{}/t2a_v2", minimax_media_base_url(&provider_config.base_url));
+    let url = format!(
+        "{}/t2a_v2",
+        minimax_media_base_url(&provider_config.base_url)
+    );
     let request =
         apply_media_auth_headers(media_http_client.post(&url), provider_id, provider_config)?;
     let response = request.json(&body).send().await?;
@@ -1021,7 +1019,10 @@ fn build_xiaomi_tts_body(
     if let Some(voice) = trimmed_voice {
         audio["voice"] = serde_json::Value::String(voice.to_string());
     } else if xiaomi_tts_model_requires_voice(model) {
-        anyhow::bail!("Xiaomi MiMo model '{}' requires a non-empty 'voice' argument", model);
+        anyhow::bail!(
+            "Xiaomi MiMo model '{}' requires a non-empty 'voice' argument",
+            model
+        );
     }
 
     Ok(serde_json::json!({
@@ -1167,11 +1168,13 @@ fn build_xai_stt_multipart_fields(
     push_nonempty_text_field(
         &mut fields,
         "format",
-        args.get("format").map(|value| match value {
-            serde_json::Value::Bool(boolean) => boolean.to_string(),
-            serde_json::Value::String(string) => string.trim().to_string(),
-            _ => String::new(),
-        }).as_deref(),
+        args.get("format")
+            .map(|value| match value {
+                serde_json::Value::Bool(boolean) => boolean.to_string(),
+                serde_json::Value::String(string) => string.trim().to_string(),
+                _ => String::new(),
+            })
+            .as_deref(),
     );
     push_nonempty_text_field(
         &mut fields,
@@ -1181,22 +1184,30 @@ fn build_xai_stt_multipart_fields(
     push_nonempty_text_field(
         &mut fields,
         "sample_rate",
-        args.get("sample_rate").map(|value| value.to_string()).as_deref(),
+        args.get("sample_rate")
+            .map(|value| value.to_string())
+            .as_deref(),
     );
     push_nonempty_text_field(
         &mut fields,
         "multichannel",
-        args.get("multichannel").map(|value| value.to_string()).as_deref(),
+        args.get("multichannel")
+            .map(|value| value.to_string())
+            .as_deref(),
     );
     push_nonempty_text_field(
         &mut fields,
         "channels",
-        args.get("channels").map(|value| value.to_string()).as_deref(),
+        args.get("channels")
+            .map(|value| value.to_string())
+            .as_deref(),
     );
     push_nonempty_text_field(
         &mut fields,
         "diarize",
-        args.get("diarize").map(|value| value.to_string()).as_deref(),
+        args.get("diarize")
+            .map(|value| value.to_string())
+            .as_deref(),
     );
     fields.push(OrderedMultipartField::File {
         name: "file".to_string(),
@@ -1239,16 +1250,15 @@ fn xai_tts_voice(args: &serde_json::Value) -> &str {
         .unwrap_or(DEFAULT_XAI_TTS_VOICE)
 }
 
-fn build_xai_tts_body(
-    args: &serde_json::Value,
-    input: &str,
-) -> Result<serde_json::Value> {
+fn build_xai_tts_body(args: &serde_json::Value, input: &str) -> Result<serde_json::Value> {
     let language = args
         .get("language")
         .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("xAI text_to_speech requires a non-empty 'language' argument"))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("xAI text_to_speech requires a non-empty 'language' argument")
+        })?;
     let mut body = serde_json::json!({
         "text": input,
         "voice_id": xai_tts_voice(args),
@@ -1424,7 +1434,11 @@ async fn execute_multimodal_speech_to_text(
 
 async fn collect_completion_output(
     mut stream: crate::agent::llm_client::CompletionStream,
-) -> Result<(String, Option<String>, Option<CompletionProviderFinalResult>)> {
+) -> Result<(
+    String,
+    Option<String>,
+    Option<CompletionProviderFinalResult>,
+)> {
     let mut accumulated_content = String::new();
     let mut accumulated_reasoning = String::new();
     let mut provider_final_result = None;
@@ -1491,10 +1505,8 @@ async fn collect_completion_output(
 }
 
 fn image_support_error(provider_id: &str, model: &str) -> anyhow::Error {
-    let alternatives = crate::agent::types::models_supporting(
-        provider_id,
-        crate::agent::types::Modality::Image,
-    );
+    let alternatives =
+        crate::agent::types::models_supporting(provider_id, crate::agent::types::Modality::Image);
     if alternatives.is_empty() {
         anyhow::anyhow!(
             "model '{}' for provider '{}' is not known to support image inputs",
@@ -1527,12 +1539,11 @@ fn thread_media_output_path(
     extension: &str,
 ) -> PathBuf {
     let data_root = agent_data_dir.parent().unwrap_or(agent_data_dir);
-    zorai_protocol::thread_media_dir(data_root, thread_id)
-        .join(format!(
-            "{prefix}-{}.{}",
-            now_millis(),
-            extension.trim_start_matches('.')
-        ))
+    zorai_protocol::thread_media_dir(data_root, thread_id).join(format!(
+        "{prefix}-{}.{}",
+        now_millis(),
+        extension.trim_start_matches('.')
+    ))
 }
 
 fn file_url_for_path(path: &Path) -> String {
@@ -1595,9 +1606,10 @@ async fn persist_generated_image_for_thread(
             .and_then(|value| value.to_str())
             .map(str::to_string)
             .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| file_extension_for_generated_mime(&mime_type, DEFAULT_IMAGE_OUTPUT_FORMAT));
-        let destination =
-            thread_media_output_path(&agent.data_dir, thread_id, "image", &extension);
+            .unwrap_or_else(|| {
+                file_extension_for_generated_mime(&mime_type, DEFAULT_IMAGE_OUTPUT_FORMAT)
+            });
+        let destination = thread_media_output_path(&agent.data_dir, thread_id, "image", &extension);
         move_generated_media_file(&source, &destination).await?;
         Some(destination)
     } else {
@@ -1635,7 +1647,7 @@ async fn persist_generated_image_for_thread(
             ));
         }
         thread.messages.push(AgentMessage {
-            id: generate_message_id(),
+            id: super::super::types::generate_message_id(),
             role: MessageRole::Assistant,
             content: assistant_content,
             content_blocks: image_url
@@ -1680,13 +1692,14 @@ async fn persist_generated_image_for_thread(
     agent.persist_thread_by_id(thread_id).await;
 
     if let Some(path) = persisted_path.as_deref() {
-        agent.record_file_work_context(
-            thread_id,
-            None,
-            tool_names::GENERATE_IMAGE,
-            &path.to_string_lossy(),
-        )
-        .await;
+        agent
+            .record_file_work_context(
+                thread_id,
+                None,
+                tool_names::GENERATE_IMAGE,
+                &path.to_string_lossy(),
+            )
+            .await;
     }
 
     serde_json::to_string_pretty(&serde_json::json!({
@@ -1703,14 +1716,13 @@ async fn persist_generated_image_for_thread(
     .map_err(Into::into)
 }
 
-async fn execute_analyze_image(
+pub(crate) async fn execute_analyze_image(
     args: &serde_json::Value,
     agent: &AgentEngine,
     _http_client: &reqwest::Client,
 ) -> Result<String> {
     let media_http_client = fresh_media_http_client(tool_names::ANALYZE_IMAGE, args);
-    let (provider_id, provider_config) =
-        resolve_media_provider_config(agent, args, None).await?;
+    let (provider_id, provider_config) = resolve_media_provider_config(agent, args, None).await?;
     if !crate::agent::types::model_supports(
         &provider_id,
         &provider_config.model,
@@ -1726,7 +1738,8 @@ async fn execute_analyze_image(
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_IMAGE_ANALYSIS_PROMPT);
     let source = resolve_media_input_source(args, MediaKind::Image).await?;
-    let (transport, blocks) = build_image_analysis_blocks(&provider_id, &provider_config, prompt, &source)?;
+    let (transport, blocks) =
+        build_image_analysis_blocks(&provider_id, &provider_config, prompt, &source)?;
     let messages = vec![ApiMessage {
         role: "user".to_string(),
         content: ApiContent::Blocks(blocks),
@@ -1781,7 +1794,7 @@ async fn execute_analyze_image(
     Ok(response)
 }
 
-async fn execute_generate_image(
+pub(crate) async fn execute_generate_image(
     args: &serde_json::Value,
     agent: &AgentEngine,
     _http_client: &reqwest::Client,
@@ -1813,18 +1826,11 @@ async fn execute_generate_image(
         let payload: serde_json::Value = response.json().await?;
         let image_url = extract_openrouter_generated_image(&payload)?;
         if image_url.starts_with("data:") {
-            let generated = generated_image_response_from_data_url(
-                &provider_id,
-                &provider_config,
-                &image_url,
-            )?;
+            let generated =
+                generated_image_response_from_data_url(&provider_id, &provider_config, &image_url)?;
             if let Some(thread_id) = thread_id {
                 return persist_generated_image_for_thread(
-                    agent,
-                    thread_id,
-                    prompt,
-                    &generated,
-                    false,
+                    agent, thread_id, prompt, &generated, false,
                 )
                 .await;
             }
@@ -2015,21 +2021,16 @@ pub(crate) async fn execute_generate_image_for_ipc(
     agent.ensure_thread_messages_loaded(&thread_id).await;
 
     let upstream_result = execute_generate_image(args, agent, &agent.http_client, None).await?;
-    let persisted = persist_generated_image_for_thread(
-        agent,
-        &thread_id,
-        &prompt,
-        &upstream_result,
-        true,
-    )
-    .await?;
+    let persisted =
+        persist_generated_image_for_thread(agent, &thread_id, &prompt, &upstream_result, true)
+            .await?;
     agent
         .record_operator_message(&thread_id, &format!("🖼 {}", prompt), is_new_thread)
         .await?;
     Ok(persisted)
 }
 
-async fn execute_speech_to_text(
+pub(crate) async fn execute_speech_to_text(
     args: &serde_json::Value,
     agent: &AgentEngine,
     _http_client: &reqwest::Client,
@@ -2056,12 +2057,8 @@ async fn execute_speech_to_text(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| infer_media_mime(&resolved, MediaKind::Audio).to_string());
-    let (provider_id, provider_config) = resolve_media_provider_config(
-        agent,
-        args,
-        Some(MediaEndpoint::SpeechToText),
-    )
-    .await?;
+    let (provider_id, provider_config) =
+        resolve_media_provider_config(agent, args, Some(MediaEndpoint::SpeechToText)).await?;
     let route = resolve_audio_tool_route(
         &provider_id,
         &provider_config,
@@ -2135,7 +2132,7 @@ async fn execute_speech_to_text(
     format_speech_to_text_response(route, response_format, &parsed)
 }
 
-async fn execute_text_to_speech(
+pub(crate) async fn execute_text_to_speech(
     args: &serde_json::Value,
     agent: &AgentEngine,
     _http_client: &reqwest::Client,
@@ -2147,12 +2144,8 @@ async fn execute_text_to_speech(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("missing 'input' argument"))?;
-    let (provider_id, provider_config) = resolve_media_provider_config(
-        agent,
-        args,
-        Some(MediaEndpoint::TextToSpeech),
-    )
-    .await?;
+    let (provider_id, provider_config) =
+        resolve_media_provider_config(agent, args, Some(MediaEndpoint::TextToSpeech)).await?;
     let route = resolve_audio_tool_route(
         &provider_id,
         &provider_config,
@@ -2301,24 +2294,38 @@ mod media_tools_tests {
     }
 
     #[test]
-    fn openrouter_speech_to_text_uses_multimodal_completion_route() {
+    fn openrouter_speech_to_text_uses_audio_transcriptions_endpoint() {
         assert_eq!(
             audio_tool_route(
                 zorai_shared::providers::PROVIDER_ID_OPENROUTER,
                 zorai_shared::providers::AudioToolKind::SpeechToText,
             ),
-            AudioToolRoute::ProviderMultimodalCompletion
+            AudioToolRoute::OpenAiCompatibleDirect
+        );
+        assert_eq!(
+            stt_endpoint_for_route(
+                "https://openrouter.ai/api/v1",
+                AudioToolRoute::OpenAiCompatibleDirect
+            ),
+            "https://openrouter.ai/api/v1/audio/transcriptions"
         );
     }
 
     #[test]
-    fn openrouter_text_to_speech_uses_tts_endpoint() {
+    fn openrouter_text_to_speech_uses_audio_speech_endpoint() {
         assert_eq!(
             audio_tool_route(
                 zorai_shared::providers::PROVIDER_ID_OPENROUTER,
                 zorai_shared::providers::AudioToolKind::TextToSpeech,
             ),
-            AudioToolRoute::OpenRouterTts
+            AudioToolRoute::OpenAiCompatibleDirect
+        );
+        assert_eq!(
+            tts_endpoint_for_route(
+                "https://openrouter.ai/api/v1",
+                AudioToolRoute::OpenAiCompatibleDirect
+            ),
+            "https://openrouter.ai/api/v1/audio/speech"
         );
     }
 
@@ -2396,11 +2403,19 @@ mod media_tools_tests {
 
     #[test]
     fn minimax_tts_body_maps_voice_and_audio_settings() {
-        let body = build_minimax_tts_body("speech-2.8-hd", "Read this aloud", Some("English_expressive_narrator"), "wav");
+        let body = build_minimax_tts_body(
+            "speech-2.8-hd",
+            "Read this aloud",
+            Some("English_expressive_narrator"),
+            "wav",
+        );
 
         assert_eq!(body["model"], "speech-2.8-hd");
         assert_eq!(body["text"], "Read this aloud");
-        assert_eq!(body["voice_setting"]["voice_id"], "English_expressive_narrator");
+        assert_eq!(
+            body["voice_setting"]["voice_id"],
+            "English_expressive_narrator"
+        );
         assert_eq!(body["audio_setting"]["format"], "wav");
         assert_eq!(body["output_format"], "hex");
     }
@@ -2425,13 +2440,8 @@ mod media_tools_tests {
     fn xiaomi_tts_body_uses_assistant_content_and_audio_settings() {
         let provider_config = test_provider_config("mimo-v2.5-tts");
 
-        let body = build_xiaomi_tts_body(
-            &provider_config,
-            "Read this aloud",
-            Some("Chloe"),
-            "wav",
-        )
-        .expect("body should build");
+        let body = build_xiaomi_tts_body(&provider_config, "Read this aloud", Some("Chloe"), "wav")
+            .expect("body should build");
 
         assert_eq!(body["model"], "mimo-v2.5-tts");
         assert_eq!(body["messages"][0]["role"], "assistant");
@@ -2463,13 +2473,8 @@ mod media_tools_tests {
     fn xiaomi_voice_clone_requires_voice_sample() {
         let provider_config = test_provider_config("mimo-v2.5-tts-voiceclone");
 
-        let error = build_xiaomi_tts_body(
-            &provider_config,
-            "Say hello",
-            None,
-            "wav",
-        )
-        .expect_err("voiceclone should require a voice sample");
+        let error = build_xiaomi_tts_body(&provider_config, "Say hello", None, "wav")
+            .expect_err("voiceclone should require a voice sample");
         assert!(error.to_string().contains("requires a non-empty 'voice'"));
     }
 
@@ -2593,7 +2598,9 @@ mod media_tools_tests {
         )
         .expect_err("xai body should reject missing language");
 
-        assert!(error.to_string().contains("requires a non-empty 'language' argument"));
+        assert!(error
+            .to_string()
+            .contains("requires a non-empty 'language' argument"));
     }
 
     #[test]
@@ -2679,22 +2686,21 @@ mod media_tools_tests {
                 max_tokens: None,
                 anthropic_tool_choice: None,
                 output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+                openrouter_provider_order: Vec::new(),
+                openrouter_provider_ignore: Vec::new(),
+                openrouter_allow_fallbacks: None,
+                openrouter_response_cache_enabled: false,
             },
         );
 
         let engine = AgentEngine::new_test(manager, config, root.path()).await;
-        let (provider_id, provider_config) =
-            resolve_media_provider_config(
-                &engine,
-                &serde_json::json!({}),
-                Some(MediaEndpoint::TextToSpeech),
-            )
-            .await
-            .expect("audio TTS settings should resolve");
+        let (provider_id, provider_config) = resolve_media_provider_config(
+            &engine,
+            &serde_json::json!({}),
+            Some(MediaEndpoint::TextToSpeech),
+        )
+        .await
+        .expect("audio TTS settings should resolve");
 
         assert_eq!(provider_id, "custom");
         assert_eq!(provider_config.model, "sonic-voice");
@@ -2741,22 +2747,21 @@ mod media_tools_tests {
                 max_tokens: None,
                 anthropic_tool_choice: None,
                 output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+                openrouter_provider_order: Vec::new(),
+                openrouter_provider_ignore: Vec::new(),
+                openrouter_allow_fallbacks: None,
+                openrouter_response_cache_enabled: false,
             },
         );
 
         let engine = AgentEngine::new_test(manager, config, root.path()).await;
-        let (provider_id, provider_config) =
-            resolve_media_provider_config(
-                &engine,
-                &serde_json::json!({}),
-                Some(MediaEndpoint::SpeechToText),
-            )
-            .await
-            .expect("legacy STT settings should resolve");
+        let (provider_id, provider_config) = resolve_media_provider_config(
+            &engine,
+            &serde_json::json!({}),
+            Some(MediaEndpoint::SpeechToText),
+        )
+        .await
+        .expect("legacy STT settings should resolve");
 
         assert_eq!(provider_id, "custom");
         assert_eq!(provider_config.model, "whisper-legacy");
@@ -2804,10 +2809,10 @@ mod media_tools_tests {
                 max_tokens: None,
                 anthropic_tool_choice: None,
                 output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+                openrouter_provider_order: Vec::new(),
+                openrouter_provider_ignore: Vec::new(),
+                openrouter_allow_fallbacks: None,
+                openrouter_response_cache_enabled: false,
             },
         );
 
@@ -2876,8 +2881,14 @@ mod media_tools_tests {
         assert_eq!(thread.thread.messages[0].role, MessageRole::User);
         assert_eq!(thread.thread.messages[0].content, "🖼 retro robot");
         assert_eq!(thread.thread.messages[1].role, MessageRole::Assistant);
-        assert_eq!(thread.thread.messages[1].provider.as_deref(), Some("openai"));
-        assert_eq!(thread.thread.messages[1].model.as_deref(), Some("gpt-image-1"));
+        assert_eq!(
+            thread.thread.messages[1].provider.as_deref(),
+            Some("openai")
+        );
+        assert_eq!(
+            thread.thread.messages[1].model.as_deref(),
+            Some("gpt-image-1")
+        );
         assert!(matches!(
             thread.thread.messages[1].content_blocks.first(),
             Some(AgentContentBlock::Image { url: Some(url), mime_type: Some(mime_type), .. })
@@ -2993,7 +3004,9 @@ mod media_tools_tests {
             Some("google/gemini-3-pro-image-preview")
         );
         assert_eq!(
-            body.get("modalities").and_then(|value| value.as_array()).map(|items| items.len()),
+            body.get("modalities")
+                .and_then(|value| value.as_array())
+                .map(|items| items.len()),
             Some(2)
         );
         assert_eq!(

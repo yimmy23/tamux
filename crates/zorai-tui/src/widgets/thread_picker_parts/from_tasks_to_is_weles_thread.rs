@@ -1,3 +1,7 @@
+use super::hit_test_for_workspace_to_now_millis::*;
+use super::is_svarog_agent_name_to_hit_test::*;
+use super::*;
+
 use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
@@ -13,16 +17,17 @@ use crate::state::workspace::WorkspaceState;
 use crate::theme::ThemeTokens;
 use crate::widgets::token_format::format_token_count;
 
-const TAB_GAP: u16 = 1;
-const INTERNAL_DM_THREAD_PREFIX: &str = "dm:";
-const INTERNAL_DM_TITLE_PREFIX: &str = "Internal DM";
-const HIDDEN_HANDOFF_THREAD_PREFIX: &str = "handoff:";
-const GOAL_THREAD_PREFIX: &str = "goal:";
-const WORKSPACE_THREAD_PREFIX: &str = "workspace-thread:";
-const PLAYGROUND_THREAD_PREFIX: &str = "playground:";
-const PLAYGROUND_THREAD_TITLE_PREFIX: &str = "Participant Playground";
-const WELES_THREAD_TITLE: &str = "WELES";
-const GATEWAY_THREAD_TITLE_PREFIXES: [&str; 4] = ["slack ", "discord ", "telegram ", "whatsapp "];
+pub(super) const TAB_GAP: u16 = 1;
+pub(super) const INTERNAL_DM_THREAD_PREFIX: &str = "dm:";
+pub(super) const INTERNAL_DM_TITLE_PREFIX: &str = "Internal DM";
+pub(super) const HIDDEN_HANDOFF_THREAD_PREFIX: &str = "handoff:";
+pub(super) const GOAL_THREAD_PREFIX: &str = "goal:";
+pub(super) const WORKSPACE_THREAD_PREFIX: &str = "workspace-thread:";
+pub(super) const PLAYGROUND_THREAD_PREFIX: &str = "playground:";
+pub(super) const PLAYGROUND_THREAD_TITLE_PREFIX: &str = "Participant Playground";
+pub(super) const WELES_THREAD_TITLE: &str = "WELES";
+pub(super) const GATEWAY_THREAD_TITLE_PREFIXES: [&str; 4] =
+    ["slack ", "discord ", "telegram ", "whatsapp "];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ThreadPickerHitTarget {
@@ -37,10 +42,10 @@ pub(crate) struct ThreadPickerTabSpec {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ThreadPickerTabCell {
-    tab: ThreadPickerTab,
-    label: String,
-    start: u16,
+pub(super) struct ThreadPickerTabCell {
+    pub(super) tab: ThreadPickerTab,
+    pub(super) label: String,
+    pub(super) start: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,7 +57,7 @@ pub(crate) enum ThreadPickerStatus {
 }
 
 impl ThreadPickerStatus {
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::Running => "running",
             Self::Paused => "paused",
@@ -68,7 +73,7 @@ pub(crate) struct ThreadPickerStatusIndex {
 }
 
 impl ThreadPickerStatusIndex {
-    fn from_state(chat: &ChatState, tasks: &TaskState) -> Self {
+    pub(super) fn from_state(chat: &ChatState, tasks: &TaskState) -> Self {
         let mut index = Self::from_tasks(tasks);
         for thread in chat.threads() {
             if chat.is_thread_streaming(&thread.id) {
@@ -80,7 +85,7 @@ impl ThreadPickerStatusIndex {
         index
     }
 
-    fn status_for(&self, thread: &AgentThread) -> ThreadPickerStatus {
+    pub(super) fn status_for(&self, thread: &AgentThread) -> ThreadPickerStatus {
         self.by_thread_id
             .get(&thread.id)
             .copied()
@@ -93,7 +98,7 @@ impl ThreadPickerStatusIndex {
             })
     }
 
-    fn from_tasks(tasks: &TaskState) -> Self {
+    pub(super) fn from_tasks(tasks: &TaskState) -> Self {
         let mut index = Self::default();
 
         for goal_run in tasks.goal_runs() {
@@ -134,7 +139,7 @@ impl ThreadPickerStatusIndex {
     }
 }
 
-fn status_from_goal_run(status: Option<GoalRunStatus>) -> ThreadPickerStatus {
+pub(super) fn status_from_goal_run(status: Option<GoalRunStatus>) -> ThreadPickerStatus {
     match status {
         Some(
             GoalRunStatus::Queued
@@ -150,7 +155,7 @@ fn status_from_goal_run(status: Option<GoalRunStatus>) -> ThreadPickerStatus {
     }
 }
 
-fn status_from_task(status: Option<TaskStatus>) -> ThreadPickerStatus {
+pub(super) fn status_from_task(status: Option<TaskStatus>) -> ThreadPickerStatus {
     match status {
         Some(TaskStatus::Queued | TaskStatus::InProgress | TaskStatus::FailedAnalyzing) => {
             ThreadPickerStatus::Running
@@ -166,7 +171,7 @@ fn status_from_task(status: Option<TaskStatus>) -> ThreadPickerStatus {
     }
 }
 
-fn status_precedence(status: ThreadPickerStatus) -> u8 {
+pub(super) fn status_precedence(status: ThreadPickerStatus) -> u8 {
     match status {
         ThreadPickerStatus::Idle => 0,
         ThreadPickerStatus::Stopped => 1,
@@ -176,17 +181,17 @@ fn status_precedence(status: ThreadPickerStatus) -> u8 {
 }
 
 #[derive(Debug, Clone, Default)]
-struct GoalThreadIndex {
+pub(super) struct GoalThreadIndex {
     ids: std::collections::BTreeSet<String>,
 }
 
 impl GoalThreadIndex {
-    fn from_tasks(tasks: &TaskState) -> Self {
+    pub(super) fn from_tasks(tasks: &TaskState) -> Self {
         let ids = tasks.all_goal_thread_ids().into_iter().collect();
         Self { ids }
     }
 
-    fn contains_id(&self, thread_id: &str) -> bool {
+    pub(super) fn contains_id(&self, thread_id: &str) -> bool {
         self.ids.contains(thread_id)
     }
 
@@ -196,12 +201,12 @@ impl GoalThreadIndex {
 }
 
 #[derive(Debug, Clone, Default)]
-struct WorkspaceThreadIndex {
+pub(super) struct WorkspaceThreadIndex {
     ids: std::collections::BTreeSet<String>,
 }
 
 impl WorkspaceThreadIndex {
-    fn from_workspace(workspace: &WorkspaceState, tasks: &TaskState) -> Self {
+    pub(super) fn from_workspace(workspace: &WorkspaceState, tasks: &TaskState) -> Self {
         let mut ids = workspace
             .all_runtime_thread_ids()
             .into_iter()
@@ -229,7 +234,7 @@ impl WorkspaceThreadIndex {
         Self { ids }
     }
 
-    fn contains_id(&self, thread_id: &str) -> bool {
+    pub(super) fn contains_id(&self, thread_id: &str) -> bool {
         self.ids.contains(thread_id)
     }
 
@@ -238,21 +243,21 @@ impl WorkspaceThreadIndex {
     }
 }
 
-fn thread_picker_layout(inner: Rect) -> [Rect; 5] {
+pub(super) fn thread_picker_layout(inner: Rect) -> [Rect; 5] {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // tabs
-            Constraint::Length(1), // search
-            Constraint::Length(1), // separator
-            Constraint::Min(1),    // list
-            Constraint::Length(1), // hints
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
         ])
         .split(inner);
     [chunks[0], chunks[1], chunks[2], chunks[3], chunks[4]]
 }
 
-fn fixed_tab_specs() -> Vec<ThreadPickerTabSpec> {
+pub(super) fn fixed_tab_specs() -> Vec<ThreadPickerTabSpec> {
     vec![
         ThreadPickerTabSpec {
             tab: ThreadPickerTab::Swarog,
@@ -289,7 +294,7 @@ fn fixed_tab_specs() -> Vec<ThreadPickerTabSpec> {
     ]
 }
 
-fn latest_assistant_message_is_stopped(thread: &AgentThread) -> bool {
+pub(super) fn latest_assistant_message_is_stopped(thread: &AgentThread) -> bool {
     thread
         .messages
         .iter()
@@ -298,7 +303,7 @@ fn latest_assistant_message_is_stopped(thread: &AgentThread) -> bool {
         .is_some_and(|message| message.content.trim_end().ends_with("[stopped]"))
 }
 
-fn normalize_agent_tab_id(value: &str) -> Option<String> {
+pub(super) fn normalize_agent_tab_id(value: &str) -> Option<String> {
     let normalized = value.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "" | "svarog" | "swarog" | "main" | "rarog" | "concierge" | "weles" => None,
@@ -306,7 +311,7 @@ fn normalize_agent_tab_id(value: &str) -> Option<String> {
     }
 }
 
-fn display_name_for_agent_id(
+pub(super) fn display_name_for_agent_id(
     agent_id: &str,
     chat: &ChatState,
     subagents: &SubAgentsState,
@@ -335,7 +340,7 @@ fn display_name_for_agent_id(
         })
 }
 
-fn tab_specs_inner(
+pub(super) fn tab_specs_inner(
     chat: &ChatState,
     subagents: &SubAgentsState,
     goal_index: Option<&GoalThreadIndex>,
@@ -413,7 +418,7 @@ pub(crate) fn tab_specs_for_workspace(
     tab_specs_inner(chat, subagents, Some(&goal_index), Some(&workspace_index))
 }
 
-fn thread_matches_agent_tab(
+pub(super) fn thread_matches_agent_tab(
     thread: &AgentThread,
     agent_id: &str,
     subagents: &SubAgentsState,
@@ -511,7 +516,7 @@ pub(crate) fn adjacent_thread_picker_tab_for_workspace(
     )
 }
 
-fn adjacent_thread_picker_tab_inner(
+pub(super) fn adjacent_thread_picker_tab_inner(
     current: &ThreadPickerTab,
     chat: &ChatState,
     subagents: &SubAgentsState,
@@ -537,7 +542,7 @@ fn adjacent_thread_picker_tab_inner(
         .unwrap_or_default()
 }
 
-fn thread_matches_query(
+pub(super) fn thread_matches_query(
     thread: &AgentThread,
     query: &str,
     goal_index: Option<&GoalThreadIndex>,
@@ -589,15 +594,18 @@ pub(crate) fn is_goal_thread(thread: &AgentThread) -> bool {
     thread.id.starts_with(GOAL_THREAD_PREFIX)
 }
 
-fn is_goal_thread_with_index(thread: &AgentThread, goal_index: Option<&GoalThreadIndex>) -> bool {
+pub(super) fn is_goal_thread_with_index(
+    thread: &AgentThread,
+    goal_index: Option<&GoalThreadIndex>,
+) -> bool {
     is_goal_thread(thread) || goal_index.is_some_and(|index| index.contains_thread(thread))
 }
 
-fn is_workspace_thread(thread: &AgentThread) -> bool {
+pub(super) fn is_workspace_thread(thread: &AgentThread) -> bool {
     thread.id.starts_with(WORKSPACE_THREAD_PREFIX)
 }
 
-fn is_workspace_thread_with_index(
+pub(super) fn is_workspace_thread_with_index(
     thread: &AgentThread,
     workspace_index: Option<&WorkspaceThreadIndex>,
 ) -> bool {
@@ -605,7 +613,7 @@ fn is_workspace_thread_with_index(
         || workspace_index.is_some_and(|index| index.contains_thread(thread))
 }
 
-fn is_hidden_handoff_thread(thread: &AgentThread) -> bool {
+pub(super) fn is_hidden_handoff_thread(thread: &AgentThread) -> bool {
     thread.id.starts_with(HIDDEN_HANDOFF_THREAD_PREFIX)
         || thread
             .title

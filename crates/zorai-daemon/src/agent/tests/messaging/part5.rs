@@ -1640,9 +1640,8 @@ async fn internal_delegate_does_not_register_participant() {
         first_body
             .get("tools")
             .and_then(|value| value.as_array())
-            .map(|tools| tools.is_empty())
-            .unwrap_or(true),
-        "internal DM delegate request should not expose tools: {}",
+            .is_some_and(|tools| !tools.is_empty()),
+        "internal DM delegate request should expose tools: {}",
         recorded[0]
     );
 
@@ -1757,6 +1756,8 @@ async fn internal_delegate_rejects_budget_exceeded_thread() {
         supervisor_config: None,
         sub_agent_def_id: None,
     });
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     let error = engine
         .send_internal_delegate_message(

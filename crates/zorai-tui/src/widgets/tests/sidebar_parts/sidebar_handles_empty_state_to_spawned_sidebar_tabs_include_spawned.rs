@@ -1,8 +1,10 @@
-use super::*;
+use super::super::*;
 use crate::state::chat::{AgentMessage, ChatAction, ChatState, MessageRole};
-use crate::state::sidebar::SidebarState;
+use crate::state::sidebar::{SidebarState, SidebarTab};
 use crate::state::task::{TaskAction, TaskState, TodoItem, TodoStatus};
+use crate::theme::ThemeTokens;
 use ratatui::backend::TestBackend;
+use ratatui::layout::Rect;
 use ratatui::Terminal;
 
 #[test]
@@ -403,7 +405,7 @@ fn pinned_sidebar_renders_footer_hints() {
     );
 }
 
-fn spawned_sidebar_task(
+pub(super) fn spawned_sidebar_task(
     id: &str,
     title: &str,
     created_at: u64,
@@ -497,4 +499,3 @@ fn spawned_sidebar_tabs_include_spawned() {
         "expected spawned tab in sidebar, got: {plain}"
     );
 }
-

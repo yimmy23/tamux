@@ -1,4 +1,20 @@
-fn apply_mouse_selection_highlight(
+use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
+use super::super::selection_point_from_snapshot_to_render::*;
+use super::super::*;
+use crate::state::chat::{
+    AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode,
+};
+use crate::theme::ThemeTokens;
+use crate::widgets::message;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+pub(crate) fn apply_mouse_selection_highlight(
     _snapshot: &SelectionSnapshot,
     visible_lines: &mut [RenderedChatLine],
     padding: usize,
@@ -51,7 +67,7 @@ fn apply_mouse_selection_highlight(
     }
 }
 
-fn render_snapshot(
+pub(crate) fn render_snapshot(
     frame: &mut Frame,
     snapshot: &SelectionSnapshot,
     chat: &ChatState,
@@ -74,9 +90,14 @@ fn render_snapshot(
         .into_iter()
         .map(|line| line.line)
         .collect::<Vec<_>>();
-    let scroll = snapshot.all_lines.len().saturating_sub(end_idx);
+    let scroll = resolved_scroll(
+        chat,
+        snapshot.total_lines,
+        snapshot.inner.height as usize,
+        &snapshot.message_line_ranges,
+    );
     if let Some(layout) =
-        scrollbar_layout_from_metrics(snapshot.inner, snapshot.all_lines.len(), scroll)
+        scrollbar_layout_from_metrics(snapshot.inner, snapshot.total_lines, scroll)
     {
         frame.render_widget(Paragraph::new(visible_lines), layout.content);
 
@@ -118,4 +139,24 @@ pub fn reset_build_rendered_lines_call_count() {
 #[cfg(test)]
 pub fn build_rendered_lines_call_count() -> usize {
     BUILD_RENDERED_LINES_CALLS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub fn reset_build_transcript_metrics_call_count() {
+    BUILD_TRANSCRIPT_METRICS_CALLS.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+pub fn build_transcript_metrics_call_count() -> usize {
+    BUILD_TRANSCRIPT_METRICS_CALLS.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+pub(crate) fn reset_assistant_responder_labels_call_count() {
+    ASSISTANT_RESPONDER_LABELS_CALLS.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn assistant_responder_labels_call_count() -> usize {
+    ASSISTANT_RESPONDER_LABELS_CALLS.with(std::cell::Cell::get)
 }

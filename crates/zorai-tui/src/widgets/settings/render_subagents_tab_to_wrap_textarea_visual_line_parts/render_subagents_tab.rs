@@ -1,4 +1,21 @@
-fn render_subagents_tab<'a>(
+use super::super::advanced_single_line_edit_layout_to_subagent_row_action_offsets::*;
+use super::super::render_advanced_value_to_render_advanced_tab::*;
+use super::super::render_edit_buffer_with_cursor_to_editing_cursor_hit_test_to_content::*;
+use super::super::wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render::*;
+use super::*;
+use crate::providers;
+use crate::state::concierge::ConciergeState;
+use crate::state::config::ConfigState;
+use crate::state::modal::{ModalState, WhatsAppLinkPhase};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use zorai_protocol::has_whatsapp_allowed_contacts;
+pub(crate) fn render_subagents_tab<'a>(
     content_width: u16,
     settings: &'a SettingsState,
     subagents: &'a crate::state::subagents::SubAgentsState,
@@ -211,7 +228,10 @@ fn render_subagents_tab<'a>(
             for rendered in prompt_lines {
                 lines.push(Line::from(vec![
                     Span::styled("  │ ", theme.fg_dim),
-                    Span::styled(pad_visual_width(&rendered, prompt_inner_width), theme.fg_active),
+                    Span::styled(
+                        pad_visual_width(&rendered, prompt_inner_width),
+                        theme.fg_active,
+                    ),
                     Span::styled(" │", theme.fg_dim),
                 ]));
             }
@@ -323,7 +343,6 @@ fn render_subagents_tab<'a>(
             theme.fg_dim,
         )));
     } else {
-        // Field 0: subagent_list
         for (i, entry) in subagents.entries.iter().enumerate() {
             let is_selected = subagents.selected == i;
             let marker = if is_selected { "> " } else { "  " };
@@ -431,7 +450,6 @@ fn render_subagents_tab<'a>(
 
     lines.push(Line::raw(""));
 
-    // Field 1: subagent_add
     {
         let is_selected = subagents.actions_focused && subagents.action_cursor == 0;
         let marker = if is_selected { "> " } else { "  " };

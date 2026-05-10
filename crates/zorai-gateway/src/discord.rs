@@ -23,6 +23,7 @@ pub struct DiscordProvider {
     rate_limiter: TokenBucket,
     last_poll_ms: Option<u64>,
     poll_interval_ms: u64,
+    http_client: reqwest::Client,
 }
 
 impl DiscordProvider {
@@ -94,6 +95,7 @@ impl DiscordProvider {
             rate_limiter: TokenBucket::discord(),
             last_poll_ms: None,
             poll_interval_ms,
+            http_client: reqwest::Client::new(),
         }))
     }
 
@@ -110,7 +112,8 @@ impl DiscordProvider {
     }
 
     async fn get_messages(&self, url: &str) -> Result<Value> {
-        let response = reqwest::Client::new()
+        let response = self
+            .http_client
             .get(url)
             .header("Authorization", self.authorization_header())
             .timeout(Duration::from_secs(5))
@@ -145,7 +148,8 @@ impl DiscordProvider {
             return Ok(channel_or_user.to_string());
         };
 
-        let response = reqwest::Client::new()
+        let response = self
+            .http_client
             .post(format!("{}/users/@me/channels", self.api_base))
             .header("Authorization", self.authorization_header())
             .json(&json!({ "recipient_id": user_id }))
@@ -358,7 +362,8 @@ impl GatewayProvider for DiscordProvider {
                     }
                 }
 
-                let body = reqwest::Client::new()
+                let body = self
+                    .http_client
                     .post(format!(
                         "{}/channels/{}/messages",
                         self.api_base, target_channel

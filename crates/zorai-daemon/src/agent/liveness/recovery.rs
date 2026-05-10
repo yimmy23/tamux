@@ -4,13 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::types::StuckReason;
 
-// Re-export state_layers items used in recovery context.
 #[allow(unused_imports)]
 use super::state_layers::*;
 
-// ---------------------------------------------------------------------------
-// Recovery strategy
-// ---------------------------------------------------------------------------
 
 /// What recovery action to take for a stuck goal run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,9 +20,6 @@ pub enum RecoveryStrategy {
     EscalateToUser { message: String },
 }
 
-// ---------------------------------------------------------------------------
-// Recovery outcome
-// ---------------------------------------------------------------------------
 
 /// Result of executing a recovery strategy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,9 +33,6 @@ pub enum RecoveryOutcome {
     Escalated { to: String },
 }
 
-// ---------------------------------------------------------------------------
-// Recovery attempt
-// ---------------------------------------------------------------------------
 
 /// Record of a single recovery attempt against a goal run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,9 +45,6 @@ pub struct RecoveryAttempt {
     pub outcome: Option<RecoveryOutcome>,
 }
 
-// ---------------------------------------------------------------------------
-// Recovery planner
-// ---------------------------------------------------------------------------
 
 /// Decides which recovery strategy to use based on the stuck reason,
 /// prior attempt count, and checkpoint availability.
@@ -98,7 +85,6 @@ impl RecoveryPlanner {
         attempt_count: u32,
         has_checkpoint: bool,
     ) -> RecoveryStrategy {
-        // Timeout is always user-actionable.
         if stuck_reason == StuckReason::Timeout {
             return RecoveryStrategy::EscalateToUser {
                 message: "Goal run timed out. Please review and decide whether to extend \
@@ -107,7 +93,6 @@ impl RecoveryPlanner {
             };
         }
 
-        // Resource exhaustion — try compressing once, then escalate.
         if stuck_reason == StuckReason::ResourceExhaustion {
             return if attempt_count == 0 {
                 RecoveryStrategy::CompressAndRetry
@@ -120,9 +105,7 @@ impl RecoveryPlanner {
             };
         }
 
-        // General strategy ladder for NoProgress, ErrorLoop, ToolCallLoop, etc.
         if attempt_count >= self.max_auto_retries.saturating_sub(1) {
-            // Third attempt (index 2) or beyond → escalate.
             return RecoveryStrategy::EscalateToUser {
                 message: format!(
                     "Automatic recovery has been attempted {} time(s) without success. \
@@ -135,13 +118,12 @@ impl RecoveryPlanner {
         if attempt_count == 0 {
             if has_checkpoint {
                 RecoveryStrategy::CheckpointRetry {
-                    checkpoint_id: String::new(), // caller fills in the actual id
+                    checkpoint_id: String::new(),
                 }
             } else {
                 RecoveryStrategy::CompressAndRetry
             }
         } else {
-            // attempt 1
             RecoveryStrategy::CompressAndRetry
         }
     }
@@ -178,9 +160,6 @@ impl RecoveryPlanner {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -190,7 +169,6 @@ mod tests {
         RecoveryPlanner::default()
     }
 
-    // -- Strategy selection tests --
 
     #[test]
     fn first_attempt_with_checkpoint_uses_checkpoint_retry() {
@@ -265,7 +243,6 @@ mod tests {
         );
     }
 
-    // -- Backoff tests --
 
     #[test]
     fn backoff_exponential_sequence() {
@@ -279,13 +256,11 @@ mod tests {
     #[test]
     fn backoff_caps_at_five_minutes() {
         let p = planner();
-        // 30 * 2^4 = 480 → capped to 300
         assert_eq!(p.compute_backoff_secs(4), 300);
         assert_eq!(p.compute_backoff_secs(10), 300);
         assert_eq!(p.compute_backoff_secs(31), 300);
     }
 
-    // -- Message tests --
 
     #[test]
     fn recovery_message_includes_goal_title() {
@@ -307,7 +282,6 @@ mod tests {
         );
     }
 
-    // -- Default planner tests --
 
     #[test]
     fn default_planner_has_reasonable_defaults() {
@@ -316,7 +290,6 @@ mod tests {
         assert_eq!(p.backoff_base_secs, 30);
     }
 
-    // -- RecoveryAttempt / RecoveryOutcome round-trip --
 
     #[test]
     fn recovery_attempt_serialization_roundtrip() {

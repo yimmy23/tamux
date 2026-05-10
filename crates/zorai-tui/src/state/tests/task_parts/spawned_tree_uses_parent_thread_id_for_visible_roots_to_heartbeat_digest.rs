@@ -1,3 +1,7 @@
+use super::task_list_received_replaces_tasks_to_goal_step_todos_use_latest_event::*;
+use super::*;
+use crate::state::spawned_tree::derive_spawned_agent_tree;
+use crate::state::task::*;
 #[test]
 fn spawned_tree_uses_parent_thread_id_for_visible_roots() {
     let tasks = vec![
@@ -171,7 +175,6 @@ fn heartbeat_digest_received_stores_and_replaces() {
     assert_eq!(d.items.len(), 1);
     assert_eq!(d.items[0].priority, 1);
 
-    // Replace with new digest
     state.reduce(TaskAction::HeartbeatDigestReceived(HeartbeatDigestVm {
         cycle_id: "c2".into(),
         actionable: false,

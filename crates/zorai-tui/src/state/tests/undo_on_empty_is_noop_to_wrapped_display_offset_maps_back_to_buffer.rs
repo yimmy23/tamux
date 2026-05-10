@@ -36,13 +36,11 @@ fn redo_cleared_on_new_edit() {
     state.reduce(InputAction::Undo);
     assert_eq!(state.buffer(), "a");
 
-    // New edit clears redo stack
     state.reduce(InputAction::InsertChar('c'));
     assert_eq!(state.buffer(), "ac");
 
-    // Redo should be empty now
     state.reduce(InputAction::Redo);
-    assert_eq!(state.buffer(), "ac"); // no change
+    assert_eq!(state.buffer(), "ac");
 }
 
 #[test]
@@ -53,9 +51,7 @@ fn undo_clamps_cursor() {
     }
     assert_eq!(state.cursor_pos(), 5);
 
-    // Undo back to "hell"
     state.reduce(InputAction::Undo);
-    // Cursor should be clamped to buffer length
     assert!(state.cursor_pos() <= state.buffer().len());
 }
 
@@ -216,26 +212,24 @@ fn tilde_resolution_handles_forward_and_backslash_separators() {
     assert_eq!(backslash, documents);
 }
 
-// ── UTF-8 cursor tests ───────────────────────────────────────────────────
 
 #[test]
 fn cursor_movement_with_multibyte_chars() {
     let mut state = InputState::new();
-    // Insert some multi-byte characters
     state.reduce(InputAction::InsertChar('a'));
-    state.reduce(InputAction::InsertChar('\u{00e9}')); // é (2 bytes)
+    state.reduce(InputAction::InsertChar('\u{00e9}'));
     state.reduce(InputAction::InsertChar('b'));
     assert_eq!(state.buffer(), "a\u{00e9}b");
-    assert_eq!(state.cursor_pos(), 4); // 1 + 2 + 1
+    assert_eq!(state.cursor_pos(), 4);
 
     state.reduce(InputAction::MoveCursorLeft);
-    assert_eq!(state.cursor_pos(), 3); // before 'b'
+    assert_eq!(state.cursor_pos(), 3);
 
     state.reduce(InputAction::MoveCursorLeft);
-    assert_eq!(state.cursor_pos(), 1); // before 'é'
+    assert_eq!(state.cursor_pos(), 1);
 
     state.reduce(InputAction::MoveCursorRight);
-    assert_eq!(state.cursor_pos(), 3); // after 'é'
+    assert_eq!(state.cursor_pos(), 3);
 }
 
 #[test]
@@ -244,7 +238,6 @@ fn delete_word_at_cursor_in_middle() {
     for c in "hello world end".chars() {
         state.reduce(InputAction::InsertChar(c));
     }
-    // Move cursor back to after "world " (before "end")
     state.reduce(InputAction::MoveCursorLeft);
     state.reduce(InputAction::MoveCursorLeft);
     state.reduce(InputAction::MoveCursorLeft);
@@ -264,24 +257,19 @@ fn line_col_conversion_roundtrip() {
         }
         s
     };
-    // Line 0: "abc" (len 3)
     assert_eq!(state.line_col_to_offset_public(0, 0), 0);
     assert_eq!(state.line_col_to_offset_public(0, 3), 3);
-    assert_eq!(state.line_col_to_offset_public(0, 10), 3); // clamped
+    assert_eq!(state.line_col_to_offset_public(0, 10), 3);
 
-    // Line 1: "de" (len 2), starts at offset 4
     assert_eq!(state.line_col_to_offset_public(1, 0), 4);
     assert_eq!(state.line_col_to_offset_public(1, 2), 6);
 
-    // Line 2: "fghij" (len 5), starts at offset 7
     assert_eq!(state.line_col_to_offset_public(2, 0), 7);
     assert_eq!(state.line_col_to_offset_public(2, 5), 12);
 
-    // Beyond last line
     assert_eq!(state.line_col_to_offset_public(5, 0), 12);
 }
 
-// ── Paste-block tests ────────────────────────────────────────────────────
 
 #[test]
 fn single_line_paste_inserts_normally() {
@@ -297,7 +285,6 @@ fn multiline_paste_stores_block_and_placeholder() {
     state.insert_paste_block("line1\nline2\nline3".to_string());
     assert_eq!(state.paste_blocks().len(), 1);
     assert_eq!(state.paste_blocks()[0].line_count, 3);
-    // Buffer should contain the placeholder token, not the raw text
     assert!(state.buffer().contains("\x00PASTE:0\x00"));
     assert!(!state.buffer().contains("line1"));
 }

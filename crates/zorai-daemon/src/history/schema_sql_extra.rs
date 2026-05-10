@@ -989,9 +989,15 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 workspace_id   TEXT PRIMARY KEY,
                 workspace_root TEXT,
                 operator       TEXT NOT NULL,
+                repo_monitor_enabled INTEGER NOT NULL DEFAULT 0,
+                repo_monitor_include_dirs_json TEXT NOT NULL DEFAULT '[]',
+                repo_monitor_exclude_dirs_json TEXT NOT NULL DEFAULT '[]',
                 created_at     INTEGER NOT NULL,
                 updated_at     INTEGER NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_workspace_settings_repo_monitor_enabled
+                ON workspace_settings(repo_monitor_enabled, workspace_id)
+                WHERE repo_monitor_enabled = 1;
 
             CREATE TABLE IF NOT EXISTS workspace_tasks (
                 id                 TEXT PRIMARY KEY,
@@ -1028,5 +1034,17 @@ pub(super) fn extended_schema_sql() -> &'static str {
                 created_at   INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_workspace_notices_task ON workspace_notices(workspace_id, task_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS thread_skill_reads (
+                thread_id      TEXT NOT NULL,
+                kind           TEXT NOT NULL,
+                name           TEXT NOT NULL,
+                read_count     INTEGER NOT NULL DEFAULT 1,
+                last_read_at   INTEGER NOT NULL,
+                last_content   TEXT NOT NULL,
+                PRIMARY KEY (thread_id, kind, name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_thread_skill_reads_lookup
+                ON thread_skill_reads(thread_id, kind, read_count DESC, last_read_at DESC);
     "#
 }

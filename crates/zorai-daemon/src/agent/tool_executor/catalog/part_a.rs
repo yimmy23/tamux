@@ -1,4 +1,5 @@
-fn add_available_tools_part_a(
+use super::*;
+pub(crate) fn add_available_tools_part_a(
     tools: &mut Vec<ToolDefinition>,
     config: &AgentConfig,
     _agent_data_dir: &std::path::Path,
@@ -205,5 +206,4 @@ fn add_available_tools_part_a(
             }),
         ));
     }
-
 }

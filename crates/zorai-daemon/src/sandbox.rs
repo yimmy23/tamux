@@ -61,7 +61,6 @@ impl Sandbox for BwrapSandbox {
             args.push("--unshare-net".to_string());
         }
 
-        // Add the shell command
         args.push("--".to_string());
         args.push("sh".to_string());
         args.push("-c".to_string());

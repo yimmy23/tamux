@@ -1,3 +1,17 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
 impl TuiModel {
     pub fn new(
         daemon_events_rx: Receiver<ClientEvent>,
@@ -54,6 +68,9 @@ impl TuiModel {
             bootstrap_pending_activity_threads: std::collections::HashSet::new(),
             pending_prompt_response_threads: std::collections::HashSet::new(),
             deleted_thread_ids: std::collections::HashSet::new(),
+            pending_local_message_delete_reload_suppression: std::collections::HashMap::new(),
+            pending_local_message_delete_backfills: std::collections::HashMap::new(),
+            pending_local_message_delete_fetches: std::collections::HashMap::new(),
             participant_playground_activity: std::collections::HashMap::new(),
             last_error: None,
             error_active: false,
@@ -93,6 +110,8 @@ impl TuiModel {
             operator_profile: OperatorProfileOnboardingState::default(),
             cancelled_thread_id: None,
             pending_new_thread_target_agent: None,
+            pending_thread_picker_refresh: None,
+            thread_picker_loading_tab: None,
             pending_builtin_persona_setup: None,
             pending_target_agent_config: None,
             pending_svarog_reasoning_effort: None,
@@ -160,7 +179,7 @@ impl TuiModel {
         }
     }
 
-    fn send_daemon_command(&self, command: DaemonCommand) {
+    pub(crate) fn send_daemon_command(&self, command: DaemonCommand) {
         let _ = self.daemon_cmd_tx.send(command);
     }
 
@@ -398,7 +417,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn open_pinned_budget_exceeded_modal(
+    pub(crate) fn open_pinned_budget_exceeded_modal(
         &mut self,
         payload: PendingPinnedBudgetExceeded,
     ) {
@@ -410,7 +429,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn close_pinned_budget_exceeded_modal(&mut self) {
+    pub(crate) fn close_pinned_budget_exceeded_modal(&mut self) {
         self.pending_pinned_budget_exceeded = None;
         if self.modal.top() == Some(modal::ModalKind::PinnedBudgetExceeded) {
             self.close_top_modal();

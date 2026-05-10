@@ -17,8 +17,8 @@ pub enum InputMode {
 pub enum InputAction {
     InsertChar(char),
     Backspace,
-    DeleteWord, // delete word before cursor (Ctrl+Backspace / Ctrl+W)
-    ClearLine,  // clear entire input line (Ctrl+U)
+    DeleteWord,
+    ClearLine,
     Submit,
     ToggleMode,
     Clear,
@@ -60,9 +60,14 @@ pub struct InputState {
     history_cursor: Option<usize>,
 }
 
-include!("input_parts/history.rs");
-include!("input_parts/new_to_reduce.rs");
-include!("input_parts/text.rs");
+#[path = "input_parts/history.rs"]
+mod history;
+
+#[path = "input_parts/new_to_reduce.rs"]
+mod new_to_reduce;
+
+#[path = "input_parts/text.rs"]
+mod text;
 
 #[cfg(test)]
 #[path = "tests/input.rs"]

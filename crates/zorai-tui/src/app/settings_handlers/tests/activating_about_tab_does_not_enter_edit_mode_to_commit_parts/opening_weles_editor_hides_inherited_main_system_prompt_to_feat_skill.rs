@@ -1,3 +1,15 @@
+use super::super::{auth_env_lock, make_model, unique_test_db_path};
+use super::*;
+use crate::app::TuiModel;
+use crate::state::settings::SettingsTab;
+use crate::state::*;
+use crate::widgets;
+use crossterm::event::{KeyCode, KeyModifiers};
+use rusqlite::{params, Connection};
+use std::ffi::OsString;
+use std::path::PathBuf;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn opening_weles_editor_hides_inherited_main_system_prompt() {
     let (mut model, _daemon_rx) = make_model();
@@ -56,7 +68,7 @@ fn opening_weles_editor_hides_inherited_main_system_prompt() {
     );
 }
 
-fn focus_settings_field(model: &mut TuiModel, tab: SettingsTab, field_name: &str) {
+pub fn focus_settings_field(model: &mut TuiModel, tab: SettingsTab, field_name: &str) {
     model.settings.reduce(SettingsAction::SwitchTab(tab));
     let count = model.settings.field_count_with_config(&model.config);
     for _ in 0..count {
@@ -433,4 +445,3 @@ fn feat_skill_recommendation_numeric_fields_write_new_daemon_paths() {
         }
     }
 }
-

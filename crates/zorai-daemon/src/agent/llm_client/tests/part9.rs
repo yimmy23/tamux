@@ -1,3 +1,14 @@
+use super::part1::*;
+use super::part5_support::*;
+use super::*;
+use crate::agent::provider_auth_store;
+use crate::agent::types::{AgentMessage, MessageRole};
+use crate::test_support::EnvGuard;
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+use std::sync::Mutex;
+use tempfile::tempdir;
 #[tokio::test]
 async fn anthropic_batch_results_parse_extended_usage_fields() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -25,7 +36,10 @@ async fn anthropic_batch_results_parse_extended_usage_fields() {
             body.len(),
             body
         );
-        socket.write_all(response.as_bytes()).await.expect("write response");
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
     });
 
     let results = retrieve_message_batch_results(
@@ -124,7 +138,10 @@ async fn anthropic_batch_results_parse_tool_use_content_blocks() {
             body.len(),
             body
         );
-        socket.write_all(response.as_bytes()).await.expect("write response");
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
     });
 
     let results = retrieve_message_batch_results(
@@ -181,10 +198,7 @@ async fn anthropic_batch_results_parse_tool_use_content_blocks() {
                     .caller
                     .as_ref()
                     .map(|value| (value.caller_type.clone(), value.tool_id.clone())),
-                Some((
-                    "server_tool_caller".to_string(),
-                    Some("srv_1".to_string()),
-                ))
+                Some(("server_tool_caller".to_string(), Some("srv_1".to_string()),))
             );
             assert_eq!(
                 server_tool_use.input,
@@ -222,7 +236,10 @@ async fn anthropic_batch_results_parse_thinking_content_blocks() {
             body.len(),
             body
         );
-        socket.write_all(response.as_bytes()).await.expect("write response");
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
     });
 
     let results = retrieve_message_batch_results(
@@ -304,7 +321,10 @@ async fn anthropic_batch_results_parse_web_fetch_content_blocks() {
             body.len(),
             body
         );
-        socket.write_all(response.as_bytes()).await.expect("write response");
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
     });
 
     let results = retrieve_message_batch_results(

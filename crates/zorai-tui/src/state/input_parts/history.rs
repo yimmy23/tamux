@@ -1,18 +1,20 @@
+use super::InputState;
+
 impl InputState {
     pub fn can_browse_sent_history(&self) -> bool {
         self.history_cursor.is_some() || self.buffer_cache.is_empty()
     }
 
-    fn remember_submitted_prompt(&mut self, prompt: &str) {
+    pub(super) fn remember_submitted_prompt(&mut self, prompt: &str) {
         self.sent_history.push(prompt.to_string());
         self.history_cursor = None;
     }
 
-    fn commit_history_selection(&mut self) {
+    pub(super) fn commit_history_selection(&mut self) {
         self.history_cursor = None;
     }
 
-    fn browse_history_previous(&mut self) {
+    pub(super) fn browse_history_previous(&mut self) {
         if self.sent_history.is_empty() {
             return;
         }
@@ -31,7 +33,7 @@ impl InputState {
         self.set_text(&prompt);
     }
 
-    fn browse_history_next(&mut self) {
+    pub(super) fn browse_history_next(&mut self) {
         let Some(cursor) = self.history_cursor else {
             return;
         };

@@ -1,3 +1,9 @@
+use super::whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings::*;
+use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn selecting_compaction_custom_model_updates_compaction_model() {
     let (mut model, _daemon_rx) = make_model();
@@ -436,4 +442,3 @@ fn selecting_image_generation_provider_updates_image_provider_and_opens_model_pi
     );
     assert_eq!(model.modal.top(), Some(modal::ModalKind::ModelPicker));
 }
-

@@ -113,7 +113,6 @@ pub fn render_with_models(
         return;
     }
 
-    // Split: list (flex) + hints (1)
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
@@ -214,8 +213,11 @@ pub fn render(
 }
 
 #[cfg(test)]
+#[path = "model_picker_tests_parts"]
 mod tests {
-    include!("model_picker_tests_parts/model_picker_filters_visible_rows.rs");
+    use super::*;
+
+    mod model_picker_filters_visible_rows;
 }
 
 fn highlighted_model_details(

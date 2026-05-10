@@ -1,5 +1,20 @@
-fn render_streaming_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
-    super::message::render_markdown_pub(content, width)
+use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
+use super::super::selection_point_from_snapshot_to_render::*;
+use super::super::*;
+use crate::state::chat::{
+    AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode,
+};
+use crate::theme::ThemeTokens;
+use crate::widgets::message;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+pub(crate) fn render_streaming_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
+    crate::widgets::message::render_markdown_pub(content, width)
 }
 
 use std::path::Path;
@@ -101,7 +116,7 @@ pub(crate) fn message_image_preview_path(message: &AgentMessage) -> Option<Strin
     })
 }
 
-fn generated_image_preview_path(message: &AgentMessage) -> Option<String> {
+pub(crate) fn generated_image_preview_path(message: &AgentMessage) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(&message.content).ok()?;
     non_empty_string_field(&value, "path").or_else(|| {
         non_empty_string_field(&value, "file_url")
@@ -120,13 +135,13 @@ pub(crate) fn tool_skill_chip(message: &AgentMessage) -> Option<String> {
     non_empty_string_field(&value, "skill")
 }
 
-fn direct_tool_path(value: &serde_json::Value) -> Option<String> {
+pub(crate) fn direct_tool_path(value: &serde_json::Value) -> Option<String> {
     ["path", "filePath", "file_path"]
         .iter()
         .find_map(|key| non_empty_string_field(value, key))
 }
 
-fn tool_path_from_cwd_and_filename(value: &serde_json::Value) -> Option<String> {
+pub(crate) fn tool_path_from_cwd_and_filename(value: &serde_json::Value) -> Option<String> {
     let filename = non_empty_string_field(value, "filename")?;
     if let Some(cwd) = non_empty_string_field(value, "cwd") {
         Some(Path::new(&cwd).join(&filename).display().to_string())
@@ -135,7 +150,7 @@ fn tool_path_from_cwd_and_filename(value: &serde_json::Value) -> Option<String> 
     }
 }
 
-fn non_empty_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
+pub(crate) fn non_empty_string_field(value: &serde_json::Value, key: &str) -> Option<String> {
     value
         .get(key)
         .and_then(|value| value.as_str())
@@ -144,17 +159,17 @@ fn non_empty_string_field(value: &serde_json::Value, key: &str) -> Option<String
         .map(ToOwned::to_owned)
 }
 
-fn read_skill_preview_path(message: &AgentMessage) -> Option<String> {
+pub(crate) fn read_skill_preview_path(message: &AgentMessage) -> Option<String> {
     skill_path_from_result_json(&message.content)
         .or_else(|| skill_path_from_result_header(&message.content))
 }
 
-fn read_guideline_preview_path(message: &AgentMessage) -> Option<String> {
+pub(crate) fn read_guideline_preview_path(message: &AgentMessage) -> Option<String> {
     guideline_path_from_result_json(&message.content)
         .or_else(|| guideline_path_from_result_header(&message.content))
 }
 
-fn skill_path_from_result_json(content: &str) -> Option<String> {
+pub(crate) fn skill_path_from_result_json(content: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(content).ok()?;
     let path = non_empty_string_field(&value, "path")?;
     Some(resolve_skill_path_for_preview(
@@ -163,7 +178,7 @@ fn skill_path_from_result_json(content: &str) -> Option<String> {
     ))
 }
 
-fn skill_path_from_result_header(content: &str) -> Option<String> {
+pub(crate) fn skill_path_from_result_header(content: &str) -> Option<String> {
     let first_line = content.lines().next()?.trim();
     let raw_path = first_line.strip_prefix("Skill ")?;
     let relative_path = if let Some((path, _)) = raw_path.split_once(" [") {
@@ -178,7 +193,7 @@ fn skill_path_from_result_header(content: &str) -> Option<String> {
     Some(resolve_skill_path_for_preview(None, relative_path))
 }
 
-fn guideline_path_from_result_json(content: &str) -> Option<String> {
+pub(crate) fn guideline_path_from_result_json(content: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(content).ok()?;
     let path = non_empty_string_field(&value, "path")?;
     Some(resolve_guideline_path_for_preview(
@@ -187,7 +202,7 @@ fn guideline_path_from_result_json(content: &str) -> Option<String> {
     ))
 }
 
-fn guideline_path_from_result_header(content: &str) -> Option<String> {
+pub(crate) fn guideline_path_from_result_header(content: &str) -> Option<String> {
     let first_line = content.lines().next()?.trim();
     let raw_path = first_line.strip_prefix("Guideline ")?;
     let relative_path = raw_path.strip_suffix(':').unwrap_or(raw_path).trim();
@@ -198,7 +213,7 @@ fn guideline_path_from_result_header(content: &str) -> Option<String> {
     Some(resolve_guideline_path_for_preview(None, relative_path))
 }
 
-fn resolve_skill_path_for_preview(skills_root: Option<String>, path: &str) -> String {
+pub(crate) fn resolve_skill_path_for_preview(skills_root: Option<String>, path: &str) -> String {
     if Path::new(path).is_absolute() {
         return path.to_string();
     }
@@ -211,7 +226,10 @@ fn resolve_skill_path_for_preview(skills_root: Option<String>, path: &str) -> St
         .to_string()
 }
 
-fn resolve_guideline_path_for_preview(guidelines_root: Option<String>, path: &str) -> String {
+pub(crate) fn resolve_guideline_path_for_preview(
+    guidelines_root: Option<String>,
+    path: &str,
+) -> String {
     if Path::new(path).is_absolute() {
         return path.to_string();
     }
@@ -224,7 +242,7 @@ fn resolve_guideline_path_for_preview(guidelines_root: Option<String>, path: &st
         .to_string()
 }
 
-fn file_name_label(path: &str) -> String {
+pub(crate) fn file_name_label(path: &str) -> String {
     Path::new(path)
         .file_name()
         .and_then(|value| value.to_str())
@@ -269,7 +287,7 @@ pub(crate) fn append_tool_skill_chip(
     ));
 }
 
-fn first_apply_patch_path(arguments: &str) -> Option<String> {
+pub(crate) fn first_apply_patch_path(arguments: &str) -> Option<String> {
     let value: serde_json::Value = serde_json::from_str(arguments).ok()?;
     let input = value
         .get("input")
@@ -297,7 +315,7 @@ pub struct SelectionPoint {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RenderedLineKind {
+pub(crate) enum RenderedLineKind {
     MessageBody,
     ImageAttachment,
     ReasoningToggle,
@@ -312,20 +330,24 @@ enum RenderedLineKind {
 }
 
 #[derive(Debug, Clone)]
-struct RenderedChatLine {
-    line: Line<'static>,
-    message_index: Option<usize>,
-    kind: RenderedLineKind,
+pub(crate) struct RenderedChatLine {
+    pub(crate) line: Line<'static>,
+    pub(crate) message_index: Option<usize>,
+    pub(crate) kind: RenderedLineKind,
 }
 
-struct SelectionSnapshot {
-    key: RenderCacheKey,
-    inner: Rect,
-    all_lines: Vec<RenderedChatLine>,
-    message_line_ranges: Vec<(usize, usize)>,
-    start_idx: usize,
-    end_idx: usize,
-    padding: usize,
+pub(crate) struct SelectionSnapshot {
+    pub(crate) key: RenderCacheKey,
+    pub(crate) metrics_key: TranscriptMetricsCacheKey,
+    pub(crate) inner: Rect,
+    pub(crate) all_lines: Vec<RenderedChatLine>,
+    pub(crate) total_lines: usize,
+    pub(crate) rendered_start_idx: usize,
+    pub(crate) message_line_ranges: Vec<(usize, usize)>,
+    pub(crate) responder_labels: Vec<Option<String>>,
+    pub(crate) start_idx: usize,
+    pub(crate) end_idx: usize,
+    pub(crate) padding: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -338,14 +360,21 @@ pub(crate) struct ChatScrollbarLayout {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RenderCacheKey {
-    inner: Rect,
-    render_revision: u64,
-    render_epoch: u64,
-    retry_wait_start_selected: bool,
+pub(crate) struct RenderCacheKey {
+    pub(crate) inner: Rect,
+    pub(crate) render_revision: u64,
+    pub(crate) render_epoch: u64,
+    pub(crate) retry_wait_start_selected: bool,
 }
 
-fn render_cache_key(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TranscriptMetricsCacheKey {
+    pub(crate) inner: Rect,
+    pub(crate) transcript_metrics_revision: u64,
+    pub(crate) selected_inline_action_message: Option<usize>,
+}
+
+pub(crate) fn render_cache_key(
     area: Rect,
     chat: &ChatState,
     current_tick: u64,
@@ -360,8 +389,19 @@ fn render_cache_key(
     }
 }
 
+pub(crate) fn transcript_metrics_cache_key(
+    area: Rect,
+    chat: &ChatState,
+) -> TranscriptMetricsCacheKey {
+    TranscriptMetricsCacheKey {
+        inner: content_inner(area),
+        transcript_metrics_revision: chat.transcript_metrics_revision(),
+        selected_inline_action_message: selected_inline_action_message_index(chat),
+    }
+}
+
 impl RenderedChatLine {
-    fn padding() -> Self {
+    pub(crate) fn padding() -> Self {
         Self {
             line: Line::raw(""),
             message_index: None,
@@ -370,22 +410,22 @@ impl RenderedChatLine {
     }
 }
 
-fn padded_content_width(inner_width: usize) -> usize {
+pub(crate) fn padded_content_width(inner_width: usize) -> usize {
     inner_width.saturating_sub(MESSAGE_PADDING_X * 2).max(1)
 }
 
-fn line_display_width(line: &Line<'_>) -> usize {
+pub(crate) fn line_display_width(line: &Line<'_>) -> usize {
     line.spans
         .iter()
         .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
         .sum()
 }
 
-fn blank_message_line(width: usize, style: Style) -> Line<'static> {
+pub(crate) fn blank_message_line(width: usize, style: Style) -> Line<'static> {
     Line::from(Span::styled(" ".repeat(width.max(1)), style))
 }
 
-fn rendered_line_plain_text(rendered: &RenderedChatLine) -> String {
+pub(crate) fn rendered_line_plain_text(rendered: &RenderedChatLine) -> String {
     rendered
         .line
         .spans
@@ -394,7 +434,7 @@ fn rendered_line_plain_text(rendered: &RenderedChatLine) -> String {
         .collect()
 }
 
-fn rendered_line_content_bounds(rendered: &RenderedChatLine) -> (String, usize, usize) {
+pub(crate) fn rendered_line_content_bounds(rendered: &RenderedChatLine) -> (String, usize, usize) {
     let plain = rendered_line_plain_text(rendered);
     let trimmed = plain.trim_end_matches(' ');
     let trimmed_width = UnicodeWidthStr::width(trimmed);
@@ -403,7 +443,11 @@ fn rendered_line_content_bounds(rendered: &RenderedChatLine) -> (String, usize, 
     (plain, content_start, content_end)
 }
 
-fn pad_message_line(mut line: Line<'static>, width: usize, style: Style) -> Line<'static> {
+pub(crate) fn pad_message_line(
+    mut line: Line<'static>,
+    width: usize,
+    style: Style,
+) -> Line<'static> {
     let mut spans = Vec::new();
     let left = " ".repeat(MESSAGE_PADDING_X);
     spans.push(Span::styled(left, style));
@@ -422,10 +466,9 @@ fn pad_message_line(mut line: Line<'static>, width: usize, style: Style) -> Line
     Line::from(spans).style(style.patch(line.style))
 }
 
-fn message_block_style(msg: &AgentMessage, theme: &ThemeTokens) -> Style {
+pub(crate) fn message_block_style(msg: &AgentMessage, theme: &ThemeTokens) -> Style {
     match msg.role {
         MessageRole::User => theme.fg_active.bg(Color::Indexed(236)),
         _ => Style::default(),
     }
 }
-

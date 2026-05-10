@@ -1,4 +1,26 @@
-fn render_websearch_tab<'a>(
+use super::render_about_tab::*;
+use super::render_advanced_value_to_render_advanced_tab::*;
+use super::render_auth_tab_to_render_agent_tab::*;
+use super::render_chat_tab_to_render_honcho_editor_actions::*;
+use super::render_concierge_tab_to_render_feature_toggle_line::*;
+use super::render_features_tab::*;
+use super::render_gateway_text_field::*;
+use super::render_plugins_tab_to_connector_readiness_style::*;
+use super::render_provider_tab_to_render_tools_tab::*;
+use super::*;
+use crate::providers;
+use crate::state::concierge::ConciergeState;
+use crate::state::config::ConfigState;
+use crate::state::modal::{ModalState, WhatsAppLinkPhase};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use zorai_protocol::has_whatsapp_allowed_contacts;
+pub(crate) fn render_websearch_tab<'a>(
     settings: &'a SettingsState,
     config: &'a ConfigState,
     theme: &ThemeTokens,
@@ -13,7 +35,6 @@ fn render_websearch_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // Field 0: web_search_enabled (checkbox — mirrors tool_web_search)
     {
         let is_selected = settings.field_cursor() == 0;
         let marker = if is_selected { "> " } else { "  " };
@@ -45,7 +66,6 @@ fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 1: search_provider (cycle on Enter)
     {
         let is_selected = settings.field_cursor() == 1;
         let marker = if is_selected { "> " } else { "  " };
@@ -76,7 +96,6 @@ fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 2: duckduckgo_region (inline edit)
     {
         let is_selected = settings.field_cursor() == 2;
         let is_editing =
@@ -110,7 +129,6 @@ fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 3: duckduckgo_safe_search (cycle on Enter)
     {
         let is_selected = settings.field_cursor() == 3;
         let marker = if is_selected { "> " } else { "  " };
@@ -135,7 +153,6 @@ fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Fields 4–6: API keys (masked, inline edit)
     let api_key_fields: [(usize, &str, &str, &str); 3] = [
         (
             4,
@@ -194,7 +211,6 @@ fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 7: search_max_results (numeric inline edit)
     {
         let is_selected = settings.field_cursor() == 7;
         let is_editing =
@@ -231,7 +247,6 @@ fn render_websearch_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 8: search_timeout_secs (numeric inline edit)
     {
         let is_selected = settings.field_cursor() == 8;
         let is_editing =
@@ -271,7 +286,6 @@ fn render_websearch_tab<'a>(
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("  Web Browsing", theme.fg_active)));
 
-    // Field 9: browse_provider (cycle on Enter)
     {
         let is_selected = settings.field_cursor() == 9;
         let marker = if is_selected { "> " } else { "  " };

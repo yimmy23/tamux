@@ -77,6 +77,109 @@ async fn restore_weles_runtime_context(engine: &AgentEngine, task: &mut AgentTas
         .insert(task.id.clone());
 }
 
+/// Batched variant of `restore_weles_runtime_context`. The previous form was
+/// called per task in hydrate loops, doing one `get_consolidation_state`
+/// await per Weles task — at daemon startup with N pending Weles tasks this
+/// is N round-trips to the SQLite background thread. The batched version:
+///
+/// 1. Filters the candidate Weles tasks and computes their consolidation
+///    keys in one pass (no awaits).
+/// 2. Issues ONE batched `get_consolidation_states_batch` call.
+/// 3. Applies the deserialized payloads back per task and acquires the
+///    trusted_weles_tasks lock once for the whole batch.
+async fn restore_weles_runtime_contexts_batch(
+    engine: &AgentEngine,
+    tasks: &mut [AgentTask],
+) {
+    struct PendingRestore {
+        idx: usize,
+        key: String,
+        prompt: String,
+        scope: &'static str,
+    }
+    let mut pending: Vec<PendingRestore> = Vec::new();
+    for (idx, task) in tasks.iter().enumerate() {
+        if task.sub_agent_def_id.as_deref()
+            != Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
+        {
+            continue;
+        }
+        let Some(prompt) = task.override_system_prompt.as_deref() else {
+            continue;
+        };
+        if crate::agent::weles_governance::parse_weles_internal_override_payload(prompt)
+            .is_some()
+        {
+            continue;
+        }
+        let scope = if prompt.contains("Your current internal scope is vitality.") {
+            crate::agent::agent_identity::WELES_VITALITY_SCOPE
+        } else if prompt.contains("Your current internal scope is governance.") {
+            crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE
+        } else {
+            continue;
+        };
+        pending.push(PendingRestore {
+            idx,
+            key: weles_runtime_context_key(&task.id),
+            prompt: prompt.to_string(),
+            scope,
+        });
+    }
+    if pending.is_empty() {
+        return;
+    }
+
+    let keys: Vec<String> = pending.iter().map(|p| p.key.clone()).collect();
+    let states = match engine.history.get_consolidation_states_batch(&keys).await {
+        Ok(map) => map,
+        Err(error) => {
+            tracing::warn!(?error, "failed to batch-load WELES runtime contexts");
+            return;
+        }
+    };
+
+    let mut to_trust: Vec<String> = Vec::new();
+    for restore in &pending {
+        let Some(raw_context) = states.get(&restore.key) else {
+            continue;
+        };
+        if raw_context.trim().is_empty() {
+            continue;
+        }
+        let Ok(inspection_context) =
+            serde_json::from_str::<serde_json::Value>(raw_context)
+        else {
+            tracing::warn!(
+                task_id = %tasks[restore.idx].id,
+                "failed to parse persisted WELES runtime context"
+            );
+            continue;
+        };
+        let Some(internal_payload) =
+            crate::agent::weles_governance::build_weles_internal_override_payload(
+                restore.scope,
+                &inspection_context,
+            )
+        else {
+            tracing::warn!(
+                task_id = %tasks[restore.idx].id,
+                "failed to rebuild WELES runtime payload from persisted context"
+            );
+            continue;
+        };
+        let task = &mut tasks[restore.idx];
+        task.override_system_prompt = Some(format!("{}\n\n{internal_payload}", restore.prompt));
+        to_trust.push(task.id.clone());
+    }
+    if !to_trust.is_empty() {
+        let mut guard = engine.trusted_weles_tasks.write().await;
+        for id in to_trust {
+            guard.insert(id);
+        }
+    }
+}
+
 mod save;
 
 async fn canonicalize_aline_startup_repo_root(repo_root: &str) -> Option<String> {
@@ -135,9 +238,6 @@ async fn canonicalize_aline_startup_repo_root(repo_root: &str) -> Option<String>
 }
 
 impl AgentEngine {
-    // -----------------------------------------------------------------------
-    // Lifecycle
-    // -----------------------------------------------------------------------
 
     /// Load persisted state (threads, tasks, heartbeat, memory, config).
     pub async fn hydrate(self: &Arc<Self>) -> Result<()> {
@@ -154,7 +254,6 @@ impl AgentEngine {
         self: &Arc<Self>,
         schedule_participant_observer_restore: bool,
     ) -> Result<()> {
-        // Load config from SQLite-backed config items.
         match self.history.list_agent_config_items().await {
             Ok(items) if !items.is_empty() => {
                 match super::config::load_config_from_items_with_weles_cleanup(items) {
@@ -170,12 +269,57 @@ impl AgentEngine {
             Err(error) => tracing::warn!("failed to read agent config items from sqlite: {error}"),
         }
 
-        let mut most_recent_thread_context_hint: Option<(String, String, u64)> = None;
+        let most_recent_thread_context_hint = match self.history.latest_thread_context_hint().await
+        {
+            Ok(hint) => hint,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "failed to select latest thread context hint from sqlite"
+                );
+                None
+            }
+        };
 
-        // Load threads
         match self.history.list_threads().await {
             Ok(thread_rows) if !thread_rows.is_empty() => {
                 let mut threads = HashMap::new();
+                let thread_ids = thread_rows
+                    .iter()
+                    .map(|thread_row| thread_row.id.clone())
+                    .collect::<Vec<_>>();
+                let thread_structural_memories = match self
+                    .history
+                    .list_thread_structural_memory_for_threads(&thread_ids)
+                    .await
+                {
+                    Ok(rows) => rows
+                        .into_iter()
+                        .filter_map(|row| {
+                            match serde_json::from_value::<
+                                crate::agent::context::structural_memory::ThreadStructuralMemory,
+                            >(row.state_json)
+                            {
+                                Ok(state) => Some((row.thread_id, state)),
+                                Err(error) => {
+                                    tracing::warn!(
+                                        thread_id = %row.thread_id,
+                                        %error,
+                                        "failed to hydrate thread structural memory"
+                                    );
+                                    None
+                                }
+                            }
+                        })
+                        .collect::<HashMap<_, _>>(),
+                    Err(error) => {
+                        tracing::warn!(
+                            %error,
+                            "failed to bulk hydrate thread structural memory"
+                        );
+                        HashMap::new()
+                    }
+                };
                 let mut thread_message_hydration_pending = HashSet::new();
                 let mut handoff_states = HashMap::new();
                 let mut thread_participants = HashMap::new();
@@ -185,7 +329,7 @@ impl AgentEngine {
                 let mut thread_identity_metadata = HashMap::new();
                 let mut thread_skill_discovery_states = HashMap::new();
                 let mut thread_memory_injection_states = HashMap::new();
-                let mut thread_structural_memories = HashMap::new();
+                let mut deferred_metadata_compactions: Vec<(String, String)> = Vec::new();
                 for thread_row in thread_rows {
                     let thread_id = thread_row.id.clone();
                     let thread_title = thread_row.title.clone();
@@ -195,17 +339,8 @@ impl AgentEngine {
                         if let Some(compacted_metadata) =
                             compact_thread_metadata_skill_discovery_query(raw_metadata)
                         {
-                            if let Err(error) = self
-                                .history
-                                .update_thread_metadata_json(&thread_id, Some(compacted_metadata))
-                                .await
-                            {
-                                tracing::warn!(
-                                    thread_id = %thread_id,
-                                    %error,
-                                    "failed to compact persisted thread skill discovery metadata"
-                                );
-                            }
+                            deferred_metadata_compactions
+                                .push((thread_id.clone(), compacted_metadata));
                         }
                     }
                     if let Some(client_surface) = thread_metadata.client_surface {
@@ -271,18 +406,6 @@ impl AgentEngine {
                     let total_tokens = thread_row.total_tokens.max(0) as u64;
                     if thread_row.message_count > 0 {
                         thread_message_hydration_pending.insert(thread_id.clone());
-                        let preview = thread_row.last_preview.trim();
-                        if !preview.is_empty()
-                            && most_recent_thread_context_hint.as_ref().is_none_or(
-                                |(_, _, updated_at)| thread_row.updated_at as u64 > *updated_at,
-                            )
-                        {
-                            most_recent_thread_context_hint = Some((
-                                thread_id.clone(),
-                                preview.to_string(),
-                                thread_row.updated_at as u64,
-                            ));
-                        }
                     }
 
                     threads.insert(
@@ -292,7 +415,7 @@ impl AgentEngine {
                             agent_name: hydrated_agent_name,
                             title: thread_title,
                             messages: Vec::new(),
-                            pinned: false,
+                            pinned: thread_metadata.pinned,
                             upstream_thread_id: thread_metadata.upstream_thread_id,
                             upstream_transport: thread_metadata.upstream_transport,
                             upstream_provider: thread_metadata.upstream_provider,
@@ -304,21 +427,6 @@ impl AgentEngine {
                             total_output_tokens: 0,
                         },
                     );
-                    match self
-                        .history
-                        .get_thread_structural_memory_state::<
-                            crate::agent::context::structural_memory::ThreadStructuralMemory,
-                        >(&thread_id)
-                        .await
-                    {
-                        Ok(Some(state)) => {
-                            thread_structural_memories.insert(thread_id.clone(), state);
-                        }
-                        Ok(None) => {}
-                        Err(error) => {
-                            tracing::warn!(thread_id = %thread_id, %error, "failed to hydrate thread structural memory");
-                        }
-                    }
                     handoff_states.insert(thread_id, handoff_state);
                 }
                 *self.threads.write().await = threads;
@@ -346,6 +454,29 @@ impl AgentEngine {
                 if schedule_participant_observer_restore {
                     self.schedule_participant_observer_restore_after_hydrate();
                 }
+
+                if !deferred_metadata_compactions.is_empty() {
+                    let history = self.history.clone();
+                    let pending = deferred_metadata_compactions.len();
+                    tokio::spawn(async move {
+                        for (thread_id, compacted_metadata) in deferred_metadata_compactions {
+                            if let Err(error) = history
+                                .update_thread_metadata_json(&thread_id, Some(compacted_metadata))
+                                .await
+                            {
+                                tracing::warn!(
+                                    thread_id = %thread_id,
+                                    %error,
+                                    "failed to compact persisted thread skill discovery metadata"
+                                );
+                            }
+                        }
+                        tracing::debug!(
+                            pending,
+                            "completed deferred thread-metadata compactions after hydrate"
+                        );
+                    });
+                }
             }
             Ok(_) => {
                 *self.thread_message_hydration_pending.write().await = HashSet::new();
@@ -355,12 +486,33 @@ impl AgentEngine {
             Err(e) => tracing::warn!("failed to load agent threads from sqlite: {e}"),
         }
 
-        // Load AJQ tasks from SQLite first; fall back to legacy JSON migration.
-        match self.history.list_agent_tasks().await {
+        match self
+            .history
+            .list_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: true,
+                order_by_recent_activity_desc: false,
+                limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+        {
             Ok(mut tasks) if !tasks.is_empty() => {
                 for task in &mut tasks {
                     sanitize_task_for_external_view(task);
-                    restore_weles_runtime_context(self, task).await;
+                }
+                restore_weles_runtime_contexts_batch(self, &mut tasks).await;
+                for task in &mut tasks {
                     if task.status == TaskStatus::InProgress {
                         task.status = TaskStatus::Queued;
                         task.started_at = None;
@@ -378,22 +530,49 @@ impl AgentEngine {
                 self.persist_tasks().await;
             }
             Ok(_) => {
+                let has_sqlite_tasks = self
+                    .history
+                    .count_agent_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: None,
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                        ids: Vec::new(),
+                        parent_task_ids: Vec::new(),
+                    })
+                    .await
+                    .map(|count| count > 0)
+                    .unwrap_or(false);
                 let tasks_path = self.data_dir.join("tasks.json");
-                if tasks_path.exists() {
+                if !has_sqlite_tasks && tasks_path.exists() {
                     match tokio::fs::read_to_string(&tasks_path).await {
                         Ok(raw) => {
                             if let Ok(mut tasks) = serde_json::from_str::<VecDeque<AgentTask>>(&raw)
                             {
                                 for task in tasks.iter_mut() {
                                     sanitize_task_for_external_view(task);
-                                    restore_weles_runtime_context(self, task).await;
+                                }
+                                let mut tasks_vec: Vec<AgentTask> =
+                                    tasks.into_iter().collect();
+                                restore_weles_runtime_contexts_batch(self, &mut tasks_vec)
+                                    .await;
+                                for task in tasks_vec.iter_mut() {
                                     if task.status == TaskStatus::InProgress {
                                         task.status = TaskStatus::Queued;
                                         task.started_at = None;
                                     }
                                     task.max_retries = task.max_retries.max(1);
                                 }
-                                *self.tasks.lock().await = tasks;
+                                *self.tasks.lock().await = tasks_vec.into_iter().collect();
                                 self.persist_tasks().await;
                             }
                         }
@@ -404,29 +583,56 @@ impl AgentEngine {
             Err(e) => tracing::warn!("failed to load agent tasks from sqlite: {e}"),
         }
 
-        match self.history.list_goal_runs().await {
+        let mut pause_interrupted_goal_runs_in_memory = false;
+        let paused_goal_runs_on_restart = match self
+            .history
+            .pause_interrupted_goal_runs_on_restart(now_millis())
+            .await
+        {
+            Ok(paused_count) => paused_count,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to pause interrupted goal runs in sqlite on restart: {error}"
+                );
+                pause_interrupted_goal_runs_in_memory = true;
+                0
+            }
+        };
+
+        match self
+            .history
+            .list_goal_runs_for_statuses(&[
+                GoalRunStatus::Queued,
+                GoalRunStatus::Planning,
+                GoalRunStatus::Running,
+                GoalRunStatus::AwaitingApproval,
+                GoalRunStatus::Paused,
+            ])
+            .await
+        {
             Ok(goal_runs) if !goal_runs.is_empty() => {
                 let mut runs: VecDeque<GoalRun> = goal_runs.into_iter().collect();
-                let mut paused_count = 0;
+                let mut paused_count = paused_goal_runs_on_restart;
 
-                // D-11: Mark interrupted goal runs as Paused on restart.
-                for goal_run in runs.iter_mut() {
-                    if matches!(
-                        goal_run.status,
-                        GoalRunStatus::Running | GoalRunStatus::Planning
-                    ) {
-                        goal_run.status = GoalRunStatus::Paused;
-                        goal_run.events.push(GoalRunEvent {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            timestamp: now_millis(),
-                            phase: "restart".to_string(),
-                            message: "Daemon restarted; goal run paused for operator review."
-                                .to_string(),
-                            details: None,
-                            step_index: None,
-                            todo_snapshot: Vec::new(),
-                        });
-                        paused_count += 1;
+                if pause_interrupted_goal_runs_in_memory {
+                    for goal_run in runs.iter_mut() {
+                        if matches!(
+                            goal_run.status,
+                            GoalRunStatus::Running | GoalRunStatus::Planning
+                        ) {
+                            goal_run.status = GoalRunStatus::Paused;
+                            goal_run.events.push(GoalRunEvent {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                timestamp: now_millis(),
+                                phase: "restart".to_string(),
+                                message: "Daemon restarted; goal run paused for operator review."
+                                    .to_string(),
+                                details: None,
+                                step_index: None,
+                                todo_snapshot: Vec::new(),
+                            });
+                            paused_count += 1;
+                        }
                     }
                 }
 
@@ -438,12 +644,19 @@ impl AgentEngine {
                 }
 
                 *self.goal_runs.lock().await = runs;
-                // Startup should not wait on goal projection writes before the daemon becomes usable.
-                self.persist_goal_runs_in_background();
+                if pause_interrupted_goal_runs_in_memory {
+                    self.persist_goal_runs_in_background();
+                }
             }
             Ok(_) => {
+                let has_sqlite_goal_runs = self
+                    .history
+                    .count_goal_runs()
+                    .await
+                    .map(|count| count > 0)
+                    .unwrap_or(false);
                 let goal_runs_path = self.data_dir.join("goal-runs.json");
-                if goal_runs_path.exists() {
+                if !has_sqlite_goal_runs && goal_runs_path.exists() {
                     match tokio::fs::read_to_string(&goal_runs_path).await {
                         Ok(raw) => {
                             if let Ok(goal_runs) = serde_json::from_str::<VecDeque<GoalRun>>(&raw) {
@@ -529,7 +742,6 @@ impl AgentEngine {
             Err(e) => tracing::warn!("failed to load gateway route modes from sqlite: {e}"),
         }
 
-        // One-time migration from legacy file persistence to SQLite table.
         let legacy_gateway_threads_path = self.data_dir.join("gateway-threads.json");
         if legacy_gateway_threads_path.exists() {
             match tokio::fs::read_to_string(&legacy_gateway_threads_path).await {
@@ -628,7 +840,6 @@ impl AgentEngine {
             }
         }
 
-        // Load heartbeat items
         let heartbeat_path = self.data_dir.join("heartbeat.json");
         if heartbeat_path.exists() {
             match tokio::fs::read_to_string(&heartbeat_path).await {
@@ -641,7 +852,6 @@ impl AgentEngine {
             }
         }
 
-        // Load/seed memory files
         ensure_memory_files(&self.data_dir).await?;
         self.refresh_memory_cache().await;
         self.refresh_operator_model().await?;
@@ -675,12 +885,8 @@ impl AgentEngine {
             Err(error) => tracing::warn!("failed to load collaboration sessions: {error}"),
         }
 
-        // Seed built-in skill documents into ~/.zorai/skills/ asynchronously so
-        // hydrate returns promptly and background startup work does not block
-        // daemon readiness.
         self.schedule_builtin_skill_seed_and_catalog_sync();
 
-        // Restore HeuristicStore from persistence (D-10)
         let heuristic_path = self.data_dir.join("heuristics.json");
         if heuristic_path.exists() {
             match tokio::fs::read_to_string(&heuristic_path).await {
@@ -701,7 +907,6 @@ impl AgentEngine {
             }
         }
 
-        // Restore PatternStore from persistence (D-10)
         let pattern_path = self.data_dir.join("patterns.json");
         if pattern_path.exists() {
             match tokio::fs::read_to_string(&pattern_path).await {
@@ -719,10 +924,8 @@ impl AgentEngine {
             }
         }
 
-        // D-10: Restore context for the most recent active thread.
         if let Some((ref thread_id, ref last_topic, _updated_at)) = most_recent_thread_context_hint
         {
-            // Try FTS5 archive restoration
             match self
                 .history
                 .list_context_archive_entries(&thread_id, 20)
@@ -762,8 +965,6 @@ impl AgentEngine {
                             "restored context for most recent thread (D-10)"
                         );
 
-                        // Store a continuity flag -- the next agent message in this thread
-                        // should acknowledge the context restoration.
                         self.history
                             .set_consolidation_state(
                                 "continuity_thread_id",
@@ -811,8 +1012,6 @@ impl AgentEngine {
 
         tracing::info!("agent engine hydrated from {:?}", self.data_dir);
 
-        // Initialize gateway runtime ownership and spawn the standalone gateway
-        // after hydrate returns so gateway startup does not block daemon readiness.
         self.schedule_gateway_startup();
 
         match startup_repo_roots.as_slice() {

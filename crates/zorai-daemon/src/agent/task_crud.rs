@@ -70,6 +70,29 @@ fn declared_goal_thread_ids(goal_run: &GoalRun) -> Vec<String> {
     thread_ids
 }
 
+fn release_task_after_supervised_acknowledgment(
+    task: &mut AgentTask,
+    ack_id: Option<String>,
+) -> bool {
+    if task.status != TaskStatus::AwaitingApproval {
+        return false;
+    }
+
+    task.status = TaskStatus::Queued;
+    task.started_at = None;
+    task.awaiting_approval_id = None;
+    task.blocked_reason = None;
+    task.logs.push(make_task_log_entry(
+        task.retry_count,
+        TaskLogLevel::Info,
+        "autonomy_acknowledgment",
+        "supervised acknowledgment received; task released to queue",
+        ack_id,
+    ));
+    task.progress = task.progress.max(5);
+    true
+}
+
 #[derive(Debug, Clone, Copy)]
 struct GoalRunDetailWindow {
     loaded_step_start: usize,
@@ -689,15 +712,26 @@ impl AgentEngine {
                 continue;
             }
 
-            if self
-                .history
-                .get_goal_run(&candidate)
-                .await
-                .ok()
-                .flatten()
-                .is_some()
-            {
-                continue;
+            match self.history.has_goal_run_id(&candidate).await {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        goal_run_id = %candidate,
+                        %error,
+                        "failed to check persisted goal-run id conflict"
+                    );
+                    if self
+                        .history
+                        .get_goal_run(&candidate)
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some()
+                    {
+                        continue;
+                    }
+                }
             }
 
             return candidate;
@@ -954,6 +988,34 @@ impl AgentEngine {
                 return self.project_goal_run(existing).await;
             }
         }
+        match self
+            .history
+            .list_active_goal_runs_for_start_request(
+                thread_id.clone(),
+                session_id.clone(),
+                normalized_request_id.clone(),
+            )
+            .await
+        {
+            Ok(candidates) => {
+                for existing in candidates {
+                    if normalize_goal_key(&existing.goal) == normalized_goal_key {
+                        {
+                            let mut goal_runs = self.goal_runs.lock().await;
+                            if !goal_runs.iter().any(|goal_run| goal_run.id == existing.id) {
+                                goal_runs.push_back(existing.clone());
+                            }
+                        }
+                        return self.project_goal_run(existing).await;
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted active goal runs for de-duplication: {error}"
+                );
+            }
+        }
 
         let normalized_title = title
             .as_deref()
@@ -1107,22 +1169,65 @@ impl AgentEngine {
             .0
     }
 
+    pub(crate) async fn list_goal_runs_paginated_for_tool(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> (Vec<GoalRun>, usize) {
+        match self.history.list_goal_runs_page(limit, offset).await {
+            Ok((goal_runs, total)) => {
+                let mut page = Vec::with_capacity(goal_runs.len());
+                for goal_run in goal_runs {
+                    page.push(self.project_goal_run(goal_run).await);
+                }
+                (page, total)
+            }
+            Err(error) => {
+                tracing::warn!("failed to list paged persisted goal runs: {error}");
+                let goal_runs = self.goal_runs.lock().await;
+                let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
+                drop(goal_runs);
+                let mut projected = Vec::with_capacity(items.len());
+                for goal_run in items.drain(..) {
+                    projected.push(self.project_goal_run(goal_run).await);
+                }
+                projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                let total = projected.len();
+                let page = projected.into_iter().skip(offset).take(limit).collect();
+                (page, total)
+            }
+        }
+    }
+
     pub(crate) async fn list_goal_runs_paginated_capped_for_ipc(
         &self,
         limit: Option<usize>,
         offset: Option<usize>,
     ) -> (Vec<GoalRun>, bool) {
-        let goal_runs = self.goal_runs.lock().await;
-        let mut items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
-        drop(goal_runs);
-        let mut projected = Vec::with_capacity(items.len());
-        for goal_run in items.drain(..) {
-            projected.push(self.project_goal_run(goal_run).await);
-        }
-        projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         let offset = offset.unwrap_or(0);
-        let limit = limit.unwrap_or(usize::MAX);
-        let projected: Vec<GoalRun> = projected.into_iter().skip(offset).take(limit).collect();
+        let limit = limit.unwrap_or(i64::MAX as usize);
+        let projected = match self.history.list_goal_runs_page(limit, offset).await {
+            Ok((goal_runs, total)) if total > 0 => {
+                self.project_goal_runs_batched(goal_runs).await
+            }
+            Ok(_) => {
+                let goal_runs = self.goal_runs.lock().await;
+                let items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
+                drop(goal_runs);
+                let mut projected = self.project_goal_runs_batched(items).await;
+                projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                projected.into_iter().skip(offset).take(limit).collect()
+            }
+            Err(error) => {
+                tracing::warn!("failed to list paged persisted goal runs for IPC: {error}");
+                let goal_runs = self.goal_runs.lock().await;
+                let items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
+                drop(goal_runs);
+                let mut projected = self.project_goal_runs_batched(items).await;
+                projected.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                projected.into_iter().skip(offset).take(limit).collect()
+            }
+        };
 
         if goal_run_list_frame_fits_ipc(&projected) {
             return (projected, false);
@@ -1160,8 +1265,18 @@ impl AgentEngine {
             .await
             .iter()
             .find(|goal_run| goal_run.id == goal_run_id)
-            .cloned()?;
-        Some(self.project_goal_run(goal_run).await)
+            .cloned();
+        if let Some(goal_run) = goal_run {
+            return Some(self.project_goal_run(goal_run).await);
+        }
+        match self.history.get_goal_run(goal_run_id).await {
+            Ok(Some(goal_run)) => Some(self.project_goal_run(goal_run).await),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(goal_run_id, "failed to load persisted goal run: {error}");
+                None
+            }
+        }
     }
 
     pub(crate) async fn get_goal_run_capped_for_ipc(
@@ -1197,7 +1312,7 @@ impl AgentEngine {
     }
 
     pub(crate) async fn list_tasks_capped_for_ipc(&self) -> (Vec<AgentTask>, bool) {
-        cap_task_list_for_ipc(self.snapshot_tasks().await)
+        cap_task_list_for_ipc(self.list_tasks().await)
     }
 
     pub(crate) async fn list_todos_capped_for_ipc(&self) -> (HashMap<String, Vec<TodoItem>>, bool) {
@@ -1238,59 +1353,240 @@ impl AgentEngine {
     }
 
     pub(super) async fn project_goal_run(&self, goal_run: GoalRun) -> GoalRun {
-        let tasks = self.tasks.lock().await;
-        let related_tasks = tasks
+        let mut related_tasks = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: Some(goal_run.id.clone()),
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await;
+        let mut task_ids = related_tasks
+            .iter()
+            .map(|task| task.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        for task in self
+            .tasks
+            .lock()
+            .await
             .iter()
             .filter(|task| task.goal_run_id.as_deref() == Some(goal_run.id.as_str()))
-            .cloned()
-            .collect::<Vec<_>>();
+        {
+            if task_ids.insert(task.id.clone()) {
+                related_tasks.push(task.clone());
+            }
+        }
         project_goal_run_snapshot(goal_run, &related_tasks, now_millis())
     }
 
+    /// Projects a batch of goal_runs in O(1) SQL round-trips instead of
+    /// O(N). Replaces the per-goal-run `project_goal_run().await` loop that
+    /// the AgentListGoalRuns dispatch handler used to do — under load that
+    /// blocked the connection's outer loop for hundreds of milliseconds and
+    /// starved every other client message in the cascade.
+    pub(super) async fn project_goal_runs_batched(
+        &self,
+        goal_runs: Vec<GoalRun>,
+    ) -> Vec<GoalRun> {
+        if goal_runs.is_empty() {
+            return Vec::new();
+        }
+        let goal_run_ids: Vec<String> = goal_runs.iter().map(|g| g.id.clone()).collect();
+        let mut persisted_by_goal = match self
+            .history
+            .list_agent_tasks_by_goal_run_ids(&goal_run_ids)
+            .await
+        {
+            Ok(map) => map,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "failed to batch-fetch tasks by goal_run_ids; goal-run page will be empty of related tasks"
+                );
+                std::collections::HashMap::new()
+            }
+        };
+        let live_tasks_by_goal: std::collections::HashMap<String, Vec<AgentTask>> = {
+            let live = self.tasks.lock().await;
+            let mut map: std::collections::HashMap<String, Vec<AgentTask>> =
+                std::collections::HashMap::new();
+            for task in live.iter() {
+                if let Some(id) = task.goal_run_id.clone() {
+                    if goal_run_ids.iter().any(|candidate| candidate == &id) {
+                        map.entry(id).or_default().push(task.clone());
+                    }
+                }
+            }
+            map
+        };
+        let now = now_millis();
+        let mut projected = Vec::with_capacity(goal_runs.len());
+        for goal_run in goal_runs {
+            let mut related = persisted_by_goal.remove(&goal_run.id).unwrap_or_default();
+            if let Some(live_tasks) = live_tasks_by_goal.get(&goal_run.id) {
+                let mut seen: std::collections::HashSet<String> =
+                    related.iter().map(|task| task.id.clone()).collect();
+                for task in live_tasks {
+                    if seen.insert(task.id.clone()) {
+                        related.push(task.clone());
+                    }
+                }
+            }
+            projected.push(project_goal_run_snapshot(goal_run, &related, now));
+        }
+        projected
+    }
+
     pub(super) async fn goal_run_has_active_tasks(&self, goal_run_id: &str) -> bool {
-        let tasks = self.tasks.lock().await;
-        tasks.iter().any(|task| {
-            task.goal_run_id.as_deref() == Some(goal_run_id)
-                && matches!(
-                    task.status,
-                    TaskStatus::Queued
-                        | TaskStatus::InProgress
-                        | TaskStatus::Blocked
-                        | TaskStatus::FailedAnalyzing
-                        | TaskStatus::AwaitingApproval
-                )
-        })
+        let active_count = self
+            .count_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: Some(goal_run_id.to_string()),
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: true,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await;
+        active_count > 0
+    }
+
+    async fn list_task_refs_for_goal_relation(
+        &self,
+        query: crate::history::AgentTaskListQuery,
+    ) -> Vec<(String, Option<String>, Option<String>)> {
+        match self.history.list_agent_task_refs_filtered(&query).await {
+            Ok(refs) => refs,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "failed to query lightweight task refs; falling back to hydrated task rows"
+                );
+                self.list_tasks_filtered(&query)
+                    .await
+                    .into_iter()
+                    .map(|task| (task.id, task.thread_id, task.parent_thread_id))
+                    .collect()
+            }
+        }
     }
 
     async fn goal_related_task_ids(&self, goal_run: &GoalRun) -> Vec<String> {
         let mut task_ids = declared_goal_task_ids(goal_run);
         let mut thread_ids = declared_goal_thread_ids(goal_run);
-        let tasks = self.tasks.lock().await;
 
         loop {
             let mut changed = false;
-            for task in tasks.iter() {
-                let belongs_to_goal = task.goal_run_id.as_deref() == Some(goal_run.id.as_str())
-                    || task_ids.iter().any(|id| id == &task.id)
-                    || task
-                        .parent_task_id
-                        .as_deref()
-                        .is_some_and(|parent_task_id| {
-                            task_ids.iter().any(|id| id == parent_task_id)
-                        })
-                    || task
-                        .parent_thread_id
-                        .as_deref()
-                        .is_some_and(|parent_thread_id| {
-                            thread_ids.iter().any(|id| id == parent_thread_id)
-                        });
-                if !belongs_to_goal {
-                    continue;
-                }
-
-                changed |= push_unique_string(&mut task_ids, &task.id);
-                if let Some(thread_id) = task.thread_id.as_deref() {
+            let mut related_task_refs = self
+                .list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
+                    id: None,
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: Some(goal_run.id.clone()),
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: None,
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
+                })
+                .await;
+            if !thread_ids.is_empty() {
+                related_task_refs.extend(
+                    self.list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
+                        id: None,
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: thread_ids.clone(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: None,
+                        ids: Vec::new(),
+                        parent_task_ids: Vec::new(),
+                    })
+                    .await,
+                );
+            }
+            if !task_ids.is_empty() {
+                related_task_refs.extend(
+                    self.list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
+                        id: None,
+                        ids: task_ids.clone(),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        parent_task_ids: Vec::new(),
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: None,
+                    })
+                    .await,
+                );
+                related_task_refs.extend(
+                    self.list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
+                        id: None,
+                        ids: Vec::new(),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        parent_task_ids: task_ids.clone(),
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: None,
+                    })
+                    .await,
+                );
+            }
+            for (task_id, thread_id, parent_thread_id) in related_task_refs {
+                changed |= push_unique_string(&mut task_ids, &task_id);
+                if let Some(thread_id) = thread_id.as_deref() {
                     changed |= push_unique_string(&mut thread_ids, thread_id);
+                }
+                if let Some(parent_thread_id) = parent_thread_id.as_deref() {
+                    changed |= push_unique_string(&mut thread_ids, parent_thread_id);
                 }
             }
             if !changed {
@@ -1307,14 +1603,22 @@ impl AgentEngine {
         action: &str,
         step_index: Option<usize>,
     ) -> bool {
+        let persisted_goal_run = self.get_goal_run(goal_run_id).await;
         let mut changed_goal: Option<GoalRun> = None;
         let mut tasks_to_cancel: Vec<String> = Vec::new();
         let mut task_to_release: Option<(String, Option<String>)> = None;
         {
             let mut goal_runs = self.goal_runs.lock().await;
-            let Some(goal_run) = goal_runs.iter_mut().find(|item| item.id == goal_run_id) else {
-                return false;
-            };
+            if !goal_runs.iter().any(|item| item.id == goal_run_id) {
+                let Some(goal_run) = persisted_goal_run.clone() else {
+                    return false;
+                };
+                goal_runs.push_back(goal_run);
+            }
+            let goal_run = goal_runs
+                .iter_mut()
+                .find(|item| item.id == goal_run_id)
+                .expect("goal run should exist after live rehydration");
 
             match action {
                 "pause" => {
@@ -1473,33 +1777,68 @@ impl AgentEngine {
         }
 
         if let Some((task_id, ack_id)) = task_to_release {
-            let released_task = {
+            let mut released_live_task = false;
+            let mut released_task = {
                 let mut tasks = self.tasks.lock().await;
-                if let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) {
-                    if task.status == TaskStatus::AwaitingApproval {
-                        task.status = TaskStatus::Queued;
-                        task.started_at = None;
-                        task.awaiting_approval_id = None;
-                        task.blocked_reason = None;
-                        task.logs.push(make_task_log_entry(
-                            task.retry_count,
-                            TaskLogLevel::Info,
-                            "autonomy_acknowledgment",
-                            "supervised acknowledgment received; task released to queue",
-                            ack_id,
-                        ));
-                        task.progress = task.progress.max(5);
-                        Some(task.clone())
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+                tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .and_then(|task| {
+                        if release_task_after_supervised_acknowledgment(task, ack_id.clone()) {
+                            released_live_task = true;
+                            Some(task.clone())
+                        } else {
+                            None
+                        }
+                    })
             };
 
+            if released_task.is_none() {
+                let persisted_task = self
+                    .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: Some(task_id.clone()),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                        ids: Vec::new(),
+                        parent_task_ids: Vec::new(),
+                    })
+                    .await
+                    .into_iter()
+                    .next();
+                if let Some(mut task) = persisted_task {
+                    if release_task_after_supervised_acknowledgment(&mut task, ack_id) {
+                        if let Err(error) = self.history.upsert_agent_task(&task).await {
+                            tracing::warn!(
+                                task_id = %task.id,
+                                "failed to persist supervised acknowledgment task release: {error}"
+                            );
+                        } else {
+                            {
+                                let mut tasks = self.tasks.lock().await;
+                                if !tasks.iter().any(|entry| entry.id == task.id) {
+                                    tasks.push_back(task.clone());
+                                }
+                            }
+                            released_task = Some(task);
+                        }
+                    }
+                }
+            }
+
             if let Some(task) = released_task {
-                self.persist_tasks().await;
+                if released_live_task {
+                    self.persist_tasks().await;
+                }
                 self.emit_task_update(&task, Some(status_message(&task).into()));
             }
         }
@@ -1532,20 +1871,34 @@ impl AgentEngine {
     }
 
     pub async fn delete_goal_run(&self, goal_run_id: &str) -> bool {
-        let removed_goal = {
+        let live_removed_goal = {
             let mut goal_runs = self.goal_runs.lock().await;
-            let Some(index) = goal_runs
+            goal_runs
                 .iter()
                 .position(|goal_run| goal_run.id == goal_run_id)
-            else {
-                return false;
-            };
-            goal_runs
-                .remove(index)
-                .expect("validated goal run index should remove item")
+                .map(|index| {
+                    goal_runs
+                        .remove(index)
+                        .expect("validated goal run index should remove item")
+                })
+        };
+        let removed_goal = match live_removed_goal {
+            Some(goal_run) => goal_run,
+            None => match self.history.get_goal_run(goal_run_id).await {
+                Ok(Some(goal_run)) => goal_run,
+                Ok(None) => return false,
+                Err(error) => {
+                    tracing::warn!(
+                        goal_run_id = %goal_run_id,
+                        %error,
+                        "failed to load goal run for deletion"
+                    );
+                    return false;
+                }
+            },
         };
 
-        let related_task_ids = {
+        let mut related_task_ids = {
             let mut tasks = self.tasks.lock().await;
             let mut removed_ids = Vec::new();
             tasks.retain(|task| {
@@ -1561,6 +1914,38 @@ impl AgentEngine {
             });
             removed_ids
         };
+        for (task_id, _, _) in self
+            .list_task_refs_for_goal_relation(crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: Some(goal_run_id.to_string()),
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+        {
+            push_unique_string(&mut related_task_ids, &task_id);
+        }
+        for child_task_id in &removed_goal.child_task_ids {
+            if self
+                .history
+                .has_agent_task_id(child_task_id)
+                .await
+                .unwrap_or(false)
+            {
+                push_unique_string(&mut related_task_ids, child_task_id);
+            }
+        }
 
         self.inflight_goal_runs.lock().await.remove(goal_run_id);
         self.cost_trackers.lock().await.remove(goal_run_id);

@@ -6,9 +6,6 @@ use super::archive::ArchiveEntry;
 #[allow(unused_imports)]
 use super::context_item::ContextItem;
 
-// ---------------------------------------------------------------------------
-// Request / Result types
-// ---------------------------------------------------------------------------
 
 /// Parameters for a context restoration request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,9 +59,6 @@ pub struct RestorationResult {
     pub query_used: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Functions
-// ---------------------------------------------------------------------------
 
 /// Rank archive entries by relevance and select items that fit within the
 /// `max_items` and `max_tokens` budget specified in the request.
@@ -77,7 +71,6 @@ pub fn rank_and_select(
     entries: &[ArchiveEntry],
     request: &RestorationRequest,
 ) -> Vec<RestoredItem> {
-    // Build scored list.
     let mut scored: Vec<(f64, &ArchiveEntry)> = entries
         .iter()
         .map(|e| {
@@ -86,7 +79,6 @@ pub fn rank_and_select(
         })
         .collect();
 
-    // Sort by score descending (highest relevance first).
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut selected = Vec::new();
@@ -98,8 +90,6 @@ pub fn rank_and_select(
         }
         let entry_tokens = entry.token_count_compressed;
         if entry_tokens > token_budget {
-            // Skip entries that would exceed the budget but keep looking for
-            // smaller ones — greedy-knapsack behaviour.
             continue;
         }
 
@@ -161,9 +151,6 @@ pub fn format_restoration_prompt(query: &str) -> String {
     format!("Search archived context for: {query}")
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 /// Extract tags from the metadata JSON value, if it is an object containing a
 /// `"tags"` array of strings.
@@ -209,8 +196,6 @@ fn compute_relevance(entry: &ArchiveEntry, query: Option<&str>) -> f64 {
             matched as f64 / terms.len() as f64
         }
         None => {
-            // No query — score purely by timestamp (normalised to 0–1 assuming
-            // timestamps span the last ~30 days in milliseconds).
             let max_age: f64 = 30.0 * 24.0 * 3600.0 * 1000.0;
             let now_approx = entry.archived_at as f64 + max_age;
             (entry.archived_at as f64 / now_approx).min(1.0)

@@ -1,3 +1,10 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 #[test]
 fn goal_workspace_keyboard_navigation_auto_scrolls_timeline() {
     let mut model = goal_sidebar_model();
@@ -27,7 +34,8 @@ fn goal_workspace_keyboard_navigation_auto_scrolls_timeline() {
         },
     ));
     model.focus = FocusArea::Chat;
-    model.goal_workspace
+    model
+        .goal_workspace
         .set_focused_pane(goal_workspace::GoalWorkspacePane::Timeline);
 
     for _ in 0..20 {
@@ -440,4 +448,3 @@ fn chat_unpin_updates_pinned_sidebar_without_waiting_for_thread_refresh() {
         } if thread_id == "thread-1" && message_id == "message-1"
     ));
 }
-

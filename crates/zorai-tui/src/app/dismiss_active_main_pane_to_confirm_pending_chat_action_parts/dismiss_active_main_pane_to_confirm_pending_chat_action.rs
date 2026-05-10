@@ -1,5 +1,19 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
 impl TuiModel {
-    fn dismiss_active_main_pane(&mut self, focus: FocusArea) -> bool {
+    pub(crate) fn dismiss_active_main_pane(&mut self, focus: FocusArea) -> bool {
         match &self.main_pane_view {
             MainPaneView::Task(target) => {
                 if let sidebar::SidebarItemTarget::Task { task_id } = target {
@@ -34,6 +48,12 @@ impl TuiModel {
             | MainPaneView::FilePreview(_) => {
                 if let Some(thread_id) = self.mission_control_return_to_thread_id() {
                     self.set_mission_control_return_to_thread_id(None);
+                    if matches!(self.main_pane_view, MainPaneView::FilePreview(_))
+                        && self.chat.active_thread_id() == Some(thread_id.as_str())
+                    {
+                        self.restore_current_conversation_view(focus);
+                        return true;
+                    }
                     self.restore_conversation_thread(thread_id, focus);
                     return true;
                 }
@@ -58,7 +78,7 @@ impl TuiModel {
         }
     }
 
-    fn should_toggle_work_context_from_sidebar(&self, thread_id: &str) -> bool {
+    pub(crate) fn should_toggle_work_context_from_sidebar(&self, thread_id: &str) -> bool {
         if !matches!(self.main_pane_view, MainPaneView::WorkContext) {
             return false;
         }
@@ -88,7 +108,7 @@ impl TuiModel {
         }
     }
 
-    fn select_visible_concierge_action(&mut self, action_index: usize) {
+    pub(crate) fn select_visible_concierge_action(&mut self, action_index: usize) {
         let action_count = self.visible_concierge_action_count();
         self.concierge.selected_action = if action_count == 0 {
             0
@@ -97,7 +117,7 @@ impl TuiModel {
         };
     }
 
-    fn navigate_visible_concierge_action(&mut self, delta: i32) {
+    pub(crate) fn navigate_visible_concierge_action(&mut self, delta: i32) {
         let action_count = self.visible_concierge_action_count();
         if action_count == 0 {
             self.concierge.selected_action = 0;
@@ -127,14 +147,14 @@ impl TuiModel {
             .or_else(|| self.concierge.welcome_actions.get(action_index).cloned())
     }
 
-    fn execute_concierge_action(&mut self, action_index: usize) {
+    pub(crate) fn execute_concierge_action(&mut self, action_index: usize) {
         let Some(action) = self.resolve_visible_concierge_action(action_index) else {
             return;
         };
         self.run_concierge_action(action);
     }
 
-    fn selected_inline_message_action_count(&self) -> usize {
+    pub(crate) fn selected_inline_message_action_count(&self) -> usize {
         let Some(selected_message) = self.chat.selected_message() else {
             return 0;
         };
@@ -165,7 +185,11 @@ impl TuiModel {
         }
     }
 
-    fn execute_concierge_message_action(&mut self, message_index: usize, action_index: usize) {
+    pub(crate) fn execute_concierge_message_action(
+        &mut self,
+        message_index: usize,
+        action_index: usize,
+    ) {
         let Some(action) = self
             .chat
             .active_thread()
@@ -182,7 +206,7 @@ impl TuiModel {
         });
     }
 
-    fn run_concierge_action(&mut self, action: crate::state::ConciergeActionVm) {
+    pub(crate) fn run_concierge_action(&mut self, action: crate::state::ConciergeActionVm) {
         if let Some((question_id, answer)) = action
             .action_type
             .strip_prefix("operator_question_answer:")
@@ -270,7 +294,7 @@ impl TuiModel {
         }
     }
 
-    fn open_pending_action_confirm(&mut self, action: PendingConfirmAction) {
+    pub(crate) fn open_pending_action_confirm(&mut self, action: PendingConfirmAction) {
         self.pending_chat_action_confirm = Some(action);
         self.chat_action_confirm_accept_selected = true;
         if self.modal.top() != Some(modal::ModalKind::ChatActionConfirm) {
@@ -280,7 +304,7 @@ impl TuiModel {
         }
     }
 
-    fn close_chat_action_confirm(&mut self) {
+    pub(crate) fn close_chat_action_confirm(&mut self) {
         self.pending_chat_action_confirm = None;
         self.chat_action_confirm_accept_selected = true;
         if self.modal.top() == Some(modal::ModalKind::ChatActionConfirm) {
@@ -288,36 +312,36 @@ impl TuiModel {
         }
     }
 
-    fn cancel_chat_action_confirm(&mut self) {
-        let clears_runtime_confirmation = self
-            .pending_chat_action_confirm
-            .as_ref()
-            .is_some_and(|pending| {
-                matches!(
-                    pending,
-                    PendingConfirmAction::ReuseModelAsStt { model_id }
-                        if model_id.starts_with("__mission_control__:")
-                )
-            });
+    pub(crate) fn cancel_chat_action_confirm(&mut self) {
+        let clears_runtime_confirmation =
+            self.pending_chat_action_confirm
+                .as_ref()
+                .is_some_and(|pending| {
+                    matches!(
+                        pending,
+                        PendingConfirmAction::ReuseModelAsStt { model_id }
+                            if model_id.starts_with("__mission_control__:")
+                    )
+                });
         self.close_chat_action_confirm();
         if clears_runtime_confirmation {
             self.goal_mission_control.clear_runtime_change();
         }
     }
 
-    fn request_regenerate_message(&mut self, index: usize) {
+    pub(crate) fn request_regenerate_message(&mut self, index: usize) {
         self.open_pending_action_confirm(PendingConfirmAction::RegenerateMessage {
             message_index: index,
         });
     }
 
-    fn request_delete_message(&mut self, index: usize) {
+    pub(crate) fn request_delete_message(&mut self, index: usize) {
         self.open_pending_action_confirm(PendingConfirmAction::DeleteMessage {
             message_index: index,
         });
     }
 
-    fn confirm_pending_chat_action(&mut self) {
+    pub(crate) fn confirm_pending_chat_action(&mut self) {
         let Some(pending) = self.pending_chat_action_confirm.take() else {
             return;
         };
@@ -436,5 +460,4 @@ impl TuiModel {
             }
         }
     }
-
 }

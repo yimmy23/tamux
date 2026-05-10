@@ -4,16 +4,23 @@ pub(super) fn refresh_thread_stats(
     connection: &Connection,
     thread_id: &str,
 ) -> std::result::Result<(), rusqlite::Error> {
-    let (message_count, total_tokens, last_preview, latest_message_at): (i64, i64, String, i64) = connection.query_row(
+    let (message_count, total_tokens, last_preview_opt, latest_message_at_opt): (
+        i64,
+        i64,
+        Option<String>,
+        Option<i64>,
+    ) = connection.query_row(
         "SELECT
             COUNT(*),
             COALESCE(SUM(total_tokens), 0),
-            COALESCE((SELECT substr(content, 1, 100) FROM agent_messages WHERE thread_id = ?1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1), ''),
-            COALESCE((SELECT created_at FROM agent_messages WHERE thread_id = ?1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1), strftime('%s','now') * 1000)
+            substr(content, 1, 100),
+            MAX(created_at)
          FROM agent_messages WHERE thread_id = ?1 AND deleted_at IS NULL",
         params![thread_id],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
+    let last_preview = last_preview_opt.unwrap_or_default();
+    let latest_message_at = latest_message_at_opt.unwrap_or_else(|| now_ts() as i64);
 
     connection.execute(
         "UPDATE agent_threads

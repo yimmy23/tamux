@@ -20,9 +20,6 @@
 
 use anyhow::{bail, Context, Result};
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
 
 /// A parsed termination condition tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,9 +92,6 @@ impl TerminationEvaluator {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Evaluator
-// ---------------------------------------------------------------------------
 
 fn evaluate(cond: &TerminationCondition, m: &TerminationMetrics) -> (bool, Option<String>) {
     match cond {
@@ -170,7 +164,6 @@ fn evaluate(cond: &TerminationCondition, m: &TerminationMetrics) -> (bool, Optio
             let (l, lr) = evaluate(lhs, m);
             let (r, rr) = evaluate(rhs, m);
             if l || r {
-                // Prefer the side(s) that actually fired.
                 let reason = match (l, r) {
                     (true, true) => match (lr, rr) {
                         (Some(a), Some(b)) => Some(format!("({a}) OR ({b})")),
@@ -198,9 +191,6 @@ fn evaluate(cond: &TerminationCondition, m: &TerminationMetrics) -> (bool, Optio
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tokenizer
-// ---------------------------------------------------------------------------
 
 fn tokenize(input: &str) -> Result<Vec<String>> {
     let mut tokens = Vec::new();
@@ -216,7 +206,6 @@ fn tokenize(input: &str) -> Result<Vec<String>> {
             chars.next();
             continue;
         }
-        // Accumulate an identifier or number.
         let mut buf = String::new();
         while let Some(&c) = chars.peek() {
             if c.is_whitespace() || c == '(' || c == ')' {
@@ -233,15 +222,12 @@ fn tokenize(input: &str) -> Result<Vec<String>> {
     Ok(tokens)
 }
 
-// ---------------------------------------------------------------------------
-// Recursive-descent parser
-// ---------------------------------------------------------------------------
 
 /// or_expr = and_expr ("OR" and_expr)*
 fn parse_or_expr(tokens: &[String], pos: &mut usize) -> Result<TerminationCondition> {
     let mut node = parse_and_expr(tokens, pos)?;
     while *pos < tokens.len() && tokens[*pos] == "OR" {
-        *pos += 1; // consume OR
+        *pos += 1;
         let rhs = parse_and_expr(tokens, pos)?;
         node = TerminationCondition::Or(Box::new(node), Box::new(rhs));
     }
@@ -252,7 +238,7 @@ fn parse_or_expr(tokens: &[String], pos: &mut usize) -> Result<TerminationCondit
 fn parse_and_expr(tokens: &[String], pos: &mut usize) -> Result<TerminationCondition> {
     let mut node = parse_not_expr(tokens, pos)?;
     while *pos < tokens.len() && tokens[*pos] == "AND" {
-        *pos += 1; // consume AND
+        *pos += 1;
         let rhs = parse_not_expr(tokens, pos)?;
         node = TerminationCondition::And(Box::new(node), Box::new(rhs));
     }
@@ -262,7 +248,7 @@ fn parse_and_expr(tokens: &[String], pos: &mut usize) -> Result<TerminationCondi
 /// not_expr = "NOT" not_expr | atom
 fn parse_not_expr(tokens: &[String], pos: &mut usize) -> Result<TerminationCondition> {
     if *pos < tokens.len() && tokens[*pos] == "NOT" {
-        *pos += 1; // consume NOT
+        *pos += 1;
         let inner = parse_not_expr(tokens, pos)?;
         return Ok(TerminationCondition::Not(Box::new(inner)));
     }
@@ -275,9 +261,8 @@ fn parse_atom(tokens: &[String], pos: &mut usize) -> Result<TerminationCondition
         bail!("unexpected end of input");
     }
 
-    // Parenthesized sub-expression.
     if tokens[*pos] == "(" {
-        *pos += 1; // consume (
+        *pos += 1;
         let node = parse_or_expr(tokens, pos)?;
         if *pos >= tokens.len() || tokens[*pos] != ")" {
             bail!(
@@ -285,38 +270,34 @@ fn parse_atom(tokens: &[String], pos: &mut usize) -> Result<TerminationCondition
                 tokens.get(*pos).unwrap_or(&String::new())
             );
         }
-        *pos += 1; // consume )
+        *pos += 1;
         return Ok(node);
     }
 
-    // Condition atoms: name ( number )
     let name = &tokens[*pos];
     *pos += 1;
 
-    // Expect '('
     if *pos >= tokens.len() || tokens[*pos] != "(" {
         bail!(
             "expected '(' after condition name '{name}' but found '{}'",
             tokens.get(*pos).unwrap_or(&"end of input".to_string())
         );
     }
-    *pos += 1; // consume (
+    *pos += 1;
 
-    // Expect a numeric argument.
     if *pos >= tokens.len() {
         bail!("expected number after '(' in '{name}(...)'");
     }
     let num_str = &tokens[*pos];
     *pos += 1;
 
-    // Expect ')'
     if *pos >= tokens.len() || tokens[*pos] != ")" {
         bail!(
             "expected ')' to close '{name}(...)' but found '{}'",
             tokens.get(*pos).unwrap_or(&"end of input".to_string())
         );
     }
-    *pos += 1; // consume )
+    *pos += 1;
 
     match name.as_str() {
         "timeout" => {
@@ -351,9 +332,6 @@ fn parse_atom(tokens: &[String], pos: &mut usize) -> Result<TerminationCondition
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[path = "termination/tests.rs"]

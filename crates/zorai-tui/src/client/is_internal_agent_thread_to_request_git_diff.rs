@@ -1,3 +1,15 @@
+use super::*;
+use crate::client::get_string_lossy::{get_string, get_string_lossy};
+use crate::client::OpenAICodexAuthStatusVm;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::*;
+use anyhow::Result;
+use serde_json::Value;
+use tokio::sync::mpsc;
+use tracing::warn;
+use zorai_protocol::ClientMessage;
+use zorai_protocol::DaemonMessage;
+
 impl DaemonClient {
     fn is_internal_agent_thread(thread_id: Option<&str>, title: Option<&str>) -> bool {
         let normalized_id = thread_id.unwrap_or_default().trim().to_ascii_lowercase();
@@ -5,7 +17,7 @@ impl DaemonClient {
         normalized_id.starts_with("dm:") || normalized_title.starts_with("internal dm")
     }
 
-    fn is_hidden_agent_thread(thread_id: Option<&str>, title: Option<&str>) -> bool {
+    pub(crate) fn is_hidden_agent_thread(thread_id: Option<&str>, title: Option<&str>) -> bool {
         let normalized_id = thread_id.unwrap_or_default().trim().to_ascii_lowercase();
         let normalized_title = title.unwrap_or_default().trim().to_ascii_lowercase();
         normalized_id.starts_with("handoff:")
@@ -14,7 +26,7 @@ impl DaemonClient {
             || normalized_title.starts_with("weles ")
     }
 
-    fn parse_weles_review(event: &Value) -> Option<crate::client::WelesReviewMetaVm> {
+    pub(crate) fn parse_weles_review(event: &Value) -> Option<crate::client::WelesReviewMetaVm> {
         let review = event.get("weles_review")?;
         let verdict = review.get("verdict").and_then(Value::as_str)?.to_string();
         let reasons = review
@@ -40,25 +52,39 @@ impl DaemonClient {
         })
     }
 
-    async fn dispatch_agent_event(event: Value, event_tx: &mpsc::Sender<ClientEvent>) {
-        let Some(kind) = event.get("type").and_then(Value::as_str) else {
+    pub(crate) async fn dispatch_agent_event(event: Value, event_tx: &mpsc::Sender<ClientEvent>) {
+        let Some(kind) = event
+            .get("type")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned)
+        else {
             return;
         };
 
-        include!("dispatch_match.rs");
+        Self::dispatch_match_arms(&kind, event, event_tx).await;
     }
 
-    fn send(&self, request: ClientMessage) -> Result<()> {
+    pub(crate) fn send(&self, request: ClientMessage) -> Result<()> {
         zorai_protocol::validate_client_message_size(&request)?;
         self.request_tx.send(request)?;
         Ok(())
     }
 
     pub fn refresh(&self) -> Result<()> {
+        self.refresh_threads_for_agent(Some(zorai_protocol::AGENT_HANDLE_SVAROG.to_string()))
+    }
+
+    /// Request the unbounded thread list for a specific agent filter. When
+    /// `agent_filter` is `Some`, the daemon drops its 128-thread cap and
+    /// returns every matching thread; the TUI caches the result and refreshes
+    /// it on demand (shift+r) or when a `ThreadCreated` event for the same
+    /// filter arrives.
+    pub fn refresh_threads_for_agent(&self, agent_filter: Option<String>) -> Result<()> {
         self.send(ClientMessage::AgentListThreads {
             limit: None,
             offset: None,
             include_internal: true,
+            agent_filter,
         })
     }
 
@@ -226,5 +252,4 @@ impl DaemonClient {
             file_path,
         })
     }
-
 }

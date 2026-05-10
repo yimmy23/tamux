@@ -6,6 +6,8 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use crate::state::approval::{ApprovalFilter, ApprovalState};
 use crate::theme::ThemeTokens;
 
+use super::queue_hit_test_to_rule_detail_hit_test::{detail_hit_test, queue_hit_test};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalCenterHitTarget {
     Filter(ApprovalFilter),
@@ -490,4 +492,3 @@ fn header_hit_test(
     }
     None
 }
-

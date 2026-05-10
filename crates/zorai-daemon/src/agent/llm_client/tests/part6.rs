@@ -1,3 +1,14 @@
+use super::part1::*;
+use super::part5_support::*;
+use super::*;
+use crate::agent::provider_auth_store;
+use crate::agent::types::{AgentMessage, MessageRole};
+use crate::test_support::EnvGuard;
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+use std::sync::Mutex;
+use tempfile::tempdir;
 #[tokio::test]
 async fn anthropic_create_message_batch_posts_requests_and_parses_batch() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -16,8 +27,14 @@ async fn anthropic_create_message_batch_posts_requests_and_parses_batch() {
             request.starts_with("POST /v1/messages/batches HTTP/1.1"),
             "unexpected request line: {request}"
         );
-        assert!(request.contains("\"custom_id\":\"req-1\""), "missing custom_id: {request}");
-        assert!(request.contains("\"max_tokens\":256"), "missing max_tokens: {request}");
+        assert!(
+            request.contains("\"custom_id\":\"req-1\""),
+            "missing custom_id: {request}"
+        );
+        assert!(
+            request.contains("\"max_tokens\":256"),
+            "missing max_tokens: {request}"
+        );
 
         let body = serde_json::json!({
             "id": "msgbatch_123",
@@ -39,7 +56,10 @@ async fn anthropic_create_message_batch_posts_requests_and_parses_batch() {
             body.len(),
             body
         );
-        socket.write_all(response.as_bytes()).await.expect("write response");
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
     });
 
     let config = ProviderConfig {
@@ -64,10 +84,10 @@ async fn anthropic_create_message_batch_posts_requests_and_parses_batch() {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
     let params = build_anthropic_message_batch_params(
         "anthropic",
@@ -131,32 +151,32 @@ async fn anthropic_batch_list_and_lifecycle_endpoints_use_documented_paths() {
             let (request_id, body) = if request_line.starts_with("DELETE ") {
                 (
                     "req_batch_delete_123",
-                serde_json::json!({
-                    "id": "msgbatch_123",
-                    "type": "message_batch_deleted"
-                })
+                    serde_json::json!({
+                        "id": "msgbatch_123",
+                        "type": "message_batch_deleted"
+                    }),
                 )
             } else if request_line.starts_with("GET /v1/messages/batches?") {
                 (
                     "req_batch_list_123",
-                serde_json::json!({
-                    "data": [{
-                        "id": "msgbatch_123",
-                        "created_at": "2024-08-20T18:37:24.100435Z",
-                        "processing_status": "in_progress",
-                        "request_counts": {
-                            "canceled": 0,
-                            "errored": 0,
-                            "expired": 0,
-                            "processing": 1,
-                            "succeeded": 0
-                        },
-                        "type": "message_batch"
-                    }],
-                    "first_id": "msgbatch_123",
-                    "has_more": false,
-                    "last_id": "msgbatch_123"
-                })
+                    serde_json::json!({
+                        "data": [{
+                            "id": "msgbatch_123",
+                            "created_at": "2024-08-20T18:37:24.100435Z",
+                            "processing_status": "in_progress",
+                            "request_counts": {
+                                "canceled": 0,
+                                "errored": 0,
+                                "expired": 0,
+                                "processing": 1,
+                                "succeeded": 0
+                            },
+                            "type": "message_batch"
+                        }],
+                        "first_id": "msgbatch_123",
+                        "has_more": false,
+                        "last_id": "msgbatch_123"
+                    }),
                 )
             } else if request_line.starts_with("GET /v1/messages/batches/msgbatch_123 ") {
                 (
@@ -173,7 +193,7 @@ async fn anthropic_batch_list_and_lifecycle_endpoints_use_documented_paths() {
                             "succeeded": 0
                         },
                         "type": "message_batch"
-                    })
+                    }),
                 )
             } else if request_line.starts_with("POST /v1/messages/batches/msgbatch_123/cancel ") {
                 (
@@ -190,7 +210,7 @@ async fn anthropic_batch_list_and_lifecycle_endpoints_use_documented_paths() {
                             "succeeded": 0
                         },
                         "type": "message_batch"
-                    })
+                    }),
                 )
             } else {
                 panic!("unexpected lifecycle request line: {request_line}");
@@ -203,7 +223,10 @@ async fn anthropic_batch_list_and_lifecycle_endpoints_use_documented_paths() {
                 body.len(),
                 body
             );
-            socket.write_all(response.as_bytes()).await.expect("write response");
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("write response");
         }
     });
 
@@ -230,10 +253,10 @@ async fn anthropic_batch_list_and_lifecycle_endpoints_use_documented_paths() {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     };
 
     let list = list_message_batches(
@@ -255,7 +278,10 @@ async fn anthropic_batch_list_and_lifecycle_endpoints_use_documented_paths() {
         .await
         .expect("retrieve batch should succeed");
     assert_eq!(retrieved.id, "msgbatch_123");
-    assert_eq!(retrieved.request_id.as_deref(), Some("req_batch_retrieve_123"));
+    assert_eq!(
+        retrieved.request_id.as_deref(),
+        Some("req_batch_retrieve_123")
+    );
 
     let canceled = cancel_message_batch(&client, "anthropic", &config, "msgbatch_123")
         .await
@@ -270,12 +296,33 @@ async fn anthropic_batch_list_and_lifecycle_endpoints_use_documented_paths() {
     assert_eq!(deleted.request_id.as_deref(), Some("req_batch_delete_123"));
 
     let recorded = recorded.lock().expect("lock recorded lines");
-    assert!(recorded[0].starts_with("GET /v1/messages/batches?"), "unexpected list request: {}", recorded[0]);
-    assert!(recorded[0].contains("after_id=msgbatch_prev"), "missing after_id: {}", recorded[0]);
-    assert!(recorded[0].contains("limit=5"), "missing limit: {}", recorded[0]);
-    assert_eq!(recorded[1], "GET /v1/messages/batches/msgbatch_123 HTTP/1.1");
-    assert_eq!(recorded[2], "POST /v1/messages/batches/msgbatch_123/cancel HTTP/1.1");
-    assert_eq!(recorded[3], "DELETE /v1/messages/batches/msgbatch_123 HTTP/1.1");
+    assert!(
+        recorded[0].starts_with("GET /v1/messages/batches?"),
+        "unexpected list request: {}",
+        recorded[0]
+    );
+    assert!(
+        recorded[0].contains("after_id=msgbatch_prev"),
+        "missing after_id: {}",
+        recorded[0]
+    );
+    assert!(
+        recorded[0].contains("limit=5"),
+        "missing limit: {}",
+        recorded[0]
+    );
+    assert_eq!(
+        recorded[1],
+        "GET /v1/messages/batches/msgbatch_123 HTTP/1.1"
+    );
+    assert_eq!(
+        recorded[2],
+        "POST /v1/messages/batches/msgbatch_123/cancel HTTP/1.1"
+    );
+    assert_eq!(
+        recorded[3],
+        "DELETE /v1/messages/batches/msgbatch_123 HTTP/1.1"
+    );
 }
 
 #[tokio::test]
@@ -306,7 +353,10 @@ async fn anthropic_batch_results_parse_jsonl_lines() {
             body.len(),
             body
         );
-        socket.write_all(response.as_bytes()).await.expect("write response");
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
     });
 
     let results = retrieve_message_batch_results(
@@ -352,9 +402,18 @@ async fn anthropic_batch_results_parse_jsonl_lines() {
             assert_eq!(message.content.len(), 1);
             assert_eq!(message.content[0].block_type(), "text");
             assert_eq!(message.content[0].text(), Some("hello world"));
-            assert_eq!(message.container.as_ref().map(|value| value.id.as_str()), Some("container_1"));
-            assert_eq!(message.usage.as_ref().map(|value| value.input_tokens), Some(11));
-            assert_eq!(message.usage.as_ref().map(|value| value.output_tokens), Some(7));
+            assert_eq!(
+                message.container.as_ref().map(|value| value.id.as_str()),
+                Some("container_1")
+            );
+            assert_eq!(
+                message.usage.as_ref().map(|value| value.input_tokens),
+                Some(11)
+            );
+            assert_eq!(
+                message.usage.as_ref().map(|value| value.output_tokens),
+                Some(7)
+            );
         }
         other => panic!("expected succeeded batch result, got {other:?}"),
     }

@@ -64,7 +64,7 @@ pub enum ClientMessage {
     AgentStopStream { thread_id: String },
     AgentForceCompact { thread_id: String },
     AgentRetryStreamNow { thread_id: String },
-    AgentListThreads { #[serde(default)] limit: Option<usize>, #[serde(default)] offset: Option<usize>, #[serde(default)] include_internal: bool },
+    AgentListThreads { #[serde(default)] limit: Option<usize>, #[serde(default)] offset: Option<usize>, #[serde(default)] include_internal: bool, #[serde(default)] agent_filter: Option<String> },
     AgentGetThread { thread_id: String, #[serde(default)] message_limit: Option<usize>, #[serde(default)] message_offset: Option<usize> },
     AgentDeleteThread { thread_id: String },
     AgentAddTask { title: String, description: String, priority: String, command: Option<String>, session_id: Option<String>, scheduled_at: Option<u64>, #[serde(default)] dependencies: Vec<String> },
@@ -244,4 +244,12 @@ pub enum ClientMessage {
     AgentSetTargetAgentReasoningEffort { target_agent_id: String, reasoning_effort: String },
     AgentSemanticDocumentSync,
     AgentRepairSemanticIndex { confirmed: bool },
+    AgentSetWorkspaceRepoMonitor {
+        workspace_id: String,
+        repo_monitor_enabled: bool,
+        #[serde(default)]
+        repo_monitor_include_dirs: Vec<String>,
+        #[serde(default)]
+        repo_monitor_exclude_dirs: Vec<String>,
+    },
 }

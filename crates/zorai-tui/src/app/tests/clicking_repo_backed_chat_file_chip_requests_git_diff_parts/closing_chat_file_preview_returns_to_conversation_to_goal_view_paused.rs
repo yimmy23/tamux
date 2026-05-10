@@ -1,3 +1,10 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 #[test]
 fn closing_chat_file_preview_returns_to_conversation() {
     let mut model = build_model();
@@ -13,6 +20,39 @@ fn closing_chat_file_preview_returns_to_conversation() {
     assert!(!handled);
     assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
     assert_eq!(model.focus, FocusArea::Chat);
+}
+
+#[test]
+fn closing_same_thread_file_preview_does_not_reload_thread() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model.focus = FocusArea::Chat;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.open_file_preview_path("/tmp/demo.txt".to_string());
+    match cmd_rx.try_recv() {
+        Ok(DaemonCommand::RequestFilePreview { path, .. }) => {
+            assert_eq!(path, "/tmp/demo.txt");
+        }
+        other => panic!("expected file preview request, got {:?}", other),
+    }
+
+    let handled = model.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+
+    assert!(!handled);
+    assert!(matches!(model.main_pane_view, MainPaneView::Conversation));
+    assert_eq!(model.chat.active_thread_id(), Some("thread-1"));
+    assert!(
+        cmd_rx.try_recv().is_err(),
+        "returning from a same-thread file preview should not re-request thread data"
+    );
 }
 
 #[test]
@@ -407,10 +447,19 @@ fn goal_view_related_tasks_use_status_checkbox_without_duplicate_status_text() {
     let plain = render_task_view(&mut model);
 
     assert!(plain.contains("[~] Collect and index sources"), "{plain}");
-    assert!(plain.contains("[x] Ground the user's background"), "{plain}");
+    assert!(
+        plain.contains("[x] Ground the user's background"),
+        "{plain}"
+    );
     assert!(plain.contains("[!] Review plan"), "{plain}");
-    assert!(!plain.contains("Collect and index sources running"), "{plain}");
-    assert!(!plain.contains("Ground the user's background done"), "{plain}");
+    assert!(
+        !plain.contains("Collect and index sources running"),
+        "{plain}"
+    );
+    assert!(
+        !plain.contains("Ground the user's background done"),
+        "{plain}"
+    );
     assert!(!plain.contains("Review plan blocked"), "{plain}");
 }
 
@@ -465,7 +514,9 @@ fn goal_view_paused_restart_renders_review_guidance() {
     let plain = render_task_view(&mut model);
 
     assert!(plain.contains("Run timeline"), "{plain}");
-    assert!(plain.contains("Daemon restarted; goal run paused"), "{plain}");
+    assert!(
+        plain.contains("Daemon restarted; goal run paused"),
+        "{plain}"
+    );
     assert!(plain.contains("operator review."), "{plain}");
 }
-

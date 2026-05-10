@@ -225,40 +225,94 @@ impl AgentEngine {
     }
 
     pub async fn health_status_snapshot(&self) -> serde_json::Value {
-        let tasks = self.tasks.lock().await;
-        let goal_runs = self.goal_runs.lock().await;
-        let active_tasks = tasks
-            .iter()
-            .filter(|task| {
-                matches!(
-                    task.status,
-                    TaskStatus::Queued
-                        | TaskStatus::InProgress
-                        | TaskStatus::Blocked
-                        | TaskStatus::AwaitingApproval
-                        | TaskStatus::FailedAnalyzing
-                )
+        let health_task_statuses = [
+            TaskStatus::Queued,
+            TaskStatus::InProgress,
+            TaskStatus::Blocked,
+            TaskStatus::AwaitingApproval,
+            TaskStatus::FailedAnalyzing,
+        ]
+        .into_iter()
+        .filter_map(|status| {
+            serde_json::to_value(status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        })
+        .collect::<Vec<_>>();
+        let active_tasks = self
+            .count_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: health_task_statuses,
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
-            .count();
-        let awaiting_approval_tasks = tasks
-            .iter()
-            .filter(|task| task.status == TaskStatus::AwaitingApproval)
-            .count();
-        let active_goal_runs = goal_runs
-            .iter()
-            .filter(|goal_run| {
-                matches!(
-                    goal_run.status,
-                    GoalRunStatus::Queued
-                        | GoalRunStatus::Planning
-                        | GoalRunStatus::Running
-                        | GoalRunStatus::AwaitingApproval
-                        | GoalRunStatus::Paused
-                )
+            .await;
+        let awaiting_approval_tasks = self
+            .count_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: Some("awaiting_approval".to_string()),
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
             })
-            .count();
-        drop(goal_runs);
-        drop(tasks);
+            .await;
+        let active_goal_statuses = [
+            GoalRunStatus::Queued,
+            GoalRunStatus::Planning,
+            GoalRunStatus::Running,
+            GoalRunStatus::AwaitingApproval,
+            GoalRunStatus::Paused,
+        ];
+        let mut active_goal_run_ids = match self
+            .history
+            .list_goal_run_ids_for_statuses(&active_goal_statuses)
+            .await
+        {
+            Ok(goal_run_ids) => goal_run_ids,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted active goal run ids for health snapshot: {error}"
+                );
+                Vec::new()
+            }
+        };
+        let mut seen_goal_ids = active_goal_run_ids
+            .iter()
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        {
+            let live_goal_runs = self.goal_runs.lock().await;
+            for goal_run in live_goal_runs
+                .iter()
+                .filter(|goal_run| active_goal_statuses.contains(&goal_run.status))
+            {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    active_goal_run_ids.push(goal_run.id.clone());
+                }
+            }
+        }
+        let active_goal_runs = active_goal_run_ids.len();
 
         let latest = self
             .history
@@ -373,18 +427,15 @@ impl AgentEngine {
             let streams = self.stream_cancellations.lock().await;
             streams.get(thread_id).map(|entry| entry.retry_now.clone())
         };
-        let last_user_content = {
-            let threads = self.threads.read().await;
-            threads.get(thread_id).and_then(|thread| {
-                thread
-                    .messages
-                    .iter()
-                    .rev()
-                    .find(|message| {
-                        message.role == MessageRole::User && !message.content.trim().is_empty()
-                    })
-                    .map(|message| message.content.clone())
-            })
+        let last_user_content = match self.history.latest_user_message_content(thread_id).await {
+            Ok(message) => message.filter(|content| !content.trim().is_empty()),
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    "failed to load latest user message for retry-now: {error}"
+                );
+                None
+            }
         };
 
         if let Some(content) = last_user_content {
@@ -436,7 +487,11 @@ impl AgentEngine {
         let engine = Arc::clone(self);
         tokio::spawn(async move {
             for (thread_id, repo_root) in repo_watches {
-                engine.ensure_repo_watcher(&thread_id, &repo_root).await;
+                if engine.repo_monitor_enabled_for_repo(&repo_root).await {
+                    engine.ensure_repo_watcher(&thread_id, &repo_root).await;
+                } else {
+                    engine.remove_repo_watcher(&thread_id).await;
+                }
             }
         });
     }
@@ -695,8 +750,6 @@ impl AgentEngine {
             .stderr(std::process::Stdio::null())
             .stdin(std::process::Stdio::null());
 
-        // Bootstrap recall is opportunistic. It should never add noticeable latency
-        // to the first visible turn on a new thread.
         let output = match tokio::time::timeout(
             Duration::from_millis(ONECONTEXT_BOOTSTRAP_TIMEOUT_MS),
             cmd.output(),
@@ -735,5 +788,74 @@ fn subagent_health_label(state: SubagentHealthState) -> &'static str {
         SubagentHealthState::Degraded => "degraded",
         SubagentHealthState::Stuck => "stuck",
         SubagentHealthState::Crashed => "crashed",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session_manager::SessionManager;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn health_status_counts_persisted_active_tasks_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let mut task = engine
+            .enqueue_task(
+                "Persisted health task".to_string(),
+                "task should count in health snapshot".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "test",
+                None,
+                None,
+                Some("thread-health-status".to_string()),
+                None,
+            )
+            .await;
+        task.status = TaskStatus::AwaitingApproval;
+        {
+            let mut tasks = engine.tasks.lock().await;
+            tasks.clear();
+            tasks.push_back(task);
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        let snapshot = engine.health_status_snapshot().await;
+
+        assert_eq!(snapshot["active_tasks"].as_u64(), Some(1));
+        assert_eq!(snapshot["awaiting_approval_tasks"].as_u64(), Some(1));
+    }
+
+    #[tokio::test]
+    async fn health_status_snapshot_counts_persisted_active_goals_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine
+            .start_goal_run(
+                "Persisted health goal".to_string(),
+                Some("Persisted health goal".to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        engine.goal_runs.lock().await.clear();
+
+        let snapshot = engine.health_status_snapshot().await;
+
+        assert_eq!(snapshot["active_goal_runs"].as_u64(), Some(1));
     }
 }

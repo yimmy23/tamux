@@ -1,4 +1,4 @@
-use super::*;
+use super::super::*;
 use crate::state::goal_workspace::{GoalWorkspaceMode, GoalWorkspaceState};
 use crate::state::task::{
     AgentTask, GoalAgentAssignment, GoalRun, GoalRunEvent, GoalRunModelUsage, GoalRunStep,
@@ -10,7 +10,7 @@ use crate::theme::ThemeTokens;
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
-fn sample_tasks() -> TaskState {
+pub(super) fn sample_tasks() -> TaskState {
     let mut tasks = TaskState::new();
     tasks.reduce(TaskAction::GoalRunDetailReceived(GoalRun {
         id: "goal-1".into(),
@@ -88,11 +88,11 @@ fn sample_tasks() -> TaskState {
     tasks
 }
 
-fn render_plain_text(state: &GoalWorkspaceState, tick_counter: u64) -> String {
+pub(super) fn render_plain_text(state: &GoalWorkspaceState, tick_counter: u64) -> String {
     render_plain_text_for_tasks(&sample_tasks(), state, tick_counter)
 }
 
-fn render_plain_text_for_tasks(
+pub(super) fn render_plain_text_for_tasks(
     tasks: &TaskState,
     state: &GoalWorkspaceState,
     tick_counter: u64,
@@ -126,7 +126,7 @@ fn render_plain_text_for_tasks(
         .join("\n")
 }
 
-fn render_buffer_for_tasks(
+pub(super) fn render_buffer_for_tasks(
     tasks: &TaskState,
     state: &GoalWorkspaceState,
     tick_counter: u64,
@@ -443,4 +443,3 @@ fn goal_workspace_plan_falls_back_to_goal_task_thread_when_run_thread_ids_are_mi
     assert!(plain.contains("Main agent"), "{plain}");
     assert!(plain.contains("thread-worker"), "{plain}");
 }
-

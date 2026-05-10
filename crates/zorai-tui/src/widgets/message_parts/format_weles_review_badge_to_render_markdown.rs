@@ -1,14 +1,22 @@
-use markdown_table::{is_markdown_table_row, is_markdown_table_start, render_markdown_table};
-
+use super::markdown_table;
+use super::*;
 use crate::state::chat::{AgentMessage, MessageRole, TranscriptMode};
 use crate::theme::ThemeTokens;
+use markdown_table::{is_markdown_table_row, is_markdown_table_start, render_markdown_table};
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use zorai_protocol::tool_names;
+
 use crate::widgets::image_preview;
 use crate::widgets::message_operator_question::render_operator_question_message;
 use crate::widgets::tool_diff::{
     render_tool_edit_diff, render_tool_structured_json, ToolStructuredValueSource,
 };
 
-fn format_weles_review_badge(
+pub(crate) fn format_weles_review_badge(
     review: &crate::state::chat::WelesReviewMetaVm,
     theme: &ThemeTokens,
 ) -> (String, Style) {
@@ -20,7 +28,7 @@ fn format_weles_review_badge(
     }
 }
 
-fn render_weles_review_details(
+pub(crate) fn render_weles_review_details(
     review: &crate::state::chat::WelesReviewMetaVm,
     theme: &ThemeTokens,
     width: usize,
@@ -80,12 +88,12 @@ fn render_weles_review_details(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ToolIcon {
-    marker: &'static str,
-    label: &'static str,
+pub(crate) struct ToolIcon {
+    pub(crate) marker: &'static str,
+    pub(crate) label: &'static str,
 }
 
-fn tool_icon_for(name: &str, arguments: Option<&str>) -> ToolIcon {
+pub(crate) fn tool_icon_for(name: &str, arguments: Option<&str>) -> ToolIcon {
     let normalized_name = name.trim().to_ascii_lowercase();
 
     if is_python_tool(&normalized_name, arguments) {
@@ -251,7 +259,7 @@ fn tool_icon_for(name: &str, arguments: Option<&str>) -> ToolIcon {
     }
 }
 
-fn is_python_tool(normalized_name: &str, arguments: Option<&str>) -> bool {
+pub(crate) fn is_python_tool(normalized_name: &str, arguments: Option<&str>) -> bool {
     if normalized_name == tool_names::PYTHON_EXECUTE || normalized_name.contains("python") {
         return true;
     }
@@ -277,7 +285,7 @@ fn is_python_tool(normalized_name: &str, arguments: Option<&str>) -> bool {
     command_uses_python(&command)
 }
 
-fn parse_tool_arguments_object(
+pub(crate) fn parse_tool_arguments_object(
     arguments: Option<&str>,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
     let arguments = arguments?;
@@ -285,7 +293,7 @@ fn parse_tool_arguments_object(
     value.as_object().cloned()
 }
 
-fn command_uses_python(command: &str) -> bool {
+pub(crate) fn command_uses_python(command: &str) -> bool {
     !command.is_empty()
         && (command.starts_with("python ")
             || command.starts_with("python3 ")
@@ -296,96 +304,96 @@ fn command_uses_python(command: &str) -> bool {
             || command.contains(" python3 "))
 }
 
-fn is_web_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_web_tool(normalized_name: &str) -> bool {
     tool_names::WEB_TOOLS.contains(&normalized_name)
         || normalized_name.starts_with(tool_names::BROWSER_TOOL_PREFIX)
         || normalized_name.contains(tool_names::WEB_BROWSING_TOOL_FRAGMENT)
 }
 
-fn is_terminal_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_terminal_tool(normalized_name: &str) -> bool {
     tool_names::TERMINAL_TOOLS.contains(&normalized_name)
         || normalized_name.contains(tool_names::TERMINAL_TOOL_FRAGMENT)
 }
 
-fn is_file_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_file_tool(normalized_name: &str) -> bool {
     tool_names::FILE_TOOLS.contains(&normalized_name)
 }
 
-fn is_git_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_git_tool(normalized_name: &str) -> bool {
     tool_names::GIT_TOOLS.contains(&normalized_name)
 }
 
-fn is_search_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_search_tool(normalized_name: &str) -> bool {
     tool_names::SEARCH_TOOLS.contains(&normalized_name)
 }
 
-fn is_memory_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_memory_tool(normalized_name: &str) -> bool {
     tool_names::MEMORY_TOOLS.contains(&normalized_name)
 }
 
-fn is_workspace_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_workspace_tool(normalized_name: &str) -> bool {
     tool_names::WORKSPACE_TOOLS.contains(&normalized_name)
 }
 
-fn is_communication_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_communication_tool(normalized_name: &str) -> bool {
     tool_names::COMMUNICATION_TOOLS.contains(&normalized_name)
 }
 
-fn is_audio_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_audio_tool(normalized_name: &str) -> bool {
     tool_names::AUDIO_TOOLS.contains(&normalized_name)
 }
 
-fn is_system_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_system_tool(normalized_name: &str) -> bool {
     tool_names::SYSTEM_TOOLS.contains(&normalized_name)
 }
 
-fn is_model_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_model_tool(normalized_name: &str) -> bool {
     tool_names::MODEL_TOOLS.contains(&normalized_name)
 }
 
-fn is_agent_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_agent_tool(normalized_name: &str) -> bool {
     tool_names::AGENT_TOOLS.contains(&normalized_name)
 }
 
-fn is_task_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_task_tool(normalized_name: &str) -> bool {
     tool_names::TASK_TOOLS.contains(&normalized_name)
 }
 
-fn is_todo_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_todo_tool(normalized_name: &str) -> bool {
     tool_names::TODO_TOOLS.contains(&normalized_name)
 }
 
-fn is_goal_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_goal_tool(normalized_name: &str) -> bool {
     tool_names::GOAL_TOOLS.contains(&normalized_name)
 }
 
-fn is_routine_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_routine_tool(normalized_name: &str) -> bool {
     tool_names::ROUTINE_TOOLS.contains(&normalized_name)
 }
 
-fn is_trigger_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_trigger_tool(normalized_name: &str) -> bool {
     tool_names::TRIGGER_TOOLS.contains(&normalized_name)
 }
 
-fn is_workflow_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_workflow_tool(normalized_name: &str) -> bool {
     tool_names::WORKFLOW_TOOLS.contains(&normalized_name)
 }
 
-fn is_debate_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_debate_tool(normalized_name: &str) -> bool {
     tool_names::DEBATE_TOOLS.contains(&normalized_name)
 }
 
-fn is_collaboration_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_collaboration_tool(normalized_name: &str) -> bool {
     tool_names::COLLABORATION_TOOLS.contains(&normalized_name)
 }
 
-fn is_plugin_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_plugin_tool(normalized_name: &str) -> bool {
     normalized_name == tool_names::PLUGIN_API_CALL
         || normalized_name.starts_with(tool_names::PLUGIN_TOOL_PREFIX)
         || normalized_name.contains(tool_names::PLUGIN_TOOL_FRAGMENT)
 }
 
-fn is_thread_tool(normalized_name: &str) -> bool {
+pub(crate) fn is_thread_tool(normalized_name: &str) -> bool {
     tool_names::THREAD_TOOLS.contains(&normalized_name)
 }
 
@@ -395,7 +403,22 @@ pub(crate) fn render_markdown_pub(content: &str, width: usize) -> Vec<Line<'stat
     render_markdown(content, width)
 }
 
-fn normalize_markdown_for_tui(content: &str) -> String {
+#[cfg(test)]
+thread_local! {
+    static MARKDOWN_RENDER_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_markdown_render_call_count() {
+    MARKDOWN_RENDER_CALLS.with(|calls| calls.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn markdown_render_call_count() -> usize {
+    MARKDOWN_RENDER_CALLS.with(std::cell::Cell::get)
+}
+
+pub(crate) fn normalize_markdown_for_tui(content: &str) -> String {
     let mut normalized = String::with_capacity(content.len());
     let mut active_fence: Option<(char, usize)> = None;
 
@@ -443,7 +466,7 @@ fn normalize_markdown_for_tui(content: &str) -> String {
     normalized
 }
 
-fn fence_marker(line: &str) -> Option<(char, usize)> {
+pub(crate) fn fence_marker(line: &str) -> Option<(char, usize)> {
     let mut chars = line.chars();
     let marker = chars.next()?;
     if marker != '`' && marker != '~' {
@@ -458,7 +481,10 @@ fn fence_marker(line: &str) -> Option<(char, usize)> {
     Some((marker, marker_len))
 }
 
-fn render_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
+pub(crate) fn render_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
+    #[cfg(test)]
+    MARKDOWN_RENDER_CALLS.with(|calls| calls.set(calls.get() + 1));
+
     if content.is_empty() {
         return vec![];
     }
@@ -496,4 +522,3 @@ fn render_markdown(content: &str, width: usize) -> Vec<Line<'static>> {
 
     result
 }
-

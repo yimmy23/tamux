@@ -136,13 +136,11 @@ impl AuthState {
                 }
             }
             AuthAction::ConfirmLogin => {
-                // Handled externally — the handler sends the key to the daemon.
                 self.login_target = None;
                 self.login_buffer.clear();
                 self.login_cursor = 0;
             }
             AuthAction::Logout(_) => {
-                // Handled externally — the handler sends logout to the daemon.
             }
         }
     }

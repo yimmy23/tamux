@@ -1,3 +1,9 @@
+use super::whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings::*;
+use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn thread_picker_playgrounds_new_row_is_browse_only() {
     let (mut model, _daemon_rx) = make_model();
@@ -147,7 +153,7 @@ fn new_weles_conversation_keeps_weles_profile_after_first_prompt_locally() {
     assert_eq!(profile.model, "claude-sonnet-4-5");
 }
 
-fn seed_active_weles_thread(model: &mut TuiModel) {
+pub(super) fn seed_active_weles_thread(model: &mut TuiModel) {
     model.connected = true;
     model.agent_config_loaded = true;
     model.config.provider = PROVIDER_ID_OPENAI.to_string();
@@ -491,4 +497,3 @@ fn slash_effort_updates_active_thread_owner_effort() {
     );
     assert!(daemon_rx.try_recv().is_err());
 }
-

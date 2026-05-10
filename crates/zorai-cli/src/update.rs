@@ -401,16 +401,14 @@ fn run_npm_upgrade() -> Result<()> {
     Ok(())
 }
 
-fn execute_upgrade_plan<Stop, Start, Npm, Direct>(
+fn execute_upgrade_plan<Stop, Npm, Direct>(
     plan: UpgradePlan,
     stop_processes: Stop,
-    start_daemon: Start,
     run_npm_upgrade: Npm,
     spawn_direct_upgrade: Direct,
 ) -> Result<()>
 where
     Stop: FnOnce() -> Result<()>,
-    Start: FnOnce() -> Result<()>,
     Npm: FnOnce() -> Result<()>,
     Direct: FnOnce(&str, &[String], &Path) -> Result<()>,
 {
@@ -420,8 +418,7 @@ where
         UpgradePlan::Npm => {
             println!("Upgrading zorai via npm...");
             run_npm_upgrade()?;
-            start_daemon().context("upgrade succeeded but failed to restart zorai-daemon")?;
-            println!("Upgrade complete. Restarted zorai daemon.");
+            println!("Upgrade complete. zorai daemon and gateway are stopped.");
         }
         UpgradePlan::DirectInstaller {
             install_dir,
@@ -431,7 +428,7 @@ where
             println!("Upgrading zorai via direct installer...");
             spawn_direct_upgrade(&command, &args, &install_dir)?;
             println!(
-                "Upgrade started. zorai will refresh binaries in {} after this process exits and then restart the daemon.",
+                "Upgrade started. zorai will refresh binaries in {} after this process exits. Daemon and gateway will remain stopped.",
                 install_dir.display()
             );
         }
@@ -498,9 +495,8 @@ pub(crate) fn run_upgrade() -> Result<()> {
     execute_upgrade_plan(
         plan,
         stop_all_zorai_processes,
-        start_daemon_process,
         run_npm_upgrade,
-        |command, args, install_dir| spawn_direct_upgrade(command, args, install_dir, true),
+        |command, args, install_dir| spawn_direct_upgrade(command, args, install_dir, false),
     )
 }
 
@@ -615,17 +611,13 @@ mod tests {
     }
 
     #[test]
-    fn npm_upgrade_stops_processes_before_install_and_restarts_daemon_after_success() {
+    fn npm_upgrade_stops_processes_before_install_and_leaves_daemon_stopped() {
         let events = RefCell::new(Vec::new());
 
         execute_upgrade_plan(
             UpgradePlan::Npm,
             || {
                 events.borrow_mut().push("stop");
-                Ok(())
-            },
-            || {
-                events.borrow_mut().push("start");
                 Ok(())
             },
             || {
@@ -639,7 +631,7 @@ mod tests {
         )
         .expect("upgrade should succeed");
 
-        assert_eq!(*events.borrow(), vec!["stop", "npm", "start"]);
+        assert_eq!(*events.borrow(), vec!["stop", "npm"]);
     }
 
     #[test]
@@ -654,10 +646,6 @@ mod tests {
             },
             || {
                 events.borrow_mut().push("stop");
-                Ok(())
-            },
-            || {
-                events.borrow_mut().push("start");
                 Ok(())
             },
             || {
@@ -678,18 +666,14 @@ mod tests {
     }
 
     #[test]
-    fn direct_upgrade_env_requests_daemon_restart_after_install() {
-        let envs = direct_upgrade_env(Path::new("/opt/zorai"), 4242, true);
+    fn direct_upgrade_env_omits_daemon_restart_after_install() {
+        let envs = direct_upgrade_env(Path::new("/opt/zorai"), 4242, false);
 
         assert_eq!(
             envs,
             vec![
                 ("ZORAI_INSTALL_DIR".to_string(), "/opt/zorai".to_string()),
                 ("ZORAI_UPGRADE_WAIT_PID".to_string(), "4242".to_string()),
-                (
-                    "ZORAI_START_DAEMON_AFTER_INSTALL".to_string(),
-                    "1".to_string()
-                ),
             ]
         );
     }

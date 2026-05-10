@@ -1,3 +1,9 @@
+use super::*;
+use zorai_shared::providers::{
+    AudioToolKind, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI, PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+};
 impl TuiModel {
     fn image_remote_model_fetch_output_modalities(provider_id: &str) -> Option<String> {
         if provider_id == PROVIDER_ID_OPENROUTER {
@@ -21,7 +27,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn audio_catalog_models(
+    pub(crate) fn audio_catalog_models(
         endpoint: &str,
         provider_id: &str,
     ) -> Vec<crate::state::config::FetchedModel> {
@@ -100,7 +106,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn default_audio_model_for(endpoint: &str, provider_id: &str) -> String {
+    pub(crate) fn default_audio_model_for(endpoint: &str, provider_id: &str) -> String {
         Self::audio_catalog_models(endpoint, provider_id)
             .into_iter()
             .next()
@@ -108,7 +114,7 @@ impl TuiModel {
             .unwrap_or_default()
     }
 
-    pub(super) fn image_generation_catalog_models(
+    pub(crate) fn image_generation_catalog_models(
         provider_id: &str,
     ) -> Vec<crate::state::config::FetchedModel> {
         let model = |id: &str, name: &str, context_window: Option<u32>| {
@@ -140,7 +146,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn default_image_generation_model_for(provider_id: &str) -> String {
+    pub(crate) fn default_image_generation_model_for(provider_id: &str) -> String {
         Self::image_generation_catalog_models(provider_id)
             .into_iter()
             .next()
@@ -148,7 +154,7 @@ impl TuiModel {
             .unwrap_or_default()
     }
 
-    pub(super) fn embedding_catalog_models(
+    pub(crate) fn embedding_catalog_models(
         provider_id: &str,
     ) -> Vec<crate::state::config::FetchedModel> {
         let model = |id: &str, name: &str, context_window: Option<u32>| {
@@ -193,7 +199,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn default_embedding_model_for(provider_id: &str) -> String {
+    pub(crate) fn default_embedding_model_for(provider_id: &str) -> String {
         Self::embedding_catalog_models(provider_id)
             .into_iter()
             .next()
@@ -201,7 +207,7 @@ impl TuiModel {
             .unwrap_or_default()
     }
 
-    pub(super) fn set_audio_config_string(&mut self, endpoint: &str, field: &str, value: String) {
+    pub(crate) fn set_audio_config_string(&mut self, endpoint: &str, field: &str, value: String) {
         self.send_daemon_command(DaemonCommand::SetConfigItem {
             key_path: format!("/audio/{endpoint}/{field}"),
             value_json: serde_json::Value::String(value.clone()).to_string(),
@@ -217,7 +223,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn set_image_generation_config_string(&mut self, field: &str, value: String) {
+    pub(crate) fn set_image_generation_config_string(&mut self, field: &str, value: String) {
         self.send_daemon_command(DaemonCommand::SetConfigItem {
             key_path: format!("/image/generation/{field}"),
             value_json: serde_json::Value::String(value.clone()).to_string(),
@@ -233,7 +239,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn set_embedding_config_string(&mut self, field: &str, value: String) {
+    pub(crate) fn set_embedding_config_string(&mut self, field: &str, value: String) {
         self.send_daemon_command(DaemonCommand::SetConfigItem {
             key_path: format!("/semantic/embedding/{field}"),
             value_json: serde_json::Value::String(value.clone()).to_string(),
@@ -249,7 +255,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn open_audio_model_picker(&mut self, endpoint: &str) {
+    pub(crate) fn open_audio_model_picker(&mut self, endpoint: &str) {
         let provider_id = match endpoint {
             "stt" => {
                 let provider = self.config.audio_stt_provider();
@@ -293,7 +299,7 @@ impl TuiModel {
         self.sync_model_picker_item_count();
     }
 
-    pub(super) fn open_image_generation_model_picker(&mut self) {
+    pub(crate) fn open_image_generation_model_picker(&mut self) {
         let provider_id = {
             let provider = self.config.image_generation_provider();
             if provider.trim().is_empty() {
@@ -321,7 +327,7 @@ impl TuiModel {
         self.sync_model_picker_item_count();
     }
 
-    pub(super) fn open_embedding_model_picker(&mut self) {
+    pub(crate) fn open_embedding_model_picker(&mut self) {
         let provider_id = {
             let provider = self.config.semantic_embedding_provider();
             if provider.trim().is_empty() {
@@ -348,7 +354,7 @@ impl TuiModel {
         self.sync_model_picker_item_count();
     }
 
-    pub(super) fn open_provider_backed_model_picker(
+    pub(crate) fn open_provider_backed_model_picker(
         &mut self,
         target: SettingsPickerTarget,
         provider_id: String,
@@ -451,7 +457,7 @@ impl TuiModel {
         }
     }
 
-    fn fetched_model_supports_audio_endpoint(
+    pub(crate) fn fetched_model_supports_audio_endpoint(
         model: &crate::state::config::FetchedModel,
         endpoint: &str,
     ) -> bool {
@@ -495,5 +501,4 @@ impl TuiModel {
 
         false
     }
-
 }

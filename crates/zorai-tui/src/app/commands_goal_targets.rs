@@ -1,4 +1,5 @@
 use super::*;
+use crate::state::sidebar;
 
 impl TuiModel {
     pub(in super::super) fn parent_goal_target_for_task(

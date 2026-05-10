@@ -1,3 +1,10 @@
+use super::*;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
+use zorai_shared::providers::*;
+
 pub fn custom_provider_config(id: &str) -> Option<ProviderConfig> {
     let catalog = custom_provider_catalog_cell()
         .read()
@@ -38,10 +45,10 @@ pub fn custom_provider_config(id: &str) -> Option<ProviderConfig> {
         max_tokens: None,
         anthropic_tool_choice: None,
         output_effort: None,
-            openrouter_provider_order: Vec::new(),
-            openrouter_provider_ignore: Vec::new(),
-            openrouter_allow_fallbacks: None,
-            openrouter_response_cache_enabled: false,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
     })
 }
 
@@ -116,14 +123,16 @@ fn provider_auth_sources_for_catalog(provider_id: &str) -> (Vec<AuthSource>, Aut
     }
 }
 
-fn resolve_custom_provider_api_key(
+pub(crate) fn resolve_custom_provider_api_key(
     path: &str,
     provider_id: Option<&str>,
     api_key: Option<String>,
     api_key_env: Option<String>,
     diagnostics: &mut Vec<CustomProviderDiagnostic>,
 ) -> String {
-    let direct = api_key.map(|value| value.trim().to_string()).unwrap_or_default();
+    let direct = api_key
+        .map(|value| value.trim().to_string())
+        .unwrap_or_default();
     if !direct.is_empty() {
         return direct;
     }

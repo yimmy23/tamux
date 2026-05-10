@@ -1,5 +1,4 @@
 use super::*;
-// -- helpers --
 
 fn sample_goal_run() -> GoalRun {
     GoalRun {

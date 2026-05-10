@@ -1,9 +1,10 @@
-use super::openai_codex_auth::{
+use super::super::openai_codex_auth::{
     extract_openai_codex_account_id, import_codex_cli_auth_if_present,
     read_stored_openai_codex_auth, write_stored_openai_codex_auth, StoredOpenAICodexAuth,
     OPENAI_AUTH_MODE, OPENAI_CODEX_AUTH_CLIENT_ID, OPENAI_CODEX_AUTH_PROVIDER,
     OPENAI_CODEX_AUTH_TOKEN_URL,
 };
+use super::*;
 fn parse_retry_after_ms_from_value(value: &serde_json::Value) -> Option<u64> {
     if let Some(seconds) = value.as_f64() {
         return Some((seconds * 1000.0).ceil().max(1.0) as u64);
@@ -16,7 +17,10 @@ fn parse_retry_after_ms_from_value(value: &serde_json::Value) -> Option<u64> {
     None
 }
 
-fn extract_retry_after_ms(headers: Option<&reqwest::header::HeaderMap>, body_text: &str) -> Option<u64> {
+pub(crate) fn extract_retry_after_ms(
+    headers: Option<&reqwest::header::HeaderMap>,
+    body_text: &str,
+) -> Option<u64> {
     if let Some(headers) = headers {
         if let Some(value) = headers
             .get(reqwest::header::RETRY_AFTER)
@@ -37,7 +41,7 @@ fn extract_retry_after_ms(headers: Option<&reqwest::header::HeaderMap>, body_tex
         })
 }
 
-fn classify_http_failure_with_retry_after(
+pub(crate) fn classify_http_failure_with_retry_after(
     status: reqwest::StatusCode,
     provider: &str,
     body_text: &str,
@@ -48,7 +52,11 @@ fn classify_http_failure_with_retry_after(
     let lower = raw_message.to_ascii_lowercase();
     let upstream_error_type = parsed_body
         .as_ref()
-        .and_then(|value| value.pointer("/error/type").and_then(|value| value.as_str()))
+        .and_then(|value| {
+            value
+                .pointer("/error/type")
+                .and_then(|value| value.as_str())
+        })
         .map(str::to_string);
     let upstream_request_id = parsed_body
         .as_ref()
@@ -70,10 +78,8 @@ fn classify_http_failure_with_retry_after(
     let transport_incompatible_like = lower.contains("not supported")
         || lower.contains("does not support")
         || lower.contains("incompatible");
-    let class = if matches!(
-        upstream_error_type.as_deref(),
-        Some("rate_limit_error")
-    ) || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+    let class = if matches!(upstream_error_type.as_deref(), Some("rate_limit_error"))
+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
     {
         UpstreamFailureClass::RateLimit
     } else if matches!(
@@ -89,7 +95,8 @@ fn classify_http_failure_with_retry_after(
     } else if matches!(
         upstream_error_type.as_deref(),
         Some("invalid_request_error" | "request_too_large")
-    ) || status == reqwest::StatusCode::PAYLOAD_TOO_LARGE {
+    ) || status == reqwest::StatusCode::PAYLOAD_TOO_LARGE
+    {
         UpstreamFailureClass::RequestInvalid
     } else if matches!(upstream_error_type.as_deref(), Some("not_found_error")) {
         UpstreamFailureClass::TransportIncompatible
@@ -183,7 +190,10 @@ fn classify_http_failure(
     classify_http_failure_with_retry_after(status, provider, body_text, None)
 }
 
-fn transport_incompatibility_error(provider: &str, details: impl Into<String>) -> anyhow::Error {
+pub(crate) fn transport_incompatibility_error(
+    provider: &str,
+    details: impl Into<String>,
+) -> anyhow::Error {
     let details = details.into();
     UpstreamFailureError::new(
         UpstreamFailureClass::TransportIncompatible,
@@ -198,7 +208,7 @@ fn transport_incompatibility_error(provider: &str, details: impl Into<String>) -
     .into()
 }
 
-fn classify_openai_responses_stream_failure(
+pub(crate) fn classify_openai_responses_stream_failure(
     provider: &str,
     event_type: &str,
     error_code: Option<&str>,
@@ -267,7 +277,7 @@ fn classify_openai_responses_stream_failure(
     UpstreamFailureError::new(class, summary, diagnostics).into()
 }
 
-fn openai_responses_stream_parse_error(
+pub(crate) fn openai_responses_stream_parse_error(
     provider: &str,
     details: impl Into<String>,
     diagnostics: serde_json::Value,
@@ -281,12 +291,12 @@ fn openai_responses_stream_parse_error(
     .into()
 }
 
-fn upstream_failure_error(err: &anyhow::Error) -> Option<&UpstreamFailureError> {
+pub(crate) fn upstream_failure_error(err: &anyhow::Error) -> Option<&UpstreamFailureError> {
     err.chain()
         .find_map(|cause| cause.downcast_ref::<UpstreamFailureError>())
 }
 
-fn is_timeout_error(err: &anyhow::Error) -> bool {
+pub(crate) fn is_timeout_error(err: &anyhow::Error) -> bool {
     for cause in err.chain() {
         if let Some(reqwest_error) = cause.downcast_ref::<reqwest::Error>() {
             if reqwest_error.is_timeout() {
@@ -304,7 +314,7 @@ fn is_timeout_error(err: &anyhow::Error) -> bool {
     err.to_string().to_ascii_lowercase().contains("timed out")
 }
 
-fn is_transient_transport_error(err: &anyhow::Error) -> bool {
+pub(crate) fn is_transient_transport_error(err: &anyhow::Error) -> bool {
     for cause in err.chain() {
         if let Some(reqwest_error) = cause.downcast_ref::<reqwest::Error>() {
             if reqwest_error.is_timeout()
@@ -344,7 +354,7 @@ fn is_transient_transport_error(err: &anyhow::Error) -> bool {
         || message.contains("unexpected eof")
 }
 
-fn summarize_transport_error(err: &anyhow::Error) -> String {
+pub(crate) fn summarize_transport_error(err: &anyhow::Error) -> String {
     let chain = err.chain().map(ToString::to_string).collect::<Vec<_>>();
     if chain.is_empty() {
         "unknown transport error".to_string()
@@ -353,7 +363,7 @@ fn summarize_transport_error(err: &anyhow::Error) -> String {
     }
 }
 
-fn is_temporary_upstream_error(err: &anyhow::Error) -> bool {
+pub(crate) fn is_temporary_upstream_error(err: &anyhow::Error) -> bool {
     if upstream_failure_error(err)
         .map(|failure| failure.class == UpstreamFailureClass::TemporaryUpstream)
         .unwrap_or(false)
@@ -387,7 +397,7 @@ impl Stream for CompletionStream {
 }
 
 pub(crate) fn has_openai_chatgpt_subscription_auth() -> bool {
-    super::openai_codex_auth::has_openai_chatgpt_subscription_auth()
+    super::super::openai_codex_auth::has_openai_chatgpt_subscription_auth()
 }
 
 async fn refresh_openai_codex_auth(
@@ -444,7 +454,7 @@ async fn refresh_openai_codex_auth(
     Ok(refreshed)
 }
 
-async fn resolve_openai_codex_request_auth(
+pub(crate) async fn resolve_openai_codex_request_auth(
     client: &reqwest::Client,
     provider: &str,
     config: &ProviderConfig,

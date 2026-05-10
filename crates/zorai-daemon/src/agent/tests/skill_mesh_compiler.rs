@@ -2,15 +2,15 @@ use std::path::PathBuf;
 
 use anyhow::Result as AnyResult;
 
-use super::skill_mesh::compiler::{
+use super::skill_mesh_tests::sample_skill_mesh_document;
+use crate::agent::skill_mesh::compiler::{
     compile_skill_document, sample_compile_context_for_tests, SkillMeshCompileMode,
 };
-use super::skill_mesh::store::{
-    apply_watch_event, sample_delete_event, sample_persistent_mesh_store_named,
-    sample_rename_event,
+use crate::agent::skill_mesh::store::{
+    apply_watch_event, sample_delete_event, sample_persistent_mesh_store_named, sample_rename_event,
 };
-use super::skill_mesh::watcher::SkillMeshWatchEvent;
-use super::skill_mesh::watcher::debounce_skill_events;
+use crate::agent::skill_mesh::watcher::debounce_skill_events;
+use crate::agent::skill_mesh::watcher::SkillMeshWatchEvent;
 
 fn sample_skill_markdown() -> &'static str {
     r#"---
@@ -85,7 +85,10 @@ async fn compiler_falls_back_without_provider() -> AnyResult<()> {
     .await?;
 
     assert!(compiled.summary.is_some());
-    assert!(compiled.synthetic_queries.iter().any(|query| query.contains("debug")));
+    assert!(compiled
+        .synthetic_queries
+        .iter()
+        .any(|query| query.contains("debug")));
 
     Ok(())
 }

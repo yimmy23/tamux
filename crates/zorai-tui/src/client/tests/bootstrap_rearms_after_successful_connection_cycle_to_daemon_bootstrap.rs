@@ -1,3 +1,9 @@
+use super::whatsapp_link_methods_send_expected_protocol_messages_to_resolve_task::handle_daemon_message_for_test;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::*;
+use serde_json::Value;
+use tokio::sync::mpsc;
+use zorai_protocol::DaemonMessage;
 #[tokio::test]
 async fn daemon_operator_model_replies_emit_client_events() {
     let (event_tx, mut event_rx) = mpsc::channel(8);
@@ -18,7 +24,11 @@ async fn daemon_operator_model_replies_emit_client_events() {
     .await;
 
     assert!(should_continue);
-    match event_rx.recv().await.expect("expected operator model event") {
+    match event_rx
+        .recv()
+        .await
+        .expect("expected operator model event")
+    {
         ClientEvent::OperatorModelSummary { model_json } => {
             let parsed: Value = serde_json::from_str(&model_json).expect("valid operator model");
             assert_eq!(parsed["version"], "1.0");
@@ -34,7 +44,11 @@ async fn daemon_operator_model_replies_emit_client_events() {
     .await;
 
     assert!(should_continue);
-    match event_rx.recv().await.expect("expected operator model reset event") {
+    match event_rx
+        .recv()
+        .await
+        .expect("expected operator model reset event")
+    {
         ClientEvent::OperatorModelReset { ok } => {
             assert!(ok);
         }

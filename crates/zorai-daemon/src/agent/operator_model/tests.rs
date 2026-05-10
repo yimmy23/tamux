@@ -1169,6 +1169,90 @@ async fn status_diagnostics_snapshot_includes_recursive_subagent_tree_summary() 
         .any(|value| value.as_str() == Some(parent.id.as_str())));
 }
 
+#[tokio::test]
+async fn status_diagnostics_snapshot_includes_persisted_recursive_subagent_tree_summary() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let parent = engine
+        .enqueue_task(
+            "Persisted parent coordinator".to_string(),
+            "Coordinate persisted child work".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-parent-persisted-diag".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+
+    let mut child = engine
+        .enqueue_task(
+            "Persisted depth child".to_string(),
+            "Inspect persisted deployment risks".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(parent.id.clone()),
+            Some("thread-parent-persisted-diag".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    child.containment_scope = Some("subagent-depth:1/3".to_string());
+
+    let mut grandchild = engine
+        .enqueue_task(
+            "Persisted grandchild helper".to_string(),
+            "Inspect one persisted edge case".to_string(),
+            "normal",
+            None,
+            None,
+            Vec::new(),
+            None,
+            "subagent",
+            None,
+            Some(child.id.clone()),
+            Some("thread-parent-persisted-diag".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    grandchild.containment_scope = Some("subagent-depth:2/3".to_string());
+
+    {
+        let mut tasks = engine.tasks.lock().await;
+        if let Some(existing) = tasks.iter_mut().find(|task| task.id == child.id) {
+            *existing = child.clone();
+        }
+        if let Some(existing) = tasks.iter_mut().find(|task| task.id == grandchild.id) {
+            *existing = grandchild.clone();
+        }
+    }
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let snapshot = engine.status_diagnostics_snapshot().await;
+    let subtree = &snapshot["recursive_subagents"];
+    assert_eq!(subtree["active_subagent_count"].as_u64(), Some(2));
+    assert_eq!(subtree["max_observed_depth"].as_u64(), Some(2));
+    assert_eq!(subtree["max_observed_allowed_depth"].as_u64(), Some(3));
+    let roots = subtree["root_parent_task_ids"]
+        .as_array()
+        .expect("root parent task ids array");
+    assert!(roots
+        .iter()
+        .any(|value| value.as_str() == Some(parent.id.as_str())));
+}
+
 #[test]
 fn preferred_tool_fallback_targets_deduplicates_and_skips_invalid_pairs() {
     let preferred = preferred_tool_fallback_targets(
@@ -1372,6 +1456,288 @@ async fn rapid_revert_persists_thread_scoped_signal_when_agent_file_edit_is_quic
         .as_deref()
         .is_some_and(|json| json.contains("src/lib.rs")
             && json.contains(zorai_protocol::tool_names::WRITE_FILE)));
+}
+
+#[tokio::test]
+async fn rapid_revert_detection_skips_existing_path_signal_beyond_recent_unrelated_window() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let git_dir = root.path().join("repo-rapid-revert-existing");
+    std::fs::create_dir_all(git_dir.join("src")).expect("create git repo");
+    let file_path = git_dir.join("src/lib.rs");
+    let baseline = "pub fn answer() -> u32 {\n    7\n}\n";
+    std::fs::write(&file_path, baseline).expect("write baseline");
+
+    let git_init = std::process::Command::new("git")
+        .arg("init")
+        .current_dir(&git_dir)
+        .output()
+        .expect("git init should spawn");
+    assert!(git_init.status.success(), "git init should succeed");
+    for (key, value) in [
+        ("user.email", "test@example.com"),
+        ("user.name", "Test User"),
+    ] {
+        let output = std::process::Command::new("git")
+            .args(["config", key, value])
+            .current_dir(&git_dir)
+            .output()
+            .expect("git config should spawn");
+        assert!(output.status.success(), "git config {key} should succeed");
+    }
+    let git_add = std::process::Command::new("git")
+        .args(["add", "src/lib.rs"])
+        .current_dir(&git_dir)
+        .output()
+        .expect("git add should spawn");
+    assert!(git_add.status.success(), "git add should succeed");
+    let git_commit = std::process::Command::new("git")
+        .args(["commit", "-m", "initial"])
+        .current_dir(&git_dir)
+        .output()
+        .expect("git commit should spawn");
+    assert!(git_commit.status.success(), "git commit should succeed");
+
+    let agent_version = "pub fn answer() -> u32 {\n    42\n}\n";
+    std::fs::write(&file_path, agent_version).expect("write agent version");
+    engine
+        .record_file_work_context(
+            "thread-rapid-revert-existing",
+            None,
+            zorai_protocol::tool_names::WRITE_FILE,
+            file_path.to_str().expect("utf-8 file path"),
+        )
+        .await;
+
+    let now = now_millis();
+    engine
+        .history
+        .insert_implicit_signal(&crate::history::ImplicitSignalRow {
+            id: "old-rapid-revert-src-lib".to_string(),
+            session_id: "thread-rapid-revert-existing".to_string(),
+            signal_type: "rapid_revert".to_string(),
+            weight: -0.18,
+            timestamp_ms: now.saturating_sub(60_000),
+            context_snapshot_json: Some(
+                serde_json::json!({
+                    "path": "src/lib.rs",
+                    "source": zorai_protocol::tool_names::WRITE_FILE,
+                })
+                .to_string(),
+            ),
+        })
+        .await
+        .expect("insert existing rapid revert signal");
+    for index in 0..50u64 {
+        engine
+            .history
+            .insert_implicit_signal(&crate::history::ImplicitSignalRow {
+                id: format!("newer-unrelated-rapid-window-{index}"),
+                session_id: "thread-rapid-revert-existing".to_string(),
+                signal_type: "tool_fallback".to_string(),
+                weight: -0.01,
+                timestamp_ms: now.saturating_sub(10_000).saturating_add(index),
+                context_snapshot_json: None,
+            })
+            .await
+            .expect("insert unrelated signal");
+    }
+
+    std::fs::write(&file_path, baseline).expect("revert file back to baseline");
+    engine
+        .refresh_thread_repo_context("thread-rapid-revert-existing")
+        .await;
+
+    let signals = engine
+        .history
+        .list_implicit_signals("thread-rapid-revert-existing", 100)
+        .await
+        .expect("load implicit signals");
+    let rapid_revert_count = signals
+        .iter()
+        .filter(|signal| signal.signal_type == "rapid_revert")
+        .count();
+    assert_eq!(
+        rapid_revert_count, 1,
+        "rapid-revert detection should use SQL type filtering before limiting existing signals"
+    );
+}
+
+#[tokio::test]
+async fn work_context_goal_context_resolves_persisted_task_by_id() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let task = engine
+        .enqueue_task(
+            "Persisted work-context task".to_string(),
+            "Resolve task metadata without scanning the live queue.".to_string(),
+            "normal",
+            None,
+            Some("session-work-context-sql".to_string()),
+            Vec::new(),
+            None,
+            "goal_run",
+            Some("goal-work-context-sql".to_string()),
+            None,
+            Some("thread-work-context-sql".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    let (goal_run_id, step_index, session_id) = engine.goal_context_for_task(Some(&task.id)).await;
+
+    assert_eq!(goal_run_id.as_deref(), Some("goal-work-context-sql"));
+    assert_eq!(step_index, None);
+    assert_eq!(session_id.as_deref(), Some("session-work-context-sql"));
+}
+
+#[tokio::test]
+async fn work_context_goal_todo_context_resolves_persisted_task_and_goal_by_id() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let goal_run = engine
+        .start_goal_run(
+            "Persisted todo context".to_string(),
+            Some("Persisted todo context".to_string()),
+            Some("thread-persisted-todo-context".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+    let task = engine
+        .enqueue_task(
+            "Persisted todo task".to_string(),
+            "Resolve todo context from persisted task and goal rows.".to_string(),
+            "normal",
+            None,
+            Some("session-persisted-todo-context".to_string()),
+            Vec::new(),
+            None,
+            "goal_run",
+            Some(goal_run.id.clone()),
+            None,
+            goal_run.thread_id.clone(),
+            Some("daemon".to_string()),
+        )
+        .await;
+    {
+        let mut tasks = engine.tasks.lock().await;
+        if let Some(existing) = tasks.iter_mut().find(|item| item.id == task.id) {
+            *existing = task.clone();
+        }
+    }
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+    engine.goal_runs.lock().await.clear();
+
+    let context = engine
+        .goal_todo_context_for_task(&task.id)
+        .await
+        .expect("goal todo context should resolve persisted rows");
+
+    assert_eq!(context.goal_run_id, goal_run.id);
+    assert_eq!(context.goal_step_id, None);
+    assert_eq!(context.current_step_index, goal_run.current_step_index);
+    assert_eq!(
+        context.step_status,
+        goal_run
+            .steps
+            .get(goal_run.current_step_index)
+            .map(|step| step.status)
+    );
+}
+
+#[tokio::test]
+async fn resolve_thread_repo_root_uses_persisted_task_session_for_thread() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager.clone(), AgentConfig::default(), root.path()).await;
+    let repo_root = root.path().join("repo-root-from-persisted-task");
+    std::fs::create_dir_all(&repo_root).expect("create repo root");
+    let git_init = std::process::Command::new("git")
+        .arg("init")
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init should spawn");
+    assert!(git_init.status.success(), "git init should succeed");
+    let Ok((session_id, _rx)) = manager
+        .spawn(
+            Some(std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string())),
+            Some(repo_root.to_string_lossy().to_string()),
+            None,
+            None,
+            80,
+            24,
+        )
+        .await
+    else {
+        return;
+    };
+    let mut task = engine
+        .enqueue_task(
+            "Persisted repo session task".to_string(),
+            "Resolve repo root from persisted task session binding.".to_string(),
+            "normal",
+            None,
+            Some(session_id.to_string()),
+            Vec::new(),
+            None,
+            "user",
+            None,
+            None,
+            Some("thread-persisted-session-repo".to_string()),
+            Some("daemon".to_string()),
+        )
+        .await;
+    task.thread_id = Some("thread-persisted-session-repo".to_string());
+    {
+        let mut tasks = engine.tasks.lock().await;
+        if let Some(existing) = tasks.iter_mut().find(|item| item.id == task.id) {
+            *existing = task.clone();
+        }
+    }
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+    assert_eq!(
+        engine
+            .history
+            .latest_agent_task_session_for_thread("thread-persisted-session-repo")
+            .await
+            .expect("task session query should succeed")
+            .as_deref(),
+        Some(session_id.to_string().as_str())
+    );
+    assert!(
+        manager
+            .list()
+            .await
+            .into_iter()
+            .any(|session| session.id == session_id
+                && session.cwd.as_deref() == Some(repo_root.to_string_lossy().as_ref())),
+        "spawned session should expose repo cwd"
+    );
+
+    let resolved = engine
+        .resolve_thread_repo_root("thread-persisted-session-repo")
+        .await
+        .expect("repo root should resolve from persisted task session");
+
+    let expected_session_id = session_id.to_string();
+    assert_eq!(resolved.0, repo_root.to_string_lossy().to_string());
+    assert_eq!(resolved.1, None);
+    assert_eq!(resolved.2.as_deref(), Some(expected_session_id.as_str()));
+    assert_eq!(
+        task.thread_id.as_deref(),
+        Some("thread-persisted-session-repo")
+    );
 }
 
 #[tokio::test]
@@ -2261,6 +2627,7 @@ async fn emergent_protocols_summary_visible_for_pending_proposals_and_registry_e
         .await
         .expect("proposal acceptance should succeed");
     assert_eq!(response["status"].as_str(), Some("accepted"));
+    engine.threads.write().await.clear();
 
     let snapshot = engine.status_diagnostics_snapshot().await;
     let protocols = &snapshot["emergent_protocols"];

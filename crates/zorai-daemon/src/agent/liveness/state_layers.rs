@@ -54,15 +54,12 @@ pub struct CheckpointData {
     /// Why this checkpoint was created.
     pub checkpoint_type: CheckpointType,
 
-    // -- Layer 1: Goal State --
     /// Serialized GoalRun at the time of checkpoint.
     pub goal_run: GoalRun,
 
-    // -- Layer 2: Execution State --
     /// Snapshot of tasks related to this goal run.
     pub tasks_snapshot: Vec<AgentTask>,
 
-    // -- Layer 3: Context State --
     /// Summary of the conversation context at checkpoint time.
     pub context_summary: Option<String>,
     /// Thread ID associated with this goal run.
@@ -70,7 +67,6 @@ pub struct CheckpointData {
     /// Approximate token count of the context at checkpoint time.
     pub context_tokens: Option<u32>,
 
-    // -- Layer 4: Runtime State --
     /// Work context entries (file artifacts, repo changes).
     pub work_context: Option<ThreadWorkContext>,
     /// TODO items at checkpoint time.
@@ -78,7 +74,6 @@ pub struct CheckpointData {
     /// Memory updates accumulated so far.
     pub memory_updates: Vec<String>,
 
-    // -- Metadata --
     /// When this checkpoint was created.
     pub created_at: u64,
     /// Optional human-readable note.

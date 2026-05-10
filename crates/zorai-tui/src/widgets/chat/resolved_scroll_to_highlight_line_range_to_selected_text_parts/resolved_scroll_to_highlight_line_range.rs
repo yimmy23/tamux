@@ -1,4 +1,20 @@
-fn resolved_scroll(
+use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
+use super::super::selection_point_from_snapshot_to_render::*;
+use super::super::*;
+use crate::state::chat::{
+    AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode,
+};
+use crate::theme::ThemeTokens;
+use crate::widgets::message;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+pub(crate) fn resolved_scroll(
     chat: &ChatState,
     total_lines: usize,
     inner_height: usize,
@@ -23,20 +39,24 @@ fn resolved_scroll(
     scroll
 }
 
-fn content_inner(area: Rect) -> Rect {
+pub(crate) fn content_inner(area: Rect) -> Rect {
     area
 }
 
-fn scrollbar_layout_from_metrics(
+pub(crate) fn scrollbar_layout_from_metrics(
     area: Rect,
     total_lines: usize,
     scroll: usize,
 ) -> Option<ChatScrollbarLayout> {
-    if area.width <= SCROLLBAR_WIDTH || area.height == 0 || total_lines <= area.height as usize {
+    if area.width <= SCROLLBAR_WIDTH || area.height == 0 {
         return None;
     }
 
     let viewport = area.height as usize;
+    if total_lines <= viewport {
+        return None;
+    }
+
     let max_scroll = total_lines.saturating_sub(viewport);
     let scroll = scroll.min(max_scroll);
     let content = Rect::new(
@@ -78,7 +98,11 @@ fn scrollbar_layout_from_metrics(
     })
 }
 
-fn scroll_offset_from_thumb_offset(thumb_offset: u16, track_span: u16, max_scroll: usize) -> usize {
+pub(crate) fn scroll_offset_from_thumb_offset(
+    thumb_offset: u16,
+    track_span: u16,
+    max_scroll: usize,
+) -> usize {
     if max_scroll == 0 || track_span == 0 {
         return 0;
     }
@@ -99,7 +123,7 @@ pub(crate) fn scrollbar_layout(
         return None;
     }
 
-    let (all_lines, message_line_ranges) = build_rendered_lines(
+    let metrics = build_transcript_metrics(
         chat,
         theme,
         area.width as usize,
@@ -108,12 +132,25 @@ pub(crate) fn scrollbar_layout(
     );
     let scroll = resolved_scroll(
         chat,
-        all_lines.len(),
+        metrics.total_lines,
         area.height as usize,
-        &message_line_ranges,
+        &metrics.message_line_ranges,
     );
 
-    scrollbar_layout_from_metrics(area, all_lines.len(), scroll)
+    scrollbar_layout_from_metrics(area, metrics.total_lines, scroll)
+}
+
+pub(crate) fn scrollbar_layout_from_cached_snapshot(
+    snapshot: &CachedSelectionSnapshot,
+    chat: &ChatState,
+) -> Option<ChatScrollbarLayout> {
+    let scroll = resolved_scroll(
+        chat,
+        snapshot.0.total_lines,
+        snapshot.0.inner.height as usize,
+        &snapshot.0.message_line_ranges,
+    );
+    scrollbar_layout_from_metrics(snapshot.0.inner, snapshot.0.total_lines, scroll)
 }
 
 pub(crate) fn scrollbar_scroll_offset_for_pointer(
@@ -147,8 +184,37 @@ pub(crate) fn scrollbar_scroll_offset_for_pointer(
     ))
 }
 
+pub(crate) fn scrollbar_scroll_offset_for_pointer_from_cached_snapshot(
+    snapshot: &CachedSelectionSnapshot,
+    chat: &ChatState,
+    pointer_row: u16,
+    grab_offset: u16,
+) -> Option<usize> {
+    let layout = scrollbar_layout_from_cached_snapshot(snapshot, chat)?;
+    let track_span = layout.scrollbar.height.saturating_sub(layout.thumb.height);
+    let clamped_row = pointer_row.clamp(
+        layout.scrollbar.y,
+        layout
+            .scrollbar
+            .y
+            .saturating_add(layout.scrollbar.height)
+            .saturating_sub(1),
+    );
+    let desired_top = clamped_row
+        .saturating_sub(layout.scrollbar.y)
+        .saturating_sub(grab_offset)
+        .min(track_span);
+
+    Some(scroll_offset_from_thumb_offset(
+        desired_top,
+        track_span,
+        layout.max_scroll,
+    ))
+}
+
 #[cfg(test)]
-fn visible_lines(
+#[allow(dead_code)]
+pub(crate) fn visible_lines(
     all_lines: &[RenderedChatLine],
     inner_height: usize,
     scroll: usize,
@@ -173,7 +239,7 @@ fn visible_lines(
     all_lines[start..end].to_vec()
 }
 
-fn visible_window_bounds(
+pub(crate) fn visible_window_bounds(
     total: usize,
     inner_height: usize,
     scroll: usize,
@@ -193,7 +259,7 @@ fn visible_window_bounds(
 }
 
 #[cfg(test)]
-fn visible_rendered_lines(
+pub(crate) fn visible_rendered_lines(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
@@ -208,7 +274,7 @@ fn visible_rendered_lines(
     }
 
     let inner = content_inner(area);
-    let (all_lines, message_line_ranges) = build_rendered_lines(
+    let metrics = build_transcript_metrics(
         chat,
         theme,
         inner.width as usize,
@@ -217,16 +283,32 @@ fn visible_rendered_lines(
     );
     let scroll = resolved_scroll(
         chat,
-        all_lines.len(),
+        metrics.total_lines,
         inner.height as usize,
-        &message_line_ranges,
+        &metrics.message_line_ranges,
     );
-    let visible = visible_lines(&all_lines, inner.height as usize, scroll);
+    let (padding, start_idx, end_idx) =
+        visible_window_bounds(metrics.total_lines, inner.height as usize, scroll);
+    let rendered = build_rendered_line_window(
+        chat,
+        theme,
+        inner.width as usize,
+        current_tick,
+        retry_wait_start_selected,
+        start_idx,
+        end_idx,
+        &metrics,
+    );
+    let mut visible = Vec::with_capacity(inner.height as usize);
+    for _ in 0..padding {
+        visible.push(RenderedChatLine::padding());
+    }
+    visible.extend(rendered);
 
     Some((inner, visible))
 }
 
-fn selection_snapshot(
+pub(crate) fn selection_snapshot(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
@@ -238,40 +320,71 @@ fn selection_snapshot(
         return None;
     }
     let key = render_cache_key(area, chat, current_tick, retry_wait_start_selected);
+    let metrics_key = transcript_metrics_cache_key(area, chat);
 
-    let (all_lines, message_line_ranges) = build_rendered_lines(
+    let metrics = build_transcript_metrics(
         chat,
         theme,
         inner.width as usize,
         current_tick,
         retry_wait_start_selected,
     );
-    if all_lines.is_empty() {
+    if metrics.total_lines == 0 {
         return None;
     }
 
     let scroll = resolved_scroll(
         chat,
-        all_lines.len(),
+        metrics.total_lines,
         inner.height as usize,
-        &message_line_ranges,
+        &metrics.message_line_ranges,
     );
     let (padding, start_idx, end_idx) =
-        visible_window_bounds(all_lines.len(), inner.height as usize, scroll);
-
+        visible_window_bounds(metrics.total_lines, inner.height as usize, scroll);
+    let overscan = (inner.height as usize).div_ceil(10).max(1);
+    let rendered_start_idx = start_idx.saturating_sub(overscan);
+    let rendered_end_idx = end_idx.saturating_add(overscan).min(metrics.total_lines);
+    let all_lines = build_rendered_line_window(
+        chat,
+        theme,
+        inner.width as usize,
+        current_tick,
+        retry_wait_start_selected,
+        rendered_start_idx,
+        rendered_end_idx,
+        &metrics,
+    );
     Some(SelectionSnapshot {
         key,
+        metrics_key,
         inner,
         all_lines,
-        message_line_ranges,
+        total_lines: metrics.total_lines,
+        rendered_start_idx,
+        message_line_ranges: metrics.message_line_ranges,
+        responder_labels: metrics.responder_labels,
         start_idx,
         end_idx,
         padding,
     })
 }
 
-fn nearest_content_row(all_lines: &[RenderedChatLine], row: usize) -> Option<usize> {
-    let current = all_lines.get(row)?;
+pub(crate) fn snapshot_line_at(
+    snapshot: &SelectionSnapshot,
+    row: usize,
+) -> Option<&RenderedChatLine> {
+    let local = row.checked_sub(snapshot.rendered_start_idx)?;
+    snapshot.all_lines.get(local)
+}
+
+pub(crate) fn snapshot_rendered_end_idx(snapshot: &SelectionSnapshot) -> usize {
+    snapshot
+        .rendered_start_idx
+        .saturating_add(snapshot.all_lines.len())
+}
+
+pub(crate) fn nearest_content_row(snapshot: &SelectionSnapshot, row: usize) -> Option<usize> {
+    let current = snapshot_line_at(snapshot, row)?;
     let current_has_content = !matches!(current.kind, RenderedLineKind::Padding)
         && rendered_line_content_bounds(current).2 > rendered_line_content_bounds(current).1;
     if current_has_content {
@@ -279,9 +392,13 @@ fn nearest_content_row(all_lines: &[RenderedChatLine], row: usize) -> Option<usi
     }
 
     if let Some(message_index) = current.message_index {
-        for distance in 1..all_lines.len() {
+        let search_span =
+            snapshot_rendered_end_idx(snapshot).saturating_sub(snapshot.rendered_start_idx);
+        for distance in 1..search_span {
             if let Some(prev) = row.checked_sub(distance) {
-                let line = &all_lines[prev];
+                let Some(line) = snapshot_line_at(snapshot, prev) else {
+                    continue;
+                };
                 if line.message_index == Some(message_index)
                     && !matches!(line.kind, RenderedLineKind::Padding)
                     && rendered_line_content_bounds(line).2 > rendered_line_content_bounds(line).1
@@ -291,7 +408,7 @@ fn nearest_content_row(all_lines: &[RenderedChatLine], row: usize) -> Option<usi
             }
 
             let next = row.saturating_add(distance);
-            if let Some(line) = all_lines.get(next) {
+            if let Some(line) = snapshot_line_at(snapshot, next) {
                 if line.message_index == Some(message_index)
                     && !matches!(line.kind, RenderedLineKind::Padding)
                     && rendered_line_content_bounds(line).2 > rendered_line_content_bounds(line).1
@@ -302,8 +419,10 @@ fn nearest_content_row(all_lines: &[RenderedChatLine], row: usize) -> Option<usi
         }
     }
 
-    for next in row + 1..all_lines.len() {
-        let line = &all_lines[next];
+    for next in row + 1..snapshot_rendered_end_idx(snapshot) {
+        let Some(line) = snapshot_line_at(snapshot, next) else {
+            continue;
+        };
         if !matches!(line.kind, RenderedLineKind::Padding)
             && rendered_line_content_bounds(line).2 > rendered_line_content_bounds(line).1
         {
@@ -311,8 +430,10 @@ fn nearest_content_row(all_lines: &[RenderedChatLine], row: usize) -> Option<usi
         }
     }
 
-    for prev in (0..row).rev() {
-        let line = &all_lines[prev];
+    for prev in (snapshot.rendered_start_idx..row).rev() {
+        let Some(line) = snapshot_line_at(snapshot, prev) else {
+            continue;
+        };
         if !matches!(line.kind, RenderedLineKind::Padding)
             && rendered_line_content_bounds(line).2 > rendered_line_content_bounds(line).1
         {
@@ -323,16 +444,23 @@ fn nearest_content_row(all_lines: &[RenderedChatLine], row: usize) -> Option<usi
     None
 }
 
-fn nearest_message_content_row(all_lines: &[RenderedChatLine], row: usize) -> Option<usize> {
-    let current = all_lines.get(row)?;
+pub(crate) fn nearest_message_content_row(
+    snapshot: &SelectionSnapshot,
+    row: usize,
+) -> Option<usize> {
+    let current = snapshot_line_at(snapshot, row)?;
     let message_index = current.message_index?;
     if !matches!(current.kind, RenderedLineKind::Padding) {
         return Some(row);
     }
 
-    for distance in 1..all_lines.len() {
+    let search_span =
+        snapshot_rendered_end_idx(snapshot).saturating_sub(snapshot.rendered_start_idx);
+    for distance in 1..search_span {
         if let Some(prev) = row.checked_sub(distance) {
-            let line = &all_lines[prev];
+            let Some(line) = snapshot_line_at(snapshot, prev) else {
+                continue;
+            };
             if line.message_index == Some(message_index)
                 && !matches!(line.kind, RenderedLineKind::Padding)
             {
@@ -341,7 +469,7 @@ fn nearest_message_content_row(all_lines: &[RenderedChatLine], row: usize) -> Op
         }
 
         let next = row.saturating_add(distance);
-        if let Some(line) = all_lines.get(next) {
+        if let Some(line) = snapshot_line_at(snapshot, next) {
             if line.message_index == Some(message_index)
                 && !matches!(line.kind, RenderedLineKind::Padding)
             {
@@ -353,7 +481,7 @@ fn nearest_message_content_row(all_lines: &[RenderedChatLine], row: usize) -> Op
     None
 }
 
-fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
+pub(crate) fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
     if start_col >= end_col {
         return String::new();
     }
@@ -381,7 +509,7 @@ fn display_slice(text: &str, start_col: usize, end_col: usize) -> String {
     result
 }
 
-fn highlight_line_range(
+pub(crate) fn highlight_line_range(
     line: &mut Line<'static>,
     start_col: usize,
     end_col: usize,
@@ -433,4 +561,3 @@ fn highlight_line_range(
 
     line.spans = spans;
 }
-

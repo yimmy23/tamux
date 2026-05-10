@@ -13,38 +13,38 @@ use zorai_protocol::{
 
 use super::types::{AgentConfig, AgentTask, BuiltinPersonaOverrides, SubAgentDefinition};
 
-pub(super) const MAIN_AGENT_ID: &str = AGENT_ID_SWAROG;
+pub(crate) const MAIN_AGENT_ID: &str = AGENT_ID_SWAROG;
 pub(crate) const MAIN_AGENT_NAME: &str = AGENT_NAME_SWAROG;
-pub(super) const CONCIERGE_AGENT_ID: &str = AGENT_ID_RAROG;
-pub(super) const CONCIERGE_AGENT_NAME: &str = AGENT_NAME_RAROG;
-pub(super) const INTERNAL_DM_THREAD_PREFIX: &str = "dm:";
-pub(super) const PARTICIPANT_PLAYGROUND_THREAD_PREFIX: &str = "playground:";
-pub(super) const PERSONA_MARKER: &str = "Agent persona:";
-pub(super) const PERSONA_ID_MARKER: &str = "Agent persona id:";
-pub(super) const MAIN_AGENT_PUBLIC_ALIAS: &str = AGENT_HANDLE_SVAROG;
-pub(super) const MAIN_AGENT_ALIAS: &str = "main";
-pub(super) const MAIN_AGENT_LEGACY_ALIAS: &str = "main-agent";
-pub(super) const MAIN_AGENT_FALLBACK_ALIAS: &str = "assistant";
-pub(super) const CONCIERGE_AGENT_ALIAS: &str = "concierge";
-pub(super) const CONCIERGE_AGENT_LEGACY_ALIAS: &str = "concierge-agent";
+pub(crate) const CONCIERGE_AGENT_ID: &str = AGENT_ID_RAROG;
+pub(crate) const CONCIERGE_AGENT_NAME: &str = AGENT_NAME_RAROG;
+pub(crate) const INTERNAL_DM_THREAD_PREFIX: &str = "dm:";
+pub(in crate::agent) const PARTICIPANT_PLAYGROUND_THREAD_PREFIX: &str = "playground:";
+pub(crate) const PERSONA_MARKER: &str = "Agent persona:";
+pub(crate) const PERSONA_ID_MARKER: &str = "Agent persona id:";
+pub(crate) const MAIN_AGENT_PUBLIC_ALIAS: &str = AGENT_HANDLE_SVAROG;
+pub(crate) const MAIN_AGENT_ALIAS: &str = "main";
+pub(crate) const MAIN_AGENT_LEGACY_ALIAS: &str = "main-agent";
+pub(crate) const MAIN_AGENT_FALLBACK_ALIAS: &str = "assistant";
+pub(crate) const CONCIERGE_AGENT_ALIAS: &str = "concierge";
+pub(crate) const CONCIERGE_AGENT_LEGACY_ALIAS: &str = "concierge-agent";
 
-pub(super) const SWAROZYC_AGENT_ID: &str = "swarozyc";
-pub(super) const SWAROZYC_AGENT_NAME: &str = "Swarozyc";
-pub(super) const RADOGOST_AGENT_ID: &str = "radogost";
-pub(super) const RADOGOST_AGENT_NAME: &str = "Radogost";
-pub(super) const DOMOWOJ_AGENT_ID: &str = "domowoj";
-pub(super) const DOMOWOJ_AGENT_NAME: &str = "Domowoj";
-pub(super) const SWIETOWIT_AGENT_ID: &str = "swietowit";
-pub(super) const SWIETOWIT_AGENT_NAME: &str = "Swietowit";
-pub(super) const PERUN_AGENT_ID: &str = "perun";
-pub(super) const PERUN_AGENT_NAME: &str = "Perun";
-pub(super) const MOKOSH_AGENT_ID: &str = "mokosh";
-pub(super) const MOKOSH_AGENT_NAME: &str = "Mokosh";
-pub(super) const DAZHBOG_AGENT_ID: &str = "dazhbog";
-pub(super) const DAZHBOG_AGENT_NAME: &str = "Dazhbog";
-pub(super) const ROD_AGENT_ID: &str = "rod";
-pub(super) const ROD_AGENT_NAME: &str = "Rod";
-pub(super) const WELES_AGENT_ID: &str = "weles";
+pub(crate) const SWAROZYC_AGENT_ID: &str = "swarozyc";
+pub(crate) const SWAROZYC_AGENT_NAME: &str = "Swarozyc";
+pub(crate) const RADOGOST_AGENT_ID: &str = "radogost";
+pub(crate) const RADOGOST_AGENT_NAME: &str = "Radogost";
+pub(crate) const DOMOWOJ_AGENT_ID: &str = "domowoj";
+pub(crate) const DOMOWOJ_AGENT_NAME: &str = "Domowoj";
+pub(crate) const SWIETOWIT_AGENT_ID: &str = "swietowit";
+pub(crate) const SWIETOWIT_AGENT_NAME: &str = "Swietowit";
+pub(crate) const PERUN_AGENT_ID: &str = "perun";
+pub(crate) const PERUN_AGENT_NAME: &str = "Perun";
+pub(crate) const MOKOSH_AGENT_ID: &str = "mokosh";
+pub(crate) const MOKOSH_AGENT_NAME: &str = "Mokosh";
+pub(crate) const DAZHBOG_AGENT_ID: &str = "dazhbog";
+pub(crate) const DAZHBOG_AGENT_NAME: &str = "Dazhbog";
+pub(crate) const ROD_AGENT_ID: &str = "rod";
+pub(crate) const ROD_AGENT_NAME: &str = "Rod";
+pub(crate) const WELES_AGENT_ID: &str = "weles";
 pub(crate) const WELES_AGENT_NAME: &str = "Weles";
 pub(crate) const WELES_BUILTIN_SUBAGENT_ID: &str = "weles_builtin";
 pub(crate) const WELES_GOVERNANCE_SCOPE: &str = "governance";
@@ -57,7 +57,7 @@ struct PersonaSeed {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ResolvedAgentTarget {
+pub(crate) struct ResolvedAgentTarget {
     pub(super) scope_id: String,
     pub(super) agent_name: String,
     pub(super) matched_sub_agent: Option<SubAgentDefinition>,
@@ -143,7 +143,7 @@ fn sub_agent_by_alias<'a>(
     })
 }
 
-pub(super) fn resolve_agent_target(
+pub(crate) fn resolve_agent_target(
     alias: &str,
     sub_agents: &[SubAgentDefinition],
 ) -> ResolvedAgentTarget {
@@ -204,7 +204,7 @@ pub(super) fn resolve_agent_target(
     }
 }
 
-pub(super) fn canonical_agent_id(alias: &str) -> &'static str {
+pub(crate) fn canonical_agent_id(alias: &str) -> &'static str {
     let normalized = alias.trim().to_ascii_lowercase();
     match normalized.as_str() {
         MAIN_AGENT_ID
@@ -222,7 +222,7 @@ pub(super) fn canonical_agent_id(alias: &str) -> &'static str {
     }
 }
 
-pub(super) fn canonical_agent_name(alias: &str) -> &'static str {
+pub(crate) fn canonical_agent_name(alias: &str) -> &'static str {
     match canonical_agent_id(alias) {
         CONCIERGE_AGENT_ID => CONCIERGE_AGENT_NAME,
         SWAROZYC_AGENT_ID => SWAROZYC_AGENT_NAME,
@@ -238,7 +238,7 @@ pub(super) fn canonical_agent_name(alias: &str) -> &'static str {
     }
 }
 
-pub(super) fn canonical_agent_guidance(alias: &str) -> Option<&'static str> {
+pub(crate) fn canonical_agent_guidance(alias: &str) -> Option<&'static str> {
     let normalized = alias.trim().to_ascii_lowercase();
     match normalized.as_str() {
         MAIN_AGENT_ID
@@ -251,11 +251,11 @@ pub(super) fn canonical_agent_guidance(alias: &str) -> Option<&'static str> {
     }
 }
 
-pub(super) fn is_concierge_target(alias: &str) -> bool {
+pub(crate) fn is_concierge_target(alias: &str) -> bool {
     canonical_agent_id(alias) == CONCIERGE_AGENT_ID
 }
 
-pub(super) fn is_main_agent_scope(alias: &str) -> bool {
+pub(crate) fn is_main_agent_scope(alias: &str) -> bool {
     let normalized = alias.trim().to_ascii_lowercase();
     matches!(
         normalized.as_str(),
@@ -280,7 +280,7 @@ pub(crate) fn is_weles_agent_scope(scope: &str) -> bool {
     normalized == WELES_AGENT_ID || is_weles_internal_scope(&normalized)
 }
 
-pub(super) fn is_explicit_builtin_persona_scope(alias: &str) -> bool {
+pub(crate) fn is_explicit_builtin_persona_scope(alias: &str) -> bool {
     matches!(
         canonical_agent_id(alias),
         SWAROZYC_AGENT_ID
@@ -293,7 +293,7 @@ pub(super) fn is_explicit_builtin_persona_scope(alias: &str) -> bool {
     )
 }
 
-pub(super) fn builtin_persona_overrides<'a>(
+pub(crate) fn builtin_persona_overrides<'a>(
     config: &'a AgentConfig,
     alias: &str,
 ) -> Option<&'a BuiltinPersonaOverrides> {
@@ -309,7 +309,7 @@ pub(super) fn builtin_persona_overrides<'a>(
     }
 }
 
-pub(super) fn builtin_persona_requires_setup(config: &AgentConfig, alias: &str) -> bool {
+pub(crate) fn builtin_persona_requires_setup(config: &AgentConfig, alias: &str) -> bool {
     let Some(overrides) = builtin_persona_overrides(config, alias) else {
         return false;
     };
@@ -327,7 +327,7 @@ pub(super) fn builtin_persona_requires_setup(config: &AgentConfig, alias: &str) 
             .is_none()
 }
 
-pub(super) fn builtin_persona_setup_error(alias: &str) -> anyhow::Error {
+pub(crate) fn builtin_persona_setup_error(alias: &str) -> anyhow::Error {
     let canonical_id = canonical_agent_id(alias);
     anyhow!(
         "builtin agent '{}' is not configured. Choose provider and model first.",
@@ -335,7 +335,7 @@ pub(super) fn builtin_persona_setup_error(alias: &str) -> anyhow::Error {
     )
 }
 
-pub(super) fn internal_dm_thread_id(agent_a: &str, agent_b: &str) -> String {
+pub(crate) fn internal_dm_thread_id(agent_a: &str, agent_b: &str) -> String {
     let mut ids = [
         canonical_agent_id(agent_a).to_string(),
         canonical_agent_id(agent_b).to_string(),
@@ -344,7 +344,7 @@ pub(super) fn internal_dm_thread_id(agent_a: &str, agent_b: &str) -> String {
     format!("{INTERNAL_DM_THREAD_PREFIX}{}:{}", ids[0], ids[1])
 }
 
-pub(super) fn internal_dm_thread_title(agent_a: &str, agent_b: &str) -> String {
+pub(crate) fn internal_dm_thread_title(agent_a: &str, agent_b: &str) -> String {
     let mut names = [
         canonical_agent_name(agent_a).to_string(),
         canonical_agent_name(agent_b).to_string(),
@@ -381,15 +381,15 @@ pub(in crate::agent) fn is_participant_playground_thread(thread_id: &str) -> boo
     thread_id.starts_with(PARTICIPANT_PLAYGROUND_THREAD_PREFIX)
 }
 
-pub(super) fn spawned_persona_name(seed: &str) -> &'static str {
+pub(crate) fn spawned_persona_name(seed: &str) -> &'static str {
     spawned_persona(seed).name
 }
 
-pub(super) fn spawned_persona_id(seed: &str) -> &'static str {
+pub(crate) fn spawned_persona_id(seed: &str) -> &'static str {
     spawned_persona(seed).id
 }
 
-pub(super) fn build_spawned_persona_prompt(seed: &str) -> String {
+pub(crate) fn build_spawned_persona_prompt(seed: &str) -> String {
     let persona = spawned_persona(seed);
     format!(
         "{PERSONA_MARKER} {}\n{PERSONA_ID_MARKER} {}\nYou are {} ({}) operating as a spawned zorai agent.\n{}\n{} is the main agent. {} is {}'s concierge. Know who they are, do not impersonate them, and coordinate with them when that helps move the task forward.\nKeep your personality distinct but concise, pragmatic, and production-focused.",
@@ -404,7 +404,7 @@ pub(super) fn build_spawned_persona_prompt(seed: &str) -> String {
     )
 }
 
-pub(super) fn build_user_subagent_persona_prompt(def: &SubAgentDefinition) -> String {
+pub(crate) fn build_user_subagent_persona_prompt(def: &SubAgentDefinition) -> String {
     let role_sentence = def
         .role
         .as_deref()
@@ -432,7 +432,7 @@ pub(crate) fn build_weles_persona_prompt(scope: &str) -> String {
     )
 }
 
-pub(super) fn extract_persona_name(system_prompt: Option<&str>) -> Option<String> {
+pub(crate) fn extract_persona_name(system_prompt: Option<&str>) -> Option<String> {
     system_prompt.and_then(|prompt| {
         prompt.lines().find_map(|line| {
             line.trim()
@@ -444,7 +444,7 @@ pub(super) fn extract_persona_name(system_prompt: Option<&str>) -> Option<String
     })
 }
 
-pub(super) fn extract_persona_id(system_prompt: Option<&str>) -> Option<String> {
+pub(crate) fn extract_persona_id(system_prompt: Option<&str>) -> Option<String> {
     system_prompt.and_then(|prompt| {
         prompt.lines().find_map(|line| {
             let trimmed = line.trim();
@@ -472,30 +472,30 @@ pub(super) fn extract_persona_id(system_prompt: Option<&str>) -> Option<String> 
     })
 }
 
-pub(super) fn agent_scope_id_for_task(task: Option<&AgentTask>) -> String {
+pub(crate) fn agent_scope_id_for_task(task: Option<&AgentTask>) -> String {
     task.and_then(|item| extract_persona_id(item.override_system_prompt.as_deref()))
         .unwrap_or_else(|| MAIN_AGENT_ID.to_string())
 }
 
-pub(super) fn current_agent_scope_id() -> String {
+pub(crate) fn current_agent_scope_id() -> String {
     ACTIVE_AGENT_SCOPE_ID
         .try_with(Clone::clone)
         .unwrap_or_else(|_| MAIN_AGENT_ID.to_string())
 }
 
-pub(super) async fn run_with_agent_scope<F>(scope_id: String, future: F) -> F::Output
+pub(crate) async fn run_with_agent_scope<F>(scope_id: String, future: F) -> F::Output
 where
     F: Future,
 {
     ACTIVE_AGENT_SCOPE_ID.scope(scope_id, future).await
 }
 
-pub(super) fn sender_name_for_task(task: Option<&AgentTask>) -> String {
+pub(crate) fn sender_name_for_task(task: Option<&AgentTask>) -> String {
     task.and_then(|item| extract_persona_name(item.override_system_prompt.as_deref()))
         .unwrap_or_else(|| MAIN_AGENT_NAME.to_string())
 }
 
-pub(super) fn wrap_internal_message(sender: &str, recipient: &str, content: &str) -> String {
+pub(crate) fn wrap_internal_message(sender: &str, recipient: &str, content: &str) -> String {
     format!(
         "Internal agent message from {} to {}.\nRespond directly to the request below and assume the recipient will relay or integrate your answer.\n\n{}",
         canonical_agent_name(sender),
@@ -504,7 +504,7 @@ pub(super) fn wrap_internal_message(sender: &str, recipient: &str, content: &str
     )
 }
 
-pub(super) fn concierge_should_escalate(content: &str) -> bool {
+pub(crate) fn concierge_should_escalate(content: &str) -> bool {
     let lower = content.to_ascii_lowercase();
     let keywords = [
         "code",

@@ -6,14 +6,18 @@
 //! state (workspace/pane/browser) are not available in daemon mode — only
 //! tools that can execute headlessly are included here.
 
-include!("prelude.rs");
-include!("search_runtime.rs");
-include!("result_metadata.rs");
-include!("catalog/part_a.rs");
-include!("catalog/part_b.rs");
-include!("catalog/part_c.rs");
-include!("catalog/part_d.rs");
-include!("thread_tools.rs");
+#[path = "catalog/part_a.rs"]
+mod part_a;
+#[path = "catalog/part_b.rs"]
+mod part_b;
+#[path = "catalog/part_c.rs"]
+mod part_c;
+#[path = "catalog/part_d.rs"]
+mod part_d;
+mod prelude;
+mod result_metadata;
+mod search_runtime;
+mod thread_tools;
 
 fn tool_required_fields(parameters: &serde_json::Value) -> Vec<String> {
     parameters
@@ -161,12 +165,6 @@ pub fn reorder_tools_by_heuristics(
         return;
     }
 
-    // Stable sort: preserve the existing heuristic ordering first, then apply a
-    // bounded promotion for clarification and preferred fallback tools inside
-    // the same score band. This keeps higher-confidence heuristic wins intact
-    // while moving ask_questions earlier when the operator model says the next
-    // best move is to clarify intent, and still promotes known-good fallbacks
-    // when the base heuristic is otherwise indifferent.
     tools.sort_by(|a, b| {
         let score_cmp = match (
             scores.get(&a.function.name).copied(),
@@ -311,27 +309,27 @@ pub(crate) fn search_available_tools_public(
     }
 }
 
-include!("memory_flush.rs");
-include!("memory_tools.rs");
-include!("execute_tool_impl.rs");
+mod execute_tool_impl;
+mod memory_flush;
+mod memory_tools;
 
-include!("parse_args.rs");
-include!("file_tools.rs");
-include!("managed_helpers.rs");
-include!("system_history.rs");
-include!("skills_and_search.rs");
-include!("workflow_fetch.rs");
-include!("setup_web.rs");
-include!("terminal_runtime.rs");
-include!("python_execute.rs");
-include!("media_tools.rs");
-include!("managed_commands.rs");
-include!("terminal_alloc.rs");
-include!("subagents.rs");
-include!("tasks.rs");
-include!("terminal_input.rs");
-include!("gateway_workspace.rs");
-include!("workspace_task_tools.rs");
+mod file_tools;
+mod gateway_workspace;
+mod managed_commands;
+mod managed_helpers;
+mod media_tools;
+mod parse_args;
+mod python_execute;
+mod setup_web;
+mod skills_and_search;
+mod subagents;
+mod system_history;
+mod tasks;
+mod terminal_alloc;
+mod terminal_input;
+mod terminal_runtime;
+mod workflow_fetch;
+mod workspace_task_tools;
 
 pub(crate) async fn execute_media_tool_for_ipc(
     tool_name: &str,
@@ -348,6 +346,35 @@ pub(crate) async fn execute_media_tool_for_ipc(
         _ => anyhow::bail!("unsupported media tool for IPC: {tool_name}"),
     }
 }
+
+pub use execute_tool_impl::*;
+pub use file_tools::*;
+pub use gateway_workspace::*;
+pub use managed_commands::*;
+pub use managed_helpers::*;
+pub use media_tools::*;
+pub use memory_flush::*;
+pub use memory_tools::*;
+pub use parse_args::*;
+pub use part_a::*;
+pub use part_b::*;
+pub use part_c::*;
+pub use part_d::*;
+pub use prelude::*;
+pub use python_execute::*;
+pub use result_metadata::*;
+pub use search_runtime::*;
+pub use setup_web::*;
+pub use skills_and_search::*;
+pub use subagents::*;
+pub use system_history::*;
+pub use tasks::*;
+pub use terminal_alloc::*;
+pub use terminal_input::*;
+pub use terminal_runtime::*;
+pub use thread_tools::*;
+pub use workflow_fetch::*;
+pub use workspace_task_tools::*;
 
 #[cfg(test)]
 mod tests;

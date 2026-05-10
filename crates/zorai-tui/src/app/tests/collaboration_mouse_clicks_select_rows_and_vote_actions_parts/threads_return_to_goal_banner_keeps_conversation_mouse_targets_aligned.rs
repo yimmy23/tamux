@@ -1,7 +1,13 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 #[test]
 fn threads_return_to_goal_banner_keeps_conversation_mouse_targets_aligned() {
-    let mut model =
-        mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
+    let mut model = mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
 
     let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
     assert!(!handled);
@@ -39,8 +45,7 @@ fn threads_return_to_goal_banner_keeps_conversation_mouse_targets_aligned() {
 
 #[test]
 fn threads_return_to_goal_keyboard_restores_goal_run_and_step_selection() {
-    let mut model =
-        mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
+    let mut model = mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
 
     let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
     assert!(!handled);
@@ -59,8 +64,7 @@ fn threads_return_to_goal_keyboard_restores_goal_run_and_step_selection() {
 
 #[test]
 fn threads_return_to_goal_mouse_restores_goal_run_and_step_selection() {
-    let mut model =
-        mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
+    let mut model = mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
 
     let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
     assert!(!handled);
@@ -102,7 +106,9 @@ fn goal_thread_child_thread_sidebar_back_restores_parent_thread_and_keeps_goal_r
         thread_id: "thread-child".to_string(),
         title: "Child worker".to_string(),
     });
-    assert!(model.chat.open_spawned_thread("thread-exec", "thread-child"));
+    assert!(model
+        .chat
+        .open_spawned_thread("thread-exec", "thread-child"));
     model.main_pane_view = MainPaneView::Conversation;
     model.focus = FocusArea::Sidebar;
     assert_eq!(model.chat.active_thread_id(), Some("thread-child"));
@@ -142,33 +148,35 @@ fn goal_run_input_routes_prompt_to_goal_main_thread_before_active_step_thread() 
             thread_id: thread_id.to_string(),
             title: title.to_string(),
         });
-        model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
-            chat::AgentThread {
+        model
+            .chat
+            .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
                 id: thread_id.to_string(),
                 title: title.to_string(),
                 ..Default::default()
-            },
-        ));
+            }));
     }
     model
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
-    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
-        id: "goal-1".to_string(),
-        title: "Goal Title".to_string(),
-        thread_id: Some("thread-goal".to_string()),
-        root_thread_id: Some("thread-root".to_string()),
-        active_thread_id: Some("thread-step".to_string()),
-        goal: "Ship release".to_string(),
-        current_step_title: Some("Implement".to_string()),
-        steps: vec![task::GoalRunStep {
-            id: "step-1".to_string(),
-            title: "Implement".to_string(),
-            order: 0,
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal Title".to_string(),
+            thread_id: Some("thread-goal".to_string()),
+            root_thread_id: Some("thread-root".to_string()),
+            active_thread_id: Some("thread-step".to_string()),
+            goal: "Ship release".to_string(),
+            current_step_title: Some("Implement".to_string()),
+            steps: vec![task::GoalRunStep {
+                id: "step-1".to_string(),
+                title: "Implement".to_string(),
+                order: 0,
+                ..Default::default()
+            }],
             ..Default::default()
-        }],
-        ..Default::default()
-    }));
+        }));
     model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
         goal_run_id: "goal-1".to_string(),
         step_id: Some("step-1".to_string()),
@@ -180,7 +188,9 @@ fn goal_run_input_routes_prompt_to_goal_main_thread_before_active_step_thread() 
 
     assert!(!handled);
     match cmd_rx.try_recv() {
-        Ok(DaemonCommand::SendMessage { thread_id, content, .. }) => {
+        Ok(DaemonCommand::SendMessage {
+            thread_id, content, ..
+        }) => {
             assert_eq!(thread_id.as_deref(), Some("thread-goal"));
             assert_eq!(content, "follow the current step");
         }
@@ -276,31 +286,33 @@ fn goal_run_input_falls_back_to_active_goal_thread_when_main_thread_is_missing()
             thread_id: thread_id.to_string(),
             title: title.to_string(),
         });
-        model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
-            chat::AgentThread {
+        model
+            .chat
+            .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
                 id: thread_id.to_string(),
                 title: title.to_string(),
                 ..Default::default()
-            },
-        ));
+            }));
     }
     model
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
-    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
-        id: "goal-1".to_string(),
-        title: "Goal Title".to_string(),
-        active_thread_id: Some("thread-step".to_string()),
-        goal: "Ship release".to_string(),
-        current_step_title: Some("Implement".to_string()),
-        steps: vec![task::GoalRunStep {
-            id: "step-1".to_string(),
-            title: "Implement".to_string(),
-            order: 0,
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal Title".to_string(),
+            active_thread_id: Some("thread-step".to_string()),
+            goal: "Ship release".to_string(),
+            current_step_title: Some("Implement".to_string()),
+            steps: vec![task::GoalRunStep {
+                id: "step-1".to_string(),
+                title: "Implement".to_string(),
+                order: 0,
+                ..Default::default()
+            }],
             ..Default::default()
-        }],
-        ..Default::default()
-    }));
+        }));
     model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
         goal_run_id: "goal-1".to_string(),
         step_id: Some("step-1".to_string()),
@@ -312,7 +324,9 @@ fn goal_run_input_falls_back_to_active_goal_thread_when_main_thread_is_missing()
 
     assert!(!handled);
     match cmd_rx.try_recv() {
-        Ok(DaemonCommand::SendMessage { thread_id, content, .. }) => {
+        Ok(DaemonCommand::SendMessage {
+            thread_id, content, ..
+        }) => {
             assert_eq!(thread_id.as_deref(), Some("thread-step"));
             assert_eq!(content, "follow the current step");
         }
@@ -333,27 +347,31 @@ fn goal_run_input_blocks_plain_prompt_without_goal_thread_target() {
         thread_id: "thread-user".to_string(),
         title: "User Thread".to_string(),
     });
-    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
-        id: "thread-user".to_string(),
-        title: "User Thread".to_string(),
-        ..Default::default()
-    }));
+    model
+        .chat
+        .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+            id: "thread-user".to_string(),
+            title: "User Thread".to_string(),
+            ..Default::default()
+        }));
     model
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
-    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
-        id: "goal-1".to_string(),
-        title: "Goal Title".to_string(),
-        goal: "Ship release".to_string(),
-        current_step_title: Some("Implement".to_string()),
-        steps: vec![task::GoalRunStep {
-            id: "step-1".to_string(),
-            title: "Implement".to_string(),
-            order: 0,
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal Title".to_string(),
+            goal: "Ship release".to_string(),
+            current_step_title: Some("Implement".to_string()),
+            steps: vec![task::GoalRunStep {
+                id: "step-1".to_string(),
+                title: "Implement".to_string(),
+                order: 0,
+                ..Default::default()
+            }],
             ..Default::default()
-        }],
-        ..Default::default()
-    }));
+        }));
     model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
         goal_run_id: "goal-1".to_string(),
         step_id: Some("step-1".to_string()),
@@ -364,7 +382,10 @@ fn goal_run_input_blocks_plain_prompt_without_goal_thread_target() {
     let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(!handled);
-    assert!(cmd_rx.try_recv().is_err(), "goal pane should not send plain text without a goal thread target");
+    assert!(
+        cmd_rx.try_recv().is_err(),
+        "goal pane should not send plain text without a goal thread target"
+    );
     assert_eq!(
         model.status_line,
         "Goal input accepts only slash commands until an active goal thread is available"
@@ -430,7 +451,9 @@ fn goal_workspace_mouse_wheel_scrolls_timeline_and_details_rows() {
                 id: format!("event-{idx}"),
                 phase: "execution".to_string(),
                 message: format!("event {idx} with wrapped timeline details"),
-                details: Some(format!("details line for event {idx} that should wrap in the timeline panel")),
+                details: Some(format!(
+                    "details line for event {idx} that should wrap in the timeline panel"
+                )),
                 step_index: Some(1),
                 ..Default::default()
             })
@@ -470,4 +493,3 @@ fn goal_workspace_mouse_wheel_scrolls_timeline_and_details_rows() {
     });
     assert_eq!(model.goal_workspace.detail_scroll(), 3);
 }
-

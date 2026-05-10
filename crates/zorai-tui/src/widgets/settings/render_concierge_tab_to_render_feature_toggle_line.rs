@@ -1,4 +1,26 @@
-fn render_concierge_tab<'a>(
+use super::render_about_tab::*;
+use super::render_advanced_value_to_render_advanced_tab::*;
+use super::render_auth_tab_to_render_agent_tab::*;
+use super::render_chat_tab_to_render_honcho_editor_actions::*;
+use super::render_features_tab::*;
+use super::render_gateway_text_field::*;
+use super::render_plugins_tab_to_connector_readiness_style::*;
+use super::render_provider_tab_to_render_tools_tab::*;
+use super::render_websearch_tab::*;
+use super::*;
+use crate::providers;
+use crate::state::concierge::ConciergeState;
+use crate::state::config::ConfigState;
+use crate::state::modal::{ModalState, WhatsAppLinkPhase};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use zorai_protocol::has_whatsapp_allowed_contacts;
+pub(crate) fn render_concierge_tab<'a>(
     settings: &'a SettingsState,
     concierge: &'a ConciergeState,
     theme: &ThemeTokens,
@@ -15,7 +37,6 @@ fn render_concierge_tab<'a>(
     )));
     lines.push(Line::raw(""));
 
-    // Field 0: concierge_enabled
     {
         let is_selected = settings.field_cursor() == 0;
         let marker = if is_selected { "> " } else { "  " };
@@ -49,7 +70,6 @@ fn render_concierge_tab<'a>(
         ]));
     }
 
-    // Field 1: concierge_detail_level
     {
         let is_selected = settings.field_cursor() == 1;
         let marker = if is_selected { "> " } else { "  " };
@@ -74,7 +94,6 @@ fn render_concierge_tab<'a>(
         ]));
     }
 
-    // Field 2: concierge_provider
     {
         let is_selected = settings.field_cursor() == 2;
         let marker = if is_selected { "> " } else { "  " };
@@ -102,7 +121,6 @@ fn render_concierge_tab<'a>(
         ]));
     }
 
-    // Field 3: concierge_model
     {
         let is_selected = settings.field_cursor() == 3;
         let marker = if is_selected { "> " } else { "  " };
@@ -130,7 +148,6 @@ fn render_concierge_tab<'a>(
         ]));
     }
 
-    // Field 4: concierge_reasoning_effort
     {
         let is_selected = settings.field_cursor() == 4;
         let marker = if is_selected { "> " } else { "  " };
@@ -216,7 +233,7 @@ fn render_concierge_tab<'a>(
     lines
 }
 
-fn render_feature_field_line<'a>(
+pub(crate) fn render_feature_field_line<'a>(
     lines: &mut Vec<Line<'a>>,
     settings: &'a SettingsState,
     field_idx: usize,
@@ -277,7 +294,7 @@ fn render_feature_field_line<'a>(
     lines.push(Line::from(spans));
 }
 
-fn render_feature_toggle_line<'a>(
+pub(crate) fn render_feature_toggle_line<'a>(
     lines: &mut Vec<Line<'a>>,
     settings: &SettingsState,
     field_idx: usize,

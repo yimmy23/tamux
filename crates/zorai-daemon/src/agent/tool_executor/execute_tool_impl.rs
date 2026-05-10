@@ -1,3 +1,4 @@
+use super::*;
 async fn maybe_bootstrap_todo_plan_for_background_tool(
     agent: &AgentEngine,
     thread_id: &str,
@@ -583,7 +584,9 @@ fn maybe_rewrite_shell_tool_to_safer_file_mutation(
 ) -> Option<(String, serde_json::Value, Vec<String>)> {
     if !matches!(
         tool_name,
-        tool_names::BASH_COMMAND | tool_names::RUN_TERMINAL_COMMAND | tool_names::EXECUTE_MANAGED_COMMAND
+        tool_names::BASH_COMMAND
+            | tool_names::RUN_TERMINAL_COMMAND
+            | tool_names::EXECUTE_MANAGED_COMMAND
     ) {
         return None;
     }
@@ -652,7 +655,7 @@ fn maybe_rewrite_shell_tool_to_safer_file_mutation(
     ))
 }
 
-fn apply_critique_modifications(
+pub(crate) fn apply_critique_modifications(
     tool_name: &str,
     args: &serde_json::Value,
     critique_decision: Option<&str>,
@@ -677,7 +680,9 @@ fn apply_critique_modifications(
     let mut adjustments = Vec::new();
 
     match tool_name {
-        tool_names::BASH_COMMAND | tool_names::RUN_TERMINAL_COMMAND | tool_names::EXECUTE_MANAGED_COMMAND => {
+        tool_names::BASH_COMMAND
+        | tool_names::RUN_TERMINAL_COMMAND
+        | tool_names::EXECUTE_MANAGED_COMMAND => {
             if let Some(value) = map.remove("dangerous_flag") {
                 map.insert("safe_flag".to_string(), value);
                 adjustments.push("shell:rename_key:dangerous_flag->safe_flag".to_string());
@@ -780,12 +785,11 @@ fn apply_critique_modifications(
                 && (critique_modifications.iter().any(|item| {
                     let normalized = item.trim().to_ascii_lowercase();
                     normalized.contains("require explicit operator confirmation")
-                })
-                    || critique_reasons.iter().any(|reason| {
-                        let normalized = reason.trim().to_ascii_lowercase();
-                        normalized.contains("persisted agent execution policy")
-                            || normalized.contains("provider or model reconfiguration")
-                    }));
+                }) || critique_reasons.iter().any(|reason| {
+                    let normalized = reason.trim().to_ascii_lowercase();
+                    normalized.contains("persisted agent execution policy")
+                        || normalized.contains("provider or model reconfiguration")
+                }));
             if requires_confirmation {
                 map.insert(
                     "__critique_requires_operator_confirmation".to_string(),
@@ -818,7 +822,10 @@ fn apply_critique_modifications(
                 adjustments.push("plugin_api_call:require_operator_confirmation".to_string());
             }
         }
-        tool_names::WRITE_FILE | tool_names::CREATE_FILE | tool_names::APPEND_TO_FILE | tool_names::REPLACE_IN_FILE
+        tool_names::WRITE_FILE
+        | tool_names::CREATE_FILE
+        | tool_names::APPEND_TO_FILE
+        | tool_names::REPLACE_IN_FILE
         | tool_names::APPLY_FILE_PATCH => {
             let sensitive_path = has_directive(
                 critique_directives,
@@ -991,7 +998,7 @@ fn trusted_critique_confirmation_replay(tool_call: &ToolCall, args: &serde_json:
         })
 }
 
-fn annotate_review_with_critique(
+pub(crate) fn annotate_review_with_critique(
     review: &mut crate::agent::types::WelesReviewMeta,
     critique_session_id: Option<&str>,
     critique_decision: Option<&str>,
@@ -1031,16 +1038,16 @@ fn annotate_review_with_critique(
 }
 
 struct PreparedToolExecution {
-    tool_name: String,
-    args: serde_json::Value,
-    dispatch_tool_name: String,
-    dispatch_args: serde_json::Value,
-    timeout_adjustments: Vec<String>,
-    governance_decision: crate::agent::weles_governance::WelesExecutionDecision,
-    critique_session_id: Option<String>,
-    critique_decision: Option<String>,
-    critique_adjustments: Vec<String>,
-    critique_report_summary: Option<String>,
+    pub(crate) tool_name: String,
+    pub(crate) args: serde_json::Value,
+    pub(crate) dispatch_tool_name: String,
+    pub(crate) dispatch_args: serde_json::Value,
+    pub(crate) timeout_adjustments: Vec<String>,
+    pub(crate) governance_decision: crate::agent::weles_governance::WelesExecutionDecision,
+    pub(crate) critique_session_id: Option<String>,
+    pub(crate) critique_decision: Option<String>,
+    pub(crate) critique_adjustments: Vec<String>,
+    pub(crate) critique_report_summary: Option<String>,
 }
 
 async fn prepare_tool_execution(
@@ -1073,11 +1080,7 @@ async fn prepare_tool_execution(
     let critique_classification =
         crate::agent::weles_governance::classify_tool_call(tool_call.function.name.as_str(), &args);
     let current_task = if let Some(task_id) = task_id {
-        agent
-            .list_tasks()
-            .await
-            .into_iter()
-            .find(|task| task.id == task_id)
+        task_by_id_for_tool_scope(agent, task_id).await
     } else {
         None
     };
@@ -1525,7 +1528,10 @@ async fn prepare_tool_execution(
     if !thread_id.trim().is_empty()
         && matches!(
             tool_call.function.name.as_str(),
-            tool_names::BASH_COMMAND | tool_names::EXECUTE_MANAGED_COMMAND | tool_names::ENQUEUE_TASK | tool_names::SPAWN_SUBAGENT
+            tool_names::BASH_COMMAND
+                | tool_names::EXECUTE_MANAGED_COMMAND
+                | tool_names::ENQUEUE_TASK
+                | tool_names::SPAWN_SUBAGENT
         )
         && !trusted_weles_internal_task
         && agent.get_todos(thread_id).await.is_empty()
@@ -1582,9 +1588,12 @@ async fn dispatch_tool_execution(
     let mut pending_approval = None;
 
     let result = match prepared.dispatch_tool_name.as_str() {
-        // Terminal/session tools (daemon owns sessions directly)
-        tool_names::LIST_TERMINALS | tool_names::LIST_SESSIONS => execute_list_sessions(session_manager).await,
-        tool_names::READ_ACTIVE_TERMINAL_CONTENT => execute_read_terminal(args, session_manager).await,
+        tool_names::LIST_TERMINALS | tool_names::LIST_SESSIONS => {
+            execute_list_sessions(session_manager).await
+        }
+        tool_names::READ_ACTIVE_TERMINAL_CONTENT => {
+            execute_read_terminal(args, session_manager).await
+        }
         tool_names::RUN_TERMINAL_COMMAND => {
             match execute_run_terminal_command(
                 dispatch_args,
@@ -1624,14 +1633,18 @@ async fn dispatch_tool_execution(
                 Err(error) => Err(error),
             }
         }
-        tool_names::GET_OPERATION_STATUS => execute_get_operation_status(args, session_manager).await,
+        tool_names::GET_OPERATION_STATUS => {
+            execute_get_operation_status(args, session_manager).await
+        }
         tool_names::GET_BACKGROUND_TASK_STATUS => {
             execute_get_background_task_status(args, session_manager).await
         }
         tool_names::ALLOCATE_TERMINAL => {
             execute_allocate_terminal(args, session_manager, session_id, event_tx).await
         }
-        tool_names::FETCH_AUTHENTICATED_PROVIDERS => execute_fetch_authenticated_providers(agent).await,
+        tool_names::FETCH_AUTHENTICATED_PROVIDERS => {
+            execute_fetch_authenticated_providers(agent).await
+        }
         tool_names::LIST_PROVIDERS => execute_list_providers(agent).await,
         tool_names::FETCH_PROVIDER_MODELS => execute_fetch_provider_models(args, agent).await,
         tool_names::LIST_MODELS => execute_list_models(args, agent).await,
@@ -1666,7 +1679,9 @@ async fn dispatch_tool_execution(
             ))
             .await
         }
-        tool_names::ROUTE_TO_SPECIALIST => execute_route_to_specialist(args, agent, thread_id, task_id).await,
+        tool_names::ROUTE_TO_SPECIALIST => {
+            execute_route_to_specialist(args, agent, thread_id, task_id).await
+        }
         tool_names::RUN_DIVERGENT => execute_run_divergent(args, agent, thread_id, task_id).await,
         tool_names::GET_DIVERGENT_SESSION => execute_get_divergent_session(args, agent).await,
         tool_names::RUN_DEBATE => execute_run_debate(args, agent, thread_id, task_id).await,
@@ -1700,17 +1715,23 @@ async fn dispatch_tool_execution(
         tool_names::VOTE_ON_DISAGREEMENT => {
             execute_vote_on_disagreement(args, agent, thread_id, task_id).await
         }
-        tool_names::DISPATCH_VIA_BID_PROTOCOL => execute_dispatch_via_bid_protocol(args, agent).await,
+        tool_names::DISPATCH_VIA_BID_PROTOCOL => {
+            execute_dispatch_via_bid_protocol(args, agent).await
+        }
         tool_names::LIST_COLLABORATION_SESSIONS => {
             execute_list_collaboration_sessions(args, agent, task_id).await
         }
         tool_names::LIST_THREADS => execute_list_threads(args, agent).await,
         tool_names::GET_THREAD => execute_get_thread(args, agent).await,
-        tool_names::READ_OFFLOADED_PAYLOAD => execute_read_offloaded_payload(args, agent, thread_id).await,
+        tool_names::READ_OFFLOADED_PAYLOAD => {
+            execute_read_offloaded_payload(args, agent, thread_id).await
+        }
         tool_names::ENQUEUE_TASK => execute_enqueue_task(args, agent).await,
         tool_names::LIST_TASKS => execute_list_tasks(args, agent).await,
-        tool_names::START_GOAL_RUN => execute_start_goal_run(args, agent, thread_id, session_id).await,
-        tool_names::LIST_GOAL_RUNS => execute_list_goal_runs(agent).await,
+        tool_names::START_GOAL_RUN => {
+            execute_start_goal_run(args, agent, thread_id, session_id).await
+        }
+        tool_names::LIST_GOAL_RUNS => execute_list_goal_runs(&prepared.args, agent).await,
         tool_names::SUBMIT_GOAL_STEP_VERDICT => {
             execute_submit_goal_step_verdict(args, agent, task_id).await
         }
@@ -1741,15 +1762,19 @@ async fn dispatch_tool_execution(
         tool_names::LIST_TRIGGERS => execute_list_triggers(args, agent).await,
         tool_names::INGEST_WEBHOOK_EVENT => execute_ingest_webhook_event(args, agent).await,
         tool_names::ADD_TRIGGER => execute_add_trigger(args, agent).await,
-        tool_names::LIST_TRIGGER_FIRE_HISTORY => execute_list_trigger_fire_history(args, agent).await,
+        tool_names::LIST_TRIGGER_FIRE_HISTORY => {
+            execute_list_trigger_fire_history(args, agent).await
+        }
         tool_names::GET_COST_SUMMARY => execute_get_cost_summary(args, agent).await,
         tool_names::LIST_BROWSER_PROFILES => execute_list_browser_profiles(args, agent).await,
         tool_names::CREATE_BROWSER_PROFILE => execute_create_browser_profile(args, agent).await,
-        tool_names::UPDATE_BROWSER_PROFILE_HEALTH => execute_update_browser_profile_health(args, agent).await,
+        tool_names::UPDATE_BROWSER_PROFILE_HEALTH => {
+            execute_update_browser_profile_health(args, agent).await
+        }
         tool_names::SHOW_DREAMS => execute_show_dreams(args, agent).await,
         tool_names::SHOW_HARNESS_STATE => {
             execute_show_harness_state(args, agent, thread_id, task_id).await
-        },
+        }
         tool_names::IMPORT_EXTERNAL_RUNTIME => execute_import_external_runtime(args, agent).await,
         tool_names::SHOW_IMPORT_REPORT => execute_show_import_report(args, agent).await,
         tool_names::PREVIEW_SHADOW_RUN => execute_preview_shadow_run(args, agent).await,
@@ -1813,16 +1838,28 @@ async fn dispatch_tool_execution(
             }
         }
         tool_names::PYTHON_EXECUTE => {
-            execute_python_execute(
+            match execute_python_execute(
                 dispatch_args,
+                agent,
+                task_id,
+                thread_id,
                 session_manager,
                 session_id,
                 cancel_token.clone(),
             )
             .await
+            {
+                Ok((content, approval)) => {
+                    pending_approval = approval;
+                    Ok(content)
+                }
+                Err(error) => Err(error),
+            }
         }
         tool_names::ANALYZE_IMAGE => execute_analyze_image(args, agent, http_client).await,
-        tool_names::GENERATE_IMAGE => execute_generate_image(args, agent, http_client, Some(thread_id)).await,
+        tool_names::GENERATE_IMAGE => {
+            execute_generate_image(args, agent, http_client, Some(thread_id)).await
+        }
         tool_names::SPEECH_TO_TEXT => execute_speech_to_text(args, agent, http_client).await,
         tool_names::TEXT_TO_SPEECH => execute_text_to_speech(args, agent, http_client).await,
         tool_names::LIST_FILES => execute_list_files(args, session_manager, session_id).await,
@@ -1839,7 +1876,9 @@ async fn dispatch_tool_execution(
         tool_names::GET_CURRENT_DATETIME => execute_current_datetime().await,
         tool_names::LIST_PROCESSES => execute_list_processes(args).await,
         tool_names::SEARCH_HISTORY => execute_search_history(args, agent).await,
-        tool_names::FETCH_GATEWAY_HISTORY => execute_fetch_gateway_history(args, agent, thread_id).await,
+        tool_names::FETCH_GATEWAY_HISTORY => {
+            execute_fetch_gateway_history(args, agent, thread_id).await
+        }
         tool_names::SESSION_SEARCH => execute_session_search(args, session_manager).await,
         tool_names::AGENT_QUERY_MEMORY => execute_agent_query_memory(args, agent).await,
         tool_names::ONECONTEXT_SEARCH => execute_onecontext_search(args).await,
@@ -1867,16 +1906,49 @@ async fn dispatch_tool_execution(
             execute_search_soul(args, agent, Some(thread_id), task_id, agent_data_dir).await
         }
         tool_names::LIST_TOOLS => {
-            execute_list_tools(args, agent, session_manager, agent_data_dir, thread_id, task_id)
-                .await
+            execute_list_tools(
+                args,
+                agent,
+                session_manager,
+                agent_data_dir,
+                thread_id,
+                task_id,
+            )
+            .await
         }
         tool_names::TOOL_SEARCH => {
-            execute_tool_search(args, agent, session_manager, agent_data_dir, thread_id, task_id)
-                .await
+            execute_tool_search(
+                args,
+                agent,
+                session_manager,
+                agent_data_dir,
+                thread_id,
+                task_id,
+            )
+            .await
         }
         tool_names::LIST_GUIDELINES => execute_list_guidelines(args, agent_data_dir).await,
-        tool_names::DISCOVER_GUIDELINES => execute_discover_guidelines(args, agent, session_id).await,
-        tool_names::READ_GUIDELINE => execute_read_guideline(args, agent_data_dir).await,
+        tool_names::DISCOVER_GUIDELINES => {
+            execute_discover_guidelines(args, agent, session_id).await
+        }
+        tool_names::READ_GUIDELINE => {
+            let result = execute_read_guideline(args, agent_data_dir).await;
+            if let Ok(ref content) = result {
+                if let Some(name) = args.get("guideline").and_then(|v| v.as_str()) {
+                    let _ = agent
+                        .history
+                        .record_thread_skill_read(
+                            thread_id,
+                            "guideline",
+                            name,
+                            content,
+                            crate::agent::now_millis() as i64,
+                        )
+                        .await;
+                }
+            }
+            result
+        }
         tool_names::LIST_SKILLS => execute_list_skills(args, agent_data_dir, &agent.history).await,
         tool_names::DISCOVER_SKILLS => execute_discover_skills(args, agent, session_id).await,
         tool_names::SEMANTIC_QUERY => {
@@ -1890,7 +1962,7 @@ async fn dispatch_tool_execution(
             .await
         }
         tool_names::READ_SKILL => {
-            execute_read_skill(
+            let result = execute_read_skill(
                 args,
                 agent,
                 agent_data_dir,
@@ -1900,7 +1972,31 @@ async fn dispatch_tool_execution(
                 thread_id,
                 task_id,
             )
-            .await
+            .await;
+            if let Ok(ref content) = result {
+                let name = args
+                    .get("skill")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| {
+                        args.get("skills")
+                            .and_then(|v| v.as_array())
+                            .and_then(|arr| arr.first())
+                            .and_then(|v| v.as_str())
+                    });
+                if let Some(name) = name {
+                    let _ = agent
+                        .history
+                        .record_thread_skill_read(
+                            thread_id,
+                            "skill",
+                            name,
+                            content,
+                            crate::agent::now_millis() as i64,
+                        )
+                        .await;
+                }
+            }
+            result
         }
         tool_names::ASK_QUESTIONS => {
             let parsed = (|| -> Result<(String, Vec<String>, Option<String>, Option<String>)> {
@@ -1949,7 +2045,9 @@ async fn dispatch_tool_execution(
             }
         }
         tool_names::JUSTIFY_SKILL_SKIP => execute_justify_skill_skip(args, agent, thread_id).await,
-        tool_names::SYNTHESIZE_TOOL => synthesize_tool(args, agent, agent_data_dir, http_client).await,
+        tool_names::SYNTHESIZE_TOOL => {
+            synthesize_tool(args, agent, agent_data_dir, http_client).await
+        }
         tool_names::LIST_GENERATED_TOOLS => list_generated_tools(agent_data_dir),
         tool_names::PROMOTE_GENERATED_TOOL => args
             .get("tool")
@@ -2195,7 +2293,9 @@ pub fn execute_tool<'a>(
                 }
                 if matches!(
                     prepared.dispatch_tool_name.as_str(),
-                    tool_names::BASH_COMMAND | tool_names::RUN_TERMINAL_COMMAND | tool_names::EXECUTE_MANAGED_COMMAND
+                    tool_names::BASH_COMMAND
+                        | tool_names::RUN_TERMINAL_COMMAND
+                        | tool_names::EXECUTE_MANAGED_COMMAND
                 ) {
                     maybe_emit_successful_shell_synthesis_proposal_notice(
                         agent,

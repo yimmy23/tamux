@@ -1,3 +1,11 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use crate::app::tests::clicking_selected_message_copy_action_copies_that_message_to_click::in_review_open_action_opens_queued_review_task_thread_to_workspace::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 #[test]
 fn concierge_mouse_click_executes_visible_action() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
@@ -161,7 +169,10 @@ fn workspace_enter_activates_new_task_not_concierge_action() {
     let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     assert!(!handled);
-    assert_eq!(model.modal.top(), Some(modal::ModalKind::WorkspaceCreateTask));
+    assert_eq!(
+        model.modal.top(),
+        Some(modal::ModalKind::WorkspaceCreateTask)
+    );
     assert!(cmd_rx.try_recv().is_err());
 }
 
@@ -192,6 +203,9 @@ fn workspace_picker_enter_switches_workspace_and_loads_board() {
             workspace_id: "alpha".to_string(),
             workspace_root: None,
             operator: zorai_protocol::WorkspaceOperator::User,
+            repo_monitor_enabled: false,
+            repo_monitor_include_dirs: vec![],
+            repo_monitor_exclude_dirs: vec![],
             created_at: 1,
             updated_at: 1,
         },
@@ -199,6 +213,9 @@ fn workspace_picker_enter_switches_workspace_and_loads_board() {
             workspace_id: "beta".to_string(),
             workspace_root: None,
             operator: zorai_protocol::WorkspaceOperator::Svarog,
+            repo_monitor_enabled: false,
+            repo_monitor_include_dirs: vec![],
+            repo_monitor_exclude_dirs: vec![],
             created_at: 2,
             updated_at: 2,
         },
@@ -248,6 +265,9 @@ fn workspace_picker_click_switches_workspace_and_loads_board() {
             workspace_id: "alpha".to_string(),
             workspace_root: None,
             operator: zorai_protocol::WorkspaceOperator::User,
+            repo_monitor_enabled: false,
+            repo_monitor_include_dirs: vec![],
+            repo_monitor_exclude_dirs: vec![],
             created_at: 1,
             updated_at: 1,
         },
@@ -255,6 +275,9 @@ fn workspace_picker_click_switches_workspace_and_loads_board() {
             workspace_id: "beta".to_string(),
             workspace_root: None,
             operator: zorai_protocol::WorkspaceOperator::Svarog,
+            repo_monitor_enabled: false,
+            repo_monitor_include_dirs: vec![],
+            repo_monitor_exclude_dirs: vec![],
             created_at: 2,
             updated_at: 2,
         },
@@ -349,6 +372,9 @@ fn workspace_picker_selection_ignores_delayed_concierge_welcome() {
             workspace_id: "alpha".to_string(),
             workspace_root: None,
             operator: zorai_protocol::WorkspaceOperator::User,
+            repo_monitor_enabled: false,
+            repo_monitor_include_dirs: vec![],
+            repo_monitor_exclude_dirs: vec![],
             created_at: 1,
             updated_at: 1,
         },
@@ -356,6 +382,9 @@ fn workspace_picker_selection_ignores_delayed_concierge_welcome() {
             workspace_id: "beta".to_string(),
             workspace_root: None,
             operator: zorai_protocol::WorkspaceOperator::Svarog,
+            repo_monitor_enabled: false,
+            repo_monitor_include_dirs: vec![],
+            repo_monitor_exclude_dirs: vec![],
             created_at: 2,
             updated_at: 2,
         },
@@ -377,7 +406,10 @@ fn workspace_picker_selection_ignores_delayed_concierge_welcome() {
     assert!(!model.concierge.welcome_visible);
     assert!(model.chat.active_actions().is_empty());
     assert!(
-        matches!(cmd_rx.try_recv(), Ok(DaemonCommand::DismissConciergeWelcome)),
+        matches!(
+            cmd_rx.try_recv(),
+            Ok(DaemonCommand::DismissConciergeWelcome)
+        ),
         "workspace navigation should dismiss the active concierge welcome"
     );
 }
@@ -469,22 +501,27 @@ fn in_review_run_action_opens_queued_review_task_thread() {
             last_notice_id: None,
         }],
     );
-    model.workspace.set_notices(vec![zorai_protocol::WorkspaceNotice {
-        id: "notice-1".to_string(),
-        workspace_id: "main".to_string(),
-        task_id: "wtask-1".to_string(),
-        notice_type: "review_requested".to_string(),
-        message: "Workspace task review requested from subagent:qa; queued review task review-task-1"
-            .to_string(),
-        actor: Some(zorai_protocol::WorkspaceActor::Subagent("qa".to_string())),
-        created_at: 2,
-    }]);
-    model.tasks.reduce(task::TaskAction::TaskUpdate(task::AgentTask {
-        id: "review-task-1".to_string(),
-        title: "Review".to_string(),
-        thread_id: Some("review-thread-1".to_string()),
-        ..Default::default()
-    }));
+    model
+        .workspace
+        .set_notices(vec![zorai_protocol::WorkspaceNotice {
+            id: "notice-1".to_string(),
+            workspace_id: "main".to_string(),
+            task_id: "wtask-1".to_string(),
+            notice_type: "review_requested".to_string(),
+            message:
+                "Workspace task review requested from subagent:qa; queued review task review-task-1"
+                    .to_string(),
+            actor: Some(zorai_protocol::WorkspaceActor::Subagent("qa".to_string())),
+            created_at: 2,
+        }]);
+    model
+        .tasks
+        .reduce(task::TaskAction::TaskUpdate(task::AgentTask {
+            id: "review-task-1".to_string(),
+            title: "Review".to_string(),
+            thread_id: Some("review-thread-1".to_string()),
+            ..Default::default()
+        }));
 
     model.activate_workspace_task_action(
         "wtask-1".to_string(),

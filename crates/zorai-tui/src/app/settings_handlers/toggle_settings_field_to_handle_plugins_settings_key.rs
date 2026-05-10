@@ -1,5 +1,13 @@
+use super::*;
+use crate::providers;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn toggle_settings_field(&mut self) {
+    pub(crate) fn toggle_settings_field(&mut self) {
         let field = self.current_settings_field_name().to_string();
         match field.as_str() {
             "managed_sandbox_enabled" => {
@@ -31,6 +39,10 @@ impl TuiModel {
             "auto_retry" => {
                 self.config.auto_retry = !self.config.auto_retry;
                 self.sync_config_to_daemon();
+            }
+            "workspace_repo_monitor_enabled" => {
+                let requested_enabled = !self.config.workspace_repo_monitor_enabled;
+                self.sync_workspace_repo_monitor_to_daemon(requested_enabled);
             }
             "enable_conversation_memory" => {
                 self.config.enable_conversation_memory = !self.config.enable_conversation_memory;
@@ -116,9 +128,7 @@ impl TuiModel {
                 self.config.snapshot_auto_cleanup = !self.config.snapshot_auto_cleanup;
                 self.sync_config_to_daemon();
             }
-            // ── Features tab toggles ──
             "feat_tier_override" => {
-                // Cycle tier on Space (same as Enter)
                 self.activate_settings_field();
             }
             "feat_security_level" => {
@@ -278,11 +288,9 @@ impl TuiModel {
         }
     }
 
-    // ── Plugin settings handlers (Plan 16-03) ────────────────────────────────
 
-    pub(super) fn handle_plugins_settings_key(&mut self, code: KeyCode) -> bool {
+    pub(crate) fn handle_plugins_settings_key(&mut self, code: KeyCode) -> bool {
         if self.plugin_settings.list_mode {
-            // List mode navigation
             match code {
                 KeyCode::Down => {
                     let count = self.plugin_settings.plugins.len();
@@ -298,7 +306,6 @@ impl TuiModel {
                     return true;
                 }
                 KeyCode::Enter => {
-                    // Switch to detail mode for selected plugin
                     if let Some(plugin) = self.plugin_settings.selected_plugin() {
                         let name = plugin.name.clone();
                         self.plugin_settings.list_mode = false;
@@ -312,7 +319,6 @@ impl TuiModel {
                     return true;
                 }
                 KeyCode::Char(' ') => {
-                    // Toggle enable/disable
                     if let Some(plugin) = self.plugin_settings.selected_plugin() {
                         let name = plugin.name.clone();
                         if plugin.enabled {
@@ -326,15 +332,11 @@ impl TuiModel {
                 _ => {}
             }
         } else {
-            // Detail mode navigation
             if self.settings.is_editing() {
-                // Standard editing keys are handled by the base settings reducer
                 match code {
                     KeyCode::Enter => {
-                        // Confirm edit and save to daemon
                         let value = self.settings.edit_buffer().to_string();
                         if let Some(field_key) = self.settings.editing_field().map(str::to_string) {
-                            // Extract plugin name and secret flag before mutating settings_values
                             let plugin_name = self
                                 .plugin_settings
                                 .selected_plugin()
@@ -346,7 +348,6 @@ impl TuiModel {
                                 .find(|f| f.key == field_key)
                                 .map_or(false, |f| f.secret);
                             if let Some(pname) = plugin_name {
-                                // Optimistic local update so UI reflects change immediately
                                 if let Some(entry) = self
                                     .plugin_settings
                                     .settings_values
@@ -376,7 +377,7 @@ impl TuiModel {
                         self.settings.reduce(SettingsAction::CancelEdit);
                         return true;
                     }
-                    _ => return false, // Let base handler deal with InsertChar, Backspace, etc.
+                    _ => return false,
                 }
             }
 
@@ -398,7 +399,6 @@ impl TuiModel {
                     let cursor = self.plugin_settings.detail_cursor;
                     let field_count = self.plugin_settings.schema_fields.len();
                     if cursor < field_count {
-                        // Edit a settings field
                         let field = &self.plugin_settings.schema_fields[cursor];
                         let key = field.key.clone();
                         let current_value = self
@@ -407,7 +407,6 @@ impl TuiModel {
                             .unwrap_or("")
                             .to_string();
                         if field.field_type == "boolean" {
-                            // Toggle boolean fields directly
                             let new_val = if current_value == "true" {
                                 "false"
                             } else {
@@ -422,20 +421,16 @@ impl TuiModel {
                                 });
                             }
                         } else {
-                            // Start editing — clear buffer for secret fields so user
-                            // doesn't accidentally save the masked "********" string
                             let edit_value = if field.secret { "" } else { &current_value };
                             self.settings.start_editing(&key, edit_value);
                         }
                     } else {
-                        // Action button pressed
                         let action_offset = field_count;
                         let has_api = self
                             .plugin_settings
                             .selected_plugin()
                             .map_or(false, |p| p.has_api);
                         if has_api && cursor == action_offset {
-                            // Test Connection
                             let name = self
                                 .plugin_settings
                                 .selected_plugin()
@@ -445,7 +440,6 @@ impl TuiModel {
                                 self.send_daemon_command(DaemonCommand::PluginTestConnection(name));
                             }
                         }
-                        // Connect / Reconnect button: trigger OAuth flow (Plan 18-03)
                         let has_auth = self
                             .plugin_settings
                             .selected_plugin()
@@ -465,7 +459,6 @@ impl TuiModel {
                     return true;
                 }
                 KeyCode::Esc => {
-                    // Return to list mode
                     self.plugin_settings.list_mode = true;
                     self.plugin_settings.detail_cursor = 0;
                     self.settings.reduce(SettingsAction::CancelEdit);

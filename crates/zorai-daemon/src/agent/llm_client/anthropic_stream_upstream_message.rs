@@ -1,15 +1,16 @@
+use super::*;
 use crate::agent::{CompletionUpstreamContentBlock, CompletionUpstreamMessage};
 
 #[derive(Debug, Clone, Default)]
-struct AnthropicStreamUpstreamMessage {
-    message: CompletionUpstreamMessage,
-    current_text_block: Option<usize>,
-    current_thinking_block: Option<usize>,
-    current_tool_use: Option<(usize, String)>,
+pub(crate) struct AnthropicStreamUpstreamMessage {
+    pub(crate) message: CompletionUpstreamMessage,
+    pub(crate) current_text_block: Option<usize>,
+    pub(crate) current_thinking_block: Option<usize>,
+    pub(crate) current_tool_use: Option<(usize, String)>,
 }
 
 impl AnthropicStreamUpstreamMessage {
-    fn capture_message_start(&mut self, parsed: &serde_json::Value) {
+    pub(crate) fn capture_message_start(&mut self, parsed: &serde_json::Value) {
         self.message.id = parsed
             .pointer("/message/id")
             .and_then(|value| value.as_str())
@@ -31,7 +32,7 @@ impl AnthropicStreamUpstreamMessage {
             .and_then(extract_completion_container_info);
     }
 
-    fn capture_content_block_start(&mut self, content_block: &serde_json::Value) {
+    pub(crate) fn capture_content_block_start(&mut self, content_block: &serde_json::Value) {
         self.current_text_block = None;
         self.current_thinking_block = None;
         self.current_tool_use = None;
@@ -85,13 +86,14 @@ impl AnthropicStreamUpstreamMessage {
                         signature: None,
                         input_json: None,
                     });
-                self.current_tool_use = Some((self.message.content_blocks.len() - 1, String::new()));
+                self.current_tool_use =
+                    Some((self.message.content_blocks.len() - 1, String::new()));
             }
             _ => {}
         }
     }
 
-    fn capture_content_block_delta(&mut self, delta: &serde_json::Value) {
+    pub(crate) fn capture_content_block_delta(&mut self, delta: &serde_json::Value) {
         if let Some(index) = self.current_text_block {
             if let Some(text) = delta.get("text").and_then(|value| value.as_str()) {
                 if let Some(current) = self
@@ -123,7 +125,7 @@ impl AnthropicStreamUpstreamMessage {
         }
     }
 
-    fn finish_content_block(&mut self) {
+    pub(crate) fn finish_content_block(&mut self) {
         self.current_text_block = None;
         self.current_thinking_block = None;
         let Some((index, partial_json)) = self.current_tool_use.take() else {
@@ -137,7 +139,10 @@ impl AnthropicStreamUpstreamMessage {
         }
     }
 
-    fn build(&self, stop_metadata: &AnthropicStreamStopMetadata) -> Option<CompletionUpstreamMessage> {
+    pub(crate) fn build(
+        &self,
+        stop_metadata: &AnthropicStreamStopMetadata,
+    ) -> Option<CompletionUpstreamMessage> {
         if self.message.id.is_none()
             && self.message.message_type.is_none()
             && self.message.role.is_none()

@@ -117,29 +117,6 @@ fn latest_visible_message_allows_participant_observers(
     }
 }
 
-fn latest_visible_main_agent_message_for_auto_response<'a>(
-    visible_messages: &'a [AgentMessage],
-    participants: &[ThreadParticipantState],
-) -> Option<&'a AgentMessage> {
-    let latest_message = visible_messages.last()?;
-    if latest_message.role != MessageRole::Assistant {
-        return None;
-    }
-    if latest_message.content.trim().is_empty() {
-        return None;
-    }
-    let authored_by_participant =
-        latest_message
-            .author_agent_id
-            .as_ref()
-            .is_some_and(|author_id| {
-                participants
-                    .iter()
-                    .any(|participant| participant.agent_id.eq_ignore_ascii_case(author_id))
-            });
-    (!authored_by_participant).then_some(latest_message)
-}
-
 fn build_participant_prompt_from_snapshot(
     participant: &ThreadParticipantState,
     visible_messages: &[AgentMessage],
@@ -302,14 +279,25 @@ impl AgentEngine {
         thread_id: &str,
     ) -> Option<u64> {
         let participants = self.list_thread_participants(thread_id).await;
-        let thread = self.get_thread(thread_id).await?;
-        let visible_messages = thread
-            .messages
-            .into_iter()
-            .filter(|message| !should_hide_participant_prompt_message(message))
+        let participant_agent_ids = participants
+            .iter()
+            .map(|participant| participant.agent_id.clone())
             .collect::<Vec<_>>();
-        latest_visible_main_agent_message_for_auto_response(&visible_messages, &participants)
-            .map(|message| message.timestamp)
+        match self
+            .history
+            .latest_visible_main_assistant_message_timestamp(thread_id, &participant_agent_ids)
+            .await
+        {
+            Ok(timestamp) => timestamp,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "failed to load latest visible main assistant message timestamp from sqlite"
+                );
+                None
+            }
+        }
     }
 
     async fn participant_playground_message_limit(&self) -> usize {
@@ -415,43 +403,19 @@ impl AgentEngine {
 
     pub(crate) async fn trim_persisted_participant_playground_threads_on_hydrate(&self) -> usize {
         let max_messages = self.participant_playground_message_limit().await;
-        let playground_thread_ids = {
-            let threads = self.threads.read().await;
-            threads
-                .keys()
-                .filter(|thread_id| {
-                    crate::agent::agent_identity::is_participant_playground_thread(thread_id)
-                })
-                .cloned()
-                .collect::<Vec<_>>()
-        };
-
-        for thread_id in &playground_thread_ids {
-            self.ensure_thread_messages_loaded(thread_id).await;
-        }
-
-        let trimmed_thread_ids = {
-            let mut threads = self.threads.write().await;
-            let updated_at = now_millis();
-            let mut trimmed = Vec::new();
-
-            for (thread_id, thread) in threads.iter_mut() {
-                if !crate::agent::agent_identity::is_participant_playground_thread(thread_id) {
-                    continue;
-                }
-                if trim_participant_playground_thread_messages(thread, max_messages, updated_at) {
-                    trimmed.push(thread_id.clone());
-                }
-            }
-
-            trimmed
-        };
-
-        for thread_id in &trimmed_thread_ids {
-            self.persist_thread_by_id(thread_id).await;
-        }
-
-        trimmed_thread_ids.len()
+        self.history
+            .trim_thread_messages_to_recent_tail_by_prefix(
+                crate::agent::agent_identity::PARTICIPANT_PLAYGROUND_THREAD_PREFIX,
+                max_messages,
+            )
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(
+                    %error,
+                    "failed to trim participant playground threads from persisted history"
+                );
+                0
+            })
     }
 
     pub(crate) async fn trim_participant_playground_threads_for_visible_thread(

@@ -1,3 +1,10 @@
+use super::done_event_persists_final_reasoning_into_chat_message_to_mission_control::*;
+use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
+use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn hidden_handoff_threads_are_filtered_from_thread_list() {
     let mut model = make_model();
@@ -54,7 +61,7 @@ fn thread_list_requests_detail_for_selected_thread_with_only_summary_data() {
             message_offset,
         }) => {
             assert_eq!(thread_id, "thread-user");
-            assert_eq!(message_limit, Some(123));
+            assert_eq!(message_limit, Some(136));
             assert_eq!(message_offset, Some(0));
         }
         other => panic!("expected thread detail request, got {other:?}"),
@@ -365,8 +372,228 @@ fn on_tick_requests_next_older_thread_page_when_scrolled_to_top_of_loaded_window
             message_offset,
         }) => {
             assert_eq!(thread_id, "thread-user");
-            assert_eq!(message_limit, Some(123));
+            assert_eq!(message_limit, Some(136));
             assert_eq!(message_offset, Some(100));
+        }
+        other => panic!("expected older-page request, got {other:?}"),
+    }
+}
+
+#[test]
+fn on_tick_requests_older_thread_page_after_scroll_up_when_loaded_window_fits_viewport() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.config.tui_chat_history_page_size = 123;
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "thread-user".to_string(),
+            title: "User Thread".to_string(),
+            total_message_count: 12,
+            loaded_message_start: 10,
+            loaded_message_end: 12,
+            messages: (10..12)
+                .map(|index| crate::state::chat::AgentMessage {
+                    id: Some(format!("msg-{index}")),
+                    role: crate::state::chat::MessageRole::Assistant,
+                    content: format!("msg {index}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        },
+    ));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model.chat.reduce(chat::ChatAction::ScrollChat(3));
+
+    model.on_tick();
+
+    match next_thread_request(&mut daemon_rx) {
+        Some((thread_id, message_limit, message_offset)) => {
+            assert_eq!(thread_id, "thread-user");
+            assert_eq!(message_limit, Some(136));
+            assert_eq!(message_offset, Some(2));
+        }
+        other => panic!("expected older-page request, got {other:?}"),
+    }
+}
+
+#[test]
+fn on_tick_does_not_refill_underfilled_active_thread_window_without_scroll() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.config.tui_chat_history_page_size = 20;
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "thread-user".to_string(),
+            title: "User Thread".to_string(),
+            total_message_count: 80,
+            loaded_message_start: 58,
+            loaded_message_end: 80,
+            messages: (58..80)
+                .map(|index| crate::state::chat::AgentMessage {
+                    id: Some(format!("msg-{index}")),
+                    role: crate::state::chat::MessageRole::Assistant,
+                    content: format!("msg {index}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        },
+    ));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model.chat.delete_active_message(0);
+
+    model.on_tick();
+
+    assert!(
+        next_thread_request(&mut daemon_rx).is_none(),
+        "delete backfill should be threshold-driven instead of running an underfilled-window fetch loop"
+    );
+}
+
+#[test]
+fn pending_older_thread_fetch_retries_after_cooldown_without_response() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.config.tui_chat_history_page_size = 20;
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "thread-user".to_string(),
+            title: "User Thread".to_string(),
+            total_message_count: 120,
+            loaded_message_start: 100,
+            loaded_message_end: 120,
+            messages: (100..120)
+                .map(|index| crate::state::chat::AgentMessage {
+                    id: Some(format!("msg-{index}")),
+                    role: crate::state::chat::MessageRole::Assistant,
+                    content: format!("msg {index}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        },
+    ));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model
+        .chat
+        .reduce(chat::ChatAction::ScrollChat(i32::MAX / 2));
+
+    model.on_tick();
+    assert!(
+        next_thread_request(&mut daemon_rx).is_some(),
+        "first top-edge tick should request older messages"
+    );
+
+    for _ in 0..chat::CHAT_HISTORY_FETCH_DEBOUNCE_TICKS {
+        model.on_tick();
+    }
+    model.on_tick();
+
+    assert!(
+        next_thread_request(&mut daemon_rx).is_some(),
+        "pending older fetch should retry after cooldown if no detail arrives"
+    );
+}
+
+#[test]
+fn on_tick_requests_older_thread_page_when_streaming_reasoning_extends_below_loaded_window() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.config.tui_chat_history_page_size = 123;
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "thread-user".to_string(),
+            title: "User Thread".to_string(),
+            total_message_count: 120,
+            loaded_message_start: 20,
+            loaded_message_end: 120,
+            messages: (20..120)
+                .map(|index| crate::state::chat::AgentMessage {
+                    id: Some(format!("msg-{index}")),
+                    role: crate::state::chat::MessageRole::Assistant,
+                    content: format!("msg {index}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        },
+    ));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model
+        .chat
+        .reduce(chat::ChatAction::ScrollChat(i32::MAX / 2));
+    model.chat.reduce(chat::ChatAction::Reasoning {
+        thread_id: "thread-user".to_string(),
+        content: (0..20)
+            .map(|index| format!("thinking line {index}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    });
+
+    model.on_tick();
+
+    match daemon_rx.try_recv() {
+        Ok(DaemonCommand::RequestThread {
+            thread_id,
+            message_limit,
+            message_offset,
+        }) => {
+            assert_eq!(thread_id, "thread-user");
+            assert_eq!(message_limit, Some(136));
+            assert_eq!(message_offset, Some(100));
+        }
+        other => panic!("expected older-page request, got {other:?}"),
+    }
+}
+
+#[test]
+fn mouse_scroll_up_on_streaming_activity_row_requests_older_thread_page() {
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.config.tui_chat_history_page_size = 123;
+    model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
+        crate::state::chat::AgentThread {
+            id: "thread-user".to_string(),
+            title: "User Thread".to_string(),
+            total_message_count: 12,
+            loaded_message_start: 10,
+            loaded_message_end: 12,
+            messages: (10..12)
+                .map(|index| crate::state::chat::AgentMessage {
+                    id: Some(format!("msg-{index}")),
+                    role: crate::state::chat::MessageRole::Assistant,
+                    content: format!("msg {index}"),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        },
+    ));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+    model.set_active_thread_activity("thinking");
+    let activity_row = model.pane_layout().concierge.y.saturating_add(1);
+
+    model.handle_mouse(MouseEvent {
+        kind: MouseEventKind::ScrollUp,
+        column: 4,
+        row: activity_row,
+        modifiers: KeyModifiers::NONE,
+    });
+    model.on_tick();
+
+    match next_thread_request(&mut daemon_rx) {
+        Some((thread_id, message_limit, message_offset)) => {
+            assert_eq!(thread_id, "thread-user");
+            assert_eq!(message_limit, Some(136));
+            assert_eq!(message_offset, Some(2));
         }
         other => panic!("expected older-page request, got {other:?}"),
     }
@@ -427,4 +654,3 @@ fn on_tick_refreshes_spawned_sidebar_tasks_on_cooldown() {
         "spawned sidebar should request another task refresh once the cooldown elapses"
     );
 }
-

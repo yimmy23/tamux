@@ -1,3 +1,8 @@
+use ratatui_textarea::{CursorMove, TextArea};
+
+use super::{InputAction, InputMode, InputState, PasteBlock};
+use crate::state::input_refs;
+
 impl InputState {
     pub fn new() -> Self {
         let textarea = TextArea::default();
@@ -5,7 +10,7 @@ impl InputState {
         Self {
             textarea,
             buffer_cache,
-            mode: InputMode::Insert, // Start in Insert mode
+            mode: InputMode::Insert,
             submitted: None,
             paste_blocks: Vec::new(),
             next_paste_id: 0,
@@ -166,16 +171,16 @@ impl InputState {
             if i == line {
                 return offset + col.min(line_str.len());
             }
-            offset += line_str.len() + 1; // +1 for \n
+            offset += line_str.len() + 1;
         }
-        self.buffer_cache.len() // past end
+        self.buffer_cache.len()
     }
 
-    fn sync_buffer_cache(&mut self) {
+    pub(super) fn sync_buffer_cache(&mut self) {
         self.buffer_cache = self.textarea.lines().join("\n");
     }
 
-    fn set_buffer_and_cursor(&mut self, buffer: &str, cursor: usize) {
+    pub(super) fn set_buffer_and_cursor(&mut self, buffer: &str, cursor: usize) {
         self.textarea = TextArea::from(buffer.split('\n'));
         self.sync_buffer_cache();
         self.jump_to_offset(cursor.min(self.buffer_cache.len()));
@@ -248,7 +253,6 @@ impl InputState {
 
             let cursor = self.cursor_pos();
             if cursor >= line_start && cursor <= line_end {
-                // Cursor is in this logical line
                 let chars_before = self.buffer_cache[line_start..cursor].chars().count();
                 let vis_line_in_this = chars_before / wrap_width.max(1);
                 let vis_col = chars_before % wrap_width.max(1);
@@ -256,7 +260,7 @@ impl InputState {
             }
 
             vis_line += vis_lines_in_this;
-            offset = line_end + 1; // +1 for \n
+            offset = line_end + 1;
         }
         (vis_line, 0)
     }
@@ -294,11 +298,9 @@ impl InputState {
             };
 
             if target_vis_line >= vis_line && target_vis_line < vis_line + vis_lines_in_this {
-                // Target is in this logical line
                 let vis_line_within = target_vis_line - vis_line;
                 let char_offset = vis_line_within * wrap_width + target_col.min(wrap_width - 1);
                 let clamped = char_offset.min(len);
-                // Convert char offset to byte offset
                 let byte_offset: usize = logical_line
                     .chars()
                     .take(clamped)
@@ -308,7 +310,7 @@ impl InputState {
             }
 
             vis_line += vis_lines_in_this;
-            offset += logical_line.len() + 1; // +1 for \n
+            offset += logical_line.len() + 1;
         }
         self.buffer_cache.len()
     }
@@ -341,7 +343,7 @@ impl InputState {
         self.jump_to_line_col(last_row, last_col);
     }
 
-    fn clear_text(&mut self) {
+    pub(super) fn clear_text(&mut self) {
         if !self.buffer_cache.is_empty() {
             self.textarea.select_all();
             self.textarea.cut();
@@ -437,7 +439,6 @@ impl InputState {
                 if wrap_width == 0 {
                     return;
                 }
-                // Find cursor's position in visual (wrapped) coordinates
                 let (vis_line, vis_col) = self.cursor_visual_line_col(wrap_width);
                 if vis_line > 0 {
                     let offset = self.visual_line_col_to_offset(vis_line - 1, vis_col, wrap_width);

@@ -1,4 +1,5 @@
-async fn parse_openai_sse(
+use super::*;
+pub(crate) async fn parse_openai_sse(
     response: reqwest::Response,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
@@ -20,7 +21,6 @@ async fn parse_openai_sse(
         let mut remaining = String::new();
         for line in buffer.split('\n') {
             if !line.starts_with("data: ") {
-                // Keep incomplete lines in the buffer
                 if !line.is_empty() && !line.starts_with(':') && !line.starts_with("event:") {
                     remaining.push_str(line);
                     remaining.push('\n');
@@ -30,7 +30,6 @@ async fn parse_openai_sse(
 
             let data = line[6..].trim();
             if data == "[DONE]" {
-                // Emit final chunk
                 if !pending_tool_calls.is_empty() {
                     let tool_calls = drain_tool_calls(&mut pending_tool_calls);
                     let provider_final_result = Some(
@@ -463,7 +462,7 @@ async fn emit_openai_responses_terminal_chunk(
         .await;
 }
 
-async fn parse_openai_responses_sse(
+pub(crate) async fn parse_openai_responses_sse(
     response: reqwest::Response,
     provider: &str,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
@@ -580,12 +579,14 @@ async fn parse_openai_responses_sse(
                     }
                 }
                 OpenAiResponsesStreamEvent::ResponseFunctionCallArgumentsDelta(event) => {
-                    let entry = pending_tool_call_entry(&mut pending_tool_calls, event.output_index);
+                    let entry =
+                        pending_tool_call_entry(&mut pending_tool_calls, event.output_index);
                     entry.arguments.push_str(&event.delta);
                 }
                 OpenAiResponsesStreamEvent::ResponseCompleted(event)
                 | OpenAiResponsesStreamEvent::ResponseIncomplete(event) => {
-                    let terminal_response = canonical_openai_responses_terminal_response(&event.response);
+                    let terminal_response =
+                        canonical_openai_responses_terminal_response(&event.response);
                     apply_openai_responses_terminal_response(
                         &event.response,
                         &mut response_id,
@@ -701,6 +702,3 @@ async fn parse_openai_responses_sse(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Anthropic Messages API implementation
-// ---------------------------------------------------------------------------

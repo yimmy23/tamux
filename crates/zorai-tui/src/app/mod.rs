@@ -4,6 +4,21 @@
 //! compositor that owns the 8 state sub-modules and bridges between
 //! the daemon client events and the UI state.
 
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_protocol::*;
+
 mod commands;
 mod config_io;
 pub(crate) mod conversion;
@@ -34,10 +49,31 @@ mod workspace_review_modal;
 mod workspace_review_modal_tests;
 mod workspace_update;
 
-include!("mod_parts/modal_body_to_step.rs");
-include!("mod_parts/pending_workspace_actor_picker.rs");
+#[path = "mod_parts/modal_body_to_step.rs"]
+mod modal_body_to_step;
+#[path = "mod_parts/pending_workspace_actor_picker.rs"]
+mod pending_workspace_actor_picker;
+
+const MESSAGE_DELETE_BACKFILL_THRESHOLD: usize = 5;
+pub(crate) const THREAD_PICKER_AGENT_REFRESH_DEBOUNCE_TICKS: u64 =
+    1_000 / modal_body_to_step::TUI_TICK_RATE_MS;
+
+#[derive(Clone, Copy, Debug)]
+struct PendingDeleteBackfillFetch {
+    message_limit: usize,
+    message_offset: usize,
+    outstanding_rows: usize,
+    requested_at_tick: u64,
+}
+
+#[derive(Debug, Clone)]
+struct PendingThreadPickerRefresh {
+    tab: modal::ThreadPickerTab,
+    agent_filter: String,
+    ready_at_tick: u64,
+}
+
 pub struct TuiModel {
-    // State modules
     chat: chat::ChatState,
     input: input::InputState,
     modal: modal::ModalState,
@@ -62,17 +98,14 @@ pub struct TuiModel {
     pub tier: TierState,
     pub workspace: crate::state::workspace::WorkspaceState,
 
-    // UI chrome
     focus: FocusArea,
     theme: ThemeTokens,
     width: u16,
     height: u16,
 
-    // Infrastructure
     daemon_cmd_tx: UnboundedSender<DaemonCommand>,
     daemon_events_rx: Receiver<ClientEvent>,
 
-    // Status
     connected: bool,
     agent_config_loaded: bool,
     status_line: String,
@@ -86,27 +119,27 @@ pub struct TuiModel {
     next_system_monitor_tick: u64,
     image_preview_cache_revision: u64,
 
-    // Agent activity state (from daemon events, not local buffers)
     agent_activity: Option<String>,
     thread_agent_activity: std::collections::HashMap<String, String>,
     bootstrap_pending_activity_threads: std::collections::HashSet<String>,
     pending_prompt_response_threads: std::collections::HashSet<String>,
     deleted_thread_ids: std::collections::HashSet<String>,
+    pending_local_message_delete_reload_suppression: std::collections::HashMap<String, usize>,
+    pending_local_message_delete_backfills: std::collections::HashMap<String, usize>,
+    pending_local_message_delete_fetches:
+        std::collections::HashMap<String, PendingDeleteBackfillFetch>,
     participant_playground_activity:
         std::collections::HashMap<String, ParticipantPlaygroundActivity>,
 
-    // Error state
     last_error: Option<String>,
     error_active: bool,
     error_tick: u64,
 
-    // Pending ChatGPT subscription login flow
     openai_auth_url: Option<String>,
     openai_auth_status_text: Option<String>,
     settings_picker_target: Option<SettingsPickerTarget>,
     last_attention_surface: Option<String>,
 
-    // Responsive layout override: when Some, overrides breakpoint-based sidebar visibility
     show_sidebar_override: Option<bool>,
     main_pane_view: MainPaneView,
     task_view_scroll: usize,
@@ -114,10 +147,8 @@ pub struct TuiModel {
     task_show_timeline: bool,
     task_show_files: bool,
 
-    // Set by /quit command; checked after modal enter to issue quit
     pending_quit: bool,
 
-    // Double-Esc stream stop state
     pending_stop: bool,
     pending_stop_tick: u64,
     input_notice: Option<InputNotice>,
@@ -130,10 +161,8 @@ pub struct TuiModel {
     auto_response_selection: AutoResponseActionSelection,
     held_key_modifiers: KeyModifiers,
 
-    // Pending file attachments (prepended to next submitted message)
     attachments: Vec<Attachment>,
 
-    // Voice capture / playback state
     voice_recording: bool,
     voice_capture_path: Option<String>,
     voice_capture_stderr_path: Option<String>,
@@ -141,42 +170,36 @@ pub struct TuiModel {
     voice_recorder: Option<Child>,
     voice_player: Option<Child>,
 
-    // Queue of prompts submitted while tool execution is still in flight.
     queued_prompts: Vec<QueuedPrompt>,
     queued_prompt_action: QueuedPromptAction,
     hidden_auto_response_suggestion_ids: std::collections::HashSet<String>,
 
     operator_profile: OperatorProfileOnboardingState,
 
-    // Thread ID whose stream was cancelled via double-Esc (ignore further events)
     cancelled_thread_id: Option<String>,
 
-    // Selected target agent for the next brand-new thread started from the thread picker.
     pending_new_thread_target_agent: Option<String>,
+    pending_thread_picker_refresh: Option<PendingThreadPickerRefresh>,
+    thread_picker_loading_tab: Option<modal::ThreadPickerTab>,
 
-    // Builtin persona setup flow launched from @agent / !agent commands.
     pending_builtin_persona_setup: Option<PendingBuiltinPersonaSetup>,
     pending_target_agent_config: Option<PendingTargetAgentConfig>,
     pending_svarog_reasoning_effort: Option<String>,
 
-    // Thread currently awaiting full detail from the daemon.
     thread_loading_id: Option<String>,
     missing_runtime_thread_ids: std::collections::HashSet<String>,
     empty_hydrated_runtime_thread_ids: std::collections::HashSet<String>,
     pending_reconnect_restore: Option<PendingReconnectRestore>,
     pending_goal_hydration_refreshes: std::collections::HashSet<String>,
 
-    // Ignore a stale concierge welcome that arrives after the user navigated away.
     ignore_pending_concierge_welcome: bool,
     operator_profile_auto_start_requested: bool,
     operator_profile_auto_start_pending_summary: bool,
 
-    // Gateway connection statuses received from daemon
     pub gateway_statuses: Vec<chat::GatewayStatusVm>,
 
     pub weles_health: Option<crate::client::WelesHealthVm>,
 
-    // Recent autonomous actions from heartbeat digests (shown in sidebar)
     pub recent_actions: Vec<RecentActionVm>,
     status_modal_snapshot: Option<crate::client::AgentStatusSnapshotVm>,
     status_modal_diagnostics_json: Option<String>,
@@ -199,7 +222,6 @@ pub struct TuiModel {
     thread_participants_modal_scroll: usize,
     help_modal_scroll: usize,
 
-    // Active mouse drag selection in the chat pane
     chat_drag_anchor: Option<Position>,
     chat_drag_current: Option<Position>,
     chat_drag_anchor_point: Option<widgets::chat::SelectionPoint>,
@@ -209,19 +231,16 @@ pub struct TuiModel {
     chat_scrollbar_drag_grab_offset: Option<u16>,
     file_preview_scrollbar_drag_grab_offset: Option<u16>,
 
-    // Active mouse drag selection in the work-context preview pane
     work_context_drag_anchor: Option<Position>,
     work_context_drag_current: Option<Position>,
     work_context_drag_anchor_point: Option<widgets::chat::SelectionPoint>,
     work_context_drag_current_point: Option<widgets::chat::SelectionPoint>,
 
-    // Active mouse drag selection in the goal/task detail pane
     task_view_drag_anchor: Option<Position>,
     task_view_drag_current: Option<Position>,
     task_view_drag_anchor_point: Option<widgets::chat::SelectionPoint>,
     task_view_drag_current_point: Option<widgets::chat::SelectionPoint>,
 
-    // Active workspace board drag
     workspace_drag_task: Option<String>,
     workspace_drag_status: Option<zorai_protocol::WorkspaceTaskStatus>,
     workspace_drag_start_target: Option<widgets::workspace_board::WorkspaceBoardHitTarget>,
@@ -239,11 +258,15 @@ pub struct TuiModel {
     pending_workspace_actor_picker: Option<PendingWorkspaceActorPicker>,
 }
 
-include!("new_to_prompt_modal_title_to_clear_pending_prompt_response_thread.rs");
-include!("send_continue_message_to_set_main_pane_conversation_to_mark_all.rs");
-include!("chat_scrollbar_layout_to_publish_attention_surface_if_changed.rs");
+#[path = "chat_scrollbar_layout_to_publish_attention_surface_if_changed.rs"]
+mod chat_scrollbar_layout_to_publish_attention_surface_if_changed;
+#[path = "new_to_prompt_modal_title_to_clear_pending_prompt_response_thread.rs"]
+mod new_to_prompt_modal_title_to_clear_pending_prompt_response_thread;
+#[path = "send_continue_message_to_set_main_pane_conversation_to_mark_all.rs"]
+mod send_continue_message_to_set_main_pane_conversation_to_mark_all;
 
-include!("mod_parts/settings_tab_label_to_target_goal_run_id.rs");
+#[path = "mod_parts/settings_tab_label_to_target_goal_run_id.rs"]
+mod settings_tab_label_to_target_goal_run_id;
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,13 +323,29 @@ mod tests {
         }
     }
 
-    include!("tests/provider_onboarding_requires_loaded_auth_state_to_copy_message_shows.rs");
-    include!("tests/migrate_preview_slash_command_sends_daemon_migration_preview_to_start.rs");
-    include!("tests/clicking_selected_message_copy_action_copies_that_message_to_click.rs");
-    include!("tests/drag_selection_does_not_rebuild_full_transcript_for_every_mouse_event.rs");
-    include!("tests/drag_selection_copies_expected_text_after_autoscroll_to_status_modal.rs");
-    include!("tests/goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows.rs");
-    include!("tests/background_delta_isolated_to_origin_thread_until_switch_to_background.rs");
-    include!("tests/input_history_keyboard.rs");
-    include!("tests/goal_composer_add_agent_hotkey_creates_another_role_assignment.rs");
+    #[path = "background_delta_isolated_to_origin_thread_until_switch_to_background.rs"]
+    mod background_delta_isolated_to_origin_thread_until_switch_to_background;
+    #[path = "clicking_selected_message_copy_action_copies_that_message_to_click.rs"]
+    mod clicking_selected_message_copy_action_copies_that_message_to_click;
+    #[path = "drag_selection_copies_expected_text_after_autoscroll_to_status_modal.rs"]
+    mod drag_selection_copies_expected_text_after_autoscroll_to_status_modal;
+    #[path = "drag_selection_does_not_rebuild_full_transcript_for_every_mouse_event.rs"]
+    mod drag_selection_does_not_rebuild_full_transcript_for_every_mouse_event;
+    #[path = "goal_composer_add_agent_hotkey_creates_another_role_assignment.rs"]
+    mod goal_composer_add_agent_hotkey_creates_another_role_assignment;
+    #[path = "goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows.rs"]
+    pub(super) mod goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows;
+    #[path = "input_history_keyboard.rs"]
+    mod input_history_keyboard;
+    #[path = "migrate_preview_slash_command_sends_daemon_migration_preview_to_start.rs"]
+    mod migrate_preview_slash_command_sends_daemon_migration_preview_to_start;
+    #[path = "provider_onboarding_requires_loaded_auth_state_to_copy_message_shows.rs"]
+    mod provider_onboarding_requires_loaded_auth_state_to_copy_message_shows;
 }
+
+pub(crate) use chat_scrollbar_layout_to_publish_attention_surface_if_changed::*;
+pub(crate) use modal_body_to_step::*;
+pub(crate) use new_to_prompt_modal_title_to_clear_pending_prompt_response_thread::*;
+pub(crate) use pending_workspace_actor_picker::*;
+pub(crate) use send_continue_message_to_set_main_pane_conversation_to_mark_all::*;
+pub(crate) use settings_tab_label_to_target_goal_run_id::*;

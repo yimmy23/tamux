@@ -23,7 +23,7 @@ pub struct FetchedModel {
     pub metadata: Option<serde_json::Value>,
 }
 
-fn json_u32(value: &serde_json::Value) -> Option<u32> {
+pub(super) fn json_u32(value: &serde_json::Value) -> Option<u32> {
     match value {
         serde_json::Value::Number(number) => number.as_u64().and_then(|n| u32::try_from(n).ok()),
         serde_json::Value::String(text) => text.trim().parse::<u32>().ok(),
@@ -32,7 +32,7 @@ fn json_u32(value: &serde_json::Value) -> Option<u32> {
     .filter(|value| *value > 0)
 }
 
-fn setting_name_matches(value: &serde_json::Value) -> bool {
+pub(super) fn setting_name_matches(value: &serde_json::Value) -> bool {
     value
         .as_str()
         .map(|text| {
@@ -49,22 +49,22 @@ fn setting_name_matches(value: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
-fn provider_supports_audio(provider: &str, group: &str) -> bool {
+pub(super) fn provider_supports_audio(provider: &str, group: &str) -> bool {
     match group {
         "stt" | "tts" => provider == "openrouter",
         _ => false,
     }
 }
 
-fn provider_supports_image_generation(provider: &str) -> bool {
+pub(super) fn provider_supports_image_generation(provider: &str) -> bool {
     provider == "openrouter"
 }
 
-fn provider_supports_embeddings(provider: &str) -> bool {
+pub(super) fn provider_supports_embeddings(provider: &str) -> bool {
     provider == "openrouter"
 }
 
-fn dimensions_from_settings_array(settings: &[serde_json::Value]) -> Option<u32> {
+pub(super) fn dimensions_from_settings_array(settings: &[serde_json::Value]) -> Option<u32> {
     settings.iter().find_map(|setting| {
         let object = setting.as_object()?;
         let name_matches = ["id", "key", "name", "param", "parameter"]
@@ -178,7 +178,6 @@ impl HonchoEditorState {
     }
 }
 
-// ── ConfigAction ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum ConfigAction {
@@ -188,10 +187,9 @@ pub enum ConfigAction {
     SetProvider(String),
     SetModel(String),
     SetReasoningEffort(String),
-    ToggleTool(String), // toggle tool by name: "bash", "file_ops", zorai_protocol::tool_names::WEB_SEARCH, etc.
+    ToggleTool(String),
 }
 
-// ── ConfigState ───────────────────────────────────────────────────────────────
 
 pub struct ConfigState {
     pub provider: String,
@@ -214,7 +212,6 @@ pub struct ConfigState {
     pub fetched_models: Vec<FetchedModel>,
     pub agent_config_raw: Option<serde_json::Value>,
 
-    // Tool toggles
     pub tool_bash: bool,
     pub tool_file_ops: bool,
     pub tool_web_search: bool,
@@ -223,8 +220,7 @@ pub struct ConfigState {
     pub tool_system_info: bool,
     pub tool_gateway: bool,
 
-    // Web search config
-    pub search_provider: String, // "none", "firecrawl", "duckduckgo", "exa", "tavily"
+    pub search_provider: String,
     pub duckduckgo_region: String,
     pub duckduckgo_safe_search: String,
     pub firecrawl_api_key: String,
@@ -233,13 +229,10 @@ pub struct ConfigState {
     pub search_max_results: u32,
     pub search_timeout_secs: u32,
 
-    // Web browse config
-    pub browse_provider: String, // "auto", "lightpanda", "chrome", "none"
+    pub browse_provider: String,
 
-    // Custom provider modalities (only used when provider == "custom")
-    pub custom_modalities: String, // "text", "text,image", "text,image,video,audio"
+    pub custom_modalities: String,
 
-    // Gateway config
     pub gateway_enabled: bool,
     pub gateway_prefix: String,
     pub slack_token: String,
@@ -253,7 +246,6 @@ pub struct ConfigState {
     pub whatsapp_token: String,
     pub whatsapp_phone_id: String,
 
-    // Chat settings
     pub enable_streaming: bool,
     pub enable_conversation_memory: bool,
     pub enable_honcho_memory: bool,
@@ -280,7 +272,6 @@ pub struct ConfigState {
     pub managed_sandbox_enabled: bool,
     pub managed_security_level: String,
 
-    // Advanced settings
     pub auto_compact_context: bool,
     pub max_context_messages: u32,
     pub tui_chat_history_page_size: u32,
@@ -312,12 +303,14 @@ pub struct ConfigState {
     pub compaction_custom_reasoning_effort: String,
     pub compaction_custom_context_window_tokens: u32,
 
-    // Snapshot retention settings
     pub snapshot_max_count: u32,
     pub snapshot_max_size_mb: u32,
     pub snapshot_auto_cleanup: bool,
 
-    // Snapshot stats (read-only, refreshed periodically)
     pub snapshot_count: usize,
     pub snapshot_total_size_bytes: u64,
+
+    pub workspace_repo_monitor_enabled: bool,
+    pub workspace_repo_monitor_include_dirs: String,
+    pub workspace_repo_monitor_exclude_dirs: String,
 }

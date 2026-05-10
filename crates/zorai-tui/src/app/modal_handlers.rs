@@ -18,8 +18,52 @@ fn matches_shift_char(code: KeyCode, modifiers: KeyModifiers, expected: char) ->
 }
 
 impl TuiModel {
+    pub(crate) fn queue_threads_for_picker_tab_refresh(
+        &mut self,
+        tab: &crate::state::modal::ThreadPickerTab,
+    ) {
+        let Some(filter) = tab.agent_filter() else {
+            self.pending_thread_picker_refresh = None;
+            self.thread_picker_loading_tab = None;
+            return;
+        };
+
+        self.pending_thread_picker_refresh = Some(PendingThreadPickerRefresh {
+            tab: tab.clone(),
+            agent_filter: filter,
+            ready_at_tick: self
+                .tick_counter
+                .saturating_add(THREAD_PICKER_AGENT_REFRESH_DEBOUNCE_TICKS),
+        });
+        self.thread_picker_loading_tab = Some(tab.clone());
+    }
+
+    pub(crate) fn thread_picker_loading_tab(&self) -> Option<crate::state::modal::ThreadPickerTab> {
+        self.thread_picker_loading_tab.clone()
+    }
+
     pub(crate) fn begin_custom_model_edit(&mut self) {
         enter::begin_custom_model_edit(self);
+    }
+
+    /// Dispatch a thread-list refresh keyed on the current picker tab. For
+    /// agent-scoped tabs the daemon returns *all* matching threads (no cap);
+    /// for tabs not scoped to an agent (Goals/Workspace/etc.) we skip — those
+    /// already render from in-memory caches keyed by their own criteria.
+    pub(crate) fn refresh_threads_for_picker_tab(
+        &mut self,
+        tab: &crate::state::modal::ThreadPickerTab,
+    ) {
+        if let Some(filter) = tab.agent_filter() {
+            self.pending_thread_picker_refresh = None;
+            self.thread_picker_loading_tab = Some(tab.clone());
+            self.send_daemon_command(crate::state::DaemonCommand::RefreshThreadsForAgent {
+                agent_filter: Some(filter),
+            });
+        } else {
+            self.pending_thread_picker_refresh = None;
+            self.thread_picker_loading_tab = None;
+        }
     }
     pub(super) fn handle_key_modal(
         &mut self,
@@ -204,12 +248,9 @@ impl TuiModel {
                 return false;
             }
 
-            // Plugin settings fields use their own save path — bypass the
-            // base config handler so Enter reaches handle_plugins_settings_key.
             if self.settings.is_editing() && self.settings.active_tab() == SettingsTab::Plugins {
                 match code {
                     KeyCode::Enter => {
-                        // Delegate to plugin handler which sends PluginUpdateSetting
                         if self.handle_plugins_settings_key(code) {
                             return false;
                         }
@@ -593,7 +634,6 @@ impl TuiModel {
                                 };
                                 self.send_concierge_config();
                             }
-                            // ── Features tab editable fields ──
                             "feat_heartbeat_cron" => {
                                 self.send_daemon_command(DaemonCommand::SetConfigItem {
                                     key_path: "/heartbeat/cron".to_string(),
@@ -704,7 +744,6 @@ impl TuiModel {
                                     }
                                 }
                             }
-                            // ── Audio settings fields ──
                             "feat_audio_stt_provider" => {
                                 self.send_daemon_command(DaemonCommand::SetConfigItem {
                                     key_path: "/audio/stt/provider".to_string(),
@@ -1570,8 +1609,9 @@ impl TuiModel {
                     &self.workspace,
                     -1,
                 );
-                self.modal.set_thread_picker_tab(previous);
+                self.modal.set_thread_picker_tab(previous.clone());
                 self.sync_thread_picker_item_count();
+                self.queue_threads_for_picker_tab_refresh(&previous);
             }
             KeyCode::Right if kind == modal::ModalKind::ThreadPicker => {
                 let next = widgets::thread_picker::adjacent_thread_picker_tab_for_workspace(
@@ -1582,8 +1622,17 @@ impl TuiModel {
                     &self.workspace,
                     1,
                 );
-                self.modal.set_thread_picker_tab(next);
+                self.modal.set_thread_picker_tab(next.clone());
                 self.sync_thread_picker_item_count();
+                self.queue_threads_for_picker_tab_refresh(&next);
+            }
+            KeyCode::Char('R')
+                if kind == modal::ModalKind::ThreadPicker
+                    && modifiers.contains(KeyModifiers::SHIFT) =>
+            {
+                let tab = self.modal.thread_picker_tab();
+                self.refresh_threads_for_picker_tab(&tab);
+                self.status_line = "Refreshing threads…".to_string();
             }
             KeyCode::Delete if kind == modal::ModalKind::ThreadPicker => {
                 if let Some(thread) = self.selected_thread_picker_thread() {

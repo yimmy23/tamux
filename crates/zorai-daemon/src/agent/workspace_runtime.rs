@@ -75,6 +75,19 @@ impl AgentEngine {
         self.finish_workspace_task_run(start).await
     }
 
+    /// Variant that accepts a pre-loaded task. Saves one SQL fetch per
+    /// task when the caller already has the row in hand — used by
+    /// `start_svarog_workspace_operator_tasks` which lists tasks then
+    /// runs each, where the first SQL fetch in `begin_workspace_task_run`
+    /// just re-reads what we already have.
+    pub async fn run_workspace_task_with_loaded(
+        &self,
+        task: WorkspaceTask,
+    ) -> Result<WorkspaceTask> {
+        let start = self.begin_workspace_task_run_with_loaded(task).await?;
+        self.finish_workspace_task_run(start).await
+    }
+
     pub async fn run_workspace_task_deferred(
         self: &Arc<Self>,
         task_id: &str,
@@ -95,15 +108,44 @@ impl AgentEngine {
         Ok(started_task)
     }
 
+    /// Deferred variant that accepts a pre-loaded task. Same N+1 fix as
+    /// `run_workspace_task_with_loaded`.
+    pub async fn run_workspace_task_deferred_with_loaded(
+        self: &Arc<Self>,
+        task: WorkspaceTask,
+    ) -> Result<WorkspaceTask> {
+        let start = self.begin_workspace_task_run_with_loaded(task).await?;
+        let started_task = start.task.clone();
+        let started_task_id = started_task.id.clone();
+        let engine = Arc::clone(self);
+        tokio::spawn(async move {
+            if let Err(error) = engine.finish_workspace_task_run(start).await {
+                tracing::warn!(
+                    task_id = %started_task_id,
+                    error = %error,
+                    "deferred workspace task launch failed"
+                );
+            }
+        });
+        Ok(started_task)
+    }
+
     async fn begin_workspace_task_run(&self, task_id: &str) -> Result<WorkspaceTaskRunStart> {
-        let Some(mut task) = self.history.get_workspace_task(task_id).await? else {
+        let Some(task) = self.history.get_workspace_task(task_id).await? else {
             anyhow::bail!("workspace task not found");
         };
+        self.begin_workspace_task_run_with_loaded(task).await
+    }
+
+    async fn begin_workspace_task_run_with_loaded(
+        &self,
+        mut task: WorkspaceTask,
+    ) -> Result<WorkspaceTaskRunStart> {
         let Some(assignee) = task.assignee.clone() else {
             anyhow::bail!("workspace task cannot run without an assignee");
         };
         let now = now_millis();
-        let previous_status = task.status;
+        let previous_status = task.status.clone();
         let previous_sort_order = task.sort_order;
         let previous_started_at = task.started_at;
         task.status = WorkspaceTaskStatus::InProgress;
@@ -242,19 +284,22 @@ impl AgentEngine {
         moving_task_id: &str,
         sort_order: i64,
     ) -> Result<()> {
-        let mut tasks = self
+        let tasks = self
             .history
-            .list_workspace_tasks(workspace_id, false)
+            .list_workspace_tasks_for_sort_shift(workspace_id, status, moving_task_id, sort_order)
             .await?;
-        tasks.sort_by_key(|task| (task.sort_order, task.created_at));
+        let now = now_millis();
+        let mut shifted: Vec<zorai_protocol::WorkspaceTask> = Vec::with_capacity(tasks.len());
         for mut task in tasks {
-            if task.id == moving_task_id || task.status != status || task.sort_order < sort_order {
-                continue;
-            }
             task.sort_order += 1;
-            task.updated_at = now_millis();
-            self.history.upsert_workspace_task(&task).await?;
-            self.broadcast_workspace_task_update(&task);
+            task.updated_at = now;
+            shifted.push(task);
+        }
+        if !shifted.is_empty() {
+            self.history.upsert_workspace_tasks_batch(&shifted).await?;
+            for task in &shifted {
+                self.broadcast_workspace_task_update(task);
+            }
         }
         Ok(())
     }
@@ -284,7 +329,11 @@ impl AgentEngine {
         let Some(goal_run_id) = task.goal_run_id.clone() else {
             return Ok(task);
         };
-        let Some(goal_run) = self.history.get_goal_run(&goal_run_id).await? else {
+        let Some(goal_run) = self
+            .history
+            .goal_run_workspace_runtime_ref(&goal_run_id)
+            .await?
+        else {
             return Ok(task);
         };
         let (next_status, notice_type, notice_message) = match goal_run.status {
@@ -311,13 +360,15 @@ impl AgentEngine {
             _ => return Ok(task),
         };
         if task.status == next_status && notice_type != "runtime_completed" {
-            let notices = self
+            if self
                 .history
-                .list_workspace_notices(&task.workspace_id, Some(&task.id))
-                .await?;
-            if notices
-                .iter()
-                .any(|notice| notice.notice_type == notice_type && notice.message == notice_message)
+                .workspace_notice_with_message_exists(
+                    &task.workspace_id,
+                    &task.id,
+                    notice_type,
+                    &notice_message,
+                )
+                .await?
             {
                 return Ok(task);
             }
@@ -378,15 +429,12 @@ impl AgentEngine {
     async fn ensure_workspace_goal_completion_notice(
         &self,
         task: &WorkspaceTask,
-        goal_run: &GoalRun,
+        goal_run: &crate::history::GoalRunWorkspaceRuntimeRef,
     ) -> Result<()> {
-        let notices = self
+        if self
             .history
-            .list_workspace_notices(&task.workspace_id, Some(&task.id))
-            .await?;
-        if notices
-            .iter()
-            .any(|notice| notice.notice_type == "task_completion")
+            .workspace_notice_exists(&task.workspace_id, &task.id, "task_completion")
+            .await?
         {
             return Ok(());
         }

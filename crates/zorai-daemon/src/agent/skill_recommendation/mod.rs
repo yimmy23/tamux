@@ -30,7 +30,7 @@ pub(crate) async fn discover_local_skills(
     limit: usize,
     cfg: &SkillRecommendationConfig,
 ) -> Result<SkillDiscoveryResult> {
-    let records = history.list_skill_variants(None, 512).await?;
+    let records = history.list_discoverable_skill_variants(512).await?;
     let candidates = if records.is_empty() {
         schedule_background_skill_catalog_sync(history.clone(), skills_root.to_path_buf());
         collect_filesystem_skill_candidates(skills_root)?
@@ -65,7 +65,7 @@ pub(crate) async fn discover_local_skills_with_semantic_scores(
     cfg: &SkillRecommendationConfig,
     semantic_scores: &HashMap<String, f64>,
 ) -> Result<SkillDiscoveryResult> {
-    let records = history.list_skill_variants(None, 512).await?;
+    let records = history.list_discoverable_skill_variants(512).await?;
     let candidates = if records.is_empty() {
         schedule_background_skill_catalog_sync(history.clone(), skills_root.to_path_buf());
         collect_filesystem_skill_candidates(skills_root)?

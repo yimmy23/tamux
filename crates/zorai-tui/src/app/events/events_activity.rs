@@ -5,7 +5,9 @@ fn parse_workflow_notice_details(details: Option<&str>) -> Option<serde_json::Va
     serde_json::from_str::<serde_json::Value>(details?).ok()
 }
 
-fn auto_compaction_reload_window(details: Option<&str>) -> Option<(usize, usize, usize, usize)> {
+pub(super) fn auto_compaction_reload_window(
+    details: Option<&str>,
+) -> Option<(usize, usize, usize, usize)> {
     let parsed = parse_workflow_notice_details(details)?;
     let split_at = parsed.get("split_at")?.as_u64()? as usize;
     let total_message_count = parsed.get("total_message_count")?.as_u64()? as usize;
@@ -17,7 +19,7 @@ fn auto_compaction_reload_window(details: Option<&str>) -> Option<(usize, usize,
     ))
 }
 
-fn normalized_skill_workflow_notice(
+pub(super) fn normalized_skill_workflow_notice(
     kind: &str,
     message: &str,
     details: Option<&str>,
@@ -130,14 +132,15 @@ fn normalized_skill_workflow_notice(
     }
 }
 
-include!(
-    "events_activity_parts/participant_playground_target_to_handle_operator_model_summary_event.rs"
-);
-include!(
-    "events_activity_parts/handle_operator_model_reset_event_to_handle_divergent_session_event.rs"
-);
+#[path = "events_activity_parts/participant_playground_target_to_handle_operator_model_summary_event.rs"]
+mod participant_playground_target_to_handle_operator_model_summary_event;
 
-fn parse_collaboration_sessions(value: serde_json::Value) -> Option<Vec<CollaborationSessionVm>> {
+#[path = "events_activity_parts/handle_operator_model_reset_event_to_handle_divergent_session_event.rs"]
+mod handle_operator_model_reset_event_to_handle_divergent_session_event;
+
+pub(super) fn parse_collaboration_sessions(
+    value: serde_json::Value,
+) -> Option<Vec<CollaborationSessionVm>> {
     let items = value.as_array()?;
     Some(
         items

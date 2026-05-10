@@ -1,4 +1,3 @@
-// Sub-module declarations — uncomment as modules are implemented
 pub mod anticipatory;
 pub mod approval;
 pub mod audit;
@@ -23,7 +22,6 @@ pub mod task;
 pub mod tier;
 pub mod workspace;
 
-// ── Focus ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FocusArea {
@@ -32,12 +30,17 @@ pub enum FocusArea {
     Input,
 }
 
-// ── Daemon commands ───────────────────────────────────────────────────────────
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum DaemonCommand {
     Refresh,
+    /// Request the unbounded thread list for a specific agent filter. The
+    /// daemon drops its 128-thread cap when an agent_filter is supplied; the
+    /// TUI caches the result client-side and refreshes on demand.
+    RefreshThreadsForAgent {
+        agent_filter: Option<String>,
+    },
     GetConfig,
     RefreshServices,
     ListTasks,
@@ -196,6 +199,12 @@ pub enum DaemonCommand {
         workspace_id: String,
         operator: zorai_protocol::WorkspaceOperator,
     },
+    SetWorkspaceRepoMonitor {
+        workspace_id: String,
+        repo_monitor_enabled: bool,
+        repo_monitor_include_dirs: Vec<String>,
+        repo_monitor_exclude_dirs: Vec<String>,
+    },
     CreateWorkspaceTask(zorai_protocol::WorkspaceTaskCreate),
     ListWorkspaceTasks {
         workspace_id: String,
@@ -246,11 +255,11 @@ pub enum DaemonCommand {
         api_key: String,
         auth_source: String,
     },
-    SetSubAgent(String),    // sub_agent_json
-    RemoveSubAgent(String), // sub_agent_id
+    SetSubAgent(String),
+    RemoveSubAgent(String),
     ListSubAgents,
     GetConciergeConfig,
-    SetConciergeConfig(String), // config_json
+    SetConciergeConfig(String),
     RequestConciergeWelcome,
     RetryOperatorProfile,
     StartOperatorProfileSession {
@@ -325,7 +334,6 @@ pub enum DaemonCommand {
     AuditDismiss {
         entry_id: String,
     },
-    // Plugin commands (Plan 16-03)
     PluginList,
     PluginGet(String),
     PluginEnable(String),
@@ -339,14 +347,11 @@ pub enum DaemonCommand {
     },
     PluginTestConnection(String),
     PluginListCommands,
-    // OAuth (Plan 18-03)
     PluginOAuthStart(String),
     ListNotifications,
     UpsertNotification(zorai_protocol::InboxNotification),
 }
 
-// ── Placeholder sub-action enums ──────────────────────────────────────────────
-// These will be filled in by later tasks.
 
 #[allow(unused_imports)]
 pub use anticipatory::{AnticipatoryAction, AnticipatoryState};
@@ -386,7 +391,6 @@ pub use task::{TaskAction, TaskState};
 #[allow(unused_imports)]
 pub use tier::TierState;
 
-// ── Top-level app action ──────────────────────────────────────────────────────
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -409,7 +413,6 @@ pub enum AppAction {
     Quit,
 }
 
-// ── Re-exports ────────────────────────────────────────────────────────────────
 
 #[allow(unused_imports)]
 pub use AppAction as Action;

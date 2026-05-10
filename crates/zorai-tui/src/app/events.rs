@@ -45,8 +45,16 @@ impl TuiModel {
         while processed < limit {
             match self.daemon_events_rx.try_recv() {
                 Ok(event) => {
+                    let streaming_content_len_before = self.chat.streaming_content().len();
+                    let streaming_reasoning_len_before = self.chat.streaming_reasoning().len();
                     self.handle_client_event(event);
                     processed += 1;
+                    let streaming_grew = self.chat.streaming_content().len()
+                        > streaming_content_len_before
+                        || self.chat.streaming_reasoning().len() > streaming_reasoning_len_before;
+                    if streaming_grew {
+                        break;
+                    }
                 }
                 Err(_) => break,
             }
@@ -75,6 +83,7 @@ impl TuiModel {
 
         self.tick_counter = self.tick_counter.saturating_add(elapsed_ticks.max(1));
         self.maybe_refresh_system_monitor();
+        self.maybe_dispatch_pending_thread_picker_refresh();
         self.chat.clear_expired_copy_feedback(self.tick_counter);
         self.maybe_request_older_chat_history();
         self.maybe_request_older_goal_run_history();
@@ -134,6 +143,32 @@ impl TuiModel {
             || queued_prompt_copy_feedback_changed
     }
 
+    fn maybe_dispatch_pending_thread_picker_refresh(&mut self) {
+        if self.modal.top() != Some(modal::ModalKind::ThreadPicker) {
+            self.pending_thread_picker_refresh = None;
+            self.thread_picker_loading_tab = None;
+            return;
+        }
+
+        let Some(pending) = self.pending_thread_picker_refresh.clone() else {
+            return;
+        };
+
+        if self.tick_counter < pending.ready_at_tick {
+            return;
+        }
+
+        if self.modal.thread_picker_tab() != pending.tab {
+            return;
+        }
+
+        self.pending_thread_picker_refresh = None;
+        self.send_daemon_command(DaemonCommand::RefreshThreadsForAgent {
+            agent_filter: Some(pending.agent_filter),
+        });
+        self.status_line = "Refreshing threads…".to_string();
+    }
+
     pub(crate) fn wants_fast_tick(&self) -> bool {
         self.chat.is_streaming() || self.tick_driven_render_epoch(self.tick_counter).is_some()
     }
@@ -164,6 +199,10 @@ impl TuiModel {
         {
             let ticks_per_second = (1_000 / TUI_TICK_RATE_MS).max(1);
             include(tick / ticks_per_second);
+        }
+
+        if self.chat.active_thread_older_page_pending() {
+            include(tick / 3);
         }
 
         if self
@@ -204,7 +243,7 @@ impl TuiModel {
                     Some(task::GoalRunStatus::Planning | task::GoalRunStatus::Running)
                 ) =>
             {
-                Some(tick)
+                Some(tick / 4)
             }
             _ if matches!(
                 status,

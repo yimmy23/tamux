@@ -1,30 +1,21 @@
 use super::*;
+use crate::state::{chat, task};
 
 #[cfg(not(test))]
 thread_local! {
-    static SYSTEM_CLIPBOARD: std::cell::RefCell<Option<arboard::Clipboard>> =
+    pub(super) static SYSTEM_CLIPBOARD: std::cell::RefCell<Option<arboard::Clipboard>> =
         const { std::cell::RefCell::new(None) };
 }
 
-pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
-    let derived_total_message_count = t.total_message_count.max(t.messages.len());
-    let derived_loaded_message_end = if t.loaded_message_end == 0 && !t.messages.is_empty() {
-        derived_total_message_count
-    } else {
-        t.loaded_message_end.max(t.messages.len())
-    };
-    let derived_loaded_message_start = if derived_loaded_message_end >= t.messages.len() {
-        let inferred_start = derived_loaded_message_end.saturating_sub(t.messages.len());
-        if t.loaded_message_start == 0 && inferred_start > 0 {
-            inferred_start
-        } else {
-            t.loaded_message_start.min(inferred_start)
-        }
-    } else {
-        0
-    };
+pub(crate) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
+    let window = chat::chat_window::MessageWindow::from_parts(
+        t.total_message_count,
+        t.loaded_message_start,
+        t.loaded_message_end,
+        t.messages.len(),
+    );
     let messages: Vec<_> = t.messages.into_iter().map(convert_message).collect();
-    let latest_turn_context_tokens = if derived_loaded_message_end >= derived_total_message_count {
+    let latest_turn_context_tokens = if window.end >= window.total {
         messages.iter().rev().find_map(|message| {
             let tokens = message.input_tokens.saturating_add(message.output_tokens);
             (tokens > 0).then_some(tokens)
@@ -43,9 +34,9 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
         created_at: t.created_at,
         updated_at: t.updated_at,
         messages,
-        total_message_count: derived_total_message_count,
-        loaded_message_start: derived_loaded_message_start,
-        loaded_message_end: derived_loaded_message_end,
+        total_message_count: window.total,
+        loaded_message_start: window.start,
+        loaded_message_end: window.end,
         active_compaction_window_start: None,
         active_context_window_start: t.active_context_window_start,
         active_context_window_end: t.active_context_window_end,
@@ -112,7 +103,7 @@ pub(super) fn convert_thread(t: crate::wire::AgentThread) -> chat::AgentThread {
     }
 }
 
-pub(super) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessage {
+pub(crate) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessage {
     chat::AgentMessage {
         id: m.id,
         role: match m.role {
@@ -185,7 +176,7 @@ pub(super) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessag
     }
 }
 
-pub(super) fn convert_task(t: crate::wire::AgentTask) -> task::AgentTask {
+pub(crate) fn convert_task(t: crate::wire::AgentTask) -> task::AgentTask {
     task::AgentTask {
         id: t.id,
         title: t.title,
@@ -455,7 +446,7 @@ fn convert_goal_run_dossier(record: crate::wire::GoalRunDossier) -> task::GoalRu
     }
 }
 
-pub(super) fn convert_checkpoint_summary(
+pub(crate) fn convert_checkpoint_summary(
     checkpoint: crate::wire::CheckpointSummary,
 ) -> task::GoalRunCheckpointSummary {
     task::GoalRunCheckpointSummary {
@@ -468,11 +459,11 @@ pub(super) fn convert_checkpoint_summary(
     }
 }
 
-pub(super) fn convert_todo(t: crate::wire::TodoItem) -> task::TodoItem {
+pub(crate) fn convert_todo(t: crate::wire::TodoItem) -> task::TodoItem {
     convert_todo_with_fallback_step(t, None)
 }
 
-pub(super) fn convert_todo_with_fallback_step(
+pub(crate) fn convert_todo_with_fallback_step(
     t: crate::wire::TodoItem,
     fallback_step_index: Option<usize>,
 ) -> task::TodoItem {
@@ -491,4 +482,3 @@ pub(super) fn convert_todo_with_fallback_step(
         updated_at: t.updated_at,
     }
 }
-

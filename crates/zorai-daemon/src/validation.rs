@@ -38,13 +38,11 @@ pub fn validate_command(command: &str, language_hint: Option<&str>) -> Result<()
 }
 
 pub fn find_symbol(workspace_root: &str, symbol: &str, limit: usize) -> Vec<SymbolMatch> {
-    // Try LSP-based symbol search first; fall back to regex if no results.
     let lsp_results = lsp_client::find_symbols(workspace_root, symbol, limit);
     if !lsp_results.is_empty() {
         return lsp_results;
     }
 
-    // Regex fallback: walk the workspace and grep for symbol definitions.
     let mut matches = Vec::new();
     for entry in WalkDir::new(workspace_root)
         .into_iter()

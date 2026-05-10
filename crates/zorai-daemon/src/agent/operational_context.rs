@@ -5,37 +5,85 @@ use super::*;
 impl AgentEngine {
     pub(super) async fn build_operational_context_summary(&self) -> Option<String> {
         let sessions = self.session_manager.list().await;
-        let active_tasks = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .filter(|task| {
-                    !matches!(
-                        task.status,
-                        TaskStatus::Completed
-                            | TaskStatus::BudgetExceeded
-                            | TaskStatus::Failed
-                            | TaskStatus::Cancelled
-                    )
-                })
-                .take(4)
-                .cloned()
-                .collect::<Vec<_>>()
+        let active_task_query = crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: true,
+            order_by_recent_activity_desc: false,
+            limit: Some(4),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         };
-        let active_goals = {
+        let active_tasks = match self
+            .history
+            .list_agent_task_operational_refs_filtered(&active_task_query)
+            .await
+        {
+            Ok(task_refs) => task_refs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted active task refs for operational context: {error}"
+                );
+                self.list_tasks_filtered(&active_task_query)
+                    .await
+                    .iter()
+                    .map(crate::history::AgentTaskOperationalRef::from)
+                    .collect()
+            }
+        };
+        let active_goal_statuses = [
+            GoalRunStatus::Queued,
+            GoalRunStatus::Planning,
+            GoalRunStatus::Running,
+            GoalRunStatus::AwaitingApproval,
+            GoalRunStatus::Paused,
+        ];
+        let mut active_goals = match self
+            .history
+            .list_goal_run_operational_refs_for_statuses_limited(&active_goal_statuses, Some(3))
+            .await
+        {
+            Ok(goal_refs) => goal_refs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted active goal refs for operational context: {error}"
+                );
+                self.history
+                    .list_goal_runs_for_statuses_limited(&active_goal_statuses, Some(3))
+                    .await
+                    .map(|goals| {
+                        goals
+                            .iter()
+                            .map(crate::history::GoalRunOperationalRef::from)
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+        };
+        let mut seen_goal_ids = active_goals
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        {
             let goal_runs = self.goal_runs.lock().await;
-            goal_runs
+            for goal_run in goal_runs
                 .iter()
-                .filter(|goal| {
-                    !matches!(
-                        goal.status,
-                        GoalRunStatus::Completed | GoalRunStatus::Failed | GoalRunStatus::Cancelled
-                    )
-                })
-                .take(3)
-                .cloned()
-                .collect::<Vec<_>>()
-        };
+                .filter(|goal| active_goal_statuses.contains(&goal.status))
+            {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    active_goals.push(crate::history::GoalRunOperationalRef::from(goal_run));
+                }
+            }
+        }
+        active_goals.truncate(3);
 
         let topology_summary = self
             .session_manager
@@ -97,7 +145,7 @@ impl AgentEngine {
                 goal_run_status_label(goal.status),
                 goal.title,
                 goal.current_step_index.saturating_add(1),
-                goal.steps.len().max(1)
+                goal.step_count.max(1)
             ));
         }
 
@@ -133,5 +181,74 @@ fn goal_run_status_label(status: GoalRunStatus) -> &'static str {
         GoalRunStatus::Completed => "completed",
         GoalRunStatus::Failed => "failed",
         GoalRunStatus::Cancelled => "cancelled",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn operational_context_includes_persisted_active_tasks_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine
+            .enqueue_task(
+                "Persisted visible task".to_string(),
+                "task should appear in operational context".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "test",
+                None,
+                None,
+                Some("thread-operational-context".to_string()),
+                None,
+            )
+            .await;
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        let summary = engine
+            .build_operational_context_summary()
+            .await
+            .expect("active persisted task should produce operational context");
+
+        assert!(summary.contains("- Active tasks: 1"));
+        assert!(summary.contains("- Task [queued] Persisted visible task"));
+    }
+
+    #[tokio::test]
+    async fn operational_context_includes_persisted_active_goals_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine
+            .start_goal_run(
+                "goal should appear in operational context".to_string(),
+                Some("Persisted visible goal".to_string()),
+                None,
+                None,
+                Some("normal"),
+                None,
+                None,
+                None,
+            )
+            .await;
+        engine.goal_runs.lock().await.clear();
+
+        let summary = engine
+            .build_operational_context_summary()
+            .await
+            .expect("active persisted goal should produce operational context");
+
+        assert!(summary.contains("- Active goal runs: 1"));
+        assert!(summary.contains("- Goal [queued] Persisted visible goal"));
     }
 }

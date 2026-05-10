@@ -31,14 +31,26 @@ impl ConciergeEngine {
         {
             let mut investigations = self.recovery_investigations.lock().await;
             if let Some(existing_task_id) = investigations.get(&key).cloned() {
-                let tasks = agent.tasks.lock().await;
-                let still_running = tasks
-                    .iter()
-                    .find(|task| task.id == existing_task_id)
-                    .is_some_and(|task| {
-                        !super::super::task_scheduler::is_task_terminal_status(task.status)
-                    });
-                drop(tasks);
+                let still_running = agent
+                    .count_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: Some(existing_task_id),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: true,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                        ids: Vec::new(),
+                        parent_task_ids: Vec::new(),
+                    })
+                    .await
+                    > 0;
                 if still_running {
                     return None;
                 }
@@ -113,18 +125,16 @@ impl ConciergeEngine {
     pub async fn on_client_connected(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
-        tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
-        goal_runs: &tokio::sync::Mutex<std::collections::VecDeque<GoalRun>>,
+        history: &crate::history::HistoryStore,
     ) {
-        self.on_client_connected_with_persisted_threads(threads, tasks, goal_runs, &[])
+        self.on_client_connected_with_persisted_threads(threads, history, &[])
             .await;
     }
 
     pub(crate) async fn on_client_connected_with_persisted_threads(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
-        tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
-        goal_runs: &tokio::sync::Mutex<std::collections::VecDeque<GoalRun>>,
+        history: &crate::history::HistoryStore,
         persisted_recent_threads: &[ThreadSummary],
     ) {
         tracing::info!("concierge: on_client_connected called");
@@ -139,13 +149,7 @@ impl ConciergeEngine {
         drop(config);
 
         let context = self
-            .gather_context(
-                threads,
-                tasks,
-                goal_runs,
-                detail_level,
-                persisted_recent_threads,
-            )
+            .gather_context(history, detail_level, persisted_recent_threads)
             .await;
         tracing::info!(
             "concierge: gathered {} threads, latest_goal={}, running_goals={}, paused_goals={}",
@@ -155,7 +159,7 @@ impl ConciergeEngine {
             context.paused_goal_total
         );
         let (content, actions) = if let Some(existing) = self
-            .reuse_welcome_from_history(threads, detail_level, &context)
+            .reuse_welcome_from_history(threads, history, detail_level, &context)
             .await
         {
             tracing::info!("concierge: reusing persisted welcome payload");
@@ -186,8 +190,7 @@ impl ConciergeEngine {
     pub async fn generate_welcome(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
-        tasks: &tokio::sync::Mutex<std::collections::VecDeque<AgentTask>>,
-        goal_runs: &tokio::sync::Mutex<std::collections::VecDeque<GoalRun>>,
+        history: &crate::history::HistoryStore,
     ) -> Option<(String, ConciergeDetailLevel, Vec<ConciergeAction>)> {
         let config = self.config.read().await;
         if !config.concierge.enabled {
@@ -197,11 +200,9 @@ impl ConciergeEngine {
         let detail_level = config.concierge.detail_level;
         drop(config);
 
-        let context = self
-            .gather_context(threads, tasks, goal_runs, detail_level, &[])
-            .await;
+        let context = self.gather_context(history, detail_level, &[]).await;
         let (content, actions) = if let Some(existing) = self
-            .reuse_welcome_from_history(threads, detail_level, &context)
+            .reuse_welcome_from_history(threads, history, detail_level, &context)
             .await
         {
             existing
@@ -282,25 +283,48 @@ impl ConciergeEngine {
     pub(super) async fn reuse_welcome_from_history(
         &self,
         threads: &RwLock<std::collections::HashMap<String, AgentThread>>,
+        history: &crate::history::HistoryStore,
         detail_level: ConciergeDetailLevel,
         context: &WelcomeContext,
     ) -> Option<(String, Vec<ConciergeAction>)> {
-        let threads_guard = threads.read().await;
-        let concierge_thread = threads_guard.get(CONCIERGE_THREAD_ID)?;
-        let latest_welcome = concierge_thread.messages.iter().rev().find(|msg| {
-            msg.role == MessageRole::Assistant && msg.provider.as_deref() == Some("concierge")
-        })?;
+        let latest_welcome = {
+            let threads_guard = threads.read().await;
+            let concierge_thread = threads_guard.get(CONCIERGE_THREAD_ID)?;
+            concierge_thread
+                .messages
+                .iter()
+                .rev()
+                .find(|msg| {
+                    msg.role == MessageRole::Assistant
+                        && msg.provider.as_deref() == Some("concierge")
+                })
+                .cloned()?
+        };
 
         let now = super::super::now_millis();
         if now.saturating_sub(latest_welcome.timestamp) >= WELCOME_REUSE_WINDOW_MS {
             return None;
         }
 
-        let has_user_message_after_welcome = threads_guard
-            .values()
-            .filter(|thread| !is_heartbeat_thread(thread))
-            .flat_map(|thread| thread.messages.iter())
-            .any(|msg| msg.role == MessageRole::User && msg.timestamp > latest_welcome.timestamp);
+        let has_user_message_after_welcome = match history
+            .has_non_heartbeat_user_message_after(latest_welcome.timestamp)
+            .await
+        {
+            Ok(has_message) => has_message,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query user activity after concierge welcome from history: {error}"
+                );
+                let threads_guard = threads.read().await;
+                threads_guard
+                    .values()
+                    .filter(|thread| !is_heartbeat_thread(thread))
+                    .flat_map(|thread| thread.messages.iter())
+                    .any(|msg| {
+                        msg.role == MessageRole::User && msg.timestamp > latest_welcome.timestamp
+                    })
+            }
+        };
         if has_user_message_after_welcome {
             return None;
         }
@@ -335,5 +359,80 @@ impl ConciergeEngine {
             actions: actions.to_vec(),
             created_at: std::time::Instant::now(),
         });
+    }
+}
+
+impl super::super::AgentEngine {
+    pub(crate) async fn request_concierge_welcome(&self) {
+        let request_started = std::time::Instant::now();
+        let (onboarding_done, tier) = {
+            let cfg = self.config.read().await;
+            let done = cfg.tier.onboarding_completed;
+            let tier = cfg
+                .tier
+                .user_self_assessment
+                .unwrap_or(crate::agent::capability_tier::CapabilityTier::Newcomer);
+            (done, tier)
+        };
+
+        let recent_threads_started = std::time::Instant::now();
+        let recent_history_threads = self
+            .concierge
+            .recent_persisted_history_threads(&self.session_manager)
+            .await;
+        tracing::info!(
+            elapsed_ms = recent_threads_started.elapsed().as_millis() as u64,
+            count = recent_history_threads.len(),
+            "concierge.welcome: recent_persisted_history_threads"
+        );
+        let should_deliver_onboarding = !onboarding_done && recent_history_threads.is_empty();
+
+        if !onboarding_done && !should_deliver_onboarding {
+            let mut cfg = self.config.write().await;
+            cfg.tier.onboarding_completed = true;
+        }
+
+        if should_deliver_onboarding {
+            let onboarding_started = std::time::Instant::now();
+            if let Err(error) = self.concierge.deliver_onboarding(tier, &self.threads).await {
+                tracing::warn!(
+                    "onboarding delivery failed, falling back to generic welcome: {error}"
+                );
+            } else {
+                self.persist_thread_by_id(CONCIERGE_THREAD_ID).await;
+                let mut cfg = self.config.write().await;
+                cfg.tier.onboarding_completed = true;
+                tracing::info!(
+                    elapsed_ms = request_started.elapsed().as_millis() as u64,
+                    onboarding_ms = onboarding_started.elapsed().as_millis() as u64,
+                    "concierge.welcome: onboarding delivered"
+                );
+                return;
+            }
+
+            let mut cfg = self.config.write().await;
+            cfg.tier.onboarding_completed = true;
+        }
+
+        let connect_started = std::time::Instant::now();
+        self.concierge
+            .on_client_connected_with_persisted_threads(
+                &self.threads,
+                &self.history,
+                &recent_history_threads,
+            )
+            .await;
+        tracing::info!(
+            elapsed_ms = connect_started.elapsed().as_millis() as u64,
+            "concierge.welcome: on_client_connected_with_persisted_threads"
+        );
+
+        let persist_started = std::time::Instant::now();
+        self.persist_thread_by_id(CONCIERGE_THREAD_ID).await;
+        tracing::info!(
+            elapsed_ms = persist_started.elapsed().as_millis() as u64,
+            total_ms = request_started.elapsed().as_millis() as u64,
+            "concierge.welcome: persisted (request done)"
+        );
     }
 }

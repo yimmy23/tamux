@@ -1,18 +1,23 @@
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use super::*;
+use crate::app::*;
+use crate::state::*;
+use crate::test_support::{env_var_lock, EnvVarGuard, ZORAI_DATA_DIR_ENV};
+use ratatui::backend::TestBackend;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
-use crate::test_support::{env_var_lock, EnvVarGuard, ZORAI_DATA_DIR_ENV};
-
-fn make_temp_dir() -> std::path::PathBuf {
+pub(super) fn make_temp_dir() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("zorai-tui-tab-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).expect("temporary directory should be creatable");
     dir
 }
 
-struct CurrentDirGuard(PathBuf);
+pub(super) struct CurrentDirGuard(PathBuf);
 
 impl CurrentDirGuard {
-    fn enter(dir: &Path) -> Self {
+    pub(super) fn enter(dir: &Path) -> Self {
         let previous = std::env::current_dir().expect("current dir should be readable");
         std::env::set_current_dir(dir).expect("temporary dir should be settable");
         Self(previous)
@@ -25,7 +30,7 @@ impl Drop for CurrentDirGuard {
     }
 }
 
-fn goal_sidebar_model() -> TuiModel {
+pub fn goal_sidebar_model() -> TuiModel {
     let mut model = build_model();
     model.chat.reduce(chat::ChatAction::ThreadCreated {
         thread_id: "thread-1".to_string(),
@@ -115,7 +120,8 @@ fn goal_sidebar_model() -> TuiModel {
                     id: "step-3".to_string(),
                     title: "Verify".to_string(),
                     order: 2,
-                    instructions: "Check proof coverage and package the final entry plan".to_string(),
+                    instructions: "Check proof coverage and package the final entry plan"
+                        .to_string(),
                     ..Default::default()
                 },
             ],
@@ -139,7 +145,9 @@ fn goal_sidebar_model() -> TuiModel {
                     status: "in_progress".to_string(),
                     execution_binding: "builtin:swarog".to_string(),
                     verification_binding: "builtin:swarog".to_string(),
-                    summary: Some("Build a source-backed inventory in markdown and csv.".to_string()),
+                    summary: Some(
+                        "Build a source-backed inventory in markdown and csv.".to_string(),
+                    ),
                     proof_checks: vec![task::GoalProofCheckRecord {
                         id: "pc-1".to_string(),
                         title: "Verify sources cover company info".to_string(),
@@ -251,7 +259,7 @@ fn goal_sidebar_model() -> TuiModel {
     model
 }
 
-fn open_goal_execution_thread(model: &mut TuiModel) {
+pub(super) fn open_goal_execution_thread(model: &mut TuiModel) {
     model.focus = FocusArea::Chat;
     model.goal_workspace.set_selected_plan_row(1);
     model.goal_workspace.set_selected_plan_item(Some(
@@ -265,7 +273,7 @@ fn open_goal_execution_thread(model: &mut TuiModel) {
     assert_eq!(model.chat.active_thread_id(), Some("thread-exec"));
 }
 
-fn mission_control_thread_router_model(
+pub(super) fn mission_control_thread_router_model(
     active_thread_id: Option<&str>,
     root_thread_id: Option<&str>,
 ) -> TuiModel {
@@ -274,14 +282,13 @@ fn mission_control_thread_router_model(
     model.agent_config_loaded = true;
     let thread_ids = [active_thread_id, root_thread_id];
     for thread_id in thread_ids.into_iter().flatten() {
+        model.chat.reduce(chat::ChatAction::ThreadCreated {
+            thread_id: thread_id.to_string(),
+            title: format!("Thread {thread_id}"),
+        });
         model
             .chat
-            .reduce(chat::ChatAction::ThreadCreated {
-                thread_id: thread_id.to_string(),
-                title: format!("Thread {thread_id}"),
-            });
-        model.chat.reduce(chat::ChatAction::ThreadDetailReceived(
-            chat::AgentThread {
+            .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
                 id: thread_id.to_string(),
                 title: format!("Thread {thread_id}"),
                 messages: vec![chat::AgentMessage {
@@ -293,34 +300,35 @@ fn mission_control_thread_router_model(
                 loaded_message_end: 1,
                 total_message_count: 1,
                 ..Default::default()
-            },
-        ));
+            }));
     }
 
-    model.tasks.reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
-        id: "goal-1".to_string(),
-        title: "Goal Title".to_string(),
-        thread_id: root_thread_id.map(str::to_string),
-        root_thread_id: root_thread_id.map(str::to_string),
-        active_thread_id: active_thread_id.map(str::to_string),
-        goal: "goal definition body".to_string(),
-        current_step_title: Some("Implement".to_string()),
-        steps: vec![
-            task::GoalRunStep {
-                id: "step-1".to_string(),
-                title: "Plan".to_string(),
-                order: 0,
-                ..Default::default()
-            },
-            task::GoalRunStep {
-                id: "step-2".to_string(),
-                title: "Implement".to_string(),
-                order: 1,
-                ..Default::default()
-            },
-        ],
-        ..Default::default()
-    }));
+    model
+        .tasks
+        .reduce(task::TaskAction::GoalRunDetailReceived(task::GoalRun {
+            id: "goal-1".to_string(),
+            title: "Goal Title".to_string(),
+            thread_id: root_thread_id.map(str::to_string),
+            root_thread_id: root_thread_id.map(str::to_string),
+            active_thread_id: active_thread_id.map(str::to_string),
+            goal: "goal definition body".to_string(),
+            current_step_title: Some("Implement".to_string()),
+            steps: vec![
+                task::GoalRunStep {
+                    id: "step-1".to_string(),
+                    title: "Plan".to_string(),
+                    order: 0,
+                    ..Default::default()
+                },
+                task::GoalRunStep {
+                    id: "step-2".to_string(),
+                    title: "Implement".to_string(),
+                    order: 1,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }));
     model.main_pane_view = MainPaneView::Task(SidebarItemTarget::GoalRun {
         goal_run_id: "goal-1".to_string(),
         step_id: Some("step-2".to_string()),
@@ -331,7 +339,7 @@ fn mission_control_thread_router_model(
     model
 }
 
-fn render_chat_plain(model: &mut TuiModel) -> String {
+pub fn render_chat_plain(model: &mut TuiModel) -> String {
     let backend = TestBackend::new(model.width, model.height);
     let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
     terminal
@@ -350,7 +358,7 @@ fn render_chat_plain(model: &mut TuiModel) -> String {
         .join("\n")
 }
 
-fn goal_workspace_click_targets(chat_area: Rect) -> (Position, Position, Position) {
+pub(super) fn goal_workspace_click_targets(chat_area: Rect) -> (Position, Position, Position) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(4), Constraint::Min(1)])
@@ -374,7 +382,7 @@ fn goal_workspace_click_targets(chat_area: Rect) -> (Position, Position, Positio
     )
 }
 
-fn find_goal_workspace_hit_position(
+pub(super) fn find_goal_workspace_hit_position(
     model: &TuiModel,
     expected: widgets::goal_workspace::GoalWorkspaceHitTarget,
 ) -> Position {
@@ -430,4 +438,3 @@ fn goal_sidebar_tab_cycling_stays_within_goal_tabs() {
     state.cycle_tab_left();
     assert_eq!(state.active_tab(), GoalSidebarTab::Tasks);
 }
-

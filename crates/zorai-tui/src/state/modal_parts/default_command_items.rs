@@ -1,4 +1,6 @@
-fn default_command_items() -> Vec<CommandItem> {
+use super::CommandItem;
+
+pub(super) fn default_command_items() -> Vec<CommandItem> {
     vec![
         CommandItem {
             command: "provider".into(),
@@ -122,4 +124,3 @@ fn default_command_items() -> Vec<CommandItem> {
         },
     ]
 }
-

@@ -1,3 +1,4 @@
+use super::*;
 use crate::agent::thread_crud::ThreadListFilter;
 
 const DEFAULT_GET_THREAD_LIMIT: usize = 5;
@@ -25,9 +26,12 @@ async fn resolve_canonical_offloaded_payload_read_path(
     let root = agent.history.offloaded_payloads_dir();
     let thread_root = root.join(thread_id);
     let derived_path = agent.history.offloaded_payload_path(thread_id, payload_id);
-    let canonical_root = tokio::fs::canonicalize(&root)
-        .await
-        .with_context(|| format!("failed to resolve offloaded payload root {}", root.display()))?;
+    let canonical_root = tokio::fs::canonicalize(&root).await.with_context(|| {
+        format!(
+            "failed to resolve offloaded payload root {}",
+            root.display()
+        )
+    })?;
     let canonical_thread_root = tokio::fs::canonicalize(&thread_root)
         .await
         .with_context(|| {
@@ -38,7 +42,12 @@ async fn resolve_canonical_offloaded_payload_read_path(
         })?;
     let canonical_path = tokio::fs::canonicalize(&derived_path)
         .await
-        .with_context(|| format!("failed to resolve offloaded payload {}", derived_path.display()))?;
+        .with_context(|| {
+            format!(
+                "failed to resolve offloaded payload {}",
+                derived_path.display()
+            )
+        })?;
 
     if !canonical_thread_root.starts_with(&canonical_root) {
         anyhow::bail!(
@@ -64,7 +73,10 @@ async fn resolve_canonical_offloaded_payload_read_path(
 }
 
 fn parse_non_negative_u64_arg(args: &serde_json::Value, field: &str) -> Result<Option<u64>> {
-    if args.get(field).is_some_and(|value| value.as_u64().is_none()) {
+    if args
+        .get(field)
+        .is_some_and(|value| value.as_u64().is_none())
+    {
         anyhow::bail!("'{field}' must be a non-negative integer");
     }
 
@@ -140,7 +152,10 @@ fn compact_offloaded_thread_message(message: &serde_json::Value) -> Option<serde
 
     let mut compact = serde_json::Map::new();
     if let Some(role) = role {
-        compact.insert("role".to_string(), serde_json::Value::String(role.to_string()));
+        compact.insert(
+            "role".to_string(),
+            serde_json::Value::String(role.to_string()),
+        );
     }
     if let Some(content) = message.get("content").and_then(|value| value.as_str()) {
         compact.insert(
@@ -205,25 +220,129 @@ fn compact_offloaded_thread_payload(
         .and_then(|value| value.as_u64())
         .and_then(|value| usize::try_from(value).ok())
         .unwrap_or(0);
+    let total_message_count = value
+        .get("total_message_count")
+        .or_else(|| {
+            value
+                .get("thread")
+                .and_then(|thread| thread.get("total_message_count"))
+        })
+        .and_then(|value| value.as_u64())
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or_else(|| loaded_message_start.saturating_add(messages.len()));
+    let available_start = loaded_message_start;
+    let available_end = loaded_message_start.saturating_add(messages.len());
+    let effective_start = message_start
+        .unwrap_or(available_start)
+        .max(available_start);
+    let effective_end = message_end.unwrap_or(available_end).min(available_end);
 
     let compact_messages = messages
         .iter()
         .enumerate()
         .filter_map(|(index, message)| {
             let absolute_index = loaded_message_start.saturating_add(index);
-            if message_start.is_some_and(|start| absolute_index < start)
-                || message_end.is_some_and(|end| absolute_index >= end)
-            {
+            if absolute_index < effective_start || absolute_index >= effective_end {
                 return None;
             }
             compact_offloaded_thread_message(message)
         })
         .collect::<Vec<_>>();
 
-    serde_json::to_string_pretty(&serde_json::json!({ "messages": compact_messages })).ok()
+    serde_json::to_string_pretty(&serde_json::json!({
+        "total_message_count": total_message_count,
+        "loaded_message_start": available_start,
+        "loaded_message_end": available_end,
+        "message_start": effective_start,
+        "message_end": effective_end,
+        "returned": compact_messages.len(),
+        "messages": compact_messages,
+    }))
+    .ok()
 }
 
-async fn execute_list_threads(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+fn compact_offloaded_json_array(
+    items: &[serde_json::Value],
+    offset: usize,
+    limit: usize,
+) -> Option<String> {
+    let total = items.len();
+    let page = items
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .cloned()
+        .collect::<Vec<_>>();
+    let returned = page.len();
+    let next_offset = offset.saturating_add(returned);
+    let has_more = next_offset < total;
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "returned": returned,
+        "has_more": has_more,
+        "next_offset": if has_more { Some(next_offset) } else { None },
+        "items": page,
+    }))
+    .ok()
+}
+
+fn compact_offloaded_generic_payload(raw_payload: &str, offset: usize, limit: usize) -> String {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw_payload) {
+        if let Some(items) = value.as_array() {
+            if let Some(compact) = compact_offloaded_json_array(items, offset, limit) {
+                return compact;
+            }
+        }
+        if let Some(items) = value.get("items").and_then(|items| items.as_array()) {
+            if let Some(compact) = compact_offloaded_json_array(items, offset, limit) {
+                return compact;
+            }
+        }
+        let object_keys = value
+            .as_object()
+            .map(|object| object.keys().take(50).cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "content_type": "json",
+            "byte_size": raw_payload.len(),
+            "object_keys": object_keys,
+            "notice": "Raw JSON object omitted from default read; use full=true only when exact content is required.",
+        }))
+        .unwrap_or_else(|_| "{}".to_string());
+    }
+
+    let lines = raw_payload.lines().collect::<Vec<_>>();
+    let total_lines = lines.len();
+    let page = lines
+        .iter()
+        .skip(offset)
+        .take(limit)
+        .map(|line| line.chars().take(1_000).collect::<String>())
+        .collect::<Vec<_>>();
+    let returned = page.len();
+    let next_offset = offset.saturating_add(returned);
+    let has_more = next_offset < total_lines;
+    serde_json::to_string_pretty(&serde_json::json!({
+        "content_type": "text",
+        "byte_size": raw_payload.len(),
+        "total_lines": total_lines,
+        "limit": limit,
+        "offset": offset,
+        "returned": returned,
+        "has_more": has_more,
+        "next_offset": if has_more { Some(next_offset) } else { None },
+        "lines": page,
+    }))
+    .unwrap_or_else(|_| "{}".to_string())
+}
+
+pub(crate) async fn execute_list_threads(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let filter = ThreadListFilter {
         created_after: parse_non_negative_u64_arg(args, "created_after")?,
         created_before: parse_non_negative_u64_arg(args, "created_before")?,
@@ -254,7 +373,10 @@ async fn execute_list_threads(args: &serde_json::Value, agent: &AgentEngine) -> 
     Ok(serde_json::to_string_pretty(&threads).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_get_thread(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_get_thread(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let thread_id = match args.get("thread_id") {
         Some(value) => value
             .as_str()
@@ -273,13 +395,18 @@ async fn execute_get_thread(args: &serde_json::Value, agent: &AgentEngine) -> Re
         .unwrap_or(false);
 
     let detail = agent
-        .get_thread_filtered(thread_id, include_internal, Some(message_limit), message_offset)
+        .get_thread_filtered(
+            thread_id,
+            include_internal,
+            Some(message_limit),
+            message_offset,
+        )
         .await;
 
     let Some(detail) = detail else {
         if !include_internal
             && agent
-                .get_thread_filtered(thread_id, true, None, 0)
+                .get_thread_filtered(thread_id, true, Some(1), 0)
                 .await
                 .is_some()
         {
@@ -295,7 +422,7 @@ async fn execute_get_thread(args: &serde_json::Value, agent: &AgentEngine) -> Re
     Ok(serde_json::to_string_pretty(&detail).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_read_offloaded_payload(
+pub(crate) async fn execute_read_offloaded_payload(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -312,6 +439,10 @@ async fn execute_read_offloaded_payload(
     let full = parse_optional_bool_arg(args, "full")?.unwrap_or(false);
     let message_start = parse_message_window_bound(args, "message_start", "start")?;
     let message_end = parse_message_window_bound(args, "message_end", "end")?;
+    let limit = parse_non_negative_usize_arg(args, "limit")?
+        .unwrap_or(20)
+        .clamp(1, 100);
+    let offset = parse_non_negative_usize_arg(args, "offset")?.unwrap_or(0);
     if matches!(
         (message_start, message_end),
         (Some(message_start), Some(message_end)) if message_end < message_start
@@ -343,12 +474,9 @@ async fn execute_read_offloaded_payload(
         );
     }
 
-    let canonical_path = resolve_canonical_offloaded_payload_read_path(
-        agent,
-        &metadata.thread_id,
-        payload_id,
-    )
-    .await?;
+    let canonical_path =
+        resolve_canonical_offloaded_payload_read_path(agent, &metadata.thread_id, payload_id)
+            .await?;
 
     let raw_payload = tokio::fs::read_to_string(&canonical_path)
         .await
@@ -364,6 +492,8 @@ async fn execute_read_offloaded_payload(
         return Ok(raw_payload);
     }
 
-    Ok(compact_offloaded_thread_payload(&raw_payload, message_start, message_end)
-        .unwrap_or(raw_payload))
+    Ok(
+        compact_offloaded_thread_payload(&raw_payload, message_start, message_end)
+            .unwrap_or_else(|| compact_offloaded_generic_payload(&raw_payload, offset, limit)),
+    )
 }

@@ -59,6 +59,23 @@ impl SessionManager {
         self.history.list_threads().await
     }
 
+    pub(crate) async fn list_agent_threads_filtered(
+        &self,
+        query: &crate::history::AgentThreadListQuery,
+    ) -> Result<Vec<AgentDbThread>> {
+        self.history.list_threads_filtered(query).await
+    }
+
+    pub(crate) async fn thread_recall_match_rows(
+        &self,
+        tokens: &[String],
+        thread_limit: usize,
+    ) -> Result<Vec<crate::history::ThreadRecallMatchRow>> {
+        self.history
+            .thread_recall_match_rows(tokens, thread_limit)
+            .await
+    }
+
     pub async fn get_agent_thread(&self, thread_id: &str) -> Result<Option<AgentDbThread>> {
         self.history.get_thread(thread_id).await
     }
@@ -96,6 +113,16 @@ impl SessionManager {
         self.history.list_transcript_index(workspace_id).await
     }
 
+    pub(crate) async fn list_transcript_index_limited(
+        &self,
+        workspace_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<TranscriptIndexEntry>> {
+        self.history
+            .list_transcript_index_limited(workspace_id, limit)
+            .await
+    }
+
     pub async fn upsert_snapshot_index(&self, entry: &SnapshotIndexEntry) -> Result<()> {
         self.history.upsert_snapshot_index(entry).await
     }
@@ -105,6 +132,16 @@ impl SessionManager {
         workspace_id: Option<&str>,
     ) -> Result<Vec<SnapshotIndexEntry>> {
         self.history.list_snapshot_index(workspace_id).await
+    }
+
+    pub(crate) async fn list_snapshot_index_limited(
+        &self,
+        workspace_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<SnapshotIndexEntry>> {
+        self.history
+            .list_snapshot_index_ordered_limited(workspace_id, false, limit)
+            .await
     }
 
     pub async fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
@@ -119,6 +156,27 @@ impl SessionManager {
     ) -> Result<Vec<AgentEventRow>> {
         self.history
             .list_agent_events(category, pane_id, limit)
+            .await
+    }
+
+    pub async fn list_notifications(
+        &self,
+        include_inactive: bool,
+        limit: Option<usize>,
+    ) -> Result<Vec<zorai_protocol::InboxNotification>> {
+        self.history
+            .list_notifications(include_inactive, limit)
+            .await
+    }
+
+    pub(crate) async fn agent_event_recall_matches(
+        &self,
+        category: &str,
+        tokens: &[String],
+        limit: usize,
+    ) -> Result<Vec<AgentEventRow>> {
+        self.history
+            .agent_event_recall_matches(category, tokens, limit)
             .await
     }
 
@@ -181,6 +239,14 @@ impl SessionManager {
 
     pub async fn list_snapshots(&self, workspace_id: Option<&str>) -> Result<Vec<SnapshotInfo>> {
         self.snapshots.list(workspace_id).await
+    }
+
+    pub(crate) async fn list_snapshots_limited(
+        &self,
+        workspace_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<SnapshotInfo>> {
+        self.snapshots.list_limited(workspace_id, limit).await
     }
 
     pub async fn restore_snapshot(&self, snapshot_id: &str) -> Result<(bool, String)> {

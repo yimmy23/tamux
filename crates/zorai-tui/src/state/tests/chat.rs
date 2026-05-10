@@ -1,6 +1,14 @@
-include!("chat_parts/delta_appends_to_streaming_content_to_thread_created_moves_new_thread.rs");
-include!("chat_parts/select_thread_with_empty_id_clears_active_selection_to_thread_detail.rs");
-include!("chat_parts/thread_detail_preserves_local_messages_in_active_compaction_window.rs");
-include!("chat_parts/select_next_message_from_none_to_thread_detail_refresh_preserves.rs");
-include!("chat_parts/thread_detail_refresh_preserves_finalized_stream_after_stale_user.rs");
-include!("chat_parts/selected_message_tracks_same_message_when_append_trims_latest_window.rs");
+#[path = "chat_parts/delta_appends_to_streaming_content_to_thread_created_moves_new_thread.rs"]
+mod delta_appends_to_streaming_content_to_thread_created_moves_new_thread;
+#[path = "chat_parts/select_next_message_from_none_to_thread_detail_refresh_preserves.rs"]
+mod select_next_message_from_none_to_thread_detail_refresh_preserves;
+#[path = "chat_parts/select_thread_with_empty_id_clears_active_selection_to_thread_detail.rs"]
+mod select_thread_with_empty_id_clears_active_selection_to_thread_detail;
+#[path = "chat_parts/selected_message_tracks_same_message_when_append_trims_latest_window.rs"]
+mod selected_message_tracks_same_message_when_append_trims_latest_window;
+#[path = "chat_parts/thread_detail_preserves_local_messages_in_active_compaction_window.rs"]
+mod thread_detail_preserves_local_messages_in_active_compaction_window;
+#[path = "chat_parts/thread_detail_refresh_preserves_finalized_stream_after_stale_user.rs"]
+mod thread_detail_refresh_preserves_finalized_stream_after_stale_user;
+#[path = "chat_parts/thread_list_received_defaults_missing_agent_name_to_svarog.rs"]
+mod thread_list_received_defaults_missing_agent_name_to_svarog;

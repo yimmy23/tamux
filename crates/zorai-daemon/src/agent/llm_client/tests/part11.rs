@@ -1,3 +1,14 @@
+use super::part1::*;
+use super::part5_support::*;
+use super::*;
+use crate::agent::provider_auth_store;
+use crate::agent::types::{AgentMessage, MessageRole};
+use crate::test_support::EnvGuard;
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+use std::sync::Mutex;
+use tempfile::tempdir;
 #[tokio::test]
 async fn anthropic_stream_stop_metadata_is_forwarded_on_done_chunk() {
     use tokio::io::AsyncWriteExt;
@@ -142,13 +153,7 @@ async fn anthropic_stream_stop_metadata_is_forwarded_on_tool_call_chunk() {
 
     assert_eq!(
         tool_chunk,
-        Some((
-            1,
-            Some(2),
-            Some(1),
-            Some("tool_use".to_string()),
-            None,
-        ))
+        Some((1, Some(2), Some(1), Some("tool_use".to_string()), None,))
     );
     server.await.expect("server task");
 }
@@ -294,7 +299,10 @@ async fn anthropic_stream_done_chunk_carries_upstream_message_text_blocks() {
     assert_eq!(upstream_message.stop_reason.as_deref(), Some("end_turn"));
     assert_eq!(upstream_message.content_blocks.len(), 1);
     assert_eq!(upstream_message.content_blocks[0].block_type, "text");
-    assert_eq!(upstream_message.content_blocks[0].text.as_deref(), Some("hello upstream"));
+    assert_eq!(
+        upstream_message.content_blocks[0].text.as_deref(),
+        Some("hello upstream")
+    );
     server.await.expect("server task");
 }
 
@@ -357,8 +365,14 @@ async fn anthropic_stream_tool_calls_chunk_carries_upstream_message_tool_use_blo
     assert_eq!(upstream_message.stop_reason.as_deref(), Some("tool_use"));
     assert_eq!(upstream_message.content_blocks.len(), 1);
     assert_eq!(upstream_message.content_blocks[0].block_type, "tool_use");
-    assert_eq!(upstream_message.content_blocks[0].id.as_deref(), Some("toolu_1"));
-    assert_eq!(upstream_message.content_blocks[0].name.as_deref(), Some("web_search"));
+    assert_eq!(
+        upstream_message.content_blocks[0].id.as_deref(),
+        Some("toolu_1")
+    );
+    assert_eq!(
+        upstream_message.content_blocks[0].name.as_deref(),
+        Some("web_search")
+    );
     assert_eq!(
         upstream_message.content_blocks[0].input_json,
         Some(serde_json::json!({"query": "cats"}))
@@ -422,7 +436,13 @@ async fn anthropic_stream_done_chunk_carries_upstream_message_thinking_blocks() 
     let upstream_message = done_chunk.expect("upstream message");
     assert_eq!(upstream_message.content_blocks.len(), 1);
     assert_eq!(upstream_message.content_blocks[0].block_type, "thinking");
-    assert_eq!(upstream_message.content_blocks[0].signature.as_deref(), Some("sig_1"));
-    assert_eq!(upstream_message.content_blocks[0].thinking.as_deref(), Some("step by step"));
+    assert_eq!(
+        upstream_message.content_blocks[0].signature.as_deref(),
+        Some("sig_1")
+    );
+    assert_eq!(
+        upstream_message.content_blocks[0].thinking.as_deref(),
+        Some("step by step")
+    );
     server.await.expect("server task");
 }

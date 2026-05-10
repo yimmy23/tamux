@@ -4,16 +4,6 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::theme::ThemeTokens;
 
-// const SVAROG_FRESCO_STATIC: &[&str] = &[
-//     ":::::       .-#===#-.       :::::",
-//     "::::       /  |_|_|  \\       ::::",
-//     ":::       |  ( o o )  |       :::",
-//     "::        |    \\#/    |        ::",
-//     "::        |     |     |        ::",
-//     "::        |    /#\\    |        ::",
-//     ":::        \\   ###   /        :::",
-//     "::::        `-.___.-'        ::::",
-// ];
 
 const SVAROG_FRESCO_STATIC: &[&str] = &[
     "                                          .......                       ",
@@ -250,26 +240,7 @@ fn render_with_lines(
         )));
     }
 
-    // lines.push(Line::from(vec![
-    //     Span::styled("\u{2591}", Style::default().fg(Color::Indexed(24))),
-    //     Span::styled("\u{2592}", Style::default().fg(Color::Indexed(31))),
-    //     Span::styled("\u{2593}", Style::default().fg(Color::Indexed(38))),
-    //     Span::styled("\u{2588}", Style::default().fg(Color::Indexed(75))),
-    //     Span::styled(" T A M U X ", theme.accent_primary),
-    //     Span::styled("\u{2588}", Style::default().fg(Color::Indexed(75))),
-    //     Span::styled("\u{2593}", Style::default().fg(Color::Indexed(38))),
-    //     Span::styled("\u{2592}", Style::default().fg(Color::Indexed(31))),
-    //     Span::styled("\u{2591}", Style::default().fg(Color::Indexed(24))),
-    // ]));
-    // lines.push(Line::from(Span::styled(
-    //     "think \u{00b7} plan \u{00b7} ship",
-    //     theme.fg_dim,
-    // )));
     lines.push(Line::raw(""));
-    // lines.push(Line::from(Span::styled(
-    //     "Clean thread. Svarog is here. Type to begin.",
-    //     theme.fg_dim,
-    // )));
     lines.push(Line::raw(""));
     lines.push(body_line);
     lines.push(Line::raw(""));

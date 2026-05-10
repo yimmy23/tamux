@@ -410,33 +410,33 @@ impl AgentEngine {
     }
 
     pub(in crate::agent) async fn goal_thread_summary(&self, thread_id: &str) -> Option<String> {
-        let threads = self.threads.read().await;
-        threads.get(thread_id).and_then(|thread| {
-            thread
-                .messages
-                .iter()
-                .rev()
-                .find(|message| {
-                    message.role == MessageRole::Assistant && !message.content.trim().is_empty()
-                })
-                .map(|message| summarize_text(&message.content, 320))
-        })
+        match self.history.latest_assistant_message(thread_id).await {
+            Ok(Some(message)) => Some(summarize_text(&message.content, 320)),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    "failed to load latest assistant message for goal summary: {error}"
+                );
+                None
+            }
+        }
     }
 
     pub(in crate::agent) async fn goal_thread_latest_assistant_content(
         &self,
         thread_id: &str,
     ) -> Option<String> {
-        let threads = self.threads.read().await;
-        threads.get(thread_id).and_then(|thread| {
-            thread
-                .messages
-                .iter()
-                .rev()
-                .find(|message| {
-                    message.role == MessageRole::Assistant && !message.content.trim().is_empty()
-                })
-                .map(|message| message.content.trim().to_string())
-        })
+        match self.history.latest_assistant_message(thread_id).await {
+            Ok(Some(message)) => Some(message.content.trim().to_string()),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    "failed to load latest assistant message content for goal finalization: {error}"
+                );
+                None
+            }
+        }
     }
 }

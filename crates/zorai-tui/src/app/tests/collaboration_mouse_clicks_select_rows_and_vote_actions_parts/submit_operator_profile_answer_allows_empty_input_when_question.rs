@@ -1,3 +1,12 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use std::fs;
+use std::path::PathBuf;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 #[test]
 fn submit_operator_profile_answer_allows_empty_input_when_question_is_optional() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
@@ -691,7 +700,7 @@ fn leading_agent_directive_preserves_file_refs() {
     assert_eq!(directive.body, "inspect @foo/bar");
 }
 
-fn sample_collaboration_sessions() -> Vec<crate::state::CollaborationSessionVm> {
+pub(super) fn sample_collaboration_sessions() -> Vec<crate::state::CollaborationSessionVm> {
     vec![crate::state::CollaborationSessionVm {
         id: "session-1".to_string(),
         parent_task_id: Some("task-1".to_string()),

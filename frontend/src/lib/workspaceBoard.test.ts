@@ -78,7 +78,7 @@ describe("workspaceBoard", () => {
 
   it("adds task-only workspace ids to the workspace list", () => {
     expect(mergeWorkspaceSettings([
-      { workspace_id: "main", workspace_root: null, operator: "user", created_at: 1, updated_at: 1 },
+      { workspace_id: "main", workspace_root: null, operator: "user", repo_monitor_enabled: false, repo_monitor_include_dirs: [], repo_monitor_exclude_dirs: [], created_at: 1, updated_at: 1 },
     ], [
       task("main-task", "todo", 1, 1),
       { ...task("repo-task", "todo", 1, 1), workspace_id: "repo-a" },
@@ -90,14 +90,35 @@ describe("workspaceBoard", () => {
       currentWorkspaceId: "main",
       defaultWorkspaceId: "main",
       workspaces: [
-        { workspace_id: "main", workspace_root: null, operator: "user", created_at: 1, updated_at: 1 },
-        { workspace_id: "repo-a", workspace_root: null, operator: "user", created_at: 1, updated_at: 1 },
+        { workspace_id: "main", workspace_root: null, operator: "user", repo_monitor_enabled: false, repo_monitor_include_dirs: [], repo_monitor_exclude_dirs: [], created_at: 1, updated_at: 1 },
+        { workspace_id: "repo-a", workspace_root: null, operator: "user", repo_monitor_enabled: false, repo_monitor_include_dirs: [], repo_monitor_exclude_dirs: [], created_at: 1, updated_at: 1 },
       ],
       tasksByWorkspace: {
         main: [],
         "repo-a": [{ ...task("repo-task", "todo", 1, 1), workspace_id: "repo-a" }],
       },
     })).toBe("repo-a");
+  });
+
+  it("preserves repo monitor settings while normalizing workspace settings rows", () => {
+    const settings = mergeWorkspaceSettings([
+      {
+        workspace_id: "main",
+        workspace_root: "/repo",
+        operator: "user",
+        repo_monitor_enabled: true,
+        repo_monitor_include_dirs: ["frontend/src"],
+        repo_monitor_exclude_dirs: ["target"],
+        created_at: 1,
+        updated_at: 2,
+      },
+    ], []);
+
+    expect(settings[0]).toMatchObject({
+      repo_monitor_enabled: true,
+      repo_monitor_include_dirs: ["frontend/src"],
+      repo_monitor_exclude_dirs: ["target"],
+    });
   });
 
   it("falls back to database workspace_tasks rows when the agent list endpoint fails", async () => {

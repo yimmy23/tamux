@@ -1,11 +1,20 @@
-fn contains(area: Rect, position: Position) -> bool {
+use super::*;
+use crate::state::workspace::WorkspaceState;
+use crate::theme::ThemeTokens;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use std::collections::HashSet;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use zorai_protocol::WorkspaceTaskStatus;
+pub(crate) fn contains(area: Rect, position: Position) -> bool {
     position.x >= area.x
         && position.x < area.x.saturating_add(area.width)
         && position.y >= area.y
         && position.y < area.y.saturating_add(area.height)
 }
 
-fn action_at_x(
+pub(crate) fn action_at_x(
     row: u16,
     body_x: u16,
     position_x: u16,
@@ -46,7 +55,10 @@ fn action_at_x(
     }
 }
 
-fn collapsed_controls_action_at_x(body_x: u16, position_x: u16) -> Option<WorkspaceBoardAction> {
+pub(crate) fn collapsed_controls_action_at_x(
+    body_x: u16,
+    position_x: u16,
+) -> Option<WorkspaceBoardAction> {
     let x = position_x.saturating_sub(body_x);
     match x {
         0..=5 => Some(WorkspaceBoardAction::OpenRuntime),
@@ -55,7 +67,10 @@ fn collapsed_controls_action_at_x(body_x: u16, position_x: u16) -> Option<Worksp
     }
 }
 
-fn expanded_footer_action_at_x(body_x: u16, position_x: u16) -> Option<WorkspaceBoardAction> {
+pub(crate) fn expanded_footer_action_at_x(
+    body_x: u16,
+    position_x: u16,
+) -> Option<WorkspaceBoardAction> {
     let x = position_x.saturating_sub(body_x);
     match x {
         0..=5 => Some(WorkspaceBoardAction::OpenRuntime),
@@ -64,7 +79,10 @@ fn expanded_footer_action_at_x(body_x: u16, position_x: u16) -> Option<Workspace
     }
 }
 
-fn toolbar_action_at_x(body_x: u16, position_x: u16) -> Option<WorkspaceBoardToolbarAction> {
+pub(crate) fn toolbar_action_at_x(
+    body_x: u16,
+    position_x: u16,
+) -> Option<WorkspaceBoardToolbarAction> {
     let x = position_x.saturating_sub(body_x);
     match x {
         0..=9 => Some(WorkspaceBoardToolbarAction::NewTask),
@@ -72,4 +90,3 @@ fn toolbar_action_at_x(body_x: u16, position_x: u16) -> Option<WorkspaceBoardToo
         _ => None,
     }
 }
-

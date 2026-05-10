@@ -62,15 +62,10 @@ pub(crate) async fn query_memory_graph(
         }
     }
 
-    for node_id in visited.iter() {
-        for cluster in history.list_memory_clusters_for_node(node_id, 4).await? {
-            if let Some(summary) = cluster.summary_text {
-                if !cluster_summaries.contains(&summary) {
-                    cluster_summaries.push(summary);
-                }
-            }
-        }
-    }
+    let visited_node_ids: Vec<String> = visited.iter().cloned().collect();
+    cluster_summaries = history
+        .list_memory_cluster_summaries_for_nodes(&visited_node_ids, 4)
+        .await?;
 
     let summary = edges
         .iter()

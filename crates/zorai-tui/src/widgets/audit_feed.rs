@@ -20,7 +20,6 @@ fn build_lines(state: &AuditState, theme: &ThemeTokens, width: usize) -> Vec<Lin
     let filtered = state.filtered_entries();
     let mut lines = Vec::new();
 
-    // Header
     lines.push(Line::from(vec![
         Span::styled("Audit Feed", theme.accent_primary),
         Span::styled(format!(" ({})", filtered.len()), theme.fg_dim),
@@ -55,7 +54,6 @@ fn build_lines(state: &AuditState, theme: &ThemeTokens, width: usize) -> Vec<Lin
             Style::default()
         };
 
-        // Type icon and color
         let (icon, type_style) = if is_dismissed {
             (
                 action_type_icon(&entry.action_type),
@@ -65,7 +63,6 @@ fn build_lines(state: &AuditState, theme: &ThemeTokens, width: usize) -> Vec<Lin
             action_type_style(&entry.action_type, theme)
         };
 
-        // Build main line: [icon] summary
         let mut spans = vec![
             Span::raw(" "),
             Span::styled(icon.to_string(), type_style),
@@ -73,7 +70,6 @@ fn build_lines(state: &AuditState, theme: &ThemeTokens, width: usize) -> Vec<Lin
             Span::styled(entry.summary.clone(), base_style),
         ];
 
-        // Confidence dot + band (only if band != "confident")
         if let Some(band) = &entry.confidence_band {
             if band != "confident" {
                 let dot_style = confidence_band_style(band, theme);
@@ -87,13 +83,11 @@ fn build_lines(state: &AuditState, theme: &ThemeTokens, width: usize) -> Vec<Lin
             }
         }
 
-        // Relative timestamp
         let age = format_relative_time(entry.timestamp);
         spans.push(Span::styled(format!("  {}", age), theme.fg_dim));
 
         lines.push(Line::from(spans));
 
-        // Expanded details
         let is_expanded = state.expanded_entry() == Some(&entry.id);
         if is_expanded {
             if let Some(explanation) = &entry.explanation {
@@ -122,7 +116,6 @@ fn build_lines(state: &AuditState, theme: &ThemeTokens, width: usize) -> Vec<Lin
 /// Returns the visible scroll offset so the selected entry remains in view.
 fn resolved_scroll(state: &AuditState, lines: &[Line], body_height: usize) -> usize {
     let max_scroll = lines.len().saturating_sub(body_height);
-    // Approximate: selected_index + 2 (header lines) maps to a line position
     let selected_line = state.selected_index().saturating_add(2);
     let mut scroll = 0;
     if selected_line >= body_height {
@@ -134,22 +127,22 @@ fn resolved_scroll(state: &AuditState, lines: &[Line], body_height: usize) -> us
 /// Return only the icon character for an action type (used for dismissed entries).
 fn action_type_icon(action_type: &str) -> &'static str {
     match action_type {
-        "heartbeat" => "\u{2665}",          // heart
-        "tool" => "\u{2699}",               // gear
-        "escalation" => "\u{2191}",         // up arrow
-        "skill" | "subagent" => "\u{2726}", // star
-        _ => "\u{2022}",                    // bullet
+        "heartbeat" => "\u{2665}",
+        "tool" => "\u{2699}",
+        "escalation" => "\u{2191}",
+        "skill" | "subagent" => "\u{2726}",
+        _ => "\u{2022}",
     }
 }
 
 fn action_type_style(action_type: &str, theme: &ThemeTokens) -> (&'static str, Style) {
     match action_type {
-        "heartbeat" => ("\u{2665}", theme.accent_primary), // heart
-        "tool" => ("\u{2699}", theme.accent_primary),      // gear
-        "escalation" => ("\u{2191}", theme.accent_secondary), // up arrow
-        "skill" => ("\u{2726}", theme.accent_assistant),   // star
-        "subagent" => ("\u{2726}", theme.accent_assistant), // star
-        _ => ("\u{2022}", theme.fg_dim),                   // bullet
+        "heartbeat" => ("\u{2665}", theme.accent_primary),
+        "tool" => ("\u{2699}", theme.accent_primary),
+        "escalation" => ("\u{2191}", theme.accent_secondary),
+        "skill" => ("\u{2726}", theme.accent_assistant),
+        "subagent" => ("\u{2726}", theme.accent_assistant),
+        _ => ("\u{2022}", theme.fg_dim),
     }
 }
 
@@ -269,7 +262,7 @@ mod tests {
         let wrapped = wrap_text(text, 20);
         assert!(wrapped.len() > 1);
         for line in &wrapped {
-            assert!(line.len() <= 20 + 20); // word boundaries may slightly exceed
+            assert!(line.len() <= 20 + 20);
         }
     }
 

@@ -1,4 +1,11 @@
 use super::*;
+use crate::app::config_io::helpers::{
+    normalize_compliance_mode, normalize_provider_auth_source, normalize_provider_transport,
+};
+use crate::app::TuiModel;
+use crate::app::*;
+use crate::state::DaemonCommand;
+use crate::state::*;
 use crate::test_support::{env_var_lock, EnvVarGuard, ZORAI_DATA_DIR_ENV};
 use rusqlite::Connection;
 use std::sync::mpsc;
@@ -10,13 +17,13 @@ use zorai_shared::providers::{
     PROVIDER_ID_OPENROUTER,
 };
 
-fn make_model() -> TuiModel {
+pub(super) fn make_model() -> TuiModel {
     let (_client_tx, client_rx) = mpsc::channel();
     let (daemon_tx, _daemon_rx) = unbounded_channel();
     TuiModel::new(client_rx, daemon_tx)
 }
 
-fn make_model_with_daemon_rx() -> (
+pub(super) fn make_model_with_daemon_rx() -> (
     TuiModel,
     tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) {
@@ -294,4 +301,3 @@ fn apply_config_json_preserves_azure_openai_base_url() {
     assert_eq!(model.config.model, "my-deployment");
     assert_eq!(model.config.api_transport, "responses");
 }
-

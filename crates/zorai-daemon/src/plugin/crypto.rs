@@ -34,7 +34,6 @@ pub fn load_or_create_key(data_dir: &Path) -> Result<[u8; 32]> {
         key.copy_from_slice(&bytes);
         Ok(key)
     } else {
-        // Ensure parent directory exists
         if let Some(parent) = key_path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create key directory: {}", parent.display()))?;
@@ -42,7 +41,6 @@ pub fn load_or_create_key(data_dir: &Path) -> Result<[u8; 32]> {
 
         let key: [u8; 32] = rand::random();
 
-        // Write key file with restrictive permissions on Unix
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
@@ -113,7 +111,6 @@ mod tests {
         let plaintext = b"same input";
         let blob1 = encrypt(&key, plaintext).unwrap();
         let blob2 = encrypt(&key, plaintext).unwrap();
-        // The nonce portion (first 12 bytes) should differ with overwhelming probability
         assert_ne!(blob1, blob2);
     }
 
@@ -129,7 +126,6 @@ mod tests {
     #[test]
     fn decrypt_with_truncated_blob_fails() {
         let key: [u8; 32] = rand::random();
-        // Less than 12 bytes -> must fail
         let result = decrypt(&key, &[0u8; 5]);
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();

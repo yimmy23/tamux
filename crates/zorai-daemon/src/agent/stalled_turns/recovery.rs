@@ -2,6 +2,17 @@ use super::runtime::StalledTurnCandidate;
 use super::types::StalledTurnClass;
 use super::*;
 
+fn mark_task_stuck_needs_recovery(task: &mut AgentTask, message: &str) {
+    task.blocked_reason = Some("stuck_needs_recovery".to_string());
+    task.logs.push(make_task_log_entry(
+        task.retry_count,
+        TaskLogLevel::Warn,
+        "stalled-turn-recovery",
+        "automatic stalled-turn recovery exhausted",
+        Some(message.to_string()),
+    ));
+}
+
 impl AgentEngine {
     pub(super) async fn perform_stalled_turn_retry(
         &self,
@@ -9,33 +20,61 @@ impl AgentEngine {
     ) -> Result<()> {
         let attempt = candidate.retries_sent.saturating_add(1);
         let recovery_message = stalled_turn_system_message(candidate, attempt);
-        let prior_user_message = {
+        {
             let threads = self.threads.read().await;
-            let Some(thread) = threads.get(&candidate.thread_id) else {
+            if !threads.contains_key(&candidate.thread_id) {
                 anyhow::bail!(
                     "thread {} disappeared before stalled-turn retry",
                     candidate.thread_id
                 );
             };
-            if super::history_scan::thread_has_unanswered_tool_calls(thread) {
-                tracing::info!(
+        }
+        let has_unanswered_tool_calls = match self
+            .history
+            .thread_has_unanswered_tool_calls(&candidate.thread_id)
+            .await
+        {
+            Ok(value) => value,
+            Err(error) => {
+                tracing::warn!(
                     thread_id = %candidate.thread_id,
-                    "skipping stalled-turn retry while thread has unanswered tool calls"
+                    "failed to query persisted unanswered tool calls for stalled-turn retry; falling back to live thread scan: {error}"
                 );
-                return Ok(());
+                let threads = self.threads.read().await;
+                let Some(thread) = threads.get(&candidate.thread_id) else {
+                    anyhow::bail!(
+                        "thread {} disappeared before stalled-turn retry",
+                        candidate.thread_id
+                    );
+                };
+                super::history_scan::thread_has_unanswered_tool_calls(thread)
             }
-            thread
-                .messages
-                .iter()
-                .rev()
-                .find(|message| message.role == MessageRole::User)
-                .map(|message| message.content.clone())
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "thread {} has no prior user message for stalled-turn retry",
+        };
+        if has_unanswered_tool_calls {
+            tracing::info!(
+                thread_id = %candidate.thread_id,
+                "skipping stalled-turn retry while thread has unanswered tool calls"
+            );
+            return Ok(());
+        }
+        let prior_user_message = match self
+            .history
+            .latest_user_message_content(&candidate.thread_id)
+            .await
+        {
+            Ok(Some(content)) => content,
+            Ok(None) => anyhow::bail!(
+                "thread {} has no prior user message for stalled-turn retry",
+                candidate.thread_id
+            ),
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to query persisted prior user message for stalled-turn retry on thread {}",
                         candidate.thread_id
                     )
-                })?
+                });
+            }
         };
 
         {
@@ -141,24 +180,57 @@ impl AgentEngine {
         );
 
         if let Some(task_id) = candidate.task_id.as_deref() {
-            let updated = {
+            let mut updated_live_task = false;
+            let mut updated = {
                 let mut tasks = self.tasks.lock().await;
-                if let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) {
-                    task.blocked_reason = Some("stuck_needs_recovery".to_string());
-                    task.logs.push(make_task_log_entry(
-                        task.retry_count,
-                        TaskLogLevel::Warn,
-                        "stalled-turn-recovery",
-                        "automatic stalled-turn recovery exhausted",
-                        Some(message.clone()),
-                    ));
-                    Some(task.clone())
-                } else {
-                    None
-                }
+                tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .map(|task| {
+                        mark_task_stuck_needs_recovery(task, &message);
+                        updated_live_task = true;
+                        task.clone()
+                    })
             };
+            if updated.is_none() {
+                let Some(mut task) = self
+                    .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                        id: Some(task_id.to_string()),
+                        status: None,
+                        statuses: Vec::new(),
+                        source: None,
+                        thread_id: None,
+                        thread_ids: Vec::new(),
+                        goal_run_id: None,
+                        parent_task_id: None,
+                        awaiting_approval_id: None,
+                        supervisor_config_present: false,
+                        exclude_terminal_statuses: false,
+                        order_by_recent_activity_desc: false,
+                        limit: Some(1),
+                        ids: Vec::new(),
+                        parent_task_ids: Vec::new(),
+                    })
+                    .await
+                    .into_iter()
+                    .next()
+                else {
+                    return;
+                };
+                mark_task_stuck_needs_recovery(&mut task, &message);
+                if let Err(error) = self.history.upsert_agent_task(&task).await {
+                    tracing::warn!(
+                        task_id,
+                        "failed to persist stalled-turn escalation task update: {error}"
+                    );
+                    return;
+                }
+                updated = Some(task);
+            }
             if let Some(task) = updated {
-                self.persist_tasks().await;
+                if updated_live_task {
+                    self.persist_tasks().await;
+                }
                 self.emit_task_update(
                     &task,
                     Some("Automatic stalled-turn recovery exhausted".into()),

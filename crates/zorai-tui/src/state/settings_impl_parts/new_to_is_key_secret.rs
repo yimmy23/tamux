@@ -1,3 +1,7 @@
+use super::cursor::*;
+use super::*;
+use crate::state::config::ConfigState;
+use zorai_shared::providers::PROVIDER_ID_OPENROUTER;
 impl PluginSettingsState {
     pub fn new() -> Self {
         Self {
@@ -23,12 +27,12 @@ impl PluginSettingsState {
                 1
             } else {
                 0
-            } // test connection
+            }
             + if self.selected_plugin().map_or(false, |p| p.has_auth) {
                 1
             } else {
                 0
-            } // connect button
+            }
     }
 
     /// Get the current value for a schema field key.

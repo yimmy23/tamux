@@ -127,19 +127,13 @@ impl AgentEngine {
 
     async fn derive_revision_velocity_ms(&self, thread_id: Option<&str>, now: u64) -> Option<u64> {
         let thread_id = thread_id.unwrap_or("global");
-        let signals = self
-            .history
-            .list_implicit_signals(thread_id, 12)
+        self.history
+            .latest_implicit_signal_by_types(
+                thread_id,
+                &["operator_correction", "high_revision_rate", "rapid_revert"],
+            )
             .await
-            .ok()?;
-        signals
-            .into_iter()
-            .find(|signal| {
-                matches!(
-                    signal.signal_type.as_str(),
-                    "operator_correction" | "high_revision_rate" | "rapid_revert"
-                )
-            })
+            .ok()?
             .map(|signal| now.saturating_sub(signal.timestamp_ms))
     }
 }

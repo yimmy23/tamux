@@ -213,7 +213,6 @@ impl DaemonProjection {
                 vec![AppAction::Status("Approval resolved".into())]
             }
 
-            // Thread events → ChatAction
             ClientEvent::ThreadList(threads) => {
                 vec![AppAction::Chat(ChatAction::ThreadListReceived(threads))]
             }
@@ -253,13 +252,11 @@ impl DaemonProjection {
                 }
                 actions
             }
-            // Task events → TaskAction
             ClientEvent::TaskList(tasks) => {
                 vec![AppAction::Task(TaskAction::TaskListReceived(tasks))]
             }
             ClientEvent::TaskUpdate(task) => vec![AppAction::Task(TaskAction::TaskUpdate(task))],
 
-            // Goal run events → TaskAction
             ClientEvent::GoalRunList(runs) => {
                 vec![AppAction::Task(TaskAction::GoalRunListReceived(runs))]
             }
@@ -299,7 +296,6 @@ impl DaemonProjection {
                 vec![AppAction::Task(TaskAction::FilePreviewReceived(preview))]
             }
 
-            // Config events → ConfigAction
             ClientEvent::AgentConfig(config) => {
                 vec![AppAction::Config(ConfigAction::ConfigReceived(config))]
             }
@@ -310,7 +306,6 @@ impl DaemonProjection {
                 vec![AppAction::Config(ConfigAction::ModelsFetched(models))]
             }
 
-            // Heartbeat → TaskAction
             ClientEvent::HeartbeatItems(items) => {
                 vec![AppAction::Task(TaskAction::HeartbeatItemsReceived(items))]
             }
@@ -335,7 +330,6 @@ impl DaemonProjection {
             ClientEvent::DivergentSessionStarted(_) => vec![],
             ClientEvent::DivergentSession(_) => vec![],
 
-            // Streaming events → ChatAction
             ClientEvent::Delta { thread_id, content } => {
                 vec![AppAction::Chat(ChatAction::Delta { thread_id, content })]
             }
@@ -397,7 +391,6 @@ impl DaemonProjection {
                 provider_final_result_json,
             })],
 
-            // Error → Status
             ClientEvent::Error(message) => vec![AppAction::Status(format!("Error: {}", message))],
         }
     }

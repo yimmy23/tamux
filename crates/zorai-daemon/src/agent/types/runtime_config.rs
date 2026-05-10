@@ -1,3 +1,9 @@
+use super::*;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
+
 use zorai_shared::providers::PROVIDER_ID_OPENAI;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -36,136 +42,136 @@ pub struct GatewayConfig {
     pub whatsapp_link_fallback_electron: bool,
 }
 
-fn default_provider() -> String {
+pub(crate) fn default_provider() -> String {
     PROVIDER_ID_OPENAI.into()
 }
-fn default_embedding_provider() -> String {
+pub(crate) fn default_embedding_provider() -> String {
     PROVIDER_ID_OPENAI.into()
 }
-fn default_embedding_model() -> String {
+pub(crate) fn default_embedding_model() -> String {
     "text-embedding-3-small".into()
 }
-fn default_embedding_dimensions() -> u32 {
+pub(crate) fn default_embedding_dimensions() -> u32 {
     1536
 }
-fn default_embedding_batch_size() -> u32 {
+pub(crate) fn default_embedding_batch_size() -> u32 {
     64
 }
-fn default_embedding_max_concurrency() -> u32 {
+pub(crate) fn default_embedding_max_concurrency() -> u32 {
     2
 }
-fn default_api_transport() -> ApiTransport {
+pub(crate) fn default_api_transport() -> ApiTransport {
     default_api_transport_for_provider(PROVIDER_ID_OPENAI)
 }
-fn default_auth_source() -> AuthSource {
+pub(crate) fn default_auth_source() -> AuthSource {
     AuthSource::ApiKey
 }
-fn default_system_prompt() -> String {
+pub(crate) fn default_system_prompt() -> String {
     format!(
         "You are {} - The Smith (He is a blacksmith god, the creator and craftsman of the heavens in ancient Slavic belief. As an AI agent:\n- Creation: Ideal for tasks intended for use from scratch (coding, writing, design).\n- Rhythm: Associated with the sun and fire, he naturally determines the daily cycles (sunrise-sunset).\n- Personality: Strict but fair; an accessible \"doer\" who ensures this through perfect tools.) operating in zorai, an always-on agentic runtime assistant. {} is your concierge counterpart: lighter, faster, and operator-facing. You can execute terminal commands, monitor systems, and send messages to connected chat platforms. Use your tools proactively. Be concise and direct.",
         AGENT_NAME_SWAROG, AGENT_NAME_RAROG
     )
 }
-fn default_reasoning_effort() -> String {
+pub(crate) fn default_reasoning_effort() -> String {
     "high".into()
 }
-fn default_max_tool_loops() -> u32 {
+pub(crate) fn default_max_tool_loops() -> u32 {
     0
 }
-fn default_pty_channel_capacity() -> usize {
+pub(crate) fn default_pty_channel_capacity() -> usize {
     1024
 }
-fn default_agent_event_channel_capacity() -> usize {
+pub(crate) fn default_agent_event_channel_capacity() -> usize {
     512
 }
-fn default_max_retries() -> u32 {
+pub(crate) fn default_max_retries() -> u32 {
     3
 }
-fn default_retry_delay_ms() -> u64 {
+pub(crate) fn default_retry_delay_ms() -> u64 {
     5000
 }
-fn default_message_loop_delay_ms() -> u64 {
+pub(crate) fn default_message_loop_delay_ms() -> u64 {
     500
 }
-fn default_tool_call_delay_ms() -> u64 {
+pub(crate) fn default_tool_call_delay_ms() -> u64 {
     500
 }
-fn default_llm_stream_chunk_timeout_secs() -> u64 {
+pub(crate) fn default_llm_stream_chunk_timeout_secs() -> u64 {
     300
 }
-fn default_auto_retry() -> bool {
+pub(crate) fn default_auto_retry() -> bool {
     true
 }
-fn default_auto_compact_context() -> bool {
+pub(crate) fn default_auto_compact_context() -> bool {
     true
 }
-fn default_max_context_messages() -> u32 {
+pub(crate) fn default_max_context_messages() -> u32 {
     100
 }
-fn default_participant_observer_restore_window_hours() -> u32 {
+pub(crate) fn default_participant_observer_restore_window_hours() -> u32 {
     24
 }
-fn default_context_window_tokens() -> u32 {
+pub(crate) fn default_context_window_tokens() -> u32 {
     128_000
 }
-fn default_compact_threshold_pct() -> u32 {
+pub(crate) fn default_compact_threshold_pct() -> u32 {
     80
 }
-fn default_keep_recent_on_compact() -> u32 {
+pub(crate) fn default_keep_recent_on_compact() -> u32 {
     10
 }
-fn default_weles_compaction_reasoning_effort() -> String {
+pub(crate) fn default_weles_compaction_reasoning_effort() -> String {
     "medium".into()
 }
-fn default_task_poll_secs() -> u64 {
+pub(crate) fn default_task_poll_secs() -> u64 {
     10
 }
-fn default_ema_alpha() -> f64 {
+pub(crate) fn default_ema_alpha() -> f64 {
     0.3
 }
-fn default_low_activity_frequency_factor() -> u64 {
+pub(crate) fn default_low_activity_frequency_factor() -> u64 {
     4
 }
-fn default_ema_activity_threshold() -> f64 {
+pub(crate) fn default_ema_activity_threshold() -> f64 {
     2.0
 }
-fn default_heartbeat_mins() -> u64 {
+pub(crate) fn default_heartbeat_mins() -> u64 {
     30
 }
-fn default_morning_brief_window_minutes() -> u32 {
+pub(crate) fn default_morning_brief_window_minutes() -> u32 {
     30
 }
-fn default_stuck_detection_delay_seconds() -> u64 {
+pub(crate) fn default_stuck_detection_delay_seconds() -> u64 {
     45
 }
-fn default_surfacing_min_confidence() -> f64 {
+pub(crate) fn default_surfacing_min_confidence() -> f64 {
     0.7
 }
-fn default_surface_cooldown_seconds() -> u64 {
+pub(crate) fn default_surface_cooldown_seconds() -> u64 {
     300
 }
-fn default_honcho_workspace_id() -> String {
+pub(crate) fn default_honcho_workspace_id() -> String {
     "zorai".to_string()
 }
-fn default_compliance_retention_days() -> u32 {
+pub(crate) fn default_compliance_retention_days() -> u32 {
     90
 }
-fn default_generated_tool_limit() -> usize {
+pub(crate) fn default_generated_tool_limit() -> usize {
     20
 }
-fn default_generated_tool_auto_promote_threshold() -> f64 {
+pub(crate) fn default_generated_tool_auto_promote_threshold() -> f64 {
     0.85
 }
-fn default_generated_tool_timeout_secs() -> u64 {
+pub(crate) fn default_generated_tool_timeout_secs() -> u64 {
     30
 }
-fn default_generated_tool_output_kb() -> usize {
+pub(crate) fn default_generated_tool_output_kb() -> usize {
     512
 }
-fn default_snapshot_max_total_size_mb() -> u64 {
+pub(crate) fn default_snapshot_max_total_size_mb() -> u64 {
     10_240
 }
-fn default_offload_tool_result_threshold_bytes() -> usize {
+pub(crate) fn default_offload_tool_result_threshold_bytes() -> usize {
     50 * 1024
 }
 impl Default for AgentConfig {
@@ -237,9 +243,9 @@ impl Default for AgentConfig {
             routing: RoutingConfig::default(),
             skill_promotion: SkillPromotionConfig::default(),
             tier: TierConfig::default(),
-            episodic: super::episodic::EpisodicConfig::default(),
-            uncertainty: super::uncertainty::UncertaintyConfig::default(),
-            cost: super::cost::CostConfig::default(),
+            episodic: super::super::episodic::EpisodicConfig::default(),
+            uncertainty: super::super::uncertainty::UncertaintyConfig::default(),
+            cost: super::super::cost::CostConfig::default(),
             extra: HashMap::new(),
         }
     }
@@ -434,13 +440,10 @@ pub struct ProviderHealthSnapshot {
     pub suggested_alternatives: Vec<ProviderAlternativeSuggestion>,
 }
 
-fn default_provider_circuit_reason() -> String {
+pub(crate) fn default_provider_circuit_reason() -> String {
     "circuit breaker open".to_string()
 }
 
-// ---------------------------------------------------------------------------
-// Concierge
-// ---------------------------------------------------------------------------
 
 /// How much context the concierge gathers for its welcome greeting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -533,15 +536,15 @@ pub struct ToolsConfig {
     pub system_info: bool,
 }
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }
 
-fn default_sub_agent_disable_allowed() -> bool {
+pub(crate) fn default_sub_agent_disable_allowed() -> bool {
     true
 }
 
-fn default_sub_agent_delete_allowed() -> bool {
+pub(crate) fn default_sub_agent_delete_allowed() -> bool {
     true
 }
 
@@ -559,9 +562,6 @@ impl Default for ToolsConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Agent events (broadcast to frontend subscribers)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

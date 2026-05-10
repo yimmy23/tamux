@@ -40,12 +40,10 @@ fn context_summary_truncation_in_summary() {
     let summary = cp.to_summary();
 
     let preview = summary.context_summary_preview.unwrap();
-    // Truncated to 119 chars + ellipsis character
-    assert!(preview.len() <= 123); // 119 ASCII bytes + up to 4 bytes for the ellipsis
+    assert!(preview.len() <= 123);
     assert!(preview.ends_with('\u{2026}'));
 }
 
-// -- same goal run, multiple checkpoints --
 
 #[test]
 fn multiple_checkpoints_for_same_goal_run() {
@@ -79,7 +77,6 @@ fn multiple_checkpoints_for_same_goal_run() {
     assert_eq!(cp_pre.goal_run_id, "goal_1");
 }
 
-// -- checkpoint type variants --
 
 #[test]
 fn pre_step_vs_post_step_vs_manual_types() {
@@ -123,7 +120,6 @@ fn pre_step_vs_post_step_vs_manual_types() {
     assert_eq!(post.checkpoint_type, CheckpointType::PostStep);
     assert_eq!(manual.checkpoint_type, CheckpointType::Manual);
 
-    // Verify they serialise to distinct JSON values
     let pre_json = serde_json::to_value(&pre.checkpoint_type).unwrap();
     let post_json = serde_json::to_value(&post.checkpoint_type).unwrap();
     let manual_json = serde_json::to_value(&manual.checkpoint_type).unwrap();
@@ -132,7 +128,6 @@ fn pre_step_vs_post_step_vs_manual_types() {
     assert_eq!(manual_json, "manual");
 }
 
-// -- layer preservation tests --
 
 #[test]
 fn tasks_snapshot_preserved() {
@@ -157,7 +152,6 @@ fn tasks_snapshot_preserved() {
     assert_eq!(cp.tasks_snapshot[1].id, "t_beta");
     assert_eq!(cp.tasks_snapshot[1].status, TaskStatus::InProgress);
 
-    // Verify survives serialisation round-trip
     let json = serde_json::to_string(&cp).unwrap();
     let restored = checkpoint_load(&json).unwrap();
     assert_eq!(restored.tasks_snapshot.len(), 2);
@@ -187,7 +181,6 @@ fn work_context_preserved() {
     assert_eq!(restored_wc.entries[0].path, "/tmp/test.rs");
     assert_eq!(restored_wc.entries[0].kind, WorkContextEntryKind::Artifact);
 
-    // Verify survives serialisation round-trip
     let json = serde_json::to_string(&cp).unwrap();
     let restored = checkpoint_load(&json).unwrap();
     let wc2 = restored.work_context.as_ref().unwrap();
@@ -214,13 +207,11 @@ fn memory_updates_preserved() {
     assert_eq!(cp.memory_updates[0], "learned X");
     assert_eq!(cp.memory_updates[1], "noted Y");
 
-    // Round-trip
     let json = serde_json::to_string(&cp).unwrap();
     let restored = checkpoint_load(&json).unwrap();
     assert_eq!(restored.memory_updates, vec!["learned X", "noted Y"]);
 }
 
-// -- edge cases --
 
 #[test]
 fn save_with_no_optional_fields() {

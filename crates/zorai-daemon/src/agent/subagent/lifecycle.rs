@@ -34,7 +34,6 @@ impl SubagentLifecycleState {
             Running => &[Paused, WaitingForInput, Completed, Failed, Cancelled],
             Paused => &[Running, Cancelled],
             WaitingForInput => &[Running, Cancelled],
-            // Terminal states — no outgoing transitions.
             Completed | Failed | Cancelled => &[],
         }
     }
@@ -157,7 +156,6 @@ mod tests {
             .transition(SubagentLifecycleState::Running, 1, None)
             .unwrap_err();
         assert!(err.contains("invalid transition"));
-        // State must remain unchanged after a rejected transition.
         assert_eq!(lc.state(), SubagentLifecycleState::Queued);
     }
 
@@ -247,7 +245,6 @@ mod tests {
         let lc = SubagentLifecycle::new(100);
         assert_eq!(lc.elapsed_ms(100), 0);
         assert_eq!(lc.elapsed_ms(350), 250);
-        // Underflow protection via saturating_sub.
         assert_eq!(lc.elapsed_ms(50), 0);
     }
 
@@ -274,13 +271,11 @@ mod tests {
 
     #[test]
     fn cancelled_from_every_non_terminal_state() {
-        // Queued -> Cancelled
         let mut lc = SubagentLifecycle::new(0);
         lc.transition(SubagentLifecycleState::Cancelled, 1, None)
             .unwrap();
         assert!(lc.is_terminal());
 
-        // Initializing -> Cancelled
         let mut lc = SubagentLifecycle::new(0);
         lc.transition(SubagentLifecycleState::Initializing, 1, None)
             .unwrap();
@@ -288,7 +283,6 @@ mod tests {
             .unwrap();
         assert!(lc.is_terminal());
 
-        // Running -> Cancelled
         let mut lc = SubagentLifecycle::new(0);
         lc.transition(SubagentLifecycleState::Initializing, 1, None)
             .unwrap();
@@ -298,7 +292,6 @@ mod tests {
             .unwrap();
         assert!(lc.is_terminal());
 
-        // Paused -> Cancelled
         let mut lc = SubagentLifecycle::new(0);
         lc.transition(SubagentLifecycleState::Initializing, 1, None)
             .unwrap();
@@ -310,7 +303,6 @@ mod tests {
             .unwrap();
         assert!(lc.is_terminal());
 
-        // WaitingForInput -> Cancelled
         let mut lc = SubagentLifecycle::new(0);
         lc.transition(SubagentLifecycleState::Initializing, 1, None)
             .unwrap();
@@ -374,7 +366,6 @@ mod tests {
         assert_eq!(lc.elapsed_ms(100), 100);
         assert_eq!(lc.transitions().len(), 7);
 
-        // Verify every reason was recorded.
         let reasons: Vec<&str> = lc
             .transitions()
             .iter()

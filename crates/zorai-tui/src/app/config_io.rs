@@ -18,6 +18,49 @@ use helpers::{
 };
 
 impl TuiModel {
+    fn normalized_workspace_repo_monitor_dirs(raw: &str) -> Vec<String> {
+        raw.lines()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    pub(in crate::app) fn sync_workspace_repo_monitor_to_daemon(
+        &mut self,
+        requested_enabled: bool,
+    ) {
+        let workspace_id = self.workspace.workspace_id().to_string();
+        let include_dirs = Self::normalized_workspace_repo_monitor_dirs(
+            &self.config.workspace_repo_monitor_include_dirs,
+        );
+        let exclude_dirs = Self::normalized_workspace_repo_monitor_dirs(
+            &self.config.workspace_repo_monitor_exclude_dirs,
+        );
+        let enabled = requested_enabled && !include_dirs.is_empty();
+
+        self.config.workspace_repo_monitor_enabled = enabled;
+
+        if !self.connected {
+            self.status_line =
+                "Workspace repo monitor change not saved: daemon is disconnected".to_string();
+            return;
+        }
+
+        self.send_daemon_command(DaemonCommand::SetWorkspaceRepoMonitor {
+            workspace_id,
+            repo_monitor_enabled: enabled,
+            repo_monitor_include_dirs: include_dirs,
+            repo_monitor_exclude_dirs: exclude_dirs,
+        });
+
+        self.status_line = if requested_enabled && !enabled {
+            "Repo monitor stays disabled until at least one include directory is set".to_string()
+        } else {
+            "Workspace repo monitor updated".to_string()
+        };
+    }
+
     pub(in crate::app) fn apply_svarog_reasoning_effort_override(&mut self, effort: &str) {
         let reasoning_effort = effort.to_string();
         self.config.reduce(config::ConfigAction::SetReasoningEffort(

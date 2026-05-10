@@ -1,3 +1,5 @@
+use super::default_command_items::default_command_items;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModalKind {
     CommandPalette,
@@ -74,6 +76,24 @@ impl ThreadPickerTab {
             }
         }
     }
+
+    /// Server-side `agent_filter` value (matches the daemon's
+    /// `persisted_thread_agent_name_filter` resolver).
+    ///
+    /// `None` means "no agent-based filter" — used for tabs that aren't
+    /// scoped to a specific agent (Goals, Workspace, Playgrounds, Internal,
+    /// Gateway). For those the legacy paginated fetch still applies.
+    pub fn agent_filter(&self) -> Option<String> {
+        match self {
+            Self::Swarog => Some(zorai_protocol::AGENT_HANDLE_SVAROG.to_string()),
+            Self::Rarog => Some("rarog".to_string()),
+            Self::Weles => Some("weles".to_string()),
+            Self::Agent(agent_id) => Some(agent_id.clone()),
+            Self::Goals | Self::Workspace | Self::Playgrounds | Self::Internal | Self::Gateway => {
+                None
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -88,7 +108,7 @@ pub enum ModalAction {
     Pop,
     RemoveAll(ModalKind),
     SetQuery(String),
-    Navigate(i32), // +1 = down, -1 = up
+    Navigate(i32),
     Execute,
     FuzzyFilter,
 }
@@ -156,7 +176,6 @@ impl ModalState {
         }
     }
 
-    // Accessors
     pub fn top(&self) -> Option<ModalKind> {
         self.stack.last().copied()
     }
@@ -291,10 +310,8 @@ impl ModalState {
     /// Merge plugin commands into the command palette.
     /// Removes any previously added plugin commands, then appends the new ones.
     pub fn set_plugin_commands(&mut self, commands: Vec<CommandItem>) {
-        // Remove old plugin commands (marked by command containing '.')
         self.command_items
             .retain(|item| !item.command.contains('.'));
-        // Append new plugin commands
         self.command_items.extend(commands);
         self.refilter();
         let len = if self.top() == Some(ModalKind::CommandPalette) {
@@ -378,7 +395,6 @@ impl ModalState {
                 }
             }
             ModalAction::Execute => {
-                // Execution is handled by the app layer — this just marks intent
             }
             ModalAction::FuzzyFilter => {
                 self.refilter();
@@ -398,7 +414,6 @@ impl ModalState {
         if query.is_empty() {
             self.filtered_indices = (0..self.command_items.len()).collect();
         } else {
-            // Strip leading '/' for matching
             let q = query.strip_prefix('/').unwrap_or(&query);
             let q = q.split_whitespace().next().unwrap_or(q);
             self.filtered_indices = self

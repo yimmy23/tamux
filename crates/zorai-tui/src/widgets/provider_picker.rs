@@ -118,7 +118,6 @@ pub fn render(
         return;
     }
 
-    // Split: list (flex) + hints (1)
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
@@ -186,7 +185,6 @@ pub fn render(
     let list = List::new(list_items);
     frame.render_widget(list, chunks[0]);
 
-    // Hints
     let hints = Line::from(vec![
         Span::raw(" "),
         Span::styled("↑↓", theme.fg_active),

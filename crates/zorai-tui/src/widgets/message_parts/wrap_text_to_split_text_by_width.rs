@@ -1,5 +1,19 @@
+use super::markdown_table;
+use super::*;
+use crate::state::chat::{AgentMessage, MessageRole, TranscriptMode};
+use crate::theme::ThemeTokens;
+use crate::widgets::image_preview;
+use crate::widgets::message_operator_question::render_operator_question_message;
+use crate::widgets::tool_diff::{
+    render_tool_edit_diff, render_tool_structured_json, ToolStructuredValueSource,
+};
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use zorai_protocol::tool_names;
 
-// Word-wrap text to fit within a given width
 pub(crate) fn wrap_text(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![text.to_string()];
@@ -36,14 +50,14 @@ pub(crate) fn wrap_text(text: &str, width: usize) -> Vec<String> {
     lines
 }
 
-fn wrap_styled_lines(lines: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> {
+pub(crate) fn wrap_styled_lines(lines: Vec<Line<'static>>, width: usize) -> Vec<Line<'static>> {
     lines
         .into_iter()
         .flat_map(|line| wrap_styled_line(line, width))
         .collect()
 }
 
-fn wrap_styled_line(line: Line<'static>, width: usize) -> Vec<Line<'static>> {
+pub(crate) fn wrap_styled_line(line: Line<'static>, width: usize) -> Vec<Line<'static>> {
     if width == 0 || line.spans.is_empty() {
         return vec![line];
     }
@@ -111,7 +125,7 @@ fn wrap_styled_line(line: Line<'static>, width: usize) -> Vec<Line<'static>> {
     wrapped
 }
 
-fn tokenize_styled_text(text: String, style: Style) -> Vec<(String, Style)> {
+pub(crate) fn tokenize_styled_text(text: String, style: Style) -> Vec<(String, Style)> {
     if text.is_empty() {
         return Vec::new();
     }
@@ -136,7 +150,7 @@ fn tokenize_styled_text(text: String, style: Style) -> Vec<(String, Style)> {
     tokens
 }
 
-fn split_text_by_width(text: &str, width: usize) -> Vec<String> {
+pub(crate) fn split_text_by_width(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return vec![text.to_string()];
     }
@@ -165,4 +179,3 @@ fn split_text_by_width(text: &str, width: usize) -> Vec<String> {
 
     chunks
 }
-

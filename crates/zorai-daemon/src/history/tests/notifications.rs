@@ -68,6 +68,92 @@ async fn list_notifications_filters_archived_and_deleted_entries() -> Result<()>
 }
 
 #[tokio::test]
+async fn list_notifications_filters_inactive_entries_before_limit() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let archived = sample_notification("archived-newest", 300, Some(310), None);
+    let deleted = sample_notification("deleted-newer", 200, None, Some(210));
+    let active = sample_notification("active-older", 100, None, None);
+
+    store.upsert_notification(&archived).await?;
+    store.upsert_notification(&deleted).await?;
+    store.upsert_notification(&active).await?;
+
+    let active_only = store.list_notifications(false, Some(1)).await?;
+
+    assert_eq!(active_only, vec![active]);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_notifications_by_source_filters_source_before_limit() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let mut other = sample_notification("other-newest", 300, None, None);
+    other.source = "anticipatory".to_string();
+    let plugin = sample_notification("plugin-older", 100, None, None);
+
+    store.upsert_notification(&other).await?;
+    store.upsert_notification(&plugin).await?;
+
+    let plugin_only = store
+        .list_notifications_by_source("plugin_auth", true, Some(1))
+        .await?;
+
+    assert_eq!(plugin_only, vec![plugin]);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn archive_notifications_by_source_except_ids_updates_matching_active_rows_in_sql(
+) -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let stale = sample_notification("stale-plugin", 100, None, None);
+    let kept = sample_notification("kept-plugin", 110, None, None);
+    let deleted = sample_notification("deleted-plugin", 120, None, Some(125));
+    let mut other_source = sample_notification("other-source", 130, None, None);
+    other_source.source = "anticipatory".to_string();
+
+    store.upsert_notification(&stale).await?;
+    store.upsert_notification(&kept).await?;
+    store.upsert_notification(&deleted).await?;
+    store.upsert_notification(&other_source).await?;
+
+    let archived = store
+        .archive_notifications_by_source_except_ids(
+            "plugin_auth",
+            &["kept-plugin".to_string()],
+            500,
+        )
+        .await?;
+
+    assert_eq!(archived, 1);
+    let loaded = store
+        .list_notifications_by_source("plugin_auth", true, Some(10))
+        .await?;
+    let by_id = loaded
+        .into_iter()
+        .map(|notification| (notification.id.clone(), notification))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    assert_eq!(by_id["stale-plugin"].archived_at, Some(500));
+    assert_eq!(by_id["stale-plugin"].updated_at, 500);
+    assert_eq!(by_id["kept-plugin"].archived_at, None);
+    assert_eq!(by_id["deleted-plugin"].deleted_at, Some(125));
+    assert_eq!(by_id["deleted-plugin"].archived_at, None);
+
+    let other_loaded = store
+        .list_notifications_by_source("anticipatory", true, Some(10))
+        .await?;
+    assert_eq!(other_loaded[0].archived_at, None);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn upsert_notification_preserves_existing_read_and_archive_state() -> Result<()> {
     let (store, root) = make_test_store().await?;
     let mut archived = sample_notification("notif_1", 100, None, None);

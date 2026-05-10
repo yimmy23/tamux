@@ -29,10 +29,10 @@ pub(super) fn build_task_prompt(task: &AgentTask) -> String {
         "\nIf this task is large and parallelizable, use spawn_subagent for bounded child work items and monitor them with list_subagents.",
     );
     prompt.push_str(
-        "\nWhen this task involves work on a directory or repository path, explicitly look for `AGENTS.md` in that directory and its nearest relevant parent before planning or editing. If present, read it and follow its repo-specific instructions.",
+        "\nWhen this task involves work on a directory or repository path, check for `AGENTS.md` in that directory and its nearest relevant parent when repo-specific guidance is likely relevant. If present, apply the instructions that matter, but do not turn reading `AGENTS.md` into a standalone plan step unless the task specifically requires it.",
     );
     prompt.push_str(
-        "\nWhen delegating directory or repository work with spawn_subagent, include that `AGENTS.md` path in the child assignment when one exists and tell the child to read it first.",
+        "\nWhen delegating directory or repository work with spawn_subagent, include that `AGENTS.md` path in the child assignment when one exists and pass along any applicable guidance; do not frame reading it as the child's first goal.",
     );
     prompt.push_str(
         "\nDo not use list_agents to check spawned child progress, and do not busy-wait on active subagents. If delegation is in flight and no other useful work remains, send a concise progress update and stop so zorai can resume you when children finish.",
@@ -300,9 +300,8 @@ pub(super) async fn resolve_preferred_session_id(
         .map(|session| session.id)
 }
 
-// -- Utility functions --
 
-pub(super) fn agent_data_dir() -> std::path::PathBuf {
+pub(crate) fn agent_data_dir() -> std::path::PathBuf {
     zorai_protocol::zorai_root_dir().join("agent")
 }
 
@@ -345,7 +344,7 @@ pub(super) fn memory_paths_for_scope(
     }
 }
 
-pub(super) fn skills_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
+pub(crate) fn skills_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
     let default_agent_dir = agent_data_dir();
     if data_dir == default_agent_dir {
         return zorai_protocol::zorai_skills_dir();
@@ -357,7 +356,7 @@ pub(super) fn skills_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
         .join("skills")
 }
 
-pub(super) fn guidelines_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
+pub(crate) fn guidelines_dir(data_dir: &std::path::Path) -> std::path::PathBuf {
     let default_agent_dir = agent_data_dir();
     if data_dir == default_agent_dir {
         return zorai_protocol::zorai_guidelines_dir();
@@ -522,7 +521,7 @@ pub(super) fn read_setting_str(v: &serde_json::Value, key: &str) -> String {
         .to_string()
 }
 
-pub(super) fn now_millis() -> u64 {
+pub(crate) fn now_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -620,7 +619,10 @@ mod tests {
         assert!(prompt.contains("directory or repository path"));
         assert!(prompt.contains("nearest relevant parent"));
         assert!(prompt.contains("spawn_subagent"));
-        assert!(prompt.contains("include that `AGENTS.md` path"));
+        assert!(prompt.contains("do not turn reading `AGENTS.md` into a standalone plan step"));
+        assert!(prompt.contains("do not frame reading it as the child's first goal"));
+        assert!(!prompt.contains("before planning or editing"));
+        assert!(!prompt.contains("tell the child to read it first"));
     }
 
     #[test]

@@ -250,7 +250,7 @@ impl Default for ZoraiConfig {
             default_shell: None,
             default_cols: 80,
             default_rows: 24,
-            scrollback_bytes: 1024 * 1024, // 1 MiB
+            scrollback_bytes: 1024 * 1024,
             ipc_mode: if cfg!(unix) {
                 "socket".into()
             } else {

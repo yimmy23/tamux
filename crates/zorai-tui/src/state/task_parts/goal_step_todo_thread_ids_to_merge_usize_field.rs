@@ -1,4 +1,8 @@
-fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
+use super::merge_goal_run_dossier::*;
+use super::new_to_reduce::*;
+use super::task_status_to_task_state::*;
+use super::*;
+pub(super) fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
     let mut thread_ids = Vec::new();
     let mut task_ids = Vec::new();
 
@@ -60,7 +64,7 @@ fn goal_step_todo_thread_ids(state: &TaskState, run: &GoalRun) -> Vec<String> {
     thread_ids
 }
 
-fn push_unique_id(ids: &mut Vec<String>, id: &str) -> bool {
+pub(super) fn push_unique_id(ids: &mut Vec<String>, id: &str) -> bool {
     if id.is_empty() || ids.iter().any(|existing| existing == id) {
         return false;
     }
@@ -68,7 +72,7 @@ fn push_unique_id(ids: &mut Vec<String>, id: &str) -> bool {
     true
 }
 
-fn remember_goal_thread(
+pub(super) fn remember_goal_thread(
     goal_thread_ids: &mut std::collections::HashMap<String, Vec<String>>,
     goal_run_id: &str,
     thread_id: &str,
@@ -82,11 +86,11 @@ fn remember_goal_thread(
     }
 }
 
-fn goal_step_live_todo_key(goal_run_id: &str, step_index: usize) -> String {
+pub(super) fn goal_step_live_todo_key(goal_run_id: &str, step_index: usize) -> String {
     format!("{goal_run_id}::{step_index}")
 }
 
-fn reconcile_goal_run_status_from_tasks(tasks: &[AgentTask], goal_runs: &mut [GoalRun]) {
+pub(super) fn reconcile_goal_run_status_from_tasks(tasks: &[AgentTask], goal_runs: &mut [GoalRun]) {
     for goal_run in goal_runs {
         if matches!(
             goal_run.status,
@@ -124,7 +128,7 @@ fn reconcile_goal_run_status_from_tasks(tasks: &[AgentTask], goal_runs: &mut [Go
     }
 }
 
-fn merge_task_update(existing: &AgentTask, mut updated: AgentTask) -> AgentTask {
+pub(super) fn merge_task_update(existing: &AgentTask, mut updated: AgentTask) -> AgentTask {
     if updated.description.is_empty() {
         updated.description = existing.description.clone();
     }
@@ -165,7 +169,7 @@ fn merge_task_update(existing: &AgentTask, mut updated: AgentTask) -> AgentTask 
     updated
 }
 
-impl super::spawned_tree::SpawnedAgentTreeSource for AgentTask {
+impl crate::state::spawned_tree::SpawnedAgentTreeSource for AgentTask {
     fn spawned_tree_identity(&self) -> &str {
         &self.id
     }
@@ -197,7 +201,7 @@ impl Default for TaskState {
     }
 }
 
-fn normalize_goal_run_ranges(mut run: GoalRun) -> GoalRun {
+pub(super) fn normalize_goal_run_ranges(mut run: GoalRun) -> GoalRun {
     if run.total_step_count == 0 {
         run.total_step_count = run.steps.len();
     }
@@ -234,7 +238,7 @@ fn normalize_goal_run_ranges(mut run: GoalRun) -> GoalRun {
     run
 }
 
-fn merge_range_vec<T: Clone>(
+pub(super) fn merge_range_vec<T: Clone>(
     existing_start: usize,
     existing_end: usize,
     existing_items: &[T],
@@ -273,7 +277,11 @@ fn merge_range_vec<T: Clone>(
     (union_start, union_end, merged)
 }
 
-fn merge_optional_field<T>(existing: &mut Option<T>, incoming: Option<T>, preserve_existing: bool) {
+pub(super) fn merge_optional_field<T>(
+    existing: &mut Option<T>,
+    incoming: Option<T>,
+    preserve_existing: bool,
+) {
     if preserve_existing {
         if incoming.is_some() {
             *existing = incoming;
@@ -283,38 +291,57 @@ fn merge_optional_field<T>(existing: &mut Option<T>, incoming: Option<T>, preser
     }
 }
 
-fn merge_vec_field<T>(existing: &mut Vec<T>, incoming: Vec<T>, preserve_existing_when_empty: bool) {
+pub(super) fn merge_vec_field<T>(
+    existing: &mut Vec<T>,
+    incoming: Vec<T>,
+    preserve_existing_when_empty: bool,
+) {
     if preserve_existing_when_empty && incoming.is_empty() {
         return;
     }
     *existing = incoming;
 }
 
-fn merge_string_field(existing: &mut String, incoming: String, preserve_existing_when_empty: bool) {
+pub(super) fn merge_string_field(
+    existing: &mut String,
+    incoming: String,
+    preserve_existing_when_empty: bool,
+) {
     if preserve_existing_when_empty && incoming.is_empty() {
         return;
     }
     *existing = incoming;
 }
 
-fn merge_u32_field(existing: &mut u32, incoming: u32, preserve_existing_when_zero: bool) {
+pub(super) fn merge_u32_field(
+    existing: &mut u32,
+    incoming: u32,
+    preserve_existing_when_zero: bool,
+) {
     if preserve_existing_when_zero && incoming == 0 && *existing != 0 {
         return;
     }
     *existing = incoming;
 }
 
-fn merge_u64_field(existing: &mut u64, incoming: u64, preserve_existing_when_zero: bool) {
+pub(super) fn merge_u64_field(
+    existing: &mut u64,
+    incoming: u64,
+    preserve_existing_when_zero: bool,
+) {
     if preserve_existing_when_zero && incoming == 0 && *existing != 0 {
         return;
     }
     *existing = incoming;
 }
 
-fn merge_usize_field(existing: &mut usize, incoming: usize, preserve_existing_when_zero: bool) {
+pub(super) fn merge_usize_field(
+    existing: &mut usize,
+    incoming: usize,
+    preserve_existing_when_zero: bool,
+) {
     if preserve_existing_when_zero && incoming == 0 && *existing != 0 {
         return;
     }
     *existing = incoming;
 }
-

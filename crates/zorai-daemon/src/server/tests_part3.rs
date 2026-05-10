@@ -1,3 +1,5 @@
+use super::tests_part2::tests_part2_support::*;
+use super::*;
 #[test]
 fn unknown_operator_profile_session_errors_are_stale_fetches() {
     let error = anyhow::anyhow!("unknown operator profile session: ops_done");
@@ -268,7 +270,9 @@ async fn run_goal_plan_review_connection_liveness_test(subscribe: bool) {
         let approval_resolved = timeout(Duration::from_secs(1), async {
             loop {
                 match conn.recv().await {
-                    DaemonMessage::ApprovalResolved { approval_id: got, .. } => return got,
+                    DaemonMessage::ApprovalResolved {
+                        approval_id: got, ..
+                    } => return got,
                     DaemonMessage::AgentEvent { .. } => continue,
                     other => panic!("expected ApprovalResolved, got {other:?}"),
                 }
@@ -279,7 +283,9 @@ async fn run_goal_plan_review_connection_liveness_test(subscribe: bool) {
         assert_eq!(approval_resolved, approval_id);
     } else {
         match conn.recv().await {
-            DaemonMessage::ApprovalResolved { approval_id: got, .. } => {
+            DaemonMessage::ApprovalResolved {
+                approval_id: got, ..
+            } => {
                 assert_eq!(got, approval_id);
             }
             other => panic!("expected ApprovalResolved, got {other:?}"),
@@ -310,6 +316,97 @@ async fn run_goal_plan_review_connection_liveness_test(subscribe: bool) {
             other => panic!("expected Pong after approval resolution, got {other:?}"),
         }
     }
+
+    conn.shutdown().await;
+}
+
+#[tokio::test]
+async fn list_agent_events_notification_snapshot_excludes_inactive_entries() {
+    let mut conn = spawn_test_connection().await;
+
+    let active = zorai_protocol::InboxNotification {
+        id: "notif-active".to_string(),
+        source: "test".to_string(),
+        kind: "inbox_entry".to_string(),
+        title: "Active".to_string(),
+        body: "active body".to_string(),
+        subtitle: None,
+        severity: "info".to_string(),
+        created_at: 100,
+        updated_at: 100,
+        read_at: None,
+        archived_at: None,
+        deleted_at: None,
+        actions: Vec::new(),
+        metadata_json: None,
+    };
+    let archived = zorai_protocol::InboxNotification {
+        id: "notif-archived".to_string(),
+        source: "test".to_string(),
+        kind: "inbox_entry".to_string(),
+        title: "Archived".to_string(),
+        body: "archived body".to_string(),
+        subtitle: None,
+        severity: "info".to_string(),
+        created_at: 110,
+        updated_at: 110,
+        read_at: Some(111),
+        archived_at: Some(112),
+        deleted_at: None,
+        actions: Vec::new(),
+        metadata_json: None,
+    };
+    let deleted = zorai_protocol::InboxNotification {
+        id: "notif-deleted".to_string(),
+        source: "test".to_string(),
+        kind: "inbox_entry".to_string(),
+        title: "Deleted".to_string(),
+        body: "deleted body".to_string(),
+        subtitle: None,
+        severity: "info".to_string(),
+        created_at: 120,
+        updated_at: 120,
+        read_at: None,
+        archived_at: None,
+        deleted_at: Some(121),
+        actions: Vec::new(),
+        metadata_json: None,
+    };
+
+    conn.agent
+        .history
+        .upsert_notification(&active)
+        .await
+        .expect("persist active notification");
+    conn.agent
+        .history
+        .upsert_notification(&archived)
+        .await
+        .expect("persist archived notification");
+    conn.agent
+        .history
+        .upsert_notification(&deleted)
+        .await
+        .expect("persist deleted notification");
+
+    conn.framed
+        .send(ClientMessage::ListAgentEvents {
+            category: Some("notification".to_string()),
+            pane_id: None,
+            limit: Some(10),
+        })
+        .await
+        .expect("request notification snapshot");
+
+    let events_json = match conn.recv().await {
+        DaemonMessage::AgentEventRows { events_json } => events_json,
+        other => panic!("expected AgentEventRows, got {other:?}"),
+    };
+
+    let rows: Vec<zorai_protocol::AgentEventRow> =
+        serde_json::from_str(&events_json).expect("parse notification rows");
+    let ids = rows.into_iter().map(|row| row.id).collect::<Vec<_>>();
+    assert_eq!(ids, vec!["notif-active"]);
 
     conn.shutdown().await;
 }
@@ -736,7 +833,6 @@ async fn divergent_ipc_get_session_returns_completion_payload() {
         .await
         .expect("start divergent session");
 
-    // Record contributions and complete session to synthesize retrieval payload.
     let framing_labels = vec!["analytical-lens".to_string(), "pragmatic-lens".to_string()];
     for (idx, label) in framing_labels.iter().enumerate() {
         conn.agent
@@ -1102,6 +1198,7 @@ async fn thread_list_does_not_subscribe_client_to_live_agent_events() {
             limit: None,
             offset: None,
             include_internal: false,
+            agent_filter: None,
         })
         .await
         .expect("request thread list");
@@ -1222,6 +1319,7 @@ async fn thread_list_include_internal_reveals_playground_threads() {
             limit: None,
             offset: None,
             include_internal: true,
+            agent_filter: None,
         })
         .await
         .expect("request inclusive thread list");
@@ -1308,7 +1406,10 @@ async fn github_copilot_login_provider_without_token_uses_browser_auth_flow() {
         .find(|state| state.provider_id == "github-copilot")
         .expect("github copilot provider state should be present");
     assert!(copilot.authenticated);
-    assert_eq!(copilot.auth_source, crate::agent::types::AuthSource::GithubCopilot);
+    assert_eq!(
+        copilot.auth_source,
+        crate::agent::types::AuthSource::GithubCopilot
+    );
 
     conn.shutdown().await;
 }

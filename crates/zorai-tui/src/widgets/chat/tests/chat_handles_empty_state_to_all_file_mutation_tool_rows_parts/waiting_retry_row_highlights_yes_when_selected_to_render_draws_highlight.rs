@@ -1,3 +1,12 @@
+use super::super::chat_with_messages;
+use super::super::*;
+use crate::state::chat::{
+    AgentMessage, AgentThread, ChatAction, ChatState, MessageRole, RetryPhase, RetryStatusVm,
+};
+use crate::theme::ThemeTokens;
+use ratatui::backend::TestBackend;
+use ratatui::layout::Rect;
+use ratatui::Terminal;
 #[test]
 fn waiting_retry_row_highlights_yes_when_selected() {
     let mut chat = ChatState::new();
@@ -188,6 +197,42 @@ fn selected_message_action_bar_highlights_only_primary_action() {
     assert_eq!(resend_span.style.bg, Some(Color::Indexed(236)));
 }
 
+fn assert_blank_line_before_action_bar(lines: &[RenderedChatLine], message_index: usize) {
+    let action_index = lines
+        .iter()
+        .position(|line| {
+            line.message_index == Some(message_index)
+                && matches!(line.kind, RenderedLineKind::ActionBar)
+        })
+        .expect("selected message should render an action bar");
+
+    assert!(
+        action_index > 0,
+        "action bar should not be the first rendered line"
+    );
+    assert_eq!(lines[action_index - 1].message_index, Some(message_index));
+    assert!(
+        matches!(lines[action_index - 1].kind, RenderedLineKind::Padding),
+        "action bar should be separated from message content"
+    );
+}
+
+#[test]
+fn selected_assistant_message_keeps_blank_line_before_action_bar() {
+    let mut chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Assistant,
+        content: "plain answer".into(),
+        ..Default::default()
+    }]);
+    chat.select_message(Some(0));
+
+    let area = Rect::new(0, 0, 80, 8);
+    let (_, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 0, false)
+        .expect("chat should produce visible lines");
+
+    assert_blank_line_before_action_bar(&visible, 0);
+}
+
 #[test]
 fn user_message_actions_include_pin_before_delete() {
     let chat = chat_with_messages(vec![AgentMessage {
@@ -267,6 +312,119 @@ fn selected_expanded_tool_message_action_bar_shows_collapse() {
 }
 
 #[test]
+fn selected_expanded_tool_message_keeps_blank_line_before_action_bar() {
+    let mut chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("read_file".into()),
+        tool_status: Some("done".into()),
+        content: "line one\nline two".into(),
+        ..Default::default()
+    }]);
+    chat.select_message(Some(0));
+    chat.toggle_tool_expansion(0);
+
+    let (lines, _) = build_rendered_lines(&chat, &ThemeTokens::default(), 80, 0, false);
+    let action_index = lines
+        .iter()
+        .position(|line| {
+            line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ActionBar)
+        })
+        .expect("selected tool message should render an action bar");
+
+    assert!(
+        action_index > 0,
+        "action bar should not be the first rendered line"
+    );
+    assert_eq!(lines[action_index - 1].message_index, Some(0));
+    assert!(
+        matches!(lines[action_index - 1].kind, RenderedLineKind::Padding),
+        "expanded tool action bar should be separated from tool content"
+    );
+}
+
+#[test]
+fn selected_expanded_tool_message_action_bar_stays_visible_in_windowed_render() {
+    let mut chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("read_file".into()),
+        tool_status: Some("done".into()),
+        content: "line one\nline two".into(),
+        ..Default::default()
+    }]);
+    chat.select_message(Some(0));
+    chat.toggle_tool_expansion(0);
+
+    let area = Rect::new(0, 0, 80, 6);
+    let (_, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 0, false)
+        .expect("chat should produce visible lines");
+    let action_index = visible
+        .iter()
+        .position(|line| {
+            line.message_index == Some(0) && matches!(line.kind, RenderedLineKind::ActionBar)
+        })
+        .expect("selected expanded tool action bar should remain visible");
+
+    assert!(
+        action_index > 0,
+        "action bar should not be the first visible line"
+    );
+    assert_eq!(visible[action_index - 1].message_index, Some(0));
+    assert!(
+        matches!(visible[action_index - 1].kind, RenderedLineKind::Padding),
+        "windowed render should keep a blank line before the action bar"
+    );
+}
+
+#[test]
+fn expanded_tool_metrics_cover_full_rendered_payload() {
+    let mut chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Tool,
+        tool_name: Some("run_terminal_command".into()),
+        tool_status: Some("done".into()),
+        tool_arguments: Some(
+            serde_json::json!({
+                "command": "cargo test -p zorai-tui",
+                "cwd": "/tmp/workspace",
+                "options": {
+                    "timeout_ms": 120000,
+                    "background": false
+                }
+            })
+            .to_string(),
+        ),
+        content: serde_json::json!({
+            "status": "ok",
+            "stdout_lines": 24,
+            "artifacts": ["one", "two", "three"]
+        })
+        .to_string(),
+        weles_review: Some(crate::state::chat::WelesReviewMetaVm {
+            weles_reviewed: false,
+            verdict: "flag_only".into(),
+            reasons: vec![
+                "governance_not_run because policy service was unavailable".into(),
+                "manual review required before reusing this command".into(),
+            ],
+            security_override_mode: Some("yolo".into()),
+            audit_id: Some("audit-expanded-tool".into()),
+        }),
+        ..Default::default()
+    }]);
+    chat.select_message(Some(0));
+    chat.toggle_tool_expansion(0);
+
+    let (_, rendered_ranges) = build_rendered_lines(&chat, &ThemeTokens::default(), 60, 0, false);
+    let metrics = build_transcript_metrics(&chat, &ThemeTokens::default(), 60, 0, false);
+    let rendered_count = rendered_ranges[0].1 - rendered_ranges[0].0;
+    let estimated_count = metrics.message_line_ranges[0].1 - metrics.message_line_ranges[0].0;
+
+    assert_eq!(
+        estimated_count, rendered_count,
+        "expanded tool transcript metrics must cover every rendered line"
+    );
+}
+
+#[test]
 fn selected_expanded_reasoning_message_action_bar_shows_collapse() {
     let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Assistant,
@@ -294,6 +452,24 @@ fn selected_expanded_reasoning_message_action_bar_shows_collapse() {
         text.contains("[Copy]"),
         "reasoning action bar should keep copy: {text}"
     );
+}
+
+#[test]
+fn selected_expanded_reasoning_message_keeps_blank_line_before_action_bar() {
+    let mut chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::Assistant,
+        content: "Answer".into(),
+        reasoning: Some("Think".into()),
+        ..Default::default()
+    }]);
+    chat.select_message(Some(0));
+    chat.toggle_reasoning(0);
+
+    let area = Rect::new(0, 0, 80, 10);
+    let (_, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 0, false)
+        .expect("chat should produce visible lines");
+
+    assert_blank_line_before_action_bar(&visible, 0);
 }
 
 #[test]
@@ -341,7 +517,9 @@ fn selected_expanded_reasoning_message_action_bar_targets_toggle() {
 fn meta_cognition_header_uses_reasoning_toggle_hit_target() {
     let chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::System,
-        content: "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file".into(),
+        content:
+            "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file"
+                .into(),
         ..Default::default()
     }]);
 
@@ -372,7 +550,9 @@ fn meta_cognition_header_uses_reasoning_toggle_hit_target() {
 fn selected_meta_cognition_message_action_bar_targets_expand() {
     let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::System,
-        content: "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file".into(),
+        content:
+            "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file"
+                .into(),
         ..Default::default()
     }]);
     chat.select_message(Some(0));
@@ -406,6 +586,24 @@ fn selected_meta_cognition_message_action_bar_targets_expand() {
         "meta-cognition action bar should expose expand control: {action_text}"
     );
     assert_eq!(hit, Some(ChatHitTarget::ReasoningToggle(0)));
+}
+
+#[test]
+fn selected_meta_cognition_message_keeps_blank_line_before_action_bar() {
+    let mut chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::System,
+        content:
+            "Meta-cognitive intervention: warning before tool execution.\nPlanned tool: read_file"
+                .into(),
+        ..Default::default()
+    }]);
+    chat.select_message(Some(0));
+
+    let area = Rect::new(0, 0, 80, 10);
+    let (_, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 0, false)
+        .expect("chat should produce visible lines");
+
+    assert_blank_line_before_action_bar(&visible, 0);
 }
 
 #[test]
@@ -446,6 +644,22 @@ fn selected_background_operation_finished_message_action_bar_targets_expand() {
         "background operation action bar should expose expand control: {action_text}"
     );
     assert_eq!(hit, Some(ChatHitTarget::ReasoningToggle(0)));
+}
+
+#[test]
+fn selected_background_operation_finished_message_keeps_blank_line_before_action_bar() {
+    let mut chat = chat_with_messages(vec![AgentMessage {
+        role: MessageRole::System,
+        content: "Background operation finished.\n\noperation_id: op-123\ntool: shell\nstate: succeeded\nregistered_at: 123\n\nOperation status:\n{\"state\":\"succeeded\"}".into(),
+        ..Default::default()
+    }]);
+    chat.select_message(Some(0));
+
+    let area = Rect::new(0, 0, 80, 10);
+    let (_, visible) = visible_rendered_lines(area, &chat, &ThemeTokens::default(), 0, false)
+        .expect("chat should produce visible lines");
+
+    assert_blank_line_before_action_bar(&visible, 0);
 }
 
 #[test]

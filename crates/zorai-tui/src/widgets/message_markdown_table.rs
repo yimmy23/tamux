@@ -1,4 +1,7 @@
 use super::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use unicode_width::UnicodeWidthStr;
 
 pub(super) fn is_markdown_table_row(line: &str) -> bool {
     line.contains('|')

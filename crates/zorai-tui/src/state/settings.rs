@@ -6,7 +6,6 @@ mod cursor;
 use crate::state::config::ConfigState;
 use zorai_shared::providers::PROVIDER_ID_OPENROUTER;
 
-// ── SettingsTab ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsTab {
@@ -25,9 +24,9 @@ pub enum SettingsTab {
     About,
 }
 
-include!("settings_impl_parts/all.rs");
+#[path = "settings_impl_parts/all.rs"]
+mod all;
 
-// ── SettingsAction ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum SettingsAction {
@@ -56,7 +55,6 @@ pub enum SettingsAction {
     Save,
 }
 
-// ── SettingsState ─────────────────────────────────────────────────────────────
 
 pub struct SettingsState {
     active_tab: SettingsTab,
@@ -64,7 +62,7 @@ pub struct SettingsState {
     editing_field: Option<String>,
     edit_buffer: String,
     edit_cursor: usize,
-    textarea_mode: bool, // true for multi-line edit (system_prompt)
+    textarea_mode: bool,
     dropdown_open: bool,
     dropdown_cursor: usize,
     dirty: bool,
@@ -73,16 +71,22 @@ pub struct SettingsState {
 fn field_uses_textarea(field: &str) -> bool {
     matches!(
         field,
-        "system_prompt" | "subagent_system_prompt" | "whatsapp_allowed_contacts"
+        "system_prompt"
+            | "subagent_system_prompt"
+            | "whatsapp_allowed_contacts"
+            | "workspace_repo_monitor_include_dirs"
+            | "workspace_repo_monitor_exclude_dirs"
     )
 }
 
-include!("settings_impl_parts/advanced_field_names_for_strategy_to_navigate_field.rs");
-include!("settings_impl_parts/reduce.rs");
+#[path = "settings_impl_parts/advanced_field_names_for_strategy_to_navigate_field.rs"]
+mod advanced_field_names_for_strategy_to_navigate_field;
+#[path = "settings_impl_parts/reduce.rs"]
+mod reduce;
 
-include!("settings_impl_parts/default.rs");
+#[path = "settings_impl_parts/default.rs"]
+mod default;
 
-// ── PluginSettingsState ──────────────────────────────────────────────────────
 
 /// State for the Plugins settings tab. Stored separately from SettingsState
 /// because plugin data is dynamic (varies by installed plugins).
@@ -95,7 +99,7 @@ pub struct PluginSettingsState {
     /// Settings schema fields for the selected plugin (parsed from manifest JSON).
     pub schema_fields: Vec<PluginSchemaField>,
     /// Current setting values for the selected plugin (from daemon).
-    pub settings_values: Vec<(String, String, bool)>, // (key, value, is_secret)
+    pub settings_values: Vec<(String, String, bool)>,
     /// Whether we're in plugin list mode (true) or plugin detail mode (false).
     pub list_mode: bool,
     /// Test connection result message (None = not tested yet).
@@ -139,12 +143,20 @@ pub struct PluginSchemaField {
     pub description: Option<String>,
 }
 
-include!("settings_impl_parts/new_to_is_key_secret.rs");
+#[path = "settings_impl_parts/new_to_is_key_secret.rs"]
+mod new_to_is_key_secret;
 
-include!("settings_impl_parts/default_02.rs");
+#[path = "settings_impl_parts/default_02.rs"]
+mod default_02;
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 #[path = "tests/settings.rs"]
 mod tests;
+
+pub use advanced_field_names_for_strategy_to_navigate_field::*;
+pub use all::*;
+pub use default::*;
+pub use default_02::*;
+pub use new_to_is_key_secret::*;
+pub use reduce::*;

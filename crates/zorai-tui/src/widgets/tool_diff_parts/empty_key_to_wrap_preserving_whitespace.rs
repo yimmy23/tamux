@@ -1,4 +1,6 @@
-fn empty_key(prefix: &str) -> String {
+use unicode_width::UnicodeWidthChar;
+
+pub(super) fn empty_key(prefix: &str) -> String {
     if prefix.is_empty() {
         "value".to_string()
     } else {
@@ -6,7 +8,7 @@ fn empty_key(prefix: &str) -> String {
     }
 }
 
-fn wrap_preserving_whitespace(text: &str, width: usize) -> Vec<String> {
+pub(super) fn wrap_preserving_whitespace(text: &str, width: usize) -> Vec<String> {
     if text.is_empty() {
         return vec![String::new()];
     }

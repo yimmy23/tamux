@@ -888,7 +888,6 @@ pub(super) fn apply_schema_migrations(
     ensure_column(connection, "goal_run_events", "step_index", "INTEGER")?;
     ensure_column(connection, "goal_run_events", "todo_snapshot_json", "TEXT")?;
     ensure_column(connection, "goal_run_events", "deleted_at", "INTEGER")?;
-    // BEAT-09: user_action column for dismissal tracking in action_audit.
     ensure_column(connection, "action_audit", "user_action", "TEXT")?;
     ensure_column(
         connection,
@@ -944,6 +943,9 @@ pub(super) fn apply_schema_migrations(
             workspace_id TEXT PRIMARY KEY,
             workspace_root TEXT,
             operator TEXT NOT NULL,
+            repo_monitor_enabled INTEGER NOT NULL DEFAULT 0,
+            repo_monitor_include_dirs_json TEXT NOT NULL DEFAULT '[]',
+            repo_monitor_exclude_dirs_json TEXT NOT NULL DEFAULT '[]',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -988,13 +990,34 @@ pub(super) fn apply_schema_migrations(
         "runtime_history_json",
         "TEXT NOT NULL DEFAULT '[]'",
     )?;
-    // Episodic memory schema (Phase v3.0).
+    ensure_column(
+        connection,
+        "workspace_settings",
+        "repo_monitor_enabled",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(
+        connection,
+        "workspace_settings",
+        "repo_monitor_include_dirs_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
+    ensure_column(
+        connection,
+        "workspace_settings",
+        "repo_monitor_exclude_dirs_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )?;
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_workspace_settings_repo_monitor_enabled
+         ON workspace_settings(repo_monitor_enabled, workspace_id)
+         WHERE repo_monitor_enabled = 1",
+        [],
+    )?;
     crate::agent::episodic::schema::init_episodic_schema(connection)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
-    // Handoff broker schema (Phase v3.0: HAND-09).
     crate::agent::handoff::schema::init_handoff_schema(connection)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
-    // Browser profile extended schema (Slice 6: health state, auth tracking, scoping).
     ensure_column(connection, "browser_profiles", "browser_kind", "TEXT")?;
     ensure_column(connection, "browser_profiles", "workspace_id", "TEXT")?;
     ensure_column(
@@ -1021,7 +1044,6 @@ pub(super) fn apply_schema_migrations(
         "last_auth_failure_reason",
         "TEXT",
     )?;
-    // Trigger fire history (Slice 6: delivery visibility, retries, dead letters).
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS trigger_fire_history (
             id               TEXT PRIMARY KEY,
@@ -1040,5 +1062,287 @@ pub(super) fn apply_schema_migrations(
         CREATE INDEX IF NOT EXISTS idx_trigger_fire_history_trigger_fired ON trigger_fire_history(trigger_id, fired_at_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_trigger_fire_history_status ON trigger_fire_history(status, fired_at_ms DESC);",
     )?;
+
+    connection.execute_batch(
+        "-- Per-agent thread picker fetch
+        --   matches WHERE lower(trim(t.agent_name)) IN (?, ...) verbatim.
+        CREATE INDEX IF NOT EXISTS idx_threads_agent_name_norm
+            ON agent_threads(lower(trim(agent_name)), updated_at DESC)
+            WHERE deleted_at IS NULL;
+        -- Default visible thread lists:
+        --   WHERE deleted_at IS NULL ORDER BY updated_at DESC, id ASC.
+        CREATE INDEX IF NOT EXISTS idx_threads_visible_updated
+            ON agent_threads(updated_at DESC, id)
+            WHERE deleted_at IS NULL;
+
+        -- Role-aware latest-message lookups (stalled-turn recovery,
+        -- latest_user_message_content, latest_assistant_message).
+        CREATE INDEX IF NOT EXISTS idx_messages_thread_role_created
+            ON agent_messages(thread_id, role, created_at DESC, id DESC)
+            WHERE deleted_at IS NULL;
+
+        -- agent_tasks per-thread/per-goal/per-task lookups.
+        CREATE INDEX IF NOT EXISTS idx_agent_tasks_thread
+            ON agent_tasks(thread_id, created_at DESC)
+            WHERE deleted_at IS NULL AND thread_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_tasks_goal_run
+            ON agent_tasks(goal_run_id, created_at DESC)
+            WHERE deleted_at IS NULL AND goal_run_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_tasks_goal_run_status_quiet
+            ON agent_tasks(goal_run_id, status, id)
+            WHERE deleted_at IS NULL AND goal_run_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_tasks_parent_task
+            ON agent_tasks(parent_task_id)
+            WHERE deleted_at IS NULL AND parent_task_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_tasks_parent_thread
+            ON agent_tasks(parent_thread_id)
+            WHERE deleted_at IS NULL AND parent_thread_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_tasks_parent_thread_subagent_status
+            ON agent_tasks(parent_thread_id, status, priority, created_at DESC)
+            WHERE deleted_at IS NULL AND source = 'subagent' AND parent_thread_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_tasks_awaiting_approval
+            ON agent_tasks(awaiting_approval_id)
+            WHERE deleted_at IS NULL AND awaiting_approval_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_agent_tasks_subagent_def
+            ON agent_tasks(sub_agent_def_id, created_at DESC)
+            WHERE deleted_at IS NULL AND sub_agent_def_id IS NOT NULL;
+
+        -- goal_runs per-thread/session/client-request lookups.
+        CREATE INDEX IF NOT EXISTS idx_goal_runs_thread
+            ON goal_runs(thread_id, updated_at DESC)
+            WHERE deleted_at IS NULL AND thread_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_goal_runs_active_thread
+            ON goal_runs(active_thread_id, updated_at DESC)
+            WHERE deleted_at IS NULL AND active_thread_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_goal_runs_root_thread
+            ON goal_runs(root_thread_id, updated_at DESC)
+            WHERE deleted_at IS NULL AND root_thread_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_goal_runs_session
+            ON goal_runs(session_id, updated_at DESC)
+            WHERE deleted_at IS NULL AND session_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_goal_runs_client_request_id
+            ON goal_runs(client_request_id)
+            WHERE deleted_at IS NULL AND client_request_id IS NOT NULL;
+        -- Powers the concierge welcome's `latest goal_run` lookup
+        -- (`SELECT id FROM goal_runs WHERE deleted_at IS NULL
+        -- ORDER BY updated_at DESC LIMIT 1`). Without this, SQLite scans
+        -- and sorts the whole table — fine for tens of rows, lethal once
+        -- the goal-runs log accumulates.
+        CREATE INDEX IF NOT EXISTS idx_goal_runs_active_updated
+            ON goal_runs(updated_at DESC)
+            WHERE deleted_at IS NULL;
+
+        -- goal_run_steps lookups by goal_run_id are filtered by `deleted_at
+        -- IS NULL` everywhere; the existing non-partial index forced SQLite
+        -- to scan tombstoned rows when the page query joined on goal_run_id.
+        CREATE INDEX IF NOT EXISTS idx_goal_run_steps_active_goal
+            ON goal_run_steps(goal_run_id, ordinal)
+            WHERE deleted_at IS NULL;
+
+        -- goal_run_events lookups (welcome path's latest-step recovery and
+        -- list_goal_runs_page's per-goal event fan-in).
+        CREATE INDEX IF NOT EXISTS idx_goal_run_events_active_goal_ts
+            ON goal_run_events(goal_run_id, timestamp DESC)
+            WHERE deleted_at IS NULL;
+
+        -- Powers `goal_run_policy_context`'s aggregate
+        -- `SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END)`. Including
+        -- `status` in the index column list lets the planner satisfy the
+        -- aggregate without fetching the row body for each step. On goal
+        -- runs with hundreds of steps this changes the COUNT/SUM from a
+        -- table-row read per step into an index-only walk.
+        CREATE INDEX IF NOT EXISTS idx_goal_run_steps_active_goal_status
+            ON goal_run_steps(goal_run_id, status)
+            WHERE deleted_at IS NULL;
+
+        -- `get_emergent_protocol_by_pattern` does
+        --   WHERE thread_id = ? AND normalized_pattern = ?
+        --   ORDER BY activated_at DESC LIMIT 1
+        -- Existing indexes are single-column on either thread_id OR pattern
+        -- (with activated_at DESC) — the planner had to scan one and filter
+        -- by the other. The composite makes both equality predicates a
+        -- direct prefix match and lets the index satisfy the LIMIT 1 via a
+        -- single seek.
+        CREATE INDEX IF NOT EXISTS idx_emergent_protocols_thread_pattern_activated
+            ON emergent_protocols(thread_id, normalized_pattern, activated_at DESC);
+
+        -- `get_latest_workspace_task_for_thread` does
+        --   WHERE thread_id = ? AND deleted_at IS NULL
+        --   ORDER BY updated_at DESC LIMIT 1
+        -- The existing `idx_workspace_tasks_visible` is keyed on
+        -- workspace_id, not thread_id, so per-thread latest-task lookups
+        -- had to scan the whole workspace_tasks table. Partial index makes
+        -- this a direct seek on live tasks for a given thread.
+        CREATE INDEX IF NOT EXISTS idx_workspace_tasks_active_thread_updated
+            ON workspace_tasks(thread_id, updated_at DESC)
+            WHERE deleted_at IS NULL;",
+    )?;
+    connection.execute_batch(
+        "-- Approval inbox latest-by-session lookup. The existing
+        -- `idx_approval_inbox_session(session_id, requested_at DESC)`
+        -- helps when ordering by request time, but the active-flow path
+        -- needs ordering by `expires_at` to find the imminently-expiring
+        -- approval first. Cannot make this a partial index gated on
+        -- expires_at > now() (the predicate is non-deterministic), so it
+        -- stays a plain composite — the IS NOT NULL filter still trims
+        -- archived rows from the index.
+        CREATE INDEX IF NOT EXISTS idx_approval_inbox_session_expires
+            ON approval_inbox(session_id, expires_at DESC)
+            WHERE expires_at IS NOT NULL;
+
+        -- causal_traces by goal_run_id. The settle_goal_plan_causal_traces
+        -- and settle_subgoal_causal_traces queries filter `WHERE goal_run_id
+        -- = ?` and there was no goal-run index — only task_id, decision_type,
+        -- and trace_family. Without this, every settle call scanned the
+        -- whole causal_traces table.
+        CREATE INDEX IF NOT EXISTS idx_causal_traces_goal_run
+            ON causal_traces(goal_run_id, created_at DESC)
+            WHERE goal_run_id IS NOT NULL;
+
+        -- Expression index for `list_recent_critique_sessions_for_tool`
+        -- which filters `WHERE json_extract(session_json, '$.tool_name')
+        -- = ?` then orders by updated_at DESC. Without this every call
+        -- scans the full critique_sessions table and re-parses session_json
+        -- for each row.
+        CREATE INDEX IF NOT EXISTS idx_critique_sessions_tool_updated
+            ON critique_sessions(
+                json_extract(session_json, '$.tool_name'),
+                updated_at DESC
+            )
+            WHERE session_json IS NOT NULL AND json_valid(session_json);
+
+        -- `mark_missing_semantic_documents_removed` filters by
+        --   source_kind = ? AND root_path = ? AND deleted_at IS NULL
+        -- The existing `idx_semantic_documents_seen` (source_kind, root_path,
+        -- last_seen_at) covers the equality prefix, but tombstoned rows are
+        -- still in the index. Partial index trims them. Documents reach
+        -- thousands per source for large workspaces.
+        CREATE INDEX IF NOT EXISTS idx_semantic_documents_active
+            ON semantic_documents(source_kind, root_path)
+            WHERE deleted_at IS NULL;
+
+        -- `semantic_index_status` runs `COUNT(*) FROM embedding_jobs WHERE
+        -- last_error IS NOT NULL` (and the same on embedding_deletions) as
+        -- part of every status poll. Without a matching partial index it
+        -- scans every row checking last_error per call. Both partial
+        -- indexes are tiny (only failed rows) and turn the COUNT into an
+        -- index-only walk.
+        CREATE INDEX IF NOT EXISTS idx_embedding_jobs_failed
+            ON embedding_jobs(updated_at)
+            WHERE last_error IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_embedding_deletions_failed
+            ON embedding_deletions(queued_at)
+            WHERE last_error IS NOT NULL;
+
+        -- Partial-index variant of `idx_threads_updated`. The base index
+        -- (defined in schema_sql.rs) is on `updated_at DESC` over the full
+        -- table; with this partial index the `latest_thread_id_by_message_timestamp`
+        -- and `list_threads_filtered` queries (both filtering deleted_at IS
+        -- NULL and ordering by updated_at DESC) can use an index that has
+        -- already excluded tombstoned threads, so LIMIT 1 lookups are a
+        -- single seek with zero scan-skip overhead.
+        CREATE INDEX IF NOT EXISTS idx_threads_active_updated
+            ON agent_threads(updated_at DESC)
+            WHERE deleted_at IS NULL;
+
+        -- Powers `get_agent_statistics`'s three aggregate scans (totals,
+        -- per-provider, per-model). All three queries filter
+        --   role = 'assistant' AND deleted_at IS NULL AND created_at >= ?
+        -- The existing `idx_messages_thread_role_created` is keyed on
+        -- thread_id first, useless for the global aggregate. This partial
+        -- index only contains assistant messages and is keyed on
+        -- created_at, so the cutoff filter is a direct seek and the rest
+        -- of the scan walks only assistant rows.
+        CREATE INDEX IF NOT EXISTS idx_messages_assistant_created
+            ON agent_messages(created_at)
+            WHERE role = 'assistant' AND deleted_at IS NULL;",
+    )?;
+
+    ensure_column(
+        connection,
+        "agent_threads",
+        "pinned",
+        "INTEGER GENERATED ALWAYS AS (\
+            CASE WHEN metadata_json IS NOT NULL AND json_valid(metadata_json) AND (\
+                json_extract(metadata_json, '$.pinned') = 1 \
+                OR json_extract(metadata_json, '$.pinnedThread') = 1\
+            ) THEN 1 ELSE 0 END\
+        ) VIRTUAL",
+    )?;
+    connection.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_threads_pinned_active_updated
+            ON agent_threads(pinned, updated_at DESC)
+            WHERE deleted_at IS NULL;",
+    )?;
+    connection.execute_batch(
+        "-- agent_tasks visible-status pages, ordered by recent activity.
+        -- list_tasks_capped_for_ipc and the supervision loops scan this.
+        CREATE INDEX IF NOT EXISTS idx_agent_tasks_active_status_priority
+            ON agent_tasks(status, priority, created_at DESC)
+            WHERE deleted_at IS NULL;
+
+        -- Fast lookup of the most-recent compaction marker per thread.
+        -- The send-message path, the concierge welcome's
+        -- `concierge_thread_context_summary`, and the TUI's
+        -- `list_active_context_window` all need this — without the partial
+        -- index, finding the latest compaction marker scanned every
+        -- message in the thread for json_extract + LIKE evaluation.
+        CREATE INDEX IF NOT EXISTS idx_messages_compaction_marker
+            ON agent_messages(thread_id, created_at DESC, id DESC)
+            WHERE deleted_at IS NULL
+              AND (
+                  (metadata_json IS NOT NULL
+                   AND json_valid(metadata_json)
+                   AND json_extract(metadata_json, '$.message_kind') = 'compaction_artifact')
+                  OR content LIKE '[Compacted earlier context]%'
+                  OR content LIKE 'Pre-compaction context:%'
+              );
+
+        -- Partial covering index for the per-thread chronological linear scan
+        -- in `thread_ids_with_unanswered_tool_calls` (and any future scanner
+        -- that needs `WHERE thread_id IN (?,?,...) AND deleted_at IS NULL
+        -- ORDER BY thread_id, created_at, id`). The leading `thread_id`
+        -- prefix lets SQLite seek directly to each thread's block; the
+        -- (created_at, id) suffix provides the index-only ordering. The
+        -- WHERE-clause makes it a partial index — we only need rows that
+        -- aren't tombstoned. With this in place the scanner is bounded by
+        -- the number of live messages in the requested threads, not by the
+        -- whole agent_messages table.
+        CREATE INDEX IF NOT EXISTS idx_messages_active_thread_chrono
+            ON agent_messages(thread_id, created_at, id)
+            WHERE deleted_at IS NULL;
+
+        -- Partial indexes for `list_notifications` /
+        -- `list_notifications_by_source` /
+        -- `archive_notifications_by_source_except_ids`. These three queries
+        -- all share the WHERE shape:
+        --   category = ? AND json_valid(payload_json)
+        --   AND json_extract(payload_json, '$.archived_at') IS NULL
+        --   AND json_extract(payload_json, '$.deleted_at')  IS NULL
+        -- Without this index the planner had to re-evaluate json_extract on
+        -- every row of the (category, ...) prefix. The partial WHERE clause
+        -- mirrors the queries exactly, so the planner can use it as a direct
+        -- seek; only live notifications end up in the index.
+        CREATE INDEX IF NOT EXISTS idx_agent_events_active_by_cat_ts
+            ON agent_events(category, timestamp DESC)
+            WHERE json_valid(payload_json)
+              AND json_extract(payload_json, '$.archived_at') IS NULL
+              AND json_extract(payload_json, '$.deleted_at')  IS NULL;
+
+        -- Variant that adds the per-source filter for
+        -- `list_notifications_by_source`. The leading (category, source)
+        -- shape lets the planner seek directly to a notification source's
+        -- live-notification block.
+        CREATE INDEX IF NOT EXISTS idx_agent_events_active_by_cat_source_ts
+            ON agent_events(
+                category,
+                json_extract(payload_json, '$.source'),
+                timestamp DESC
+            )
+            WHERE json_valid(payload_json)
+              AND json_extract(payload_json, '$.archived_at') IS NULL
+              AND json_extract(payload_json, '$.deleted_at')  IS NULL;",
+    )?;
+
     Ok(())
 }

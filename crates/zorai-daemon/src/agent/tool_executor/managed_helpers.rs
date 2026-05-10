@@ -1,3 +1,4 @@
+use super::*;
 fn daemon_message_kind(msg: &DaemonMessage) -> &'static str {
     match msg {
         DaemonMessage::ManagedCommandQueued { .. } => "managed_command_queued",
@@ -10,7 +11,7 @@ fn daemon_message_kind(msg: &DaemonMessage) -> &'static str {
 }
 
 #[derive(Debug)]
-enum ManagedCommandWaitOutcome {
+pub(crate) enum ManagedCommandWaitOutcome {
     Finished {
         exit_code: Option<i32>,
         duration_ms: Option<u64>,
@@ -43,7 +44,7 @@ fn terminal_output_tail(raw: &[u8], max_lines: usize) -> String {
     result
 }
 
-async fn wait_for_managed_command_outcome(
+pub(crate) async fn wait_for_managed_command_outcome(
     rx: &mut tokio::sync::broadcast::Receiver<DaemonMessage>,
     session_id: SessionId,
     execution_id: &str,
@@ -278,7 +279,7 @@ async fn execute_terminal_python_capture(
     }
 }
 
-fn parse_capture_output(output: &[u8], token: &str) -> Option<(i32, String)> {
+pub(crate) fn parse_capture_output(output: &[u8], token: &str) -> Option<(i32, String)> {
     let stripped = strip_ansi_escapes::strip(output);
     let text = String::from_utf8_lossy(&stripped);
 

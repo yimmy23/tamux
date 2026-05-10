@@ -1,6 +1,8 @@
 use super::*;
+use crate::session_manager::SessionManager;
 use std::collections::VecDeque;
 use std::sync::Arc;
+use tempfile::tempdir;
 
 fn make_todo(id: &str, content: &str, status: TodoStatus, updated_at: u64) -> TodoItem {
     TodoItem {
@@ -95,17 +97,17 @@ async fn make_test_engine(
         circuit_breakers.clone(),
     ));
 
-    // Create a minimal HistoryStore using a temp path
-    let data_dir = std::env::temp_dir().join("zorai-test-heartbeat-checks");
+    let data_dir =
+        std::env::temp_dir().join(format!("zorai-test-heartbeat-checks-{}", Uuid::new_v4()));
     let _ = std::fs::create_dir_all(&data_dir);
     let (skill_discovery_result_tx, _skill_discovery_result_rx) = mpsc::unbounded_channel();
 
-    let history = crate::history::HistoryStore::new()
+    let history = crate::history::HistoryStore::new_test_store(&data_dir)
         .await
         .expect("test history store");
     let sm = crate::session_manager::SessionManager::new_with_history(
         Arc::new(
-            crate::history::HistoryStore::new()
+            crate::history::HistoryStore::new_test_store(&data_dir)
                 .await
                 .expect("test history store for session manager"),
         ),
@@ -231,7 +233,7 @@ async fn make_test_engine(
 #[tokio::test]
 async fn heartbeat_checks_stale_todos_detects_old_pending() {
     let now = now_millis();
-    let old = now - (25 * 3600 * 1000); // 25 hours ago
+    let old = now - (25 * 3600 * 1000);
 
     let mut todos = HashMap::new();
     todos.insert(
@@ -239,7 +241,7 @@ async fn heartbeat_checks_stale_todos_detects_old_pending() {
         vec![
             make_todo("todo-1", "Fix bug", TodoStatus::Pending, old),
             make_todo("todo-2", "Write docs", TodoStatus::InProgress, old),
-            make_todo("todo-3", "Ship it", TodoStatus::Completed, old), // completed should be skipped
+            make_todo("todo-3", "Ship it", TodoStatus::Completed, old),
         ],
     );
 
@@ -254,7 +256,7 @@ async fn heartbeat_checks_stale_todos_detects_old_pending() {
 #[tokio::test]
 async fn heartbeat_checks_stale_todos_none_stale() {
     let now = now_millis();
-    let recent = now - (1 * 3600 * 1000); // 1 hour ago
+    let recent = now - (1 * 3600 * 1000);
 
     let mut todos = HashMap::new();
     todos.insert(
@@ -272,7 +274,7 @@ async fn heartbeat_checks_stale_todos_none_stale() {
 #[tokio::test]
 async fn heartbeat_checks_stuck_goals_detects_old_running() {
     let now = now_millis();
-    let old = now - (3 * 3600 * 1000); // 3 hours ago
+    let old = now - (3 * 3600 * 1000);
 
     let goal_runs = VecDeque::from(vec![
         make_goal_run("goal-1", "Deploy feature", GoalRunStatus::Running, old),
@@ -281,7 +283,7 @@ async fn heartbeat_checks_stuck_goals_detects_old_running() {
             "Complete migration",
             GoalRunStatus::Completed,
             old,
-        ), // completed should be skipped
+        ),
     ]);
 
     let engine = make_test_engine(HashMap::new(), goal_runs, HashMap::new()).await;
@@ -293,9 +295,33 @@ async fn heartbeat_checks_stuck_goals_detects_old_running() {
 }
 
 #[tokio::test]
+async fn heartbeat_checks_stuck_goals_use_persisted_goal_runs_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let now = now_millis();
+    let old = now - (3 * 3600 * 1000);
+
+    engine.goal_runs.lock().await.push_back(make_goal_run(
+        "goal-persisted-stuck",
+        "Persisted stuck goal",
+        GoalRunStatus::Running,
+        old,
+    ));
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    let result = engine.check_stuck_goal_runs(2).await;
+
+    assert_eq!(result.check_type, HeartbeatCheckType::StuckGoalRuns);
+    assert_eq!(result.items_found, 1);
+    assert_eq!(result.details[0].id, "goal-persisted-stuck");
+}
+
+#[tokio::test]
 async fn heartbeat_checks_stuck_goals_none_stuck() {
     let now = now_millis();
-    let recent = now - (30 * 60 * 1000); // 30 minutes ago
+    let recent = now - (30 * 60 * 1000);
 
     let goal_runs = VecDeque::from(vec![make_goal_run(
         "goal-1",
@@ -379,18 +405,14 @@ async fn heartbeat_checks_read_gateway_health_from_ipc_updates() {
 
 #[tokio::test]
 async fn heartbeat_checks_repo_changes_graceful_on_no_data_dir() {
-    // Engine with a non-existent data_dir parent chain
     let engine = make_test_engine(HashMap::new(), VecDeque::new(), HashMap::new()).await;
     let result = engine.check_repo_changes().await;
 
     assert_eq!(result.check_type, HeartbeatCheckType::RepoChanges);
-    // Should not panic, should return gracefully
-    // Items may be 0 or non-zero depending on actual git state
 }
 
 #[tokio::test]
 async fn heartbeat_checks_independent() {
-    // All checks should work independently even when data is empty
     let engine = make_test_engine(HashMap::new(), VecDeque::new(), HashMap::new()).await;
 
     let stale = engine.check_stale_todos(24).await;
@@ -398,7 +420,6 @@ async fn heartbeat_checks_independent() {
     let unreplied = engine.check_unreplied_messages(1).await;
     let repo = engine.check_repo_changes().await;
 
-    // Each should return a valid result without affecting others
     assert_eq!(stale.check_type, HeartbeatCheckType::StaleTodos);
     assert_eq!(stuck.check_type, HeartbeatCheckType::StuckGoalRuns);
     assert_eq!(

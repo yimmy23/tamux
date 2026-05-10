@@ -85,6 +85,108 @@ async fn browser_profile_list_and_delete() -> Result<()> {
 }
 
 #[tokio::test]
+async fn browser_profile_filtered_list_ignores_unrelated_malformed_rows() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "INSERT INTO browser_profiles \
+                 (profile_id, label, profile_dir, browser_kind, workspace_id, health_state, created_at, updated_at, last_used_at, last_auth_success_at, last_auth_failure_at, last_auth_failure_reason) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, NULL, NULL)",
+                rusqlite::params![
+                    "profile-target",
+                    "Target",
+                    "/tmp/zorai/browser/target",
+                    "chrome",
+                    "workspace-main",
+                    "healthy",
+                    1i64,
+                    2i64
+                ],
+            )?;
+            conn.execute(
+                "INSERT INTO browser_profiles \
+                 (profile_id, label, profile_dir, browser_kind, workspace_id, health_state, created_at, updated_at, last_used_at, last_auth_success_at, last_auth_failure_at, last_auth_failure_reason) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, NULL, NULL)",
+                rusqlite::params![
+                    "profile-unrelated",
+                    "Unrelated",
+                    "/tmp/zorai/browser/unrelated",
+                    "chrome",
+                    "workspace-other",
+                    "repair_needed",
+                    1i64,
+                    "not-an-integer"
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+
+    let rows = store
+        .list_browser_profiles_filtered(Some("healthy"), Some("workspace-main"))
+        .await?;
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].profile_id, "profile-target");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn unhealthy_browser_profile_list_filters_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "INSERT INTO browser_profiles \
+                 (profile_id, label, profile_dir, browser_kind, workspace_id, health_state, created_at, updated_at, last_used_at, last_auth_success_at, last_auth_failure_at, last_auth_failure_reason) \
+                 VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, NULL, NULL, NULL, NULL)",
+                rusqlite::params![
+                    "profile-unhealthy",
+                    "Unhealthy",
+                    "/tmp/zorai/browser/unhealthy",
+                    "chrome",
+                    "repair_needed",
+                    1i64,
+                    3i64
+                ],
+            )?;
+            conn.execute(
+                "INSERT INTO browser_profiles \
+                 (profile_id, label, profile_dir, browser_kind, workspace_id, health_state, created_at, updated_at, last_used_at, last_auth_success_at, last_auth_failure_at, last_auth_failure_reason) \
+                 VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, NULL, NULL, NULL, NULL)",
+                rusqlite::params![
+                    "profile-healthy-malformed",
+                    "Healthy Malformed",
+                    "/tmp/zorai/browser/healthy-malformed",
+                    "chrome",
+                    "healthy",
+                    1i64,
+                    "not-an-integer"
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+
+    let rows = store.list_unhealthy_browser_profiles().await?;
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].profile_id, "profile-unhealthy");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn browser_profile_health_state_transitions() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
@@ -104,7 +206,6 @@ async fn browser_profile_health_state_transitions() -> Result<()> {
     };
     store.upsert_browser_profile(&profile).await?;
 
-    // Transition to stale
     let stale = crate::agent::types::BrowserProfile {
         health_state: crate::agent::types::BrowserProfileHealth::Stale,
         updated_at: 1_777_230_500,
@@ -114,7 +215,6 @@ async fn browser_profile_health_state_transitions() -> Result<()> {
     let row = store.get_browser_profile("health-test").await?.unwrap();
     assert_eq!(row.health_state, "stale");
 
-    // Transition to repair_needed
     let repair = crate::agent::types::BrowserProfile {
         health_state: crate::agent::types::BrowserProfileHealth::RepairNeeded,
         updated_at: 1_777_231_000,
@@ -136,15 +236,11 @@ async fn browser_profile_health_state_transitions() -> Result<()> {
 
 #[tokio::test]
 async fn browser_profile_expiry_detection_and_repair_flow() -> Result<()> {
-    // Proves the Slice 6 DoD requirement: simulate expiry → repair → reuse
     let (store, root) = make_test_store().await?;
 
-    // Reference time: "now"
     let now_ms: u64 = 1_800_000_000_000;
-    // Old timestamps: 60 days ago (well past the 30-day expiry threshold)
     let sixty_days_ago = now_ms.saturating_sub(60 * 24 * 60 * 60 * 1000);
 
-    // Create a profile that should be expired (last_used_at is 60 days old)
     let old_profile = crate::agent::types::BrowserProfile {
         profile_id: "expired-work".to_string(),
         label: "Expired Work Profile".to_string(),
@@ -160,12 +256,33 @@ async fn browser_profile_expiry_detection_and_repair_flow() -> Result<()> {
         last_auth_failure_reason: None,
     };
     store.upsert_browser_profile(&old_profile).await?;
+    store
+        .conn
+        .call(move |conn| {
+            conn.execute(
+                "INSERT INTO browser_profiles \
+                 (profile_id, label, profile_dir, browser_kind, workspace_id, health_state, created_at, updated_at, last_used_at, last_auth_success_at, last_auth_failure_at, last_auth_failure_reason) \
+                 VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9, NULL, NULL)",
+                rusqlite::params![
+                    "fresh-malformed",
+                    "Fresh Malformed",
+                    "/tmp/zorai/browser/fresh-malformed",
+                    "chrome",
+                    "healthy",
+                    1i64,
+                    "not-an-integer",
+                    now_ms as i64,
+                    now_ms as i64
+                ],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
 
-    // Verify it starts as healthy
     let row = store.get_browser_profile("expired-work").await?.unwrap();
     assert_eq!(row.health_state, "healthy", "should start healthy");
 
-    // Step 1: Run expiry detection — should classify as expired
     let reclassified = store.detect_and_classify_expired_profiles(now_ms).await?;
     assert_eq!(reclassified.len(), 1, "one profile should be reclassified");
     assert_eq!(reclassified[0].0, "expired-work");
@@ -176,11 +293,9 @@ async fn browser_profile_expiry_detection_and_repair_flow() -> Result<()> {
         "reason should mention threshold"
     );
 
-    // Verify the health state was updated in the database
     let row = store.get_browser_profile("expired-work").await?.unwrap();
     assert_eq!(row.health_state, "expired", "should now be expired");
 
-    // Step 2: Repair — manually update to healthy (simulating user re-auth)
     let repaired = crate::agent::types::BrowserProfile {
         profile_id: "expired-work".to_string(),
         label: "Expired Work Profile".to_string(),
@@ -197,21 +312,29 @@ async fn browser_profile_expiry_detection_and_repair_flow() -> Result<()> {
     };
     store.upsert_browser_profile(&repaired).await?;
 
-    // Verify it's healthy again
     let row = store.get_browser_profile("expired-work").await?.unwrap();
     assert_eq!(
         row.health_state, "healthy",
         "should be healthy after repair"
     );
 
-    // Step 3: Reuse — run expiry detection again, should NOT reclassify
     let reclassified = store.detect_and_classify_expired_profiles(now_ms).await?;
     assert!(
         reclassified.is_empty(),
         "repaired profile should not be reclassified"
     );
+    store
+        .conn
+        .call(|conn| {
+            conn.execute(
+                "DELETE FROM browser_profiles WHERE profile_id = ?1",
+                rusqlite::params!["fresh-malformed"],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
 
-    // Step 4: Verify it appears in list_browser_profiles
     let all = store.list_browser_profiles().await?;
     let found = all
         .iter()

@@ -1,14 +1,18 @@
-use super::*;
+use super::super::*;
+use crate::state::chat::{AgentMessage, MessageRole, TranscriptMode};
+use crate::theme::ThemeTokens;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 
-fn empty_expanded() -> ExpandedReasoning {
+pub(super) fn empty_expanded() -> ExpandedReasoning {
     ExpandedReasoning::new()
 }
 
-fn empty_tools() -> ExpandedTools {
+pub(super) fn empty_tools() -> ExpandedTools {
     ExpandedTools::new()
 }
 
-fn plain_lines(lines: &[Line<'_>]) -> Vec<String> {
+pub(super) fn plain_lines(lines: &[Line<'_>]) -> Vec<String> {
     lines
         .iter()
         .map(|line| {
@@ -432,4 +436,3 @@ fn apply_patch_tool_message_expanded_renders_diff_like_sections() {
         "expected formatted diff instead of raw JSON arguments, got: {plain}"
     );
 }
-

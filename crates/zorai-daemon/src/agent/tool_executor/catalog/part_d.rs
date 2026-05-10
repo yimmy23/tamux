@@ -1,4 +1,5 @@
-fn add_available_tools_part_d(
+use super::*;
+pub(crate) fn add_available_tools_part_d(
     tools: &mut Vec<ToolDefinition>,
     config: &AgentConfig,
     agent_data_dir: &std::path::Path,
@@ -83,7 +84,7 @@ fn add_available_tools_part_d(
         },
         "required": ["thread_id"]
     })));
-    tools.push(tool_def(tool_names::READ_OFFLOADED_PAYLOAD, "Read an offloaded tool-result payload by payload ID. Thread-shaped JSON payloads default to a compact messages-only view; set full=true to return the exact raw stored content.", serde_json::json!({
+    tools.push(tool_def(tool_names::READ_OFFLOADED_PAYLOAD, "Read an offloaded tool-result payload by payload ID. Thread-shaped JSON payloads default to a compact messages-only view with total/range metadata; set full=true to return the exact raw stored content.", serde_json::json!({
         "type": "object",
         "properties": {
             "payload_id": { "type": "string", "description": "Payload ID from an offloaded tool-result thread message" },
@@ -91,6 +92,8 @@ fn add_available_tools_part_d(
             "message_end": { "type": "integer", "minimum": 0, "description": "Optional absolute end message index for compact thread payloads, exclusive" },
             "start": { "type": "integer", "minimum": 0, "description": "Alias for message_start" },
             "end": { "type": "integer", "minimum": 0, "description": "Alias for message_end" },
+            "limit": { "type": "integer", "minimum": 1, "description": "Maximum items or text lines to return for non-thread payloads (default: 20, max: 100)" },
+            "offset": { "type": "integer", "minimum": 0, "description": "Zero-based offset for non-thread payload items or text lines (default: 0)" },
             "full": { "type": "boolean", "description": "Return the exact raw stored payload, including full metadata, instead of the default compact view. Defaults to false." }
         },
         "required": ["payload_id"]
@@ -146,9 +149,12 @@ fn add_available_tools_part_d(
         },
         "required": ["goal"]
     })));
-    tools.push(tool_def(tool_names::LIST_GOAL_RUNS, "List durable goal runs with their current status, active step metadata, and recent execution state.", serde_json::json!({
+    tools.push(tool_def(tool_names::LIST_GOAL_RUNS, "List durable goal runs with their current status, active step metadata, and recent execution state. Returns a paged result with total, limit, offset, returned, and next_offset.", serde_json::json!({
         "type": "object",
-        "properties": {}
+        "properties": {
+            "limit": { "type": "integer", "minimum": 1, "description": "Maximum number of goal runs to return (default: 20, max: 100)" },
+            "offset": { "type": "integer", "minimum": 0, "description": "Zero-based pagination offset over goal runs sorted by updated_at descending (default: 0)" }
+        }
     })));
     tools.push(tool_def(tool_names::SUBMIT_GOAL_STEP_VERDICT, "Submit the structured pass/fail verdict for the current goal-step verification task. This is the authoritative gate used to advance or requeue the current goal step.", serde_json::json!({
         "type": "object",
@@ -212,13 +218,17 @@ fn add_available_tools_part_d(
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def(tool_names::RUN_ROUTINE_NOW, "Execute one stored routine immediately and record an explicit manual run history entry.", serde_json::json!({
-        "type": "object",
-        "properties": {
-            "routine_id": { "type": "string", "description": "Routine definition id" }
-        },
-        "required": ["routine_id"]
-    })));
+    tools.push(tool_def(
+        tool_names::RUN_ROUTINE_NOW,
+        "Execute one stored routine immediately and record an explicit manual run history entry.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "routine_id": { "type": "string", "description": "Routine definition id" }
+            },
+            "required": ["routine_id"]
+        }),
+    ));
     tools.push(tool_def(tool_names::LIST_ROUTINE_HISTORY, "List recent persisted run attempts for one routine, including success, failure, run-now, and rerun entries.", serde_json::json!({
         "type": "object",
         "properties": {
@@ -248,13 +258,17 @@ fn add_available_tools_part_d(
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def(tool_names::DELETE_ROUTINE, "Delete one durable routine definition by id.", serde_json::json!({
-        "type": "object",
-        "properties": {
-            "routine_id": { "type": "string", "description": "Routine definition id" }
-        },
-        "required": ["routine_id"]
-    })));
+    tools.push(tool_def(
+        tool_names::DELETE_ROUTINE,
+        "Delete one durable routine definition by id.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "routine_id": { "type": "string", "description": "Routine definition id" }
+            },
+            "required": ["routine_id"]
+        }),
+    ));
     tools.push(tool_def(tool_names::RUN_WORKFLOW_PACK, "Execute one canonical workflow pack with prerequisite-aware, approval-aware runtime behavior. Supports Wave 1 and Wave 2 packs: Daily Brief, PR/Issue Triage, Inbox + Calendar Triage, Watch/Monitor, Standup (status report with task/routine/connector/trigger/browser summary), and Approval-Checkpoint Long Task.", serde_json::json!({
         "type": "object",
         "properties": {
@@ -411,7 +425,6 @@ fn add_available_tools_part_d(
         "required": []
     })));
 
-    // Workspace tools — executed via WorkspaceCommand event on the frontend
     tools.push(tool_def(
         tool_names::LIST_WORKSPACES,
         "List workspaces, surfaces, and panes (with names and IDs).",
@@ -572,7 +585,6 @@ fn add_available_tools_part_d(
         tools.extend(generated_tool_definitions(config, agent_data_dir));
     }
 
-    // Plugin API proxy tool -- always available (PluginManager handles disabled/missing checks)
     tools.push(tool_def(
         tool_names::PLUGIN_API_CALL,
         "Call a plugin API endpoint. The daemon proxies the HTTP request, handles auth, rate limiting, and returns the response as text.",

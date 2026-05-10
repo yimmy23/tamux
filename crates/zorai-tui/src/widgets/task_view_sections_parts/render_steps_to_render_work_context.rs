@@ -1,4 +1,11 @@
-pub(super) fn render_steps(
+use super::super::*;
+use super::super::{push_section_title, RenderRow};
+use crate::state::task::{AgentTask, GoalRun, GoalRunStatus, GoalRunStep, TaskState, TaskStatus};
+use crate::theme::ThemeTokens;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+
+pub(crate) fn render_steps(
     rows: &mut Vec<RenderRow>,
     tasks: &TaskState,
     run: &GoalRun,
@@ -84,7 +91,7 @@ pub(super) fn render_steps(
     }
 }
 
-pub(super) fn render_step_timeline(
+pub(crate) fn render_step_timeline(
     rows: &mut Vec<RenderRow>,
     run: &GoalRun,
     theme: &ThemeTokens,
@@ -114,7 +121,7 @@ pub(super) fn render_step_timeline(
     }
 }
 
-pub(super) fn render_live_todos(
+pub(crate) fn render_live_todos(
     rows: &mut Vec<RenderRow>,
     tasks: &TaskState,
     thread_id: Option<&str>,
@@ -132,7 +139,7 @@ pub(super) fn render_live_todos(
     push_todo_items(rows, tasks.todos_for_thread(thread_id), theme, width, 0);
 }
 
-pub(super) fn render_work_context(
+pub(crate) fn render_work_context(
     rows: &mut Vec<RenderRow>,
     tasks: &TaskState,
     thread_id: Option<&str>,

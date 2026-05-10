@@ -1,3 +1,9 @@
+use super::*;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
+
 use crate::agent::llm_client::OpenAiResponsesTerminalResponse;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -33,9 +39,6 @@ fn default_zero() -> u64 {
     0
 }
 
-// ---------------------------------------------------------------------------
-// Heartbeat structured checks (Phase 2 — core heartbeat)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -110,7 +113,6 @@ pub struct HeartbeatChecksConfig {
     pub repo_changes_cron: Option<String>,
     #[serde(default)]
     pub plugin_auth_cron: Option<String>,
-    // Per D-06: Per-check priority weights (0.0-1.0). 1.0 = every cycle.
     #[serde(default = "default_priority_weight")]
     pub stale_todos_priority_weight: f64,
     #[serde(default = "default_priority_weight")]
@@ -121,7 +123,6 @@ pub struct HeartbeatChecksConfig {
     pub repo_changes_priority_weight: f64,
     #[serde(default = "default_priority_weight")]
     pub plugin_auth_priority_weight: f64,
-    // Per D-11: Per-check priority overrides (pin to specific weight).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stale_todos_priority_override: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -151,9 +152,6 @@ fn default_unreplied_threshold_hours() -> u64 {
     1
 }
 
-// ---------------------------------------------------------------------------
-// Audit configuration (per D-05/D-10)
-// ---------------------------------------------------------------------------
 
 /// Which action types to include in the audit feed. Per D-05.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -266,9 +264,6 @@ pub fn interval_mins_to_cron(mins: u64) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Notifications
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -279,9 +274,6 @@ pub enum NotificationSeverity {
     Error,
 }
 
-// ---------------------------------------------------------------------------
-// Persistent memory (SOUL.md, MEMORY.md, USER.md)
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentMemory {
@@ -290,9 +282,6 @@ pub struct AgentMemory {
     pub user_profile: String,
 }
 
-// ---------------------------------------------------------------------------
-// Generation stats helper
-// ---------------------------------------------------------------------------
 
 /// Compute tokens-per-second and generation duration from timing data.
 /// Compute generation_ms and tokens-per-second from the elapsed duration and
@@ -311,9 +300,6 @@ pub fn compute_generation_stats(
     (generation_ms, tps)
 }
 
-// ---------------------------------------------------------------------------
-// LLM completion types
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompletionServerToolUsage {

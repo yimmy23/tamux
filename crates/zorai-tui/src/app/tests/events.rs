@@ -1,24 +1,42 @@
-include!("events_parts/idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers.rs");
-include!("events_parts/first_raw_config_load_replaces_goal_pane_with_concierge_loading_to_tts.rs");
-include!("events_parts/image_generation_result_refreshes_thread_and_work_context_to_thread.rs");
-include!("events_parts/internal_dm_thread_created_refreshes_open_thread_picker_to_auto.rs");
-include!("events_parts/status_diagnostics_warning_mentions_sync_state_to_approval_required.rs");
-include!("events_parts/opening_thread_with_existing_pending_approval_opens_blocking_modal.rs");
-include!(
-    "events_parts/done_event_persists_final_reasoning_into_chat_message_to_mission_control.rs"
-);
-include!(
-    "events_parts/header_profile_uses_thread_owner_not_latest_participant_author_to_header.rs"
-);
-include!("events_parts/header_goal_run_usage_defaults_when_goal_thread_missing_to_header_usage.rs");
-include!("events_parts/header_usage_summary_caps_target_by_custom_compaction_window_to_hidden.rs");
-include!("events_parts/hidden_handoff_threads_are_filtered_from_thread_list_to_on_tick.rs");
-include!("events_parts/on_tick_auto_refreshes_active_goal_until_terminal_to_prepending_older.rs");
-include!("events_parts/active_goal_run_update_schedules_background_hydration_instead.rs");
-include!("events_parts/active_goal_run_file_tab_restores_selected_file_after_partial_refresh.rs");
-include!("events_parts/selected_internal_dm_thread_detail_is_loaded_to_follow_up_prompt_keeps.rs");
-include!("events_parts/follow_up_prompt_deduplicates_latest_page_when_wire_start_is_missing.rs");
-include!("events_parts/participant_suggestion_event_queues_prompt_with_agent_name.rs");
-include!("events_parts/new_subagent_conversation_keeps_header_after_thread_created_without.rs");
-include!("events_parts/leading_internal_delegate_prompt_is_blocked_for_budget_exceeded_thread.rs");
-include!("events_parts/first_raw_config_load_requests_openai_codex_auth_status_from_daemon.rs");
+use super::*;
+
+#[path = "events_parts/active_goal_run_file_tab_restores_selected_file_after_partial_refresh.rs"]
+mod active_goal_run_file_tab_restores_selected_file_after_partial_refresh;
+#[path = "events_parts/active_goal_run_update_schedules_background_hydration_instead.rs"]
+mod active_goal_run_update_schedules_background_hydration_instead;
+#[path = "events_parts/done_event_persists_final_reasoning_into_chat_message_to_mission_control.rs"]
+mod done_event_persists_final_reasoning_into_chat_message_to_mission_control;
+#[path = "events_parts/first_raw_config_load_replaces_goal_pane_with_concierge_loading_to_tts.rs"]
+mod first_raw_config_load_replaces_goal_pane_with_concierge_loading_to_tts;
+#[path = "events_parts/first_raw_config_load_requests_openai_codex_auth_status_from_daemon.rs"]
+mod first_raw_config_load_requests_openai_codex_auth_status_from_daemon;
+#[path = "events_parts/follow_up_prompt_deduplicates_latest_page_when_wire_start_is_missing.rs"]
+mod follow_up_prompt_deduplicates_latest_page_when_wire_start_is_missing;
+#[path = "events_parts/header_goal_run_usage_defaults_when_goal_thread_missing_to_header_usage.rs"]
+mod header_goal_run_usage_defaults_when_goal_thread_missing_to_header_usage;
+#[path = "events_parts/header_profile_uses_thread_owner_not_latest_participant_author_to_header.rs"]
+mod header_profile_uses_thread_owner_not_latest_participant_author_to_header;
+#[path = "events_parts/header_usage_summary_caps_target_by_custom_compaction_window_to_hidden.rs"]
+mod header_usage_summary_caps_target_by_custom_compaction_window_to_hidden;
+#[path = "events_parts/hidden_handoff_threads_are_filtered_from_thread_list_to_on_tick.rs"]
+mod hidden_handoff_threads_are_filtered_from_thread_list_to_on_tick;
+#[path = "events_parts/idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers.rs"]
+mod idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers;
+#[path = "events_parts/image_generation_result_refreshes_thread_and_work_context_to_thread.rs"]
+mod image_generation_result_refreshes_thread_and_work_context_to_thread;
+#[path = "events_parts/internal_dm_thread_created_refreshes_open_thread_picker_to_auto.rs"]
+mod internal_dm_thread_created_refreshes_open_thread_picker_to_auto;
+#[path = "events_parts/leading_internal_delegate_prompt_is_blocked_for_budget_exceeded_thread.rs"]
+mod leading_internal_delegate_prompt_is_blocked_for_budget_exceeded_thread;
+#[path = "events_parts/new_subagent_conversation_keeps_header_after_thread_created_without.rs"]
+mod new_subagent_conversation_keeps_header_after_thread_created_without;
+#[path = "events_parts/on_tick_auto_refreshes_active_goal_until_terminal_to_prepending_older.rs"]
+mod on_tick_auto_refreshes_active_goal_until_terminal_to_prepending_older;
+#[path = "events_parts/opening_thread_with_existing_pending_approval_opens_blocking_modal.rs"]
+mod opening_thread_with_existing_pending_approval_opens_blocking_modal;
+#[path = "events_parts/participant_suggestion_event_queues_prompt_with_agent_name.rs"]
+mod participant_suggestion_event_queues_prompt_with_agent_name;
+#[path = "events_parts/selected_internal_dm_thread_detail_is_loaded_to_follow_up_prompt_keeps.rs"]
+mod selected_internal_dm_thread_detail_is_loaded_to_follow_up_prompt_keeps;
+#[path = "events_parts/status_diagnostics_warning_mentions_sync_state_to_approval_required.rs"]
+mod status_diagnostics_warning_mentions_sync_state_to_approval_required;

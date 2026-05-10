@@ -27,6 +27,7 @@ import {
 } from "./daemonHelpers";
 import { useLegacyAgentMessaging } from "./useLegacyAgentMessaging";
 import type { AgentChatPanelRuntimeValue, AgentChatPanelView } from "./types";
+import { fetchHydratedRemoteThreads } from "./threadListQueries";
 import {
   pinnedMessageBudgetChars,
   sumMessageContentChars,
@@ -725,6 +726,18 @@ export function useAgentChatPanelProviderValue(): {
     });
   }, []);
 
+  const fetchThreadList = useCallback(async (options?: { agentFilter?: string | null }) => {
+    const zorai = getAgentBridge();
+    if (!zorai?.agentListThreads) {
+      return [];
+    }
+    return fetchHydratedRemoteThreads({
+      agentListThreads: zorai.agentListThreads,
+      fallbackAgentName: useAgentStore.getState().agentSettings.agent_name,
+      agentFilter: options?.agentFilter ?? null,
+    });
+  }, []);
+
   const loadThreadPage = useCallback((
     threadId: string,
     direction: "latest" | "older",
@@ -945,6 +958,7 @@ export function useAgentChatPanelProviderValue(): {
     searchQuery,
     setSearchQuery,
     refreshThreadList,
+    fetchThreadList,
     loadOlderThreadMessages,
     trimThreadMessagesToLatestWindow,
     messages,
@@ -1054,6 +1068,7 @@ export function useAgentChatPanelProviderValue(): {
     trimThreadMessagesToLatestWindow,
     openThread,
     refreshThreadList,
+    fetchThreadList,
     setActiveThread,
     setSearchQuery,
     snippets,

@@ -1,4 +1,11 @@
-fn queue_hit_test(
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, Borders};
+
+use crate::state::approval::{ApprovalFilter, ApprovalState};
+
+use super::render_to_header_hit_test::ApprovalCenterHitTarget;
+
+pub(crate) fn queue_hit_test(
     area: Rect,
     approval: &ApprovalState,
     current_thread_id: Option<&str>,
@@ -47,7 +54,7 @@ fn rule_queue_hit_test(
         .map(|_| ApprovalCenterHitTarget::RuleRow(item_index))
 }
 
-fn detail_hit_test(
+pub(crate) fn detail_hit_test(
     area: Rect,
     approval: &ApprovalState,
     current_thread_id: Option<&str>,
@@ -144,4 +151,3 @@ fn rule_detail_hit_test(
     }
     None
 }
-

@@ -5,6 +5,7 @@ use tempfile::tempdir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
+use zorai_protocol::{WorkspaceOperator, WorkspaceSettings};
 
 fn sample_task(id: &str, thread_id: Option<&str>, goal_run_id: Option<&str>) -> AgentTask {
     AgentTask {
@@ -136,6 +137,27 @@ fn sample_anticipatory_item(id: &str, kind: &str, title: &str, summary: &str) ->
     }
 }
 
+async fn enable_repo_monitor_for_workspace_root(
+    engine: &AgentEngine,
+    workspace_root: &std::path::Path,
+) {
+    let now = now_millis();
+    engine
+        .history
+        .upsert_workspace_settings(&WorkspaceSettings {
+            workspace_id: "repo-monitor-test".to_string(),
+            workspace_root: Some(workspace_root.to_string_lossy().to_string()),
+            operator: WorkspaceOperator::User,
+            repo_monitor_enabled: true,
+            repo_monitor_include_dirs: vec![".".to_string()],
+            repo_monitor_exclude_dirs: Vec::new(),
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .expect("enable repo monitor for test workspace root");
+}
+
 #[test]
 fn circular_hour_distance_wraps_across_midnight() {
     assert_eq!(circular_hour_distance(23, 1), 2);
@@ -253,6 +275,100 @@ async fn session_start_prewarm_hydrates_active_attention_thread() {
 }
 
 #[tokio::test]
+async fn session_start_prewarm_resolves_persisted_attention_goal_thread_after_live_queue_clear() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut goal = sample_goal_run("goal-attention", Some("thread-attention-goal"));
+    goal.status = GoalRunStatus::Completed;
+    goal.updated_at = now_millis();
+    engine.goal_runs.lock().await.push_back(goal);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    engine
+        .record_operator_attention("conversation:chat", None, Some("goal-attention"))
+        .await
+        .unwrap();
+    engine.mark_operator_present("test").await;
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .hydration_by_thread
+            .contains_key("thread-attention-goal"),
+        "session-start prewarm should resolve active attention goal ids through persisted goal rows"
+    );
+}
+
+#[tokio::test]
+async fn session_start_prewarm_hydrates_persisted_active_task_thread_after_live_queue_clear() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut task = sample_task("task-prewarm", Some("thread-task-prewarm"), None);
+    task.status = TaskStatus::InProgress;
+    task.started_at = Some(now_millis().saturating_sub(5_000));
+    engine.tasks.lock().await.push_back(task);
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
+    engine.mark_operator_present("test").await;
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .hydration_by_thread
+            .contains_key("thread-task-prewarm"),
+        "session-start prewarm should hydrate active task threads from persisted task rows"
+    );
+}
+
+#[tokio::test]
+async fn session_start_prewarm_hydrates_persisted_active_goal_thread_after_live_queue_clear() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut goal = sample_goal_run("goal-prewarm", Some("thread-goal-prewarm"));
+    goal.status = GoalRunStatus::Running;
+    goal.updated_at = now_millis();
+    engine.goal_runs.lock().await.push_back(goal);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    engine.mark_operator_present("test").await;
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .hydration_by_thread
+            .contains_key("thread-goal-prewarm"),
+        "session-start prewarm should hydrate active goal threads from persisted goal rows"
+    );
+}
+
+#[tokio::test]
 async fn anticipatory_tick_routes_stuck_hint_to_thread_surface_with_idle_signal() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;
@@ -270,6 +386,8 @@ async fn anticipatory_tick_routes_stuck_hint_to_thread_surface_with_idle_signal(
     stale_task.started_at = Some(now.saturating_sub(30_000));
     stale_task.last_error = Some("command timed out while waiting for output".to_string());
     engine.tasks.lock().await.push_back(stale_task);
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     engine
         .set_thread_client_surface("thread-surface", zorai_protocol::ClientSurface::Electron)
@@ -360,6 +478,43 @@ async fn morning_brief_inherits_route_from_top_goal_surface() {
         .find(|candidate| candidate.kind == "morning_brief")
         .expect("expected a morning brief");
     assert_eq!(item.preferred_client_surface.as_deref(), Some("tui"));
+}
+
+#[tokio::test]
+async fn morning_brief_uses_persisted_active_goal_after_live_queue_clear() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.morning_brief = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let now = now_millis();
+    let mut goal = sample_goal_run("goal-persisted-brief", Some("thread-persisted-brief"));
+    goal.title = "Resume persisted release work".to_string();
+    goal.status = GoalRunStatus::Running;
+    goal.updated_at = now;
+    goal.current_step_title = Some("publish persisted package".to_string());
+    engine.goal_runs.lock().await.push_back(goal);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+    engine.mark_operator_present("test").await;
+
+    engine.run_anticipatory_tick().await;
+
+    let items = engine.anticipatory.read().await.items.clone();
+    let item = items
+        .into_iter()
+        .find(|candidate| candidate.kind == "morning_brief")
+        .expect("expected a morning brief from persisted active goal rows");
+    assert_eq!(item.goal_run_id.as_deref(), Some("goal-persisted-brief"));
+    assert_eq!(item.thread_id.as_deref(), Some("thread-persisted-brief"));
+    assert!(
+        item.bullets
+            .iter()
+            .any(|bullet| bullet.contains("Resume persisted release work")),
+        "morning brief should summarize persisted active goals"
+    );
 }
 
 #[tokio::test]
@@ -733,6 +888,8 @@ async fn anticipatory_tick_surfaces_intent_prediction_for_pending_approval() {
     task.title = "Need approval".to_string();
     task.status = TaskStatus::AwaitingApproval;
     engine.tasks.lock().await.push_back(task);
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
     engine
         .record_operator_attention("conversation:chat", Some("thread-intent"), None)
         .await
@@ -981,6 +1138,8 @@ async fn awaiting_approval_thread_overrides_tightened_predictive_hydration_targe
     let mut approval_task = sample_task("task-awaiting", Some("thread-approval"), None);
     approval_task.status = TaskStatus::AwaitingApproval;
     engine.tasks.lock().await.push_back(approval_task);
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     {
         let mut model = engine.operator_model.write().await;
@@ -999,6 +1158,55 @@ async fn awaiting_approval_thread_overrides_tightened_predictive_hydration_targe
     assert!(
         !hydration.contains_key("thread-focus"),
         "approval-gated thread should override ordinary attention-target tightening"
+    );
+}
+
+#[tokio::test]
+async fn awaiting_approval_persisted_goal_overrides_tightened_predictive_hydration_target_after_live_queue_clear(
+) {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.predictive_hydration = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-focus"), None)
+        .await
+        .unwrap();
+
+    let now = now_millis();
+    let mut focus_goal = sample_goal_run("goal-focus-persisted-gate", Some("thread-focus"));
+    focus_goal.status = GoalRunStatus::Running;
+    focus_goal.updated_at = now;
+    engine.goal_runs.lock().await.push_back(focus_goal);
+
+    let mut approval_goal =
+        sample_goal_run("goal-approval-persisted-gate", Some("thread-approval"));
+    approval_goal.status = GoalRunStatus::AwaitingApproval;
+    approval_goal.updated_at = now.saturating_sub(1_000);
+    engine.goal_runs.lock().await.push_back(approval_goal);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    {
+        let mut model = engine.operator_model.write().await;
+        model.cognitive_style.message_count = 1;
+        model.implicit_feedback.tool_hesitation_count = 1;
+        refresh_operator_satisfaction(&mut model);
+    }
+
+    engine.run_anticipatory_tick().await;
+
+    let hydration = engine.anticipatory.read().await.hydration_by_thread.clone();
+    assert!(
+        hydration.contains_key("thread-approval"),
+        "persisted awaiting-approval goal thread should override tightened active attention"
+    );
+    assert!(
+        !hydration.contains_key("thread-focus"),
+        "approval-gated persisted goal thread should override ordinary attention-target tightening"
     );
 }
 
@@ -1023,6 +1231,8 @@ async fn predictive_hydration_populates_prewarm_cache_for_hydrated_thread() {
     config.anticipatory.enabled = true;
     config.anticipatory.predictive_hydration = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
 
     let mut goal = sample_goal_run("goal-cache", Some("thread-cache"));
     goal.status = GoalRunStatus::Running;
@@ -1060,6 +1270,92 @@ async fn predictive_hydration_populates_prewarm_cache_for_hydrated_thread() {
 }
 
 #[tokio::test]
+async fn predictive_hydration_skips_prewarm_cache_when_repo_monitor_disabled() {
+    let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-predictive-cache-disabled");
+    std::fs::create_dir_all(&repo_root).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.predictive_hydration = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut goal = sample_goal_run("goal-cache-disabled", Some("thread-cache-disabled"));
+    goal.status = GoalRunStatus::Running;
+    goal.updated_at = now_millis();
+    engine.goal_runs.lock().await.push_back(goal);
+    engine.thread_work_contexts.write().await.insert(
+        "thread-cache-disabled".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-cache-disabled".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "Cargo.toml".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+
+    engine.run_anticipatory_tick().await;
+
+    let runtime = engine.anticipatory.read().await;
+    assert!(
+        !runtime
+            .prewarm_cache_by_thread
+            .contains_key("thread-cache-disabled"),
+        "predictive hydration should skip git-backed prewarm work when repo monitor is disabled"
+    );
+}
+
+#[tokio::test]
+async fn predictive_hydration_uses_persisted_active_goal_thread_after_live_queue_clear() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    config.anticipatory.predictive_hydration = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let mut goal = sample_goal_run("goal-predictive-persisted", Some("thread-predictive-goal"));
+    goal.status = GoalRunStatus::Running;
+    goal.updated_at = now_millis();
+    engine.goal_runs.lock().await.push_back(goal);
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    engine.run_anticipatory_tick().await;
+
+    assert!(
+        engine
+            .anticipatory
+            .read()
+            .await
+            .hydration_by_thread
+            .contains_key("thread-predictive-goal"),
+        "predictive hydration should target active goal threads from persisted goal rows"
+    );
+}
+
+#[tokio::test]
 async fn predictive_hydration_records_causal_trace_family() {
     let root = tempdir().unwrap();
     let repo_root = root.path().join("repo-predictive-trace");
@@ -1080,6 +1376,8 @@ async fn predictive_hydration_records_causal_trace_family() {
     config.anticipatory.enabled = true;
     config.anticipatory.predictive_hydration = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
 
     let mut goal = sample_goal_run("goal-trace", Some("thread-trace"));
     goal.status = GoalRunStatus::Running;
@@ -1414,6 +1712,8 @@ async fn system_outcome_foresight_does_not_persist_duplicate_unresolved_predicti
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
+
     engine
         .record_operator_attention("conversation:chat", Some("thread-foresight-dedupe"), None)
         .await
@@ -1494,6 +1794,8 @@ async fn system_outcome_foresight_updates_active_prediction_instead_of_duplicati
     let mut config = AgentConfig::default();
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
 
     engine
         .record_operator_attention("conversation:chat", Some("thread-foresight-update"), None)
@@ -1601,6 +1903,8 @@ async fn system_outcome_foresight_persists_and_resolves_when_health_feedback_arr
     let mut config = AgentConfig::default();
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
 
     engine
         .record_operator_attention("conversation:chat", Some("thread-foresight-persist"), None)
@@ -1749,6 +2053,8 @@ async fn anticipatory_tick_surfaces_persisted_system_outcome_foresight_for_build
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
+
     engine
         .record_operator_attention("conversation:chat", Some("thread-build-risk"), None)
         .await
@@ -1834,6 +2140,8 @@ async fn build_test_risk_confidence_increases_with_repeated_degraded_health_entr
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
+
     engine
         .record_operator_attention("conversation:chat", Some("thread-build-confidence"), None)
         .await
@@ -1906,13 +2214,99 @@ async fn build_test_risk_confidence_increases_with_repeated_degraded_health_entr
 }
 
 #[tokio::test]
+async fn system_outcome_foresight_skips_build_risk_when_repo_monitor_disabled() {
+    let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-build-risk-disabled");
+    std::fs::create_dir_all(&repo_root).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    std::fs::write(repo_root.join("src/lib.rs"), "pub fn broken() {}\n").unwrap();
+
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.anticipatory.enabled = true;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    engine
+        .record_operator_attention("conversation:chat", Some("thread-build-risk-disabled"), None)
+        .await
+        .unwrap();
+    engine.thread_work_contexts.write().await.insert(
+        "thread-build-risk-disabled".to_string(),
+        ThreadWorkContext {
+            thread_id: "thread-build-risk-disabled".to_string(),
+            entries: vec![WorkContextEntry {
+                path: "src/lib.rs".to_string(),
+                previous_path: None,
+                kind: WorkContextEntryKind::RepoChange,
+                source: "repo_scan".to_string(),
+                change_kind: Some("modified".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
+                goal_run_id: None,
+                step_index: None,
+                session_id: None,
+                is_text: true,
+                updated_at: now_millis(),
+            }],
+        },
+    );
+    engine
+        .history
+        .insert_health_log(
+            "health-build-risk-disabled",
+            "task",
+            "cargo-test",
+            "degraded",
+            Some("{\"tool\":\"cargo test\",\"error\":\"Command failed\"}"),
+            Some("recent cargo test failed in this repo"),
+            now_millis(),
+        )
+        .await
+        .expect("save health log");
+
+    engine.run_anticipatory_tick().await;
+
+    let items = engine.anticipatory.read().await.items.clone();
+    assert!(
+        items.into_iter()
+            .all(|candidate| candidate.kind != "system_outcome_foresight"),
+        "system outcome foresight should skip git-backed build-risk analysis when repo monitor is disabled"
+    );
+}
+
+#[tokio::test]
 async fn anticipatory_tick_surfaces_stale_context_foresight_when_hydration_lags_session_rhythm() {
     let root = tempdir().unwrap();
+    let repo_root = root.path().join("repo-stale-context");
+    std::fs::create_dir_all(repo_root.join("src")).unwrap();
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_root)
+        .output()
+        .expect("git init");
+    std::fs::write(
+        repo_root.join("Cargo.toml"),
+        "[package]\nname='demo'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    std::fs::write(repo_root.join("src/lib.rs"), "pub fn stale() {}\n").unwrap();
+
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.anticipatory.enabled = true;
     config.anticipatory.predictive_hydration = false;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
 
     engine
         .record_operator_attention("conversation:chat", Some("thread-stale-context"), None)
@@ -1928,7 +2322,7 @@ async fn anticipatory_tick_surfaces_stale_context_foresight_when_hydration_lags_
                 kind: WorkContextEntryKind::RepoChange,
                 source: "repo_scan".to_string(),
                 change_kind: Some("modified".to_string()),
-                repo_root: Some("/tmp/repo".to_string()),
+                repo_root: Some(repo_root.to_string_lossy().to_string()),
                 goal_run_id: None,
                 step_index: None,
                 session_id: None,
@@ -3013,6 +3407,8 @@ async fn anticipatory_prompt_context_records_proactive_cache_provenance() {
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
+    enable_repo_monitor_for_workspace_root(&engine, root.path()).await;
+
     let repo_root = root.path().join("repo-proactive-provenance");
     std::fs::create_dir_all(&repo_root).unwrap();
     std::fs::write(repo_root.join("tracked.txt"), "hello\n").unwrap();
@@ -3585,6 +3981,55 @@ async fn cognitive_resonance_sampling_persists_samples_and_adjustment_logs() {
     assert!(
         !adjustments.is_empty(),
         "substantial resonance shifts should log behavior adjustments"
+    );
+}
+
+#[tokio::test]
+async fn cognitive_resonance_sampling_finds_revision_signal_beyond_recent_unrelated_window() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-revision-velocity-sql";
+    let now = now_millis();
+
+    engine
+        .history
+        .insert_implicit_signal(&crate::history::ImplicitSignalRow {
+            id: "older-operator-correction".to_string(),
+            session_id: thread_id.to_string(),
+            signal_type: "operator_correction".to_string(),
+            weight: -0.2,
+            timestamp_ms: now.saturating_sub(60_000),
+            context_snapshot_json: None,
+        })
+        .await
+        .expect("insert correction signal");
+    for index in 0..12u64 {
+        engine
+            .history
+            .insert_implicit_signal(&crate::history::ImplicitSignalRow {
+                id: format!("newer-tool-signal-{index}"),
+                session_id: thread_id.to_string(),
+                signal_type: "tool_fallback".to_string(),
+                weight: -0.01,
+                timestamp_ms: now.saturating_sub(10_000).saturating_add(index),
+                context_snapshot_json: None,
+            })
+            .await
+            .expect("insert unrelated signal");
+    }
+    engine.anticipatory.write().await.active_attention_thread_id = Some(thread_id.to_string());
+
+    engine.sample_cognitive_resonance_runtime().await;
+
+    let samples = engine
+        .history
+        .list_cognitive_resonance_samples(1)
+        .await
+        .expect("resonance samples should load");
+    assert!(
+        samples[0].revision_velocity_ms.unwrap_or_default() >= 60_000,
+        "revision velocity should be based on the latest matching signal type, not the latest mixed signal window"
     );
 }
 

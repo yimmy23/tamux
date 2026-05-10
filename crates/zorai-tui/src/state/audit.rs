@@ -4,7 +4,6 @@ use std::collections::HashSet;
 
 const MAX_AUDIT_ENTRIES: usize = 500;
 
-// ── View Models ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct AuditEntryVm {
@@ -30,7 +29,6 @@ pub struct EscalationVm {
     pub audit_id: Option<String>,
 }
 
-// ── Filters ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimeRange {
@@ -53,7 +51,6 @@ fn default_type_filter() -> HashSet<String> {
         .collect()
 }
 
-// ── Action ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum AuditAction {
@@ -69,7 +66,6 @@ pub enum AuditAction {
     ClearAll,
 }
 
-// ── State ────────────────────────────────────────────────────────────────────
 
 pub struct AuditState {
     entries: Vec<AuditEntryVm>,
@@ -145,7 +141,6 @@ impl AuditState {
         }
     }
 
-    // ── Accessors ────────────────────────────────────────────────────────────
 
     pub fn entries(&self) -> &[AuditEntryVm] {
         &self.entries
@@ -185,7 +180,6 @@ impl AuditState {
         filtered.get(self.selected_index).map(|e| e.id.as_str())
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
 
     fn passes_time_filter(&self, timestamp: u64) -> bool {
         match self.time_filter {
@@ -219,7 +213,6 @@ fn current_epoch_secs() -> u64 {
         .unwrap_or(0)
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -275,7 +268,6 @@ mod tests {
             )));
         }
         assert_eq!(state.entries().len(), MAX_AUDIT_ENTRIES);
-        // newest first
         assert_eq!(state.entries()[0].id, format!("a{}", MAX_AUDIT_ENTRIES));
     }
 
@@ -286,7 +278,6 @@ mod tests {
         state.reduce(AuditAction::EntryReceived(make_entry("a2", "tool")));
         state.reduce(AuditAction::EntryReceived(make_entry("a3", "escalation")));
 
-        // Filter to only "tool"
         let mut filter = HashSet::new();
         filter.insert("tool".to_string());
         state.reduce(AuditAction::SetTypeFilter(filter));
@@ -303,7 +294,6 @@ mod tests {
         state.reduce(AuditAction::EntryReceived(make_entry("a2", "heartbeat")));
         state.reduce(AuditAction::EntryReceived(make_entry("a3", "heartbeat")));
 
-        // Select a2, which is at filtered_entries index 1 (a3 is at 0, a2 at 1, a1 at 2)
         state.reduce(AuditAction::SelectEntry(Some("a2".into())));
         assert_eq!(state.selected_index(), 1);
     }
@@ -315,11 +305,9 @@ mod tests {
         state.reduce(AuditAction::ToggleExpand("a1".into()));
         assert_eq!(state.expanded_entry(), Some("a1"));
 
-        // Toggle same id -> should be None
         state.reduce(AuditAction::ToggleExpand("a1".into()));
         assert_eq!(state.expanded_entry(), None);
 
-        // Toggle different id
         state.reduce(AuditAction::ToggleExpand("a2".into()));
         assert_eq!(state.expanded_entry(), Some("a2"));
     }
@@ -339,13 +327,11 @@ mod tests {
         let mut state = AuditState::new();
         let now = current_epoch_secs();
 
-        // Recent entry (within last hour)
         state.reduce(AuditAction::EntryReceived(make_entry_with_ts(
             "recent",
             "heartbeat",
             now - 60,
         )));
-        // Old entry (2 hours ago)
         state.reduce(AuditAction::EntryReceived(make_entry_with_ts(
             "old",
             "heartbeat",
@@ -389,7 +375,6 @@ mod tests {
         state.reduce(AuditAction::ScrollUp);
         assert_eq!(state.selected_index(), 0);
 
-        // Can't go below 0
         state.reduce(AuditAction::ScrollUp);
         assert_eq!(state.selected_index(), 0);
     }
@@ -403,7 +388,6 @@ mod tests {
         state.reduce(AuditAction::ScrollDown);
         assert_eq!(state.selected_index(), 1);
 
-        // Can't go past end
         state.reduce(AuditAction::ScrollDown);
         assert_eq!(state.selected_index(), 1);
     }
@@ -423,7 +407,6 @@ mod tests {
         let mut state = AuditState::new();
         state.reduce(AuditAction::EntryReceived(make_entry("a1", "heartbeat")));
         state.reduce(AuditAction::EntryReceived(make_entry("a2", "heartbeat")));
-        // a2 is at index 0, a1 at index 1
         assert_eq!(state.selected_entry_id(), Some("a2"));
 
         state.reduce(AuditAction::ScrollDown);

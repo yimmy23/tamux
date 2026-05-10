@@ -7,6 +7,20 @@ fn now_millis_i64() -> i64 {
         .unwrap_or(0)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ThreadMessagePinState {
+    pub message_chars: usize,
+    pub pinned_for_compaction: bool,
+    pub counts_toward_pinned_chars: bool,
+    pub current_pinned_chars: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ThreadUserPacing {
+    pub recent_message_count: u32,
+    pub avg_gap_secs: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -37,11 +51,39 @@ mod tests {
 }
 
 impl HistoryStore {
+    /// Returns the highest `created_at` already persisted for this thread,
+    /// or `None` if the thread has no rows yet. Used by
+    /// `persist_thread_snapshot` to skip rebuilding `AgentDbMessage` (with
+    /// metadata_json / tool_calls_json serialization) for messages that are
+    /// already on disk. Without this, persisting a 3,500-message thread
+    /// after a single new turn re-encoded every old message's JSON twice
+    /// (once on the Rust side, once via `INSERT OR REPLACE` in
+    /// `reconcile_thread_snapshot`).
+    pub(crate) async fn thread_latest_persisted_message_ts(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<i64>> {
+        let thread_id = thread_id.to_string();
+        self.interactive_read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT MAX(created_at) FROM agent_messages \
+                     WHERE thread_id = ?1 AND deleted_at IS NULL",
+                    params![&thread_id],
+                    |row| row.get::<_, Option<i64>>(0),
+                )
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn reconcile_thread_snapshot(
         &self,
         thread: &AgentDbThread,
         messages: &[AgentDbMessage],
     ) -> Result<()> {
+        self.caches.thread_metadata_json.invalidate(&thread.id);
         let thread = thread.clone();
         let messages = messages.to_vec();
         self.conn
@@ -134,7 +176,14 @@ impl HistoryStore {
                     ],
                 )?;
 
+                let cutoff_ts = existing_snapshot
+                    .map(|(_, _, latest)| latest)
+                    .unwrap_or(i64::MIN);
+                let mut written = 0usize;
                 for message in &messages {
+                    if message.created_at < cutoff_ts {
+                        continue;
+                    }
                     transaction.execute(
                         "INSERT OR REPLACE INTO agent_messages \
                          (id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json, deleted_at) \
@@ -162,7 +211,15 @@ impl HistoryStore {
                         thread.workspace_id.as_deref(),
                         now_ts() as i64,
                     )?;
+                    written += 1;
                 }
+                tracing::debug!(
+                    thread_id = %thread.id,
+                    in_memory_count = messages.len(),
+                    written_count = written,
+                    cutoff_ts,
+                    "thread snapshot persisted (incremental)"
+                );
 
                 if messages.is_empty() {
                     transaction.execute(
@@ -187,6 +244,7 @@ impl HistoryStore {
     }
 
     pub async fn create_thread(&self, thread: &AgentDbThread) -> Result<()> {
+        self.caches.thread_metadata_json.invalidate(&thread.id);
         let thread = thread.clone();
         self.conn.call(move |conn| {
         conn.execute(
@@ -217,6 +275,7 @@ impl HistoryStore {
         thread: &AgentDbThread,
         messages: &[AgentDbMessage],
     ) -> Result<()> {
+        self.caches.thread_metadata_json.invalidate(&thread.id);
         let thread = thread.clone();
         let messages = messages.to_vec();
         self.conn
@@ -410,6 +469,7 @@ impl HistoryStore {
     }
 
     pub async fn delete_thread(&self, id: &str) -> Result<()> {
+        self.caches.thread_metadata_json.invalidate(&id.to_string());
         let id = id.to_string();
         self.conn
             .call(move |conn| {
@@ -421,14 +481,12 @@ impl HistoryStore {
                     let rows = stmt.query_map(params![id], |row| row.get::<_, String>(0))?;
                     rows.collect::<std::result::Result<Vec<_>, _>>()?
                 };
-                for message_id in message_ids {
-                    embedding_queue::queue_embedding_deletion_on_connection(
-                        conn,
-                        "agent_message",
-                        &message_id,
-                        now_ts() as i64,
-                    )?;
-                }
+                embedding_queue::queue_embedding_deletions_on_connection(
+                    conn,
+                    "agent_message",
+                    &message_ids,
+                    now_ts() as i64,
+                )?;
                 conn.execute(
                     "UPDATE agent_threads SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
                     params![id, deleted_at],
@@ -444,7 +502,7 @@ impl HistoryStore {
     }
 
     pub async fn list_threads(&self) -> Result<Vec<AgentDbThread>> {
-        self.read_conn.call(move |conn| {
+        self.interactive_read_conn.call(move |conn| {
         let mut stmt = conn.prepare(
             "SELECT id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview, metadata_json \
              FROM agent_threads WHERE deleted_at IS NULL ORDER BY updated_at DESC",
@@ -454,9 +512,137 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub(crate) async fn list_threads_filtered(
+        &self,
+        query: &AgentThreadListQuery,
+    ) -> Result<Vec<AgentDbThread>> {
+        let query = query.clone();
+        self.interactive_read_conn
+            .call(move |conn| {
+                let mut sql = String::from(
+                    "SELECT id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview, metadata_json \
+                     FROM agent_threads t WHERE t.deleted_at IS NULL",
+                );
+                let mut values = Vec::<rusqlite::types::Value>::new();
+
+                if let Some(created_after) = query.created_after {
+                    sql.push_str(" AND t.created_at >= ?");
+                    values.push(rusqlite::types::Value::Integer(created_after));
+                }
+                if let Some(created_before) = query.created_before {
+                    sql.push_str(" AND t.created_at <= ?");
+                    values.push(rusqlite::types::Value::Integer(created_before));
+                }
+                if let Some(updated_after) = query.updated_after {
+                    sql.push_str(" AND t.updated_at >= ?");
+                    values.push(rusqlite::types::Value::Integer(updated_after));
+                }
+                if let Some(updated_before) = query.updated_before {
+                    sql.push_str(" AND t.updated_at <= ?");
+                    values.push(rusqlite::types::Value::Integer(updated_before));
+                }
+                if let Some(title_query) = query
+                    .title_query
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    sql.push_str(" AND instr(lower(t.title), lower(?)) > 0");
+                    values.push(rusqlite::types::Value::Text(title_query.to_string()));
+                }
+                for prefix in &query.title_excluded_prefixes {
+                    sql.push_str(" AND t.title NOT LIKE ?");
+                    values.push(rusqlite::types::Value::Text(format!("{prefix}%")));
+                }
+                if let Some(min_message_count) = query.min_message_count {
+                    sql.push_str(" AND t.message_count >= ?");
+                    values.push(rusqlite::types::Value::Integer(min_message_count.max(0)));
+                }
+                if let Some(pinned) = query.pinned {
+                    sql.push_str(" AND t.pinned = ?");
+                    values.push(rusqlite::types::Value::Integer(if pinned { 1 } else { 0 }));
+                }
+                if !query.agent_names.is_empty() || query.include_empty_agent_name {
+                    let mut clauses = Vec::new();
+                    if query.include_empty_agent_name {
+                        clauses.push("(t.agent_name IS NULL OR trim(t.agent_name) = '')".to_string());
+                    }
+                    if !query.agent_names.is_empty() {
+                        let placeholders = std::iter::repeat_n("?", query.agent_names.len())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        clauses.push(format!("lower(trim(t.agent_name)) IN ({placeholders})"));
+                        values.extend(query.agent_names.iter().map(|name| {
+                            rusqlite::types::Value::Text(name.trim().to_ascii_lowercase())
+                        }));
+                    }
+                    sql.push_str(" AND (");
+                    sql.push_str(&clauses.join(" OR "));
+                    sql.push(')');
+                }
+                if !query.excluded_ids.is_empty() {
+                    let placeholders = std::iter::repeat_n("?", query.excluded_ids.len())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    sql.push_str(&format!(" AND t.id NOT IN ({placeholders})"));
+                    values.extend(
+                        query
+                            .excluded_ids
+                            .iter()
+                            .map(|id| rusqlite::types::Value::Text(id.to_string())),
+                    );
+                }
+                if !query.include_internal {
+                    for prefix in &query.hidden_id_prefixes {
+                        sql.push_str(" AND t.id NOT LIKE ?");
+                        values.push(rusqlite::types::Value::Text(format!("{prefix}%")));
+                    }
+                    if !query.hidden_message_substrings.is_empty() {
+                        sql.push_str(
+                            " AND NOT EXISTS (
+                                SELECT 1 FROM agent_messages m
+                                WHERE m.thread_id = t.id
+                                  AND m.deleted_at IS NULL
+                                  AND (",
+                        );
+                        let clauses = std::iter::repeat_n(
+                            "instr(lower(m.content), lower(?)) > 0",
+                            query.hidden_message_substrings.len(),
+                        )
+                        .collect::<Vec<_>>()
+                        .join(" OR ");
+                        sql.push_str(&clauses);
+                        sql.push_str("))");
+                        values.extend(query.hidden_message_substrings.iter().map(|substring| {
+                            rusqlite::types::Value::Text(substring.to_string())
+                        }));
+                    }
+                }
+
+                sql.push_str(" ORDER BY t.updated_at DESC, t.id ASC");
+                if let Some(limit) = query.limit {
+                    sql.push_str(" LIMIT ?");
+                    values.push(rusqlite::types::Value::Integer(limit as i64));
+                    if query.offset > 0 {
+                        sql.push_str(" OFFSET ?");
+                        values.push(rusqlite::types::Value::Integer(query.offset as i64));
+                    }
+                } else if query.offset > 0 {
+                    sql.push_str(" LIMIT -1 OFFSET ?");
+                    values.push(rusqlite::types::Value::Integer(query.offset as i64));
+                }
+
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), map_agent_thread)?;
+                Ok(rows.filter_map(|row| row.ok()).collect())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn get_thread(&self, id: &str) -> Result<Option<AgentDbThread>> {
         let id = id.to_string();
-        self.read_conn.call(move |conn| {
+        self.interactive_read_conn.call(move |conn| {
         conn
             .query_row(
                 "SELECT id, workspace_id, surface_id, pane_id, agent_name, title, created_at, updated_at, message_count, total_tokens, last_preview, metadata_json \
@@ -469,17 +655,764 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub(crate) async fn thread_recall_match_rows(
+        &self,
+        tokens: &[String],
+        thread_limit: usize,
+    ) -> Result<Vec<ThreadRecallMatchRow>> {
+        let tokens = tokens
+            .iter()
+            .map(|token| token.trim().to_ascii_lowercase())
+            .filter(|token| !token.is_empty())
+            .collect::<Vec<_>>();
+        if tokens.is_empty() {
+            return Ok(Vec::new());
+        }
+        let thread_limit = thread_limit.max(1) as i64;
+
+        self.read_conn
+            .call(move |conn| {
+                let message_clauses = std::iter::repeat_n("lower(m.content) LIKE ?", tokens.len())
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
+                let exists_clauses =
+                    std::iter::repeat_n("lower(candidate.content) LIKE ?", tokens.len())
+                        .collect::<Vec<_>>()
+                        .join(" OR ");
+                let title_clauses = std::iter::repeat_n("lower(t.title) LIKE ?", tokens.len())
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
+                let sql = format!(
+                    "WITH matched_threads AS (
+                         SELECT t.id
+                           FROM agent_threads t
+                          WHERE t.deleted_at IS NULL
+                            AND (
+                                  {title_clauses}
+                                  OR EXISTS (
+                                      SELECT 1
+                                        FROM agent_messages candidate
+                                       WHERE candidate.thread_id = t.id
+                                         AND candidate.deleted_at IS NULL
+                                         AND ({exists_clauses})
+                                  )
+                            )
+                          ORDER BY t.updated_at DESC, t.id ASC
+                          LIMIT ?
+                     )
+                     SELECT t.id,
+                            t.title,
+                            t.updated_at,
+                            t.message_count,
+                            t.metadata_json,
+                            m.role,
+                            m.content
+                       FROM matched_threads mt
+                       JOIN agent_threads t ON t.id = mt.id
+                       LEFT JOIN agent_messages m
+                         ON m.thread_id = t.id
+                        AND m.deleted_at IS NULL
+                        AND ({message_clauses})
+                      ORDER BY t.updated_at DESC, t.id ASC, m.created_at DESC, m.rowid DESC"
+                );
+                let mut values = Vec::<rusqlite::types::Value>::new();
+                values.extend(
+                    tokens
+                        .iter()
+                        .map(|token| rusqlite::types::Value::Text(format!("%{token}%"))),
+                );
+                values.extend(
+                    tokens
+                        .iter()
+                        .map(|token| rusqlite::types::Value::Text(format!("%{token}%"))),
+                );
+                values.push(rusqlite::types::Value::Integer(thread_limit));
+                values.extend(
+                    tokens
+                        .iter()
+                        .map(|token| rusqlite::types::Value::Text(format!("%{token}%"))),
+                );
+
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok(ThreadRecallMatchRow {
+                        thread_id: row.get(0)?,
+                        title: row.get(1)?,
+                        updated_at: row.get::<_, i64>(2)?.max(0) as u64,
+                        message_count: row.get::<_, i64>(3)?.max(0) as u32,
+                        metadata_json: row.get(4)?,
+                        message_role: row.get(5)?,
+                        message_content: row.get(6)?,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn has_thread_id(&self, id: &str) -> Result<bool> {
+        let id = id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT 1 FROM agent_threads WHERE id = ?1 AND deleted_at IS NULL LIMIT 1",
+                )?;
+                match stmt.query_row(params![id], |_| Ok(())) {
+                    Ok(()) => Ok(true),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+                    Err(error) => Err(error.into()),
+                }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn thread_created_at(&self, id: &str) -> Result<Option<u64>> {
+        let id = id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT created_at FROM agent_threads WHERE id = ?1 AND deleted_at IS NULL",
+                    params![id],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map(|value| value.map(|created_at| created_at.max(0) as u64))
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn thread_metadata_json(&self, id: &str) -> Result<Option<String>> {
+        let id_owned = id.to_string();
+        if let Some(cached) = self.caches.thread_metadata_json.get(&id_owned) {
+            return Ok(cached);
+        }
+        let id_for_query = id_owned.clone();
+        let value: Option<String> = self
+            .read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT metadata_json FROM agent_threads WHERE id = ?1 AND deleted_at IS NULL",
+                    params![id_for_query],
+                    |row| row.get::<_, Option<String>>(0),
+                )
+                .optional()
+                .map(Option::flatten)
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.caches
+            .thread_metadata_json
+            .insert(id_owned, value.clone());
+        Ok(value)
+    }
+
+    pub(crate) async fn thread_delegate_payload_context(
+        &self,
+        id: &str,
+        message_limit: usize,
+    ) -> Result<Option<ThreadDelegatePayloadContext>> {
+        let id = id.to_string();
+        let message_limit = message_limit.min(i64::MAX as usize) as i64;
+        self.read_conn
+            .call(move |conn| {
+                let Some(title) = conn
+                    .query_row(
+                        "SELECT title FROM agent_threads WHERE id = ?1 AND deleted_at IS NULL",
+                        params![id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?
+                else {
+                    return Ok(None);
+                };
+
+                let messages = if message_limit == 0 {
+                    Vec::new()
+                } else {
+                    let mut stmt = conn.prepare(
+                        "SELECT role, content FROM (\
+                         SELECT role, content, created_at, rowid \
+                         FROM agent_messages \
+                         WHERE thread_id = ?1 AND deleted_at IS NULL \
+                         ORDER BY created_at DESC, rowid DESC \
+                         LIMIT ?2\
+                         ) ORDER BY created_at ASC, rowid ASC",
+                    )?;
+                    let rows = stmt.query_map(params![id, message_limit], |row| {
+                        Ok(ThreadDelegatePayloadMessageRef {
+                            role: row.get(0)?,
+                            content: row.get(1)?,
+                        })
+                    })?;
+                    rows.collect::<std::result::Result<Vec<_>, _>>()?
+                };
+
+                Ok(Some(ThreadDelegatePayloadContext { title, messages }))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn has_non_heartbeat_user_message_after(
+        &self,
+        timestamp_ms: u64,
+    ) -> Result<bool> {
+        let timestamp_ms = timestamp_ms.min(i64::MAX as u64) as i64;
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT EXISTS (
+                        SELECT 1
+                        FROM agent_messages message
+                        JOIN agent_threads thread
+                          ON thread.id = message.thread_id
+                         AND thread.deleted_at IS NULL
+                        WHERE message.role = 'user'
+                          AND message.deleted_at IS NULL
+                          AND message.created_at > ?1
+                          AND thread.title NOT GLOB 'HEARTBEAT SYNTHESIS*'
+                          AND thread.title NOT GLOB 'Heartbeat check:*'
+                          AND NOT EXISTS (
+                            SELECT 1
+                            FROM agent_messages heartbeat
+                            WHERE heartbeat.thread_id = message.thread_id
+                              AND heartbeat.role = 'user'
+                              AND heartbeat.deleted_at IS NULL
+                              AND (
+                                heartbeat.content GLOB 'HEARTBEAT SYNTHESIS*'
+                                OR heartbeat.content GLOB 'Heartbeat check:*'
+                              )
+                          )
+                        LIMIT 1
+                    )",
+                    params![timestamp_ms],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn thread_has_unanswered_tool_calls(&self, id: &str) -> Result<bool> {
+        let owned = vec![id.to_string()];
+        let unanswered = self.thread_ids_with_unanswered_tool_calls(&owned).await?;
+        Ok(!unanswered.is_empty())
+    }
+
+    pub(crate) async fn thread_ids_with_unanswered_tool_calls(
+        &self,
+        thread_ids: &[String],
+    ) -> Result<Vec<String>> {
+        if thread_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let thread_ids_query = thread_ids.to_vec();
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(thread_ids_query.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT
+                         thread_id,
+                         role,
+                         CASE
+                             WHEN role = 'assistant'
+                                  AND typeof(tool_calls_json) = 'text'
+                                  AND json_valid(tool_calls_json)
+                                  AND json_array_length(tool_calls_json) > 0
+                             THEN tool_calls_json
+                             ELSE NULL
+                         END AS tool_calls_json,
+                         CASE
+                             WHEN role = 'tool'
+                                  AND typeof(metadata_json) = 'text'
+                                  AND json_valid(metadata_json)
+                             THEN COALESCE(
+                                 json_extract(metadata_json, '$.tool_call_id'),
+                                 json_extract(metadata_json, '$.toolCallId')
+                             )
+                             ELSE NULL
+                         END AS tool_call_id
+                     FROM agent_messages
+                     WHERE thread_id IN ({placeholders})
+                       AND deleted_at IS NULL
+                     ORDER BY thread_id ASC, created_at ASC, id ASC"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt
+                    .query_map(
+                        rusqlite::params_from_iter(thread_ids_query.iter()),
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1)?,
+                                row.get::<_, Option<String>>(2)?,
+                                row.get::<_, Option<String>>(3)?,
+                            ))
+                        },
+                    )?;
+
+                let mut unanswered: Vec<String> = Vec::new();
+                let mut current_thread: Option<String> = None;
+                let mut buffer: Vec<(String, Option<String>, Option<String>)> = Vec::new();
+                for row in rows {
+                    let (thread_id, role, tool_calls_json, tool_call_id) = row?;
+                    if current_thread.as_deref() != Some(thread_id.as_str()) {
+                        if let Some(prev_id) = current_thread.take() {
+                            if scan_messages_for_unanswered_tool_calls(&buffer) {
+                                unanswered.push(prev_id);
+                            }
+                        }
+                        current_thread = Some(thread_id);
+                        buffer.clear();
+                    }
+                    buffer.push((role, tool_calls_json, tool_call_id));
+                }
+                if let Some(prev_id) = current_thread.take() {
+                    if scan_messages_for_unanswered_tool_calls(&buffer) {
+                        unanswered.push(prev_id);
+                    }
+                }
+                Ok(unanswered)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn latest_thread_id_by_message_timestamp(&self) -> Result<Option<String>> {
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT id FROM agent_threads
+                     WHERE deleted_at IS NULL
+                     ORDER BY updated_at DESC
+                     LIMIT 1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn latest_thread_context_hint(&self) -> Result<Option<(String, String, u64)>> {
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT id, trim(last_preview), updated_at
+                     FROM agent_threads
+                     WHERE deleted_at IS NULL
+                       AND message_count > 0
+                       AND trim(last_preview) <> ''
+                     ORDER BY updated_at DESC, id ASC
+                     LIMIT 1",
+                    [],
+                    |row| {
+                        let updated_at = row.get::<_, i64>(2)?.max(0) as u64;
+                        Ok((row.get(0)?, row.get(1)?, updated_at))
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn thread_has_message_substring(
+        &self,
+        thread_id: &str,
+        substrings: &[String],
+    ) -> Result<bool> {
+        if substrings.is_empty() {
+            return Ok(false);
+        }
+
+        let thread_id = thread_id.to_string();
+        let substrings = substrings
+            .iter()
+            .map(|value| value.to_lowercase())
+            .collect::<Vec<_>>();
+        self.interactive_read_conn
+            .call(move |conn| {
+                let predicates =
+                    std::iter::repeat_n("instr(lower(content), ?) > 0", substrings.len())
+                        .collect::<Vec<_>>()
+                        .join(" OR ");
+                let sql = format!(
+                    "SELECT EXISTS(
+                         SELECT 1
+                         FROM agent_messages
+                         WHERE thread_id = ?
+                           AND deleted_at IS NULL
+                           AND ({predicates})
+                         LIMIT 1
+                     )"
+                );
+                let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
+                    vec![Box::new(thread_id) as Box<dyn rusqlite::types::ToSql>];
+                for substring in substrings {
+                    params.push(Box::new(substring));
+                }
+                let param_refs = params
+                    .iter()
+                    .map(|param| param.as_ref())
+                    .collect::<Vec<&dyn rusqlite::types::ToSql>>();
+                conn.query_row(&sql, param_refs.as_slice(), |row| {
+                    Ok(row.get::<_, i64>(0)? != 0)
+                })
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn latest_non_empty_message_content_for_thread_ids(
+        &self,
+        thread_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, String>> {
+        if thread_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let thread_ids = thread_ids.to_vec();
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(thread_ids.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "WITH ranked_messages AS (
+                        SELECT
+                            message.thread_id,
+                            message.content,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY message.thread_id
+                                ORDER BY message.created_at DESC, message.rowid DESC
+                            ) AS row_number
+                        FROM agent_messages message
+                        JOIN agent_threads thread
+                          ON thread.id = message.thread_id
+                         AND thread.deleted_at IS NULL
+                        WHERE message.thread_id IN ({placeholders})
+                          AND message.deleted_at IS NULL
+                          AND TRIM(
+                            message.content,
+                            char(9) || char(10) || char(11) || char(12) || char(13) || char(32)
+                          ) != ''
+                     )
+                     SELECT thread_id, content
+                     FROM ranked_messages
+                     WHERE row_number = 1"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt
+                    .query_map(rusqlite::params_from_iter(thread_ids.iter()), |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?;
+                let mut messages = std::collections::HashMap::new();
+                for row in rows {
+                    let (thread_id, content) = row?;
+                    messages.insert(thread_id, content);
+                }
+                Ok(messages)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn gateway_approval_ids_for_thread(
+        &self,
+        thread_id: &str,
+    ) -> Result<Vec<String>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let whitespace =
+                    "char(9) || char(10) || char(11) || char(12) || char(13) || char(32)";
+                let sql = format!(
+                    "WITH matching_messages AS (
+                        SELECT
+                            message.created_at,
+                            message.rowid,
+                            TRIM(
+                                substr(
+                                    message.content,
+                                    instr(message.content, 'Approval ID:') + length('Approval ID:')
+                                ),
+                                {whitespace}
+                            ) AS remainder
+                        FROM agent_messages message
+                        JOIN agent_threads thread
+                          ON thread.id = message.thread_id
+                         AND thread.deleted_at IS NULL
+                        WHERE message.thread_id = ?1
+                          AND message.deleted_at IS NULL
+                          AND instr(message.content, 'Approval ID:') > 0
+                     ),
+                     normalized_messages AS (
+                        SELECT
+                            created_at,
+                            rowid,
+                            replace(
+                                replace(
+                                    replace(
+                                        replace(
+                                            replace(remainder, char(9), ' '),
+                                            char(10),
+                                            ' '
+                                        ),
+                                        char(11),
+                                        ' '
+                                    ),
+                                    char(12),
+                                    ' '
+                                ),
+                                char(13),
+                                ' '
+                            ) AS remainder
+                        FROM matching_messages
+                        WHERE remainder != ''
+                     )
+                     SELECT
+                        CASE
+                            WHEN instr(remainder, ' ') > 0
+                            THEN substr(remainder, 1, instr(remainder, ' ') - 1)
+                            ELSE remainder
+                        END AS approval_id
+                     FROM normalized_messages
+                     WHERE approval_id != ''
+                     ORDER BY created_at DESC, rowid DESC"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(params![thread_id], |row| row.get::<_, String>(0))?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn gateway_turn_auto_send_projection(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<GatewayTurnAutoSendProjection>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "WITH turn_start AS (
+                        SELECT message.created_at, message.rowid AS row_id
+                        FROM agent_messages message
+                        JOIN agent_threads thread
+                          ON thread.id = message.thread_id
+                         AND thread.deleted_at IS NULL
+                        WHERE message.thread_id = ?1
+                          AND message.deleted_at IS NULL
+                          AND message.role = 'user'
+                        ORDER BY message.created_at DESC, message.rowid DESC
+                        LIMIT 1
+                     ),
+                     turn_messages AS (
+                        SELECT message.*, message.rowid AS row_id
+                        FROM agent_messages message
+                        JOIN agent_threads thread
+                          ON thread.id = message.thread_id
+                         AND thread.deleted_at IS NULL
+                        JOIN turn_start start
+                        WHERE message.thread_id = ?1
+                          AND message.deleted_at IS NULL
+                          AND (
+                            message.created_at > start.created_at
+                            OR (
+                                message.created_at = start.created_at
+                                AND message.rowid >= start.row_id
+                            )
+                          )
+                     ),
+                     latest_assistant AS (
+                        SELECT
+                            message.created_at,
+                            message.row_id,
+                            message.tool_calls_json
+                        FROM turn_messages message
+                        WHERE message.role = 'assistant'
+                          AND (
+                            message.content != ''
+                            OR (
+                                message.tool_calls_json IS NOT NULL
+                                AND json_valid(message.tool_calls_json)
+                                AND json_array_length(message.tool_calls_json) > 0
+                            )
+                          )
+                        ORDER BY message.created_at DESC, message.row_id DESC
+                        LIMIT 1
+                     ),
+                     latest_response AS (
+                        SELECT message.content
+                        FROM turn_messages message
+                        WHERE message.role = 'assistant'
+                          AND message.content != ''
+                        ORDER BY message.created_at DESC, message.row_id DESC
+                        LIMIT 1
+                     ),
+                     assistant_send_call AS (
+                        SELECT 1
+                        FROM latest_assistant assistant,
+                             json_each(
+                                CASE
+                                    WHEN assistant.tool_calls_json IS NOT NULL
+                                     AND json_valid(assistant.tool_calls_json)
+                                    THEN assistant.tool_calls_json
+                                    ELSE '[]'
+                                END
+                             ) call
+                        WHERE substr(
+                            COALESCE(json_extract(call.value, '$.function.name'), ''),
+                            1,
+                            5
+                        ) = 'send_'
+                        LIMIT 1
+                     ),
+                     send_tool_after_latest_assistant AS (
+                        SELECT 1
+                        FROM turn_messages message
+                        JOIN latest_assistant assistant
+                        WHERE message.role = 'tool'
+                          AND (
+                            message.created_at > assistant.created_at
+                            OR (
+                                message.created_at = assistant.created_at
+                                AND message.row_id > assistant.row_id
+                            )
+                          )
+                          AND substr(
+                            COALESCE(
+                                json_extract(
+                                    CASE
+                                        WHEN message.metadata_json IS NOT NULL
+                                         AND json_valid(message.metadata_json)
+                                        THEN message.metadata_json
+                                        ELSE '{}'
+                                    END,
+                                    '$.tool_name'
+                                ),
+                                json_extract(
+                                    CASE
+                                        WHEN message.metadata_json IS NOT NULL
+                                         AND json_valid(message.metadata_json)
+                                        THEN message.metadata_json
+                                        ELSE '{}'
+                                    END,
+                                    '$.toolName'
+                                ),
+                                ''
+                            ),
+                            1,
+                            5
+                          ) = 'send_'
+                        LIMIT 1
+                     ),
+                     send_tool_without_assistant AS (
+                        SELECT 1
+                        FROM turn_messages message
+                        WHERE NOT EXISTS (SELECT 1 FROM latest_assistant)
+                          AND message.role = 'tool'
+                          AND substr(
+                            COALESCE(
+                                json_extract(
+                                    CASE
+                                        WHEN message.metadata_json IS NOT NULL
+                                         AND json_valid(message.metadata_json)
+                                        THEN message.metadata_json
+                                        ELSE '{}'
+                                    END,
+                                    '$.tool_name'
+                                ),
+                                json_extract(
+                                    CASE
+                                        WHEN message.metadata_json IS NOT NULL
+                                         AND json_valid(message.metadata_json)
+                                        THEN message.metadata_json
+                                        ELSE '{}'
+                                    END,
+                                    '$.toolName'
+                                ),
+                                ''
+                            ),
+                            1,
+                            5
+                          ) = 'send_'
+                        LIMIT 1
+                     )
+                     SELECT
+                        CASE
+                            WHEN EXISTS (SELECT 1 FROM assistant_send_call)
+                              OR EXISTS (SELECT 1 FROM send_tool_after_latest_assistant)
+                              OR EXISTS (SELECT 1 FROM send_tool_without_assistant)
+                            THEN 1
+                            ELSE 0
+                        END AS used_send_tool,
+                        (SELECT content FROM latest_response) AS latest_assistant_response
+                     WHERE EXISTS (SELECT 1 FROM turn_start)",
+                    params![thread_id],
+                    |row| {
+                        Ok(GatewayTurnAutoSendProjection {
+                            used_send_tool: row.get::<_, i64>(0)? != 0,
+                            latest_assistant_response: row.get(1)?,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn thread_message_count(&self, thread_id: &str) -> Result<Option<usize>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT message_count FROM agent_threads
+                     WHERE id = ?1 AND deleted_at IS NULL",
+                    params![thread_id],
+                    |row| Ok(row.get::<_, i64>(0)?.max(0) as usize),
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn update_thread_metadata_json(
         &self,
         id: &str,
         metadata_json: Option<String>,
     ) -> Result<()> {
-        let id = id.to_string();
+        let id_owned = id.to_string();
+        self.caches.thread_metadata_json.invalidate(&id_owned);
+        let id_for_query = id_owned;
         self.conn
             .call(move |conn| {
                 conn.execute(
                     "UPDATE agent_threads SET metadata_json = ?2 WHERE id = ?1 AND deleted_at IS NULL",
-                    params![id, metadata_json],
+                    params![id_for_query, metadata_json],
                 )?;
                 Ok(())
             })
@@ -759,7 +1692,7 @@ impl HistoryStore {
         include_deleted: bool,
     ) -> Result<Vec<AgentDbMessage>> {
         let thread_id = thread_id.to_string();
-        self.read_conn.call(move |conn| {
+        self.interactive_read_conn.call(move |conn| {
             let deleted_filter = if include_deleted { "" } else { " AND deleted_at IS NULL" };
             let messages = if let Some(limit) = limit {
                 let limit = limit.max(1) as i64;
@@ -792,7 +1725,7 @@ impl HistoryStore {
         offset_from_end: usize,
     ) -> Result<(Vec<AgentDbMessage>, usize, usize, usize)> {
         let thread_id = thread_id.to_string();
-        self.read_conn
+        self.interactive_read_conn
             .call(move |conn| {
                 let total_count = conn.query_row(
                     "SELECT COUNT(*) FROM agent_messages WHERE thread_id = ?1 AND deleted_at IS NULL",
@@ -825,12 +1758,315 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    /// Lean fetch for the concierge welcome: returns the thread's opening
+    /// user message (first message with role='user') and the *trailing*
+    /// `tail_limit` messages — but if the most recent compaction-artifact
+    /// marker falls inside that tail window, the trailing slice starts at
+    /// the compaction marker instead so we don't expose pre-compaction
+    /// content. Designed to read at most ~6 rows total even on threads
+    /// with thousands of messages — no full-table scan, no JSON blob
+    /// hydration.
+    pub async fn concierge_thread_context_summary(
+        &self,
+        thread_id: &str,
+        tail_limit: usize,
+    ) -> Result<(Option<(String, String)>, Vec<(String, String)>)> {
+        let thread_id = thread_id.to_string();
+        let tail_limit = tail_limit.max(1);
+        self.interactive_read_conn
+            .call(move |conn| {
+                let mut tail_stmt = conn.prepare(
+                    "SELECT role, content, metadata_json \
+                     FROM agent_messages \
+                     WHERE thread_id = ?1 AND deleted_at IS NULL \
+                     ORDER BY created_at DESC, id DESC \
+                     LIMIT ?2",
+                )?;
+                let tail_rows = tail_stmt.query_map(
+                    params![&thread_id, tail_limit as i64],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )?;
+                let mut tail_desc: Vec<(String, String, Option<String>)> =
+                    tail_rows.filter_map(|row| row.ok()).collect();
+
+                let compaction_idx_in_tail = tail_desc.iter().position(|(_, content, meta)| {
+                    let kind_is_compaction = meta
+                        .as_deref()
+                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+                        .and_then(|value| {
+                            value
+                                .get("message_kind")
+                                .and_then(|kind| kind.as_str())
+                                .map(|kind| kind == "compaction_artifact")
+                        })
+                        .unwrap_or(false);
+                    kind_is_compaction
+                        || content.starts_with("[Compacted earlier context]")
+                        || content.starts_with("Pre-compaction context:")
+                });
+                if let Some(idx) = compaction_idx_in_tail {
+                    tail_desc.truncate(idx + 1);
+                }
+                tail_desc.reverse();
+                let tail: Vec<(String, String)> = tail_desc
+                    .into_iter()
+                    .map(|(role, content, _)| (role, content))
+                    .collect();
+
+                let opening = conn
+                    .query_row(
+                        "SELECT role, content \
+                         FROM agent_messages \
+                         WHERE thread_id = ?1 AND deleted_at IS NULL AND role = 'user' \
+                         ORDER BY created_at ASC, rowid ASC \
+                         LIMIT 1",
+                        params![&thread_id],
+                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                    )
+                    .optional()?;
+
+                Ok((opening, tail))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_active_context_window(
+        &self,
+        thread_id: &str,
+    ) -> Result<(Vec<AgentDbMessage>, usize, usize)> {
+        let thread_id = thread_id.to_string();
+        self.interactive_read_conn
+            .call(move |conn| {
+                let total_count = conn.query_row(
+                    "SELECT COUNT(*) FROM agent_messages WHERE thread_id = ?1 AND deleted_at IS NULL",
+                    params![&thread_id],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                let total_count = total_count.max(0) as usize;
+
+                let start = conn
+                    .query_row(
+                        "SELECT absolute_index FROM (
+                            SELECT ROW_NUMBER() OVER (ORDER BY created_at ASC, rowid ASC) - 1 AS absolute_index,
+                                   content,
+                                   metadata_json
+                            FROM agent_messages
+                            WHERE thread_id = ?1 AND deleted_at IS NULL
+                         )
+                         WHERE (
+                            metadata_json IS NOT NULL
+                            AND json_valid(metadata_json)
+                            AND json_extract(metadata_json, '$.message_kind') = 'compaction_artifact'
+                         )
+                         OR content LIKE '[Compacted earlier context]%'
+                         OR content LIKE 'Pre-compaction context:%'
+                         ORDER BY absolute_index DESC
+                         LIMIT 1",
+                        params![&thread_id],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()?
+                    .unwrap_or(0)
+                    .max(0) as usize;
+
+                if start >= total_count {
+                    return Ok((Vec::new(), total_count, total_count));
+                }
+
+                let mut stmt = conn.prepare(
+                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json \
+                     FROM agent_messages WHERE thread_id = ?1 AND deleted_at IS NULL ORDER BY created_at ASC, rowid ASC LIMIT ?2 OFFSET ?3",
+                )?;
+                let rows = stmt.query_map(
+                    params![
+                        &thread_id,
+                        total_count.saturating_sub(start) as i64,
+                        start as i64
+                    ],
+                    map_agent_message,
+                )?;
+                Ok((rows.filter_map(|row| row.ok()).collect(), start, total_count))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn trim_thread_messages_to_recent_tail_by_prefix(
+        &self,
+        thread_id_prefix: &str,
+        max_messages: usize,
+    ) -> Result<usize> {
+        let thread_id_prefix = thread_id_prefix.to_string();
+        let max_messages = max_messages.max(1) as i64;
+        self.conn
+            .call(move |conn| {
+                let transaction = conn.transaction()?;
+                let thread_ids = {
+                    let mut stmt = transaction.prepare(
+                        "SELECT id
+                         FROM agent_threads
+                         WHERE deleted_at IS NULL
+                           AND id LIKE ?1 || '%'
+                           AND message_count > ?2",
+                    )?;
+                    let rows =
+                        stmt.query_map(params![&thread_id_prefix, max_messages], |row| {
+                            row.get::<_, String>(0)
+                        })?;
+                    rows.collect::<std::result::Result<Vec<_>, _>>()?
+                };
+
+                let mut trimmed = 0usize;
+                let deleted_at = now_millis_i64();
+                for thread_id in thread_ids {
+                    let total_count = transaction.query_row(
+                        "SELECT COUNT(*)
+                         FROM agent_messages
+                         WHERE thread_id = ?1 AND deleted_at IS NULL",
+                        params![&thread_id],
+                        |row| row.get::<_, i64>(0),
+                    )?;
+                    if total_count <= max_messages {
+                        continue;
+                    }
+
+                    let tail_start = total_count.saturating_sub(max_messages);
+                    let latest_artifact_index = transaction
+                        .query_row(
+                            "SELECT absolute_index
+                             FROM (
+                                SELECT ROW_NUMBER() OVER (ORDER BY created_at ASC, rowid ASC) - 1 AS absolute_index,
+                                       content,
+                                       metadata_json
+                                FROM agent_messages
+                                WHERE thread_id = ?1 AND deleted_at IS NULL
+                             )
+                             WHERE (
+                                metadata_json IS NOT NULL
+                                AND json_valid(metadata_json)
+                                AND json_extract(metadata_json, '$.message_kind') = 'compaction_artifact'
+                             )
+                             OR content LIKE '[Compacted earlier context]%'
+                             OR content LIKE 'Pre-compaction context:%'
+                             ORDER BY absolute_index DESC
+                             LIMIT 1",
+                            params![&thread_id],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .optional()?;
+                    let retained_artifact_index =
+                        latest_artifact_index.filter(|index| *index < tail_start);
+                    let recent_start = if retained_artifact_index.is_some() {
+                        total_count.saturating_sub(max_messages.saturating_sub(1))
+                    } else {
+                        tail_start
+                    };
+
+                    let deleted_ids = {
+                        let mut stmt = transaction.prepare(
+                            "WITH ordered AS (
+                                SELECT id,
+                                       ROW_NUMBER() OVER (ORDER BY created_at ASC, rowid ASC) - 1 AS absolute_index
+                                FROM agent_messages
+                                WHERE thread_id = ?1 AND deleted_at IS NULL
+                             )
+                             SELECT id
+                             FROM ordered
+                             WHERE absolute_index < ?2
+                               AND (?3 IS NULL OR absolute_index != ?3)",
+                        )?;
+                        let rows = stmt.query_map(
+                            params![&thread_id, recent_start, retained_artifact_index],
+                            |row| row.get::<_, String>(0),
+                        )?;
+                        rows.collect::<std::result::Result<Vec<_>, _>>()?
+                    };
+
+                    if deleted_ids.is_empty() {
+                        continue;
+                    }
+
+                    transaction.execute(
+                        "WITH ordered AS (
+                            SELECT id,
+                                   ROW_NUMBER() OVER (ORDER BY created_at ASC, rowid ASC) - 1 AS absolute_index
+                            FROM agent_messages
+                            WHERE thread_id = ?1 AND deleted_at IS NULL
+                         )
+                         UPDATE agent_messages
+                         SET deleted_at = ?4
+                         WHERE thread_id = ?1
+                           AND deleted_at IS NULL
+                           AND id IN (
+                                SELECT id
+                                FROM ordered
+                                WHERE absolute_index < ?2
+                                  AND (?3 IS NULL OR absolute_index != ?3)
+                           )",
+                        params![
+                            &thread_id,
+                            recent_start,
+                            retained_artifact_index,
+                            deleted_at
+                        ],
+                    )?;
+                    for message_id in &deleted_ids {
+                        embedding_queue::queue_embedding_deletion_on_connection(
+                            &transaction,
+                            "agent_message",
+                            message_id,
+                            now_ts() as i64,
+                        )?;
+                    }
+                    refresh_thread_stats(&transaction, &thread_id)?;
+                    transaction.execute(
+                        "UPDATE agent_threads
+                         SET updated_at = MAX(updated_at, ?2)
+                         WHERE id = ?1",
+                        params![&thread_id, deleted_at],
+                    )?;
+                    trimmed = trimmed.saturating_add(1);
+                }
+
+                transaction.commit()?;
+                Ok(trimmed)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn thread_message_token_totals(&self, thread_id: &str) -> Result<(u64, u64)> {
+        let thread_id = thread_id.to_string();
+        self.interactive_read_conn
+            .call(move |conn| {
+                let (input_tokens, output_tokens): (i64, i64) = conn.query_row(
+                    "SELECT
+                        COALESCE(SUM(COALESCE(input_tokens, 0)), 0),
+                        COALESCE(SUM(COALESCE(output_tokens, 0)), 0)
+                     FROM agent_messages
+                     WHERE thread_id = ?1 AND deleted_at IS NULL",
+                    params![&thread_id],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+                )?;
+                Ok((input_tokens.max(0) as u64, output_tokens.max(0) as u64))
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn list_pinned_messages_for_compaction(
         &self,
         thread_id: &str,
     ) -> Result<Vec<(usize, AgentDbMessage)>> {
         let thread_id = thread_id.to_string();
-        self.read_conn
+        self.interactive_read_conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
                     "SELECT absolute_index, id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json \
@@ -892,6 +2128,479 @@ impl HistoryStore {
                 let mut messages: Vec<AgentDbMessage> = rows.filter_map(|row| row.ok()).collect();
                 messages.reverse();
                 Ok(messages)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn latest_user_message_content(&self, thread_id: &str) -> Result<Option<String>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT content \
+                     FROM agent_messages \
+                     WHERE thread_id = ?1 AND role = 'user' AND deleted_at IS NULL \
+                     ORDER BY created_at DESC, rowid DESC \
+                     LIMIT 1",
+                    params![thread_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn latest_assistant_message(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<AgentDbMessage>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT id, thread_id, created_at, role, content, provider, model, input_tokens, output_tokens, total_tokens, cost_usd, reasoning, tool_calls_json, metadata_json \
+                     FROM agent_messages \
+                     WHERE thread_id = ?1 \
+                       AND role = 'assistant' \
+                       AND deleted_at IS NULL \
+                       AND TRIM(content) != '' \
+                     ORDER BY created_at DESC, rowid DESC \
+                     LIMIT 1",
+                    params![thread_id],
+                    map_agent_message,
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn latest_participant_assistant_message(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<(String, Option<String>, String)>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT \
+                        COALESCE( \
+                            json_extract(metadata_json, '$.author_agent_id'), \
+                            json_extract(metadata_json, '$.authorAgentId') \
+                        ) AS author_agent_id, \
+                        COALESCE( \
+                            json_extract(metadata_json, '$.author_agent_name'), \
+                            json_extract(metadata_json, '$.authorAgentName') \
+                        ) AS author_agent_name, \
+                        TRIM(content) \
+                     FROM agent_messages \
+                     WHERE thread_id = ?1 \
+                       AND role = 'assistant' \
+                       AND deleted_at IS NULL \
+                       AND TRIM(content) != '' \
+                       AND metadata_json IS NOT NULL \
+                       AND json_valid(metadata_json) \
+                       AND COALESCE( \
+                            json_extract(metadata_json, '$.author_agent_id'), \
+                            json_extract(metadata_json, '$.authorAgentId') \
+                       ) IS NOT NULL \
+                     ORDER BY created_at DESC, rowid DESC \
+                     LIMIT 1",
+                    params![thread_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<String>>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn latest_visible_main_assistant_message_timestamp(
+        &self,
+        thread_id: &str,
+        participant_agent_ids: &[String],
+    ) -> Result<Option<u64>> {
+        let thread_id = thread_id.to_string();
+        let participant_agent_ids = participant_agent_ids
+            .iter()
+            .map(|id| id.to_ascii_lowercase())
+            .collect::<Vec<_>>();
+        self.read_conn
+            .call(move |conn| {
+                let author_exclusion = if participant_agent_ids.is_empty() {
+                    String::new()
+                } else {
+                    let placeholders = std::iter::repeat("?")
+                        .take(participant_agent_ids.len())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!(
+                        " AND ( \
+                            COALESCE( \
+                                json_extract(latest.valid_metadata_json, '$.author_agent_id'), \
+                                json_extract(latest.valid_metadata_json, '$.authorAgentId') \
+                            ) IS NULL \
+                            OR lower(COALESCE( \
+                                json_extract(latest.valid_metadata_json, '$.author_agent_id'), \
+                                json_extract(latest.valid_metadata_json, '$.authorAgentId') \
+                            )) NOT IN ({placeholders}) \
+                        )"
+                    )
+                };
+                let sql = format!(
+                    "SELECT latest.created_at \
+                     FROM ( \
+                        SELECT created_at, \
+                               role, \
+                               content, \
+                               CASE \
+                                   WHEN metadata_json IS NOT NULL AND json_valid(metadata_json) \
+                                   THEN metadata_json \
+                                   ELSE '{{}}' \
+                               END AS valid_metadata_json \
+                        FROM agent_messages \
+                        WHERE thread_id = ? \
+                          AND deleted_at IS NULL \
+                          AND role IN ('user', 'assistant') \
+                          AND ( \
+                              COALESCE( \
+                                  json_extract( \
+                                      CASE \
+                                          WHEN metadata_json IS NOT NULL AND json_valid(metadata_json) \
+                                          THEN metadata_json \
+                                          ELSE '{{}}' \
+                                      END, \
+                                      '$.tool_name' \
+                                  ), \
+                                  json_extract( \
+                                      CASE \
+                                          WHEN metadata_json IS NOT NULL AND json_valid(metadata_json) \
+                                          THEN metadata_json \
+                                          ELSE '{{}}' \
+                                      END, \
+                                      '$.toolName' \
+                                  ) \
+                              ) IS NULL \
+                              OR COALESCE( \
+                                  json_extract( \
+                                      CASE \
+                                          WHEN metadata_json IS NOT NULL AND json_valid(metadata_json) \
+                                          THEN metadata_json \
+                                          ELSE '{{}}' \
+                                      END, \
+                                      '$.tool_name' \
+                                  ), \
+                                  json_extract( \
+                                      CASE \
+                                          WHEN metadata_json IS NOT NULL AND json_valid(metadata_json) \
+                                          THEN metadata_json \
+                                          ELSE '{{}}' \
+                                      END, \
+                                      '$.toolName' \
+                                  ) \
+                              ) != 'internal_delegate' \
+                          ) \
+                        ORDER BY created_at DESC, rowid DESC \
+                        LIMIT 1 \
+                     ) latest \
+                     WHERE latest.role = 'assistant' \
+                       AND TRIM(latest.content) != ''{author_exclusion}"
+                );
+                let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
+                    vec![Box::new(thread_id) as Box<dyn rusqlite::types::ToSql>];
+                for participant_agent_id in participant_agent_ids {
+                    params.push(Box::new(participant_agent_id));
+                }
+                let param_refs = params
+                    .iter()
+                    .map(|param| param.as_ref())
+                    .collect::<Vec<&dyn rusqlite::types::ToSql>>();
+                conn.query_row(&sql, param_refs.as_slice(), |row| {
+                    Ok(row.get::<_, i64>(0)?.max(0) as u64)
+                })
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn thread_user_pacing(
+        &self,
+        thread_id: &str,
+        now_ms: u64,
+        window_ms: u64,
+        gap_sample_limit: usize,
+    ) -> Result<ThreadUserPacing> {
+        if gap_sample_limit == 0 {
+            return Ok(ThreadUserPacing {
+                recent_message_count: 0,
+                avg_gap_secs: 0,
+            });
+        }
+
+        let thread_id = thread_id.to_string();
+        let cutoff_ms = now_ms.saturating_sub(window_ms).min(i64::MAX as u64) as i64;
+        let gap_sample_limit = gap_sample_limit.min(i64::MAX as usize) as i64;
+
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "WITH recent_user_messages AS (
+                        SELECT created_at
+                        FROM agent_messages
+                        WHERE thread_id = ?1
+                          AND role = 'user'
+                          AND deleted_at IS NULL
+                        ORDER BY created_at DESC, rowid DESC
+                        LIMIT ?3
+                     ),
+                     ordered_user_messages AS (
+                        SELECT created_at
+                        FROM recent_user_messages
+                        ORDER BY created_at ASC
+                     ),
+                     user_gaps AS (
+                        SELECT created_at - LAG(created_at) OVER (ORDER BY created_at ASC) AS gap_ms
+                        FROM ordered_user_messages
+                     )
+                     SELECT
+                        (SELECT COUNT(*)
+                         FROM agent_messages
+                         WHERE thread_id = ?1
+                           AND role = 'user'
+                           AND deleted_at IS NULL
+                           AND created_at >= ?2),
+                        COALESCE((SELECT CAST(AVG(gap_ms) AS INTEGER) FROM user_gaps WHERE gap_ms IS NOT NULL) / 1000, 0)",
+                    params![thread_id, cutoff_ms, gap_sample_limit],
+                    |row| {
+                        let recent_message_count = row.get::<_, i64>(0)?.max(0) as u32;
+                        let avg_gap_secs = row.get::<_, i64>(1)?.max(0) as u64;
+                        Ok(ThreadUserPacing {
+                            recent_message_count,
+                            avg_gap_secs,
+                        })
+                    },
+                )
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn visible_continuation_obsoleted_by_progress(
+        &self,
+        thread_id: &str,
+        queued_at_ms: u64,
+        target_agent_id: &str,
+    ) -> Result<bool> {
+        if queued_at_ms == 0 {
+            return Ok(false);
+        }
+        let thread_id = thread_id.to_string();
+        let queued_at_ms = queued_at_ms.min(i64::MAX as u64) as i64;
+        let target_agent_id = target_agent_id.to_ascii_lowercase();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT
+                        EXISTS (
+                            SELECT 1
+                            FROM agent_messages tool
+                            WHERE tool.thread_id = ?1
+                              AND tool.role = 'tool'
+                              AND tool.deleted_at IS NULL
+                              AND tool.created_at >= ?2
+                              AND TRIM(tool.content) != ''
+                        )
+                        AND EXISTS (
+                            SELECT 1
+                            FROM agent_messages assistant
+                            WHERE assistant.thread_id = ?1
+                              AND assistant.role = 'assistant'
+                              AND assistant.deleted_at IS NULL
+                              AND assistant.created_at >= ?2
+                              AND TRIM(assistant.content) != ''
+                              AND (
+                                assistant.metadata_json IS NULL
+                                OR NOT json_valid(assistant.metadata_json)
+                                OR COALESCE(
+                                    json_extract(assistant.metadata_json, '$.author_agent_id'),
+                                    json_extract(assistant.metadata_json, '$.authorAgentId')
+                                ) IS NULL
+                                OR lower(COALESCE(
+                                    json_extract(assistant.metadata_json, '$.author_agent_id'),
+                                    json_extract(assistant.metadata_json, '$.authorAgentId')
+                                )) = ?3
+                              )
+                        )",
+                    params![thread_id, queued_at_ms, target_agent_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn latest_unanswered_assistant_message(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<(String, u64)>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT assistant.content, assistant.created_at \
+                     FROM agent_messages assistant \
+                     WHERE assistant.thread_id = ?1 \
+                       AND assistant.role = 'assistant' \
+                       AND assistant.deleted_at IS NULL \
+                       AND NOT EXISTS ( \
+                           SELECT 1 \
+                           FROM agent_messages user_message \
+                           WHERE user_message.thread_id = assistant.thread_id \
+                             AND user_message.role = 'user' \
+                             AND user_message.deleted_at IS NULL \
+                             AND user_message.created_at > assistant.created_at \
+                       ) \
+                     ORDER BY assistant.created_at DESC, assistant.rowid DESC \
+                     LIMIT 1",
+                    params![thread_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?.max(0) as u64,
+                        ))
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn thread_message_pin_state(
+        &self,
+        thread_id: &str,
+        message_id: &str,
+    ) -> Result<Option<ThreadMessagePinState>> {
+        let thread_id = thread_id.to_string();
+        let message_id = message_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT
+                        length(candidate.content),
+                        CASE
+                            WHEN candidate.metadata_json IS NOT NULL
+                             AND json_valid(candidate.metadata_json)
+                             AND (
+                                json_extract(candidate.metadata_json, '$.pinned_for_compaction') = 1
+                                OR json_extract(candidate.metadata_json, '$.pinnedForCompaction') = 1
+                             )
+                            THEN 1
+                            ELSE 0
+                        END,
+                        CASE
+                            WHEN (
+                                candidate.metadata_json IS NOT NULL
+                                AND json_valid(candidate.metadata_json)
+                                AND json_extract(candidate.metadata_json, '$.message_kind') = 'compaction_artifact'
+                            )
+                            OR candidate.content LIKE '[Compacted earlier context]%'
+                            OR candidate.content LIKE 'Pre-compaction context:%'
+                            THEN 0
+                            ELSE 1
+                        END,
+                        COALESCE((
+                            SELECT SUM(length(pinned.content))
+                            FROM agent_messages pinned
+                            WHERE pinned.thread_id = ?1
+                              AND pinned.deleted_at IS NULL
+                              AND pinned.metadata_json IS NOT NULL
+                              AND json_valid(pinned.metadata_json)
+                              AND (
+                                json_extract(pinned.metadata_json, '$.pinned_for_compaction') = 1
+                                OR json_extract(pinned.metadata_json, '$.pinnedForCompaction') = 1
+                              )
+                              AND NOT (
+                                json_extract(pinned.metadata_json, '$.message_kind') = 'compaction_artifact'
+                                OR pinned.content LIKE '[Compacted earlier context]%'
+                                OR pinned.content LIKE 'Pre-compaction context:%'
+                              )
+                        ), 0)
+                     FROM agent_messages candidate
+                     WHERE candidate.thread_id = ?1
+                       AND candidate.id = ?2
+                       AND candidate.deleted_at IS NULL",
+                    params![thread_id, message_id],
+                    |row| {
+                        Ok(ThreadMessagePinState {
+                            message_chars: row.get::<_, i64>(0)?.max(0) as usize,
+                            pinned_for_compaction: row.get::<_, i64>(1)? != 0,
+                            counts_toward_pinned_chars: row.get::<_, i64>(2)? != 0,
+                            current_pinned_chars: row.get::<_, i64>(3)?.max(0) as usize,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn set_message_pinned_for_compaction(
+        &self,
+        thread_id: &str,
+        message_id: &str,
+        pinned: bool,
+    ) -> Result<bool> {
+        let thread_id = thread_id.to_string();
+        let message_id = message_id.to_string();
+        let pinned_json = if pinned { "true" } else { "false" }.to_string();
+        self.conn
+            .call(move |conn| {
+                let updated = conn.execute(
+                    "UPDATE agent_messages
+                     SET metadata_json = json_set(
+                        CASE
+                            WHEN metadata_json IS NOT NULL AND json_valid(metadata_json)
+                            THEN metadata_json
+                            ELSE '{}'
+                        END,
+                        '$.pinned_for_compaction', json(?3),
+                        '$.pinnedForCompaction', json(?3)
+                     )
+                     WHERE thread_id = ?1
+                       AND id = ?2
+                       AND deleted_at IS NULL",
+                    params![thread_id, message_id, pinned_json],
+                )?;
+
+                if updated > 0 {
+                    conn.execute(
+                        "UPDATE agent_threads
+                         SET updated_at = MAX(updated_at, ?2)
+                         WHERE id = ?1",
+                        params![thread_id, now_millis_i64()],
+                    )?;
+                }
+
+                Ok(updated > 0)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
@@ -1207,23 +2916,66 @@ impl HistoryStore {
         &self,
         workspace_id: Option<&str>,
     ) -> Result<Vec<TranscriptIndexEntry>> {
+        self.list_transcript_index_limited(workspace_id, None).await
+    }
+
+    pub async fn list_transcript_index_limited(
+        &self,
+        workspace_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> Result<Vec<TranscriptIndexEntry>> {
         let workspace_id = workspace_id.map(str::to_string);
-        self.conn.call(move |conn| {
-        let sql = if workspace_id.is_some() {
-            "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview \
-             FROM transcript_index WHERE workspace_id = ?1 ORDER BY captured_at DESC"
-        } else {
-            "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview \
-             FROM transcript_index ORDER BY captured_at DESC"
-        };
-        let mut stmt = conn.prepare(sql)?;
-        let rows = if let Some(workspace_id) = workspace_id {
-            stmt.query_map(params![workspace_id], map_transcript_index_entry)?
-        } else {
-            stmt.query_map([], map_transcript_index_entry)?
-        };
-        Ok(rows.filter_map(|row| row.ok()).collect())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        self.read_conn
+            .call(move |conn| {
+                let mut sql = String::from(
+                    "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview FROM transcript_index",
+                );
+                let mut values = Vec::<rusqlite::types::Value>::new();
+                if let Some(workspace_id) = workspace_id {
+                    sql.push_str(" WHERE workspace_id = ?");
+                    values.push(rusqlite::types::Value::Text(workspace_id));
+                }
+                sql.push_str(" ORDER BY captured_at DESC");
+                if let Some(limit) = limit {
+                    sql.push_str(" LIMIT ?");
+                    values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(
+                    rusqlite::params_from_iter(values.iter()),
+                    map_transcript_index_entry,
+                )?;
+                Ok(rows.filter_map(|row| row.ok()).collect())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_transcript_index_matching(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<TranscriptIndexEntry>> {
+        let query = query.trim().to_ascii_lowercase();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let like = format!("%{query}%");
+        let limit = limit.max(1) as i64;
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, pane_id, workspace_id, surface_id, filename, reason, captured_at, size_bytes, preview \
+                     FROM transcript_index \
+                     WHERE lower(filename) LIKE ?1 OR lower(COALESCE(preview, '')) LIKE ?1 \
+                     ORDER BY captured_at DESC \
+                     LIMIT ?2",
+                )?;
+                let rows = stmt.query_map(params![like, limit], map_transcript_index_entry)?;
+                Ok(rows.filter_map(|row| row.ok()).collect())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn upsert_snapshot_index(&self, entry: &SnapshotIndexEntry) -> Result<()> {
@@ -1255,23 +3007,53 @@ impl HistoryStore {
         &self,
         workspace_id: Option<&str>,
     ) -> Result<Vec<SnapshotIndexEntry>> {
+        self.list_snapshot_index_ordered(workspace_id, false).await
+    }
+
+    pub async fn list_snapshot_index_ordered(
+        &self,
+        workspace_id: Option<&str>,
+        oldest_first: bool,
+    ) -> Result<Vec<SnapshotIndexEntry>> {
+        self.list_snapshot_index_ordered_limited(workspace_id, oldest_first, None)
+            .await
+    }
+
+    pub(crate) async fn list_snapshot_index_ordered_limited(
+        &self,
+        workspace_id: Option<&str>,
+        oldest_first: bool,
+        limit: Option<usize>,
+    ) -> Result<Vec<SnapshotIndexEntry>> {
         let workspace_id = workspace_id.map(str::to_string);
-        self.conn.call(move |conn| {
-        let sql = if workspace_id.is_some() {
-            "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
-             FROM snapshot_index WHERE (workspace_id = ?1 OR workspace_id IS NULL) AND deleted_at IS NULL ORDER BY created_at DESC"
-        } else {
-            "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
-             FROM snapshot_index WHERE deleted_at IS NULL ORDER BY created_at DESC"
-        };
-        let mut stmt = conn.prepare(sql)?;
-        let rows = if let Some(workspace_id) = workspace_id {
-            stmt.query_map(params![workspace_id], map_snapshot_index_entry)?
-        } else {
-            stmt.query_map([], map_snapshot_index_entry)?
-        };
-        Ok(rows.filter_map(|row| row.ok()).collect())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        self.read_conn
+            .call(move |conn| {
+                let order = if oldest_first { "ASC" } else { "DESC" };
+                let mut sql = String::from(
+                    "SELECT snapshot_id, workspace_id, session_id, kind, label, path, created_at, details_json \
+                     FROM snapshot_index WHERE ",
+                );
+                let mut values = Vec::<rusqlite::types::Value>::new();
+                if let Some(workspace_id) = workspace_id {
+                    sql.push_str("(workspace_id = ? OR workspace_id IS NULL) AND deleted_at IS NULL");
+                    values.push(rusqlite::types::Value::Text(workspace_id));
+                } else {
+                    sql.push_str("deleted_at IS NULL");
+                }
+                sql.push_str(&format!(" ORDER BY created_at {order}"));
+                if let Some(limit) = limit {
+                    sql.push_str(" LIMIT ?");
+                    values.push(rusqlite::types::Value::Integer(limit.max(1) as i64));
+                }
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(
+                    rusqlite::params_from_iter(values.iter()),
+                    map_snapshot_index_entry,
+                )?;
+                Ok(rows.filter_map(|row| row.ok()).collect())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn get_snapshot_index(
@@ -1305,4 +3087,66 @@ impl HistoryStore {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
+}
+
+/// Linear pass that mirrors the in-memory
+/// `agent::stalled_turns::history_scan::thread_has_unanswered_tool_calls`
+/// algorithm, but operates on the lean projection produced by
+/// `thread_ids_with_unanswered_tool_calls`'s SQL.
+///
+/// Each tuple is `(role, tool_calls_json_for_assistants, tool_call_id_for_tools)`,
+/// in the thread's chronological order. Returns true on the first assistant
+/// message whose contiguous trailing run of tool replies doesn't satisfy
+/// every tool-call id it declared.
+fn scan_messages_for_unanswered_tool_calls(
+    messages: &[(String, Option<String>, Option<String>)],
+) -> bool {
+    let mut idx = 0usize;
+    while idx < messages.len() {
+        let (role, tool_calls_json, _) = &messages[idx];
+        if role != "assistant" {
+            idx += 1;
+            continue;
+        }
+        let Some(tool_calls_json) = tool_calls_json.as_deref() else {
+            idx += 1;
+            continue;
+        };
+        let calls: Vec<serde_json::Value> = match serde_json::from_str(tool_calls_json) {
+            Ok(value) => value,
+            Err(_) => {
+                idx += 1;
+                continue;
+            }
+        };
+        let mut expected: std::collections::HashSet<String> =
+            std::collections::HashSet::with_capacity(calls.len());
+        for call in &calls {
+            if let Some(id) = call.get("id").and_then(|value| value.as_str()) {
+                if !id.is_empty() {
+                    expected.insert(id.to_string());
+                }
+            }
+        }
+        if expected.is_empty() {
+            idx += 1;
+            continue;
+        }
+        let mut matched: std::collections::HashSet<String> =
+            std::collections::HashSet::with_capacity(expected.len());
+        let mut walk = idx + 1;
+        while walk < messages.len() && messages[walk].0 == "tool" {
+            if let Some(tool_call_id) = messages[walk].2.as_deref() {
+                if expected.contains(tool_call_id) {
+                    matched.insert(tool_call_id.to_string());
+                }
+            }
+            walk += 1;
+        }
+        if matched.len() != expected.len() {
+            return true;
+        }
+        idx = walk;
+    }
+    false
 }

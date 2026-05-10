@@ -1,5 +1,25 @@
+use super::*;
+use crate::client::ThreadDetailChunkBuffer;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::*;
+use serde_json::Value;
+use tokio::sync::mpsc;
+use tracing::{debug, info, warn};
+use zorai_protocol::ClientMessage;
+use zorai_protocol::DaemonMessage;
+
+pub(crate) async fn dispatch_client_event(
+    event_tx: &mpsc::Sender<ClientEvent>,
+    event: ClientEvent,
+    context: &'static str,
+) {
+    if let Err(err) = event_tx.send(event).await {
+        warn!(target: "zorai_tui::client", context, error = %err, "dropped client event");
+    }
+}
+
 impl DaemonClient {
-    async fn handle_activity_profile_gateway_daemon_messages(
+    pub(crate) async fn handle_activity_profile_gateway_daemon_messages(
         message: DaemonMessage,
         event_tx: &mpsc::Sender<ClientEvent>,
     ) {
@@ -8,15 +28,21 @@ impl DaemonClient {
                 if let Ok(result) =
                     serde_json::from_str::<crate::client::ThreadMessagePinResultVm>(&result_json)
                 {
-                    let _ = event_tx
-                        .send(ClientEvent::ThreadMessagePinResult(result))
-                        .await;
+                    dispatch_client_event(
+                        event_tx,
+                        ClientEvent::ThreadMessagePinResult(result),
+                        "thread_message_pin_result",
+                    )
+                    .await;
                 } else {
-                    let _ = event_tx
-                        .send(ClientEvent::Error(
+                    dispatch_client_event(
+                        event_tx,
+                        ClientEvent::Error(
                             "failed to parse thread pin mutation result".to_string(),
-                        ))
-                        .await;
+                        ),
+                        "thread_message_pin_result_parse_error",
+                    )
+                    .await;
                 }
             }
             DaemonMessage::AgentWhatsAppLinkStatus {
@@ -24,43 +50,60 @@ impl DaemonClient {
                 phone,
                 last_error,
             } => {
-                let _ = event_tx
-                    .send(ClientEvent::WhatsAppLinkStatus {
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::WhatsAppLinkStatus {
                         state,
                         phone,
                         last_error,
-                    })
-                    .await;
+                    },
+                    "whatsapp_link_status",
+                )
+                .await;
             }
             DaemonMessage::AgentWhatsAppLinkQr {
                 ascii_qr,
                 expires_at_ms,
             } => {
-                let _ = event_tx
-                    .send(ClientEvent::WhatsAppLinkQr {
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::WhatsAppLinkQr {
                         ascii_qr,
                         expires_at_ms,
-                    })
-                    .await;
+                    },
+                    "whatsapp_link_qr",
+                )
+                .await;
             }
             DaemonMessage::AgentWhatsAppLinked { phone } => {
-                let _ = event_tx.send(ClientEvent::WhatsAppLinked { phone }).await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::WhatsAppLinked { phone },
+                    "whatsapp_linked",
+                )
+                .await;
             }
             DaemonMessage::AgentWhatsAppLinkError {
                 message,
                 recoverable,
             } => {
-                let _ = event_tx
-                    .send(ClientEvent::WhatsAppLinkError {
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::WhatsAppLinkError {
                         message,
                         recoverable,
-                    })
-                    .await;
+                    },
+                    "whatsapp_link_error",
+                )
+                .await;
             }
             DaemonMessage::AgentWhatsAppLinkDisconnected { reason } => {
-                let _ = event_tx
-                    .send(ClientEvent::WhatsAppLinkDisconnected { reason })
-                    .await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::WhatsAppLinkDisconnected { reason },
+                    "whatsapp_link_disconnected",
+                )
+                .await;
             }
             DaemonMessage::AgentExplanation {
                 operation_id: _,
@@ -68,7 +111,12 @@ impl DaemonClient {
             } => {
                 let payload = serde_json::from_str::<serde_json::Value>(&explanation_json)
                     .unwrap_or_else(|_| serde_json::json!({}));
-                let _ = event_tx.send(ClientEvent::AgentExplanation(payload)).await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::AgentExplanation(payload),
+                    "agent_explanation",
+                )
+                .await;
             }
             DaemonMessage::AgentDivergentSessionStarted {
                 operation_id: _,
@@ -76,14 +124,22 @@ impl DaemonClient {
             } => {
                 let payload = serde_json::from_str::<serde_json::Value>(&session_json)
                     .unwrap_or_else(|_| serde_json::json!({}));
-                let _ = event_tx
-                    .send(ClientEvent::DivergentSessionStarted(payload))
-                    .await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::DivergentSessionStarted(payload),
+                    "divergent_session_started",
+                )
+                .await;
             }
             DaemonMessage::AgentDivergentSession { session_json } => {
                 let payload = serde_json::from_str::<serde_json::Value>(&session_json)
                     .unwrap_or_else(|_| serde_json::json!({}));
-                let _ = event_tx.send(ClientEvent::DivergentSession(payload)).await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::DivergentSession(payload),
+                    "divergent_session",
+                )
+                .await;
             }
             DaemonMessage::AgentStatusResponse {
                 tier,
@@ -97,8 +153,9 @@ impl DaemonClient {
                 diagnostics_json,
                 ..
             } => {
-                let _ = event_tx
-                    .send(ClientEvent::StatusSnapshot(AgentStatusSnapshotVm {
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::StatusSnapshot(AgentStatusSnapshotVm {
                         tier,
                         activity,
                         active_thread_id,
@@ -107,13 +164,16 @@ impl DaemonClient {
                         provider_health_json,
                         gateway_statuses_json,
                         recent_actions_json,
-                    }))
-                    .await;
+                    }),
+                    "status_snapshot",
+                )
+                .await;
                 if let Ok(diagnostics) =
                     serde_json::from_str::<serde_json::Value>(&diagnostics_json)
                 {
-                    let _ = event_tx
-                        .send(ClientEvent::StatusDiagnostics {
+                    dispatch_client_event(
+                        event_tx,
+                        ClientEvent::StatusDiagnostics {
                             operator_profile_sync_state: diagnostics
                                 .get("operator_profile_sync_state")
                                 .and_then(Value::as_str)
@@ -128,28 +188,41 @@ impl DaemonClient {
                                 .and_then(Value::as_bool)
                                 .unwrap_or(false),
                             diagnostics_json,
-                        })
-                        .await;
-                    }
+                        },
+                        "status_diagnostics",
+                    )
+                    .await;
+                }
             }
             DaemonMessage::AgentStatisticsResponse { statistics_json } => {
                 if let Ok(snapshot) = serde_json::from_str::<zorai_protocol::AgentStatisticsSnapshot>(
                     &statistics_json,
                 ) {
-                    let _ = event_tx
-                        .send(ClientEvent::StatisticsSnapshot(snapshot))
-                        .await;
+                    dispatch_client_event(
+                        event_tx,
+                        ClientEvent::StatisticsSnapshot(snapshot),
+                        "statistics_snapshot",
+                    )
+                    .await;
                 }
             }
             DaemonMessage::AgentPromptInspection { prompt_json } => {
                 if let Ok(prompt) = serde_json::from_str::<AgentPromptInspectionVm>(&prompt_json) {
-                    let _ = event_tx.send(ClientEvent::PromptInspection(prompt)).await;
+                    dispatch_client_event(
+                        event_tx,
+                        ClientEvent::PromptInspection(prompt),
+                        "prompt_inspection",
+                    )
+                    .await;
                 }
             }
             DaemonMessage::AgentOperatorProfileSessionStarted { session_id, kind } => {
-                let _ = event_tx
-                    .send(ClientEvent::OperatorProfileSessionStarted { session_id, kind })
-                    .await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::OperatorProfileSessionStarted { session_id, kind },
+                    "operator_profile_session_started",
+                )
+                .await;
             }
             DaemonMessage::AgentOperatorProfileQuestion {
                 session_id,
@@ -159,16 +232,19 @@ impl DaemonClient {
                 input_kind,
                 optional,
             } => {
-                let _ = event_tx
-                    .send(ClientEvent::OperatorProfileQuestion {
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::OperatorProfileQuestion {
                         session_id,
                         question_id,
                         field_key,
                         prompt,
                         input_kind,
                         optional,
-                    })
-                    .await;
+                    },
+                    "operator_profile_question",
+                )
+                .await;
             }
             DaemonMessage::AgentOperatorProfileProgress {
                 session_id,
@@ -176,68 +252,149 @@ impl DaemonClient {
                 remaining,
                 completion_ratio,
             } => {
-                let _ = event_tx
-                    .send(ClientEvent::OperatorProfileProgress {
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::OperatorProfileProgress {
                         session_id,
                         answered,
                         remaining,
                         completion_ratio,
-                    })
-                    .await;
+                    },
+                    "operator_profile_progress",
+                )
+                .await;
             }
             DaemonMessage::AgentOperatorProfileSummary { summary_json } => {
-                let _ = event_tx
-                    .send(ClientEvent::OperatorProfileSummary { summary_json })
-                    .await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::OperatorProfileSummary { summary_json },
+                    "operator_profile_summary",
+                )
+                .await;
             }
             DaemonMessage::AgentOperatorModel { model_json } => {
-                let _ = event_tx
-                    .send(ClientEvent::OperatorModelSummary { model_json })
-                    .await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::OperatorModelSummary { model_json },
+                    "operator_model_summary",
+                )
+                .await;
             }
             DaemonMessage::AgentOperatorModelReset { ok } => {
-                let _ = event_tx.send(ClientEvent::OperatorModelReset { ok }).await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::OperatorModelReset { ok },
+                    "operator_model_reset",
+                )
+                .await;
             }
             DaemonMessage::AgentCollaborationSessions { sessions_json } => {
-                let _ = event_tx
-                    .send(ClientEvent::CollaborationSessions { sessions_json })
-                    .await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::CollaborationSessions { sessions_json },
+                    "collaboration_sessions",
+                )
+                .await;
             }
             DaemonMessage::AgentCollaborationVoteResult { report_json } => {
-                let _ = event_tx
-                    .send(ClientEvent::CollaborationVoteResult { report_json })
-                    .await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::CollaborationVoteResult { report_json },
+                    "collaboration_vote_result",
+                )
+                .await;
             }
             DaemonMessage::AgentGeneratedTools { tools_json } => {
-                let _ = event_tx
-                    .send(ClientEvent::GeneratedTools { tools_json })
-                    .await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::GeneratedTools { tools_json },
+                    "generated_tools",
+                )
+                .await;
             }
             DaemonMessage::AgentSpeechToTextResult { content } => {
-                let _ = event_tx
-                    .send(ClientEvent::SpeechToTextResult { content })
-                    .await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::SpeechToTextResult { content },
+                    "speech_to_text_result",
+                )
+                .await;
             }
             DaemonMessage::AgentTextToSpeechResult { content } => {
-                let _ = event_tx
-                    .send(ClientEvent::TextToSpeechResult { content })
-                    .await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::TextToSpeechResult { content },
+                    "text_to_speech_result",
+                )
+                .await;
             }
             DaemonMessage::AgentGenerateImageResult { content } => {
-                let _ = event_tx
-                    .send(ClientEvent::GenerateImageResult { content })
-                    .await;
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::GenerateImageResult { content },
+                    "generate_image_result",
+                )
+                .await;
             }
             DaemonMessage::AgentOperatorProfileSessionCompleted {
                 session_id,
                 updated_fields,
             } => {
-                let _ = event_tx
-                    .send(ClientEvent::OperatorProfileSessionCompleted {
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::OperatorProfileSessionCompleted {
                         session_id,
                         updated_fields,
-                    })
-                    .await;
+                    },
+                    "operator_profile_session_completed",
+                )
+                .await;
+            }
+            DaemonMessage::AgentTierChanged {
+                previous_tier: _,
+                new_tier,
+                reason: _,
+            } => {
+                dispatch_client_event(
+                    event_tx,
+                    ClientEvent::TierChanged { new_tier },
+                    "agent_tier_changed",
+                )
+                .await;
+            }
+            DaemonMessage::SemanticIndexRepairResult { result_json } => {
+                match serde_json::from_str::<zorai_protocol::SemanticIndexRepairResultPublic>(
+                    &result_json,
+                ) {
+                    Ok(result) => {
+                        let mut summary = format!(
+                            "Semantic index repair: removed_index={} cleared_completions={} cleared_deletions={} reset_failed_jobs={}",
+                            result.removed_vector_index,
+                            result.cleared_completions,
+                            result.cleared_deletions,
+                            result.reset_failed_jobs,
+                        );
+                        if let Some(backup) = result.backup_path.as_deref() {
+                            summary.push_str(&format!(" backup={backup}"));
+                        }
+                        dispatch_client_event(
+                            event_tx,
+                            ClientEvent::SemanticIndexRepaired { summary },
+                            "semantic_index_repaired",
+                        )
+                        .await;
+                    }
+                    Err(err) => {
+                        dispatch_client_event(
+                            event_tx,
+                            ClientEvent::Error(format!(
+                                "failed to parse semantic index repair result: {err}"
+                            )),
+                            "semantic_index_repair_parse_error",
+                        )
+                        .await;
+                    }
+                }
             }
             DaemonMessage::GatewayBootstrap { .. }
             | DaemonMessage::GatewaySendRequest { .. }
@@ -246,13 +403,15 @@ impl DaemonClient {
                 debug!("Ignoring gateway runtime daemon message in TUI client");
             }
             DaemonMessage::Error { message } => {
-                let _ = event_tx.send(ClientEvent::Error(message)).await;
+                dispatch_client_event(event_tx, ClientEvent::Error(message), "daemon_error").await;
             }
             DaemonMessage::AgentError { message } => {
-                let _ = event_tx.send(ClientEvent::Error(message)).await;
+                dispatch_client_event(event_tx, ClientEvent::Error(message), "daemon_agent_error")
+                    .await;
             }
-            _ => unreachable!("activity/profile/gateway daemon message dispatch should be exhaustive"),
+            _ => unreachable!(
+                "activity/profile/gateway daemon message dispatch should be exhaustive"
+            ),
         }
     }
-
 }

@@ -32,6 +32,7 @@ Run from repo root unless noted:
 - For TUI work, keep rendering, input handling, and state/update logic in separate focused modules when practical.
 - Strong rule: every newly created file must stay under 500 lines of code. Split features into smaller modules/components before a file reaches 500 LOC.
 - **CRITICAL - NO SHORTCUTS**: Never mock, stub, or placeholder any function with intent to complete later. Always implement fully or decline the task explicitly. Violation results in immediate rejection and conversation termination.
+- Always use SQL functions for filtering and selecting data instead of fetching all rows and iterating in code when a query-based approach is available. If you come across one while working that misuses code, fix it first if possible.
 
 ## Testing Guidelines
 - Prefer unit tests close to implementation in Rust (`#[cfg(test)] mod tests` in source files).

@@ -47,6 +47,7 @@ export type AgentChatPanelRuntimeValue = {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   refreshThreadList: () => Promise<void>;
+  fetchThreadList: (options?: { agentFilter?: string | null }) => Promise<AgentThread[]>;
   loadOlderThreadMessages: () => Promise<boolean>;
   trimThreadMessagesToLatestWindow: (threadId?: string | null) => boolean;
   messages: AgentMessage[];

@@ -1,6 +1,6 @@
 use super::*;
 
-pub(in crate::agent) fn make_task_log_entry(
+pub(crate) fn make_task_log_entry(
     attempt: u32,
     level: TaskLogLevel,
     phase: &str,

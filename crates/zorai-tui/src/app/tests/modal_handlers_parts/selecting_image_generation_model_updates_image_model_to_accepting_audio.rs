@@ -1,3 +1,9 @@
+use super::whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings::*;
+use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn selecting_image_generation_model_updates_image_model() {
     let (mut model, _daemon_rx) = make_model();
@@ -422,4 +428,3 @@ fn accepting_audio_model_stt_reuse_updates_stt_model() {
         )
     }));
 }
-

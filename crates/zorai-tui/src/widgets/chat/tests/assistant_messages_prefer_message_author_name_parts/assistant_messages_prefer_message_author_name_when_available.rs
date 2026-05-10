@@ -1,3 +1,8 @@
+use super::super::*;
+use crate::state::chat::{AgentMessage, AgentThread, ChatAction, ChatState, MessageRole};
+use crate::theme::ThemeTokens;
+use ratatui::backend::TestBackend;
+use ratatui::Terminal;
 #[test]
 fn assistant_messages_prefer_message_author_name_when_available() {
     let mut chat = ChatState::new();

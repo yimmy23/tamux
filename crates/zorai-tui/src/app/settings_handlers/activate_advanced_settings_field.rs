@@ -1,3 +1,11 @@
+use super::*;
+use crate::providers;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use zorai_shared::providers::*;
 impl TuiModel {
     pub(super) fn activate_advanced_settings_field(&mut self, field: &str) -> bool {
         match field {
@@ -45,6 +53,18 @@ impl TuiModel {
                 self.config.auto_retry = !self.config.auto_retry;
                 self.sync_config_to_daemon();
             }
+            "workspace_repo_monitor_enabled" => {
+                let requested_enabled = !self.config.workspace_repo_monitor_enabled;
+                self.sync_workspace_repo_monitor_to_daemon(requested_enabled);
+            }
+            "workspace_repo_monitor_include_dirs" => self.settings.start_editing(
+                "workspace_repo_monitor_include_dirs",
+                &self.config.workspace_repo_monitor_include_dirs,
+            ),
+            "workspace_repo_monitor_exclude_dirs" => self.settings.start_editing(
+                "workspace_repo_monitor_exclude_dirs",
+                &self.config.workspace_repo_monitor_exclude_dirs,
+            ),
             "compact_threshold_pct" => self.settings.start_editing(
                 "compact_threshold_pct",
                 &self.config.compact_threshold_pct.to_string(),

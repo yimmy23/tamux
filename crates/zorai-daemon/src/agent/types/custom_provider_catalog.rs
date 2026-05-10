@@ -1,3 +1,9 @@
+use super::*;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
@@ -21,19 +27,19 @@ pub struct CustomProviderLoadReport {
 }
 
 #[derive(Debug, Default)]
-struct CustomProviderCatalog {
-    path: String,
-    providers: Vec<&'static ProviderDefinition>,
-    client_metadata: Vec<CustomProviderClientMetadata>,
-    diagnostics: Vec<CustomProviderDiagnostic>,
+pub(crate) struct CustomProviderCatalog {
+    pub(crate) path: String,
+    pub(crate) providers: Vec<&'static ProviderDefinition>,
+    pub(crate) client_metadata: Vec<CustomProviderClientMetadata>,
+    pub(crate) diagnostics: Vec<CustomProviderDiagnostic>,
 }
 
 #[derive(Debug, Clone)]
-struct CustomProviderClientMetadata {
-    id: &'static str,
-    supported_auth_sources: &'static [AuthSource],
-    default_auth_source: AuthSource,
-    api_key: &'static str,
+pub(crate) struct CustomProviderClientMetadata {
+    pub(crate) id: &'static str,
+    pub(crate) supported_auth_sources: &'static [AuthSource],
+    pub(crate) default_auth_source: AuthSource,
+    pub(crate) api_key: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,50 +85,50 @@ enum CustomAuthDocument {
 
 #[derive(Debug, Deserialize)]
 struct CustomProviderYaml {
-    id: Option<String>,
-    name: Option<String>,
-    default_base_url: Option<String>,
-    default_model: Option<String>,
+    pub(crate) id: Option<String>,
+    pub(crate) name: Option<String>,
+    pub(crate) default_base_url: Option<String>,
+    pub(crate) default_model: Option<String>,
     #[serde(default)]
-    api_type: Option<ApiType>,
+    pub(crate) api_type: Option<ApiType>,
     #[serde(default)]
-    auth_method: Option<AuthMethod>,
+    pub(crate) auth_method: Option<AuthMethod>,
     #[serde(default)]
-    models: Vec<CustomModelYaml>,
+    pub(crate) models: Vec<CustomModelYaml>,
     #[serde(default)]
-    supports_model_fetch: bool,
+    pub(crate) supports_model_fetch: bool,
     #[serde(default)]
-    anthropic_base_url: Option<String>,
+    pub(crate) anthropic_base_url: Option<String>,
     #[serde(default)]
-    supported_transports: Vec<ApiTransport>,
+    pub(crate) supported_transports: Vec<ApiTransport>,
     #[serde(default)]
-    default_transport: Option<ApiTransport>,
+    pub(crate) default_transport: Option<ApiTransport>,
     #[serde(default)]
-    native_transport_kind: Option<NativeTransportKind>,
+    pub(crate) native_transport_kind: Option<NativeTransportKind>,
     #[serde(default)]
-    native_base_url: Option<String>,
+    pub(crate) native_base_url: Option<String>,
     #[serde(default)]
-    supports_response_continuity: bool,
+    pub(crate) supports_response_continuity: bool,
     #[serde(default)]
-    supported_auth_sources: Vec<AuthSource>,
+    pub(crate) supported_auth_sources: Vec<AuthSource>,
     #[serde(default)]
-    default_auth_source: Option<AuthSource>,
+    pub(crate) default_auth_source: Option<AuthSource>,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
-    api_key: Option<String>,
+    pub(crate) api_key: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_scalar_string")]
-    api_key_env: Option<String>,
+    pub(crate) api_key_env: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct CustomModelYaml {
-    id: Option<String>,
-    name: Option<String>,
-    context_window: Option<u32>,
+    pub(crate) id: Option<String>,
+    pub(crate) name: Option<String>,
+    pub(crate) context_window: Option<u32>,
     #[serde(default)]
-    modalities: Vec<Modality>,
+    pub(crate) modalities: Vec<Modality>,
 }
 
-fn custom_provider_catalog_cell() -> &'static RwLock<CustomProviderCatalog> {
+pub(crate) fn custom_provider_catalog_cell() -> &'static RwLock<CustomProviderCatalog> {
     static CATALOG: OnceLock<RwLock<CustomProviderCatalog>> = OnceLock::new();
     CATALOG.get_or_init(|| RwLock::new(CustomProviderCatalog::default()))
 }
@@ -244,7 +250,10 @@ fn hydrate_custom_provider(
 ) -> Option<(&'static ProviderDefinition, CustomProviderClientMetadata)> {
     let id = required_string(path, None, "id", provider.id, diagnostics)?;
     let provider_id = Some(id.clone());
-    if PROVIDER_DEFINITIONS.iter().any(|built_in| built_in.id == id) {
+    if PROVIDER_DEFINITIONS
+        .iter()
+        .any(|built_in| built_in.id == id)
+    {
         diagnostics.push(diagnostic(
             path,
             provider_id,
@@ -263,7 +272,13 @@ fn hydrate_custom_provider(
         return None;
     }
 
-    let name = required_string(path, provider_id.as_deref(), "name", provider.name, diagnostics)?;
+    let name = required_string(
+        path,
+        provider_id.as_deref(),
+        "name",
+        provider.name,
+        diagnostics,
+    )?;
     let default_base_url = required_string(
         path,
         provider_id.as_deref(),
@@ -298,7 +313,9 @@ fn hydrate_custom_provider(
     if supported_auth_sources.is_empty() {
         supported_auth_sources.push(AuthSource::ApiKey);
     }
-    let default_auth_source = provider.default_auth_source.unwrap_or(supported_auth_sources[0]);
+    let default_auth_source = provider
+        .default_auth_source
+        .unwrap_or(supported_auth_sources[0]);
     if !supported_auth_sources.contains(&default_auth_source) {
         diagnostics.push(diagnostic(
             path,
@@ -354,7 +371,13 @@ fn hydrate_custom_models(
     let mut seen = HashSet::new();
     let mut hydrated = Vec::new();
     for model in models {
-        let id = required_string(path, provider_id_option, "models[].id", model.id, diagnostics)?;
+        let id = required_string(
+            path,
+            provider_id_option,
+            "models[].id",
+            model.id,
+            diagnostics,
+        )?;
         if !seen.insert(id.clone()) {
             diagnostics.push(diagnostic(
                 path,
@@ -396,7 +419,9 @@ fn required_string(
     value: Option<String>,
     diagnostics: &mut Vec<CustomProviderDiagnostic>,
 ) -> Option<String> {
-    let value = value.map(|value| value.trim().to_string()).unwrap_or_default();
+    let value = value
+        .map(|value| value.trim().to_string())
+        .unwrap_or_default();
     if value.is_empty() {
         diagnostics.push(diagnostic(
             path,
@@ -429,7 +454,7 @@ where
     }
 }
 
-fn diagnostic(
+pub(crate) fn diagnostic(
     path: &str,
     provider_id: Option<String>,
     field: &str,

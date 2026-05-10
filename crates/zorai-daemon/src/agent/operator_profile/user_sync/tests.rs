@@ -59,11 +59,31 @@ async fn reconcile_renders_deterministic_user_md() -> Result<()> {
     history
         .upsert_profile_field("preferred_name", "\"Milan\"", 1.0, "onboarding")
         .await?;
+    history
+        .upsert_profile_field("__legacy_user_import_done", "true", 1.0, "system")
+        .await?;
+    history
+        .upsert_profile_field("communication_style", "\"direct\"", 1.0, "onboarding")
+        .await?;
     set_user_sync_state_for_test(UserProfileSyncState::Dirty);
 
     reconcile_user_profile_from_db(&agent_data_dir, &history).await?;
     let rendered = tokio::fs::read_to_string(memory_dir.join("USER.md")).await?;
+    let communication_index = rendered
+        .find("- communication_style: \"direct\"")
+        .expect("communication style should render");
+    let preferred_name_index = rendered
+        .find("- preferred_name: \"Milan\"")
+        .expect("preferred name should render");
     assert!(rendered.contains("- preferred_name: \"Milan\""));
+    assert!(
+        !rendered.contains("__legacy_user_import_done"),
+        "legacy import sentinel should be filtered by SQL before rendering"
+    );
+    assert!(
+        communication_index < preferred_name_index,
+        "profile fields should be SQL ordered by key"
+    );
     assert_eq!(current_user_sync_state(), UserProfileSyncState::Clean);
     Ok(())
 }

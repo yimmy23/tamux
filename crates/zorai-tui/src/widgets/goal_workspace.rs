@@ -4,6 +4,7 @@ use crate::state::goal_workspace::{GoalWorkspaceMode, GoalWorkspacePane, GoalWor
 use crate::state::task::TaskState;
 use crate::theme::ThemeTokens;
 use crate::widgets::chat::SelectionPoint;
+use crate::widgets::duration_format::format_duration_ms;
 use ratatui::prelude::*;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
@@ -2705,15 +2706,6 @@ fn format_cost(cost: f64) -> String {
         format!("${cost:.2}")
     } else {
         format!("${cost:.4}")
-    }
-}
-
-fn format_duration_ms(duration_ms: u64) -> String {
-    let seconds = (duration_ms / 1000).max(1);
-    if seconds < 120 {
-        format!("{seconds}s")
-    } else {
-        format!("{}m", (seconds + 30) / 60)
     }
 }
 

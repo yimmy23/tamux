@@ -1,3 +1,9 @@
+use super::*;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
+
 pub use crate::agent::memory_context::PromptMemoryInjectionState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -333,9 +339,6 @@ pub enum MessageRole {
     Tool,
 }
 
-// ---------------------------------------------------------------------------
-// Tool calls
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {

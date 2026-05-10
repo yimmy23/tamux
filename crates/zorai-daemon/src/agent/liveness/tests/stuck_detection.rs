@@ -16,7 +16,6 @@ fn healthy_snapshot() -> DetectionSnapshot {
     }
 }
 
-// ----- 1. Healthy snapshot returns None --------------------------------
 
 #[test]
 fn healthy_snapshot_returns_none() {
@@ -26,7 +25,6 @@ fn healthy_snapshot_returns_none() {
     assert!(result.is_none(), "healthy snapshot should return None");
 }
 
-// ----- 2. Timeout detection with max_duration_secs --------------------
 
 #[test]
 fn timeout_detected_when_exceeding_max_duration() {
@@ -34,13 +32,12 @@ fn timeout_detected_when_exceeding_max_duration() {
     let mut snap = healthy_snapshot();
     snap.started_at = 100;
     snap.max_duration_secs = Some(200);
-    // Ensure no other detectors fire: recent progress, no errors, low context.
     snap.last_progress_at = Some(350);
     snap.consecutive_errors = 0;
     snap.context_utilization_pct = 20;
     snap.recent_tool_names = vec!["a".into(), "b".into(), "c".into()];
 
-    let now = 400; // elapsed 300 > max 200
+    let now = 400;
     let analysis = detector.analyze(&snap, now).unwrap();
     assert_eq!(analysis.reason, StuckReason::Timeout);
     assert!(analysis.confidence >= 0.8);
@@ -48,19 +45,18 @@ fn timeout_detected_when_exceeding_max_duration() {
     assert!(analysis.evidence.contains("200"));
 }
 
-// ----- 3. NoProgress detection ----------------------------------------
 
 #[test]
 fn no_progress_detected_when_idle_exceeds_threshold() {
     let detector = StuckDetector::default();
     let mut snap = healthy_snapshot();
     snap.last_progress_at = Some(100);
-    snap.max_duration_secs = None; // disable timeout
+    snap.max_duration_secs = None;
     snap.consecutive_errors = 0;
     snap.context_utilization_pct = 20;
     snap.recent_tool_names = vec!["a".into(), "b".into(), "c".into()];
 
-    let now = 500; // 400s idle, default threshold = 300
+    let now = 500;
     let analysis = detector.analyze(&snap, now).unwrap();
     assert_eq!(analysis.reason, StuckReason::NoProgress);
     assert!(analysis.evidence.contains("400"));
@@ -77,12 +73,11 @@ fn no_progress_detected_with_no_last_progress() {
     snap.context_utilization_pct = 20;
     snap.recent_tool_names = vec!["a".into(), "b".into(), "c".into()];
 
-    let now = 500; // 400s since start, > 300 threshold
+    let now = 500;
     let analysis = detector.analyze(&snap, now).unwrap();
     assert_eq!(analysis.reason, StuckReason::NoProgress);
 }
 
-// ----- 4. ErrorLoop with 3+ consecutive errors ------------------------
 
 #[test]
 fn error_loop_detected_with_3_consecutive_errors() {
@@ -96,7 +91,6 @@ fn error_loop_detected_with_3_consecutive_errors() {
     assert!(analysis.evidence.contains("3 consecutive errors"));
 }
 
-// ----- 5. ErrorLoop with 2 consecutive (below threshold) returns None -
 
 #[test]
 fn error_loop_not_detected_with_2_consecutive_errors() {
@@ -112,7 +106,6 @@ fn error_loop_not_detected_with_2_consecutive_errors() {
     );
 }
 
-// ----- 6. ToolCallLoop with A-B-A-B pattern ---------------------------
 
 #[test]
 fn tool_loop_detected_with_abab_pattern() {
@@ -127,7 +120,6 @@ fn tool_loop_detected_with_abab_pattern() {
     assert!(analysis.evidence.contains("write"));
 }
 
-// ----- 7. ToolCallLoop with A-A-A-A pattern ---------------------------
 
 #[test]
 fn tool_loop_detected_with_aaaa_pattern() {
@@ -140,7 +132,6 @@ fn tool_loop_detected_with_aaaa_pattern() {
     assert!(analysis.evidence.contains("read"));
 }
 
-// ----- 8. ResourceExhaustion at 91% -----------------------------------
 
 #[test]
 fn resource_exhaustion_detected_at_91_percent() {
@@ -153,7 +144,6 @@ fn resource_exhaustion_detected_at_91_percent() {
     assert!(analysis.evidence.contains("91%"));
 }
 
-// ----- 9. ResourceExhaustion at 89% returns None ----------------------
 
 #[test]
 fn resource_exhaustion_not_detected_at_89_percent() {
@@ -168,13 +158,11 @@ fn resource_exhaustion_not_detected_at_89_percent() {
     );
 }
 
-// ----- 10. Multiple issues: highest confidence wins -------------------
 
 #[test]
 fn multiple_issues_highest_confidence_wins() {
     let detector = StuckDetector::default();
     let mut snap = healthy_snapshot();
-    // Trigger timeout (high confidence) and error loop (lower confidence).
     snap.started_at = 100;
     snap.max_duration_secs = Some(50);
     snap.consecutive_errors = 3;
@@ -182,14 +170,12 @@ fn multiple_issues_highest_confidence_wins() {
     snap.context_utilization_pct = 20;
     snap.recent_tool_names = vec!["a".into(), "b".into(), "c".into()];
 
-    let now = 400; // elapsed 300, max 50 => huge overshoot => confidence ~1.0
+    let now = 400;
     let analysis = detector.analyze(&snap, now).unwrap();
-    // Timeout should have the highest confidence due to massive overshoot.
     assert_eq!(analysis.reason, StuckReason::Timeout);
     assert!(analysis.confidence > 0.9);
 }
 
-// ----- 11. Default thresholds are reasonable --------------------------
 
 #[test]
 fn default_thresholds_are_reasonable() {
@@ -200,7 +186,6 @@ fn default_thresholds_are_reasonable() {
     assert_eq!(detector.resource_exhaustion_pct, 90);
 }
 
-// ----- 12. Custom thresholds work -------------------------------------
 
 #[test]
 fn custom_thresholds_work() {
@@ -211,7 +196,6 @@ fn custom_thresholds_work() {
         resource_exhaustion_pct: 80,
     };
 
-    // With custom threshold of 5, 3 errors should NOT trigger.
     let mut snap = healthy_snapshot();
     snap.consecutive_errors = 3;
     assert!(
@@ -219,90 +203,76 @@ fn custom_thresholds_work() {
         "3 errors with threshold 5 should not trigger"
     );
 
-    // But 5 should.
     snap.consecutive_errors = 5;
     let analysis = detector.analyze(&snap, 1010).unwrap();
     assert_eq!(analysis.reason, StuckReason::ErrorLoop);
 
-    // Custom resource exhaustion at 80%.
     let mut snap2 = healthy_snapshot();
     snap2.context_utilization_pct = 85;
     snap2.consecutive_errors = 0;
     let analysis2 = detector.analyze(&snap2, 1010).unwrap();
     assert_eq!(analysis2.reason, StuckReason::ResourceExhaustion);
 
-    // Custom no-progress threshold of 60s.
     let mut snap3 = healthy_snapshot();
     snap3.last_progress_at = Some(900);
     snap3.max_duration_secs = None;
     snap3.consecutive_errors = 0;
     snap3.context_utilization_pct = 20;
     snap3.recent_tool_names = vec!["a".into(), "b".into(), "c".into()];
-    let now = 970; // 70s idle > 60s threshold
+    let now = 970;
     let analysis3 = detector.analyze(&snap3, now).unwrap();
     assert_eq!(analysis3.reason, StuckReason::NoProgress);
 }
 
-// ----- 13. Intervention selection maps correctly ----------------------
 
 #[test]
 fn intervention_selection_maps_correctly() {
-    // Timeout -> EscalateToUser
     assert_eq!(
         suggest_intervention(StuckReason::Timeout, 0.9),
         InterventionAction::EscalateToUser
     );
 
-    // ResourceExhaustion -> CompressContext
     assert_eq!(
         suggest_intervention(StuckReason::ResourceExhaustion, 0.8),
         InterventionAction::CompressContext
     );
 
-    // ToolCallLoop high confidence -> EscalateToParent
     assert_eq!(
         suggest_intervention(StuckReason::ToolCallLoop, 0.95),
         InterventionAction::EscalateToParent
     );
 
-    // ToolCallLoop low confidence -> SelfAssess
     assert_eq!(
         suggest_intervention(StuckReason::ToolCallLoop, 0.6),
         InterventionAction::SelfAssess
     );
 
-    // ErrorLoop high confidence -> RetryFromCheckpoint
     assert_eq!(
         suggest_intervention(StuckReason::ErrorLoop, 0.95),
         InterventionAction::RetryFromCheckpoint
     );
 
-    // ErrorLoop low confidence -> CompressContext
     assert_eq!(
         suggest_intervention(StuckReason::ErrorLoop, 0.7),
         InterventionAction::CompressContext
     );
 
-    // NoProgress high confidence -> RetryFromCheckpoint
     assert_eq!(
         suggest_intervention(StuckReason::NoProgress, 0.9),
         InterventionAction::RetryFromCheckpoint
     );
 
-    // NoProgress low confidence -> SelfAssess
     assert_eq!(
         suggest_intervention(StuckReason::NoProgress, 0.5),
         InterventionAction::SelfAssess
     );
 }
 
-// ----- 14. Entity type preserved in analysis --------------------------
 
 #[test]
 fn entity_type_preserved_in_analysis() {
     let detector = StuckDetector::default();
 
-    // Test with "task" entity type.
     let mut snap = healthy_snapshot();
     snap.entity_type = "task".into();
     snap.consecutive_errors = 5;
@@ -310,7 +280,6 @@ fn entity_type_preserved_in_analysis() {
     assert_eq!(analysis.entity_type, "task");
     assert_eq!(analysis.entity_id, "entity-1");
 
-    // Test with "goal_run" entity type.
     snap.entity_type = "goal_run".into();
     snap.entity_id = "goal-42".into();
     let analysis = detector.analyze(&snap, 1010).unwrap();
@@ -318,13 +287,11 @@ fn entity_type_preserved_in_analysis() {
     assert_eq!(analysis.entity_id, "goal-42");
 }
 
-// ----- 15. Evidence strings are descriptive ---------------------------
 
 #[test]
 fn evidence_strings_are_descriptive() {
     let detector = StuckDetector::default();
 
-    // Timeout evidence should mention elapsed and max.
     let mut snap = healthy_snapshot();
     snap.started_at = 100;
     snap.max_duration_secs = Some(200);
@@ -339,7 +306,6 @@ fn evidence_strings_are_descriptive() {
         analysis.evidence
     );
 
-    // Error loop evidence should mention error count and threshold.
     let mut snap2 = healthy_snapshot();
     snap2.consecutive_errors = 4;
     let analysis2 = detector.analyze(&snap2, 1010).unwrap();
@@ -349,7 +315,6 @@ fn evidence_strings_are_descriptive() {
         analysis2.evidence
     );
 
-    // Resource exhaustion evidence should mention percentage.
     let mut snap3 = healthy_snapshot();
     snap3.context_utilization_pct = 95;
     snap3.consecutive_errors = 0;
@@ -360,7 +325,6 @@ fn evidence_strings_are_descriptive() {
         analysis3.evidence
     );
 
-    // Tool loop evidence should mention the tools in the loop.
     let mut snap4 = healthy_snapshot();
     snap4.recent_tool_names = vec!["bash".into(), "grep".into(), "bash".into(), "grep".into()];
     snap4.consecutive_errors = 0;
@@ -372,7 +336,6 @@ fn evidence_strings_are_descriptive() {
         analysis4.evidence
     );
 
-    // NoProgress evidence should mention idle duration and threshold.
     let mut snap5 = healthy_snapshot();
     snap5.last_progress_at = Some(100);
     snap5.max_duration_secs = None;
@@ -387,19 +350,16 @@ fn evidence_strings_are_descriptive() {
     );
 }
 
-// ----- 16. Tool loop not detected with short sequence -----------------
 
 #[test]
 fn tool_loop_not_detected_with_short_sequence() {
     let detector = StuckDetector::default();
     let mut snap = healthy_snapshot();
     snap.recent_tool_names = vec!["read".into(), "write".into(), "read".into()];
-    // Only 3 entries, need at least 4.
     let result = detector.analyze(&snap, 1010);
     assert!(result.is_none(), "3 entries should not trigger tool loop");
 }
 
-// ----- 17. Timeout not triggered without max_duration_secs ------------
 
 #[test]
 fn timeout_not_triggered_without_max_duration() {
@@ -422,13 +382,11 @@ fn timeout_not_triggered_without_max_duration() {
     );
 }
 
-// ----- 18. Confidence values are in valid range -----------------------
 
 #[test]
 fn confidence_values_in_valid_range() {
     let detector = StuckDetector::default();
 
-    // Extreme timeout overshoot.
     let mut snap = healthy_snapshot();
     snap.started_at = 0;
     snap.max_duration_secs = Some(1);
@@ -443,7 +401,6 @@ fn confidence_values_in_valid_range() {
         analysis.confidence
     );
 
-    // Context at 100%.
     let mut snap2 = healthy_snapshot();
     snap2.context_utilization_pct = 100;
     snap2.consecutive_errors = 0;
@@ -455,13 +412,12 @@ fn confidence_values_in_valid_range() {
     );
 }
 
-// ----- 19. Resource exhaustion boundary at exactly threshold ----------
 
 #[test]
 fn resource_exhaustion_not_at_exactly_threshold() {
     let detector = StuckDetector::default();
     let mut snap = healthy_snapshot();
-    snap.context_utilization_pct = 90; // exactly at threshold, not above
+    snap.context_utilization_pct = 90;
     let result = detector.analyze(&snap, 1010);
     assert!(
         result.is_none(),

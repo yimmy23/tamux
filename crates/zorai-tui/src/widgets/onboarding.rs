@@ -114,8 +114,47 @@ fn render_compact(frame: &mut Frame, area: Rect, theme: &ThemeTokens) {
 
 #[cfg(test)]
 mod tests {
+    use super::render;
+    use crate::state::config::ConfigState;
+    use crate::theme::ThemeTokens;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    fn render_to_lines(width: u16, height: u16) -> Vec<String> {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        let config = ConfigState::new();
+        let theme = ThemeTokens::default();
+        terminal
+            .draw(|frame| render(frame, frame.area(), &config, &theme))
+            .expect("onboarding render");
+        let buffer = terminal.backend().buffer();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .filter_map(|x| buffer.cell((x, y)).map(|cell| cell.symbol()))
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
     #[test]
-    fn onboarding_module_exists() {
-        assert!(true);
+    fn onboarding_full_renders_welcome_card() {
+        let rows = render_to_lines(80, 20);
+        let body = rows.join("\n");
+        assert!(
+            body.contains("Welcome to ZORAI"),
+            "expected welcome card title, got:\n{body}"
+        );
+    }
+
+    #[test]
+    fn onboarding_compact_renders_setup_prompt() {
+        let rows = render_to_lines(30, 6);
+        let body = rows.join("\n");
+        assert!(
+            body.contains("ZORAI setup required"),
+            "expected compact title, got:\n{body}"
+        );
     }
 }

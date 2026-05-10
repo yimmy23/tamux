@@ -1,4 +1,18 @@
-pub fn render_cached(
+use super::spawned_agents;
+use super::tab_layout::*;
+use super::*;
+use crate::app::RecentActionVm;
+use crate::state::chat::{ChatState, GatewayStatusVm, MessageRole};
+use crate::state::sidebar::{SidebarState, SidebarTab};
+use crate::state::task::TaskState;
+use crate::state::tier::TierState;
+use crate::theme::ThemeTokens;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use std::hash::{Hash, Hasher};
+pub(crate) fn render_cached(
     frame: &mut Frame,
     area: Rect,
     chat: &ChatState,
@@ -51,9 +65,9 @@ pub fn render_cached(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // tab bar
+            Constraint::Length(1),
             Constraint::Length(filter_height),
-            Constraint::Min(1), // body
+            Constraint::Min(1),
             Constraint::Length(gw_height),
             Constraint::Length(ra_height),
             Constraint::Length(tier_height),
@@ -61,7 +75,6 @@ pub fn render_cached(
         ])
         .split(area);
 
-    // Agent status line at the very top
 
     for (tab, cell) in tab_cells(chunks[0], show_spawned, show_pinned) {
         let style = if sidebar.active_tab() == tab {
@@ -127,7 +140,7 @@ pub fn render_cached(
     }
 }
 
-pub fn body_item_count(
+pub(crate) fn body_item_count(
     tasks: &TaskState,
     chat: &ChatState,
     sidebar: &SidebarState,
@@ -136,7 +149,7 @@ pub fn body_item_count(
     build_cached_snapshot(Rect::new(0, 0, 80, 0), chat, sidebar, tasks, thread_id).item_count()
 }
 
-pub fn hit_test_cached(
+pub(crate) fn hit_test_cached(
     area: Rect,
     sidebar: &SidebarState,
     snapshot: &CachedSidebarSnapshot,
@@ -154,13 +167,13 @@ pub fn hit_test_cached(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // tab bar
+            Constraint::Length(1),
             Constraint::Length(if sidebar.active_tab() == SidebarTab::Files {
                 1
             } else {
                 0
             }),
-            Constraint::Min(1), // body
+            Constraint::Min(1),
         ])
         .split(area);
 
@@ -188,7 +201,7 @@ pub fn hit_test_cached(
 }
 
 #[cfg(test)]
-pub fn hit_test(
+pub(crate) fn hit_test(
     area: Rect,
     chat: &ChatState,
     sidebar: &SidebarState,
@@ -201,22 +214,21 @@ pub fn hit_test(
 }
 
 #[cfg(test)]
-pub fn reset_build_cached_snapshot_call_count() {
+pub(crate) fn reset_build_cached_snapshot_call_count() {
     BUILD_CACHED_SNAPSHOT_CALLS.with(|calls| calls.set(0));
 }
 
 #[cfg(test)]
-pub fn build_cached_snapshot_call_count() -> usize {
+pub(crate) fn build_cached_snapshot_call_count() -> usize {
     BUILD_CACHED_SNAPSHOT_CALLS.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]
-pub fn reset_spawned_sidebar_flatten_call_count() {
+pub(crate) fn reset_spawned_sidebar_flatten_call_count() {
     spawned_agents::reset_flattened_items_call_count();
 }
 
 #[cfg(test)]
-pub fn spawned_sidebar_flatten_call_count() -> usize {
+pub(crate) fn spawned_sidebar_flatten_call_count() -> usize {
     spawned_agents::flattened_items_call_count()
 }
-

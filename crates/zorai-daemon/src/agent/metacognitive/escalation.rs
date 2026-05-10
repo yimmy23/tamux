@@ -7,9 +7,6 @@
 
 use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// Core types
-// ---------------------------------------------------------------------------
 
 /// Graduated escalation levels from autonomous self-correction up to external
 /// notification.  Ordered so that `L0 < L1 < L2 < L3`.
@@ -79,9 +76,6 @@ pub struct EscalationDecision {
     pub message: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Defaults
-// ---------------------------------------------------------------------------
 
 impl Default for EscalationCriteria {
     fn default() -> Self {
@@ -93,9 +87,6 @@ impl Default for EscalationCriteria {
     }
 }
 
-// ---------------------------------------------------------------------------
-// EscalationState implementation
-// ---------------------------------------------------------------------------
 
 impl EscalationState {
     /// Create a new state starting at `SelfCorrection` (L0).
@@ -118,7 +109,6 @@ impl EscalationState {
     ///   threshold and, when exceeded, escalation to the next level is
     ///   recommended.
     pub fn evaluate(&self, criteria: &EscalationCriteria, succeeded: bool) -> EscalationDecision {
-        // Success at any level -> no escalation.
         if succeeded {
             return EscalationDecision {
                 should_escalate: false,
@@ -172,7 +162,6 @@ impl EscalationState {
                 }
             }
             EscalationLevel::User => {
-                // At L2 any failure (e.g. timeout) triggers L3.
                 EscalationDecision {
                     should_escalate: true,
                     target_level: EscalationLevel::External,
@@ -181,7 +170,6 @@ impl EscalationState {
                 }
             }
             EscalationLevel::External => {
-                // Terminal level — cannot escalate further.
                 EscalationDecision {
                     should_escalate: false,
                     target_level: EscalationLevel::External,
@@ -240,12 +228,10 @@ impl EscalationState {
     /// resolved back to L0, this returns success with an informational message
     /// rather than failing.
     pub fn cancel_escalation(&mut self, now: u64) -> anyhow::Result<String> {
-        // Race condition: already at L0 with no history of escalation — nothing to cancel.
         if self.current_level == EscalationLevel::SelfCorrection && self.total_escalations == 0 {
             anyhow::bail!("No active escalation to cancel");
         }
 
-        // Race condition: already resolved back to L0 — succeed gracefully.
         if self.current_level == EscalationLevel::SelfCorrection {
             return Ok("Escalation already resolved. You have control.".to_string());
         }
@@ -258,7 +244,6 @@ impl EscalationState {
             outcome: Some("cancelled_by_user".to_string()),
         });
 
-        // Reset to L0 — user takes over.
         self.current_level = EscalationLevel::SelfCorrection;
         self.attempts_at_level = 0;
 
@@ -269,9 +254,6 @@ impl EscalationState {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
 
 /// Build a human-readable escalation message appropriate for `level`.
 pub fn build_escalation_message(
@@ -308,9 +290,6 @@ pub fn build_escalation_message(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Audit entry helper (per D-06/TRNS-05)
-// ---------------------------------------------------------------------------
 
 /// Data produced by `escalation_audit_data` for the AgentEngine to persist and broadcast.
 #[derive(Debug, Clone)]
@@ -363,12 +342,9 @@ pub fn escalation_audit_data(
         "attempts": attempts,
     });
 
-    // generate_explanation for "escalation" returns NeedsLlm when factors > 2,
-    // Template otherwise. We need to import from the parent module.
     let summary = {
         let factors_count = causal_factors.len();
         if factors_count > 2 {
-            // NeedsLlm case — use fallback template
             format!(
                 "Escalating from {} to {}: {} ({} causal factors)",
                 from_label, to_label, reason, factors_count
@@ -392,9 +368,6 @@ pub fn escalation_audit_data(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 #[path = "tests/escalation.rs"]

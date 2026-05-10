@@ -1,3 +1,10 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 fn spawned_thread_navigation_task(
     id: &str,
     title: &str,
@@ -264,7 +271,9 @@ fn spawned_thread_navigation_enter_on_disabled_row_does_nothing() {
             .is_none()
         })
         .expect("disabled row should map to a spawned sidebar index");
-    model.sidebar.select(disabled_index, model.sidebar_item_count());
+    model
+        .sidebar
+        .select(disabled_index, model.sidebar_item_count());
 
     let handled = model.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
@@ -431,4 +440,3 @@ fn spawned_thread_navigation_ordinary_thread_switches_do_not_mutate_stack() {
         "direct thread selection should preserve existing spawned thread history"
     );
 }
-

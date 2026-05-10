@@ -1,3 +1,4 @@
+use super::*;
 #[derive(Default)]
 pub(crate) struct OperationRegistry {
     records: std::sync::Mutex<std::collections::HashMap<String, OperationRecord>>,
@@ -6,6 +7,19 @@ pub(crate) struct OperationRegistry {
 
 impl OperationRegistry {
     pub(crate) fn accept_operation(&self, kind: &str, dedup: Option<String>) -> OperationRecord {
+        self.accept_operation_with_dedup_status(kind, dedup).0
+    }
+
+    /// Same as `accept_operation` but also reports whether the returned record
+    /// is a newly-created operation (`true`) or an existing one that was
+    /// deduplicated (`false`). Callers that spawn background side-effects
+    /// should skip the spawn when this returns `false` — the prior spawn is
+    /// still running or pending.
+    pub(crate) fn accept_operation_with_dedup_status(
+        &self,
+        kind: &str,
+        dedup: Option<String>,
+    ) -> (OperationRecord, bool) {
         if let Some(existing) = dedup.as_ref().and_then(|dedup_key| {
             let dedup_index = self
                 .dedup_index
@@ -25,7 +39,7 @@ impl OperationRegistry {
                 }
             })
         }) {
-            return existing;
+            return (existing, false);
         }
 
         let record = OperationRecord {
@@ -55,7 +69,7 @@ impl OperationRegistry {
             dedup_index.insert(dedup_key, record.operation_id.clone());
         }
 
-        record
+        (record, true)
     }
 
     pub(crate) fn mark_started(&self, operation_id: &str) {
@@ -218,7 +232,10 @@ mod operation_registry_tests {
     #[test]
     fn terminal_operations_remain_queryable_but_release_dedup_slot() {
         let registry = OperationRegistry::default();
-        let first = registry.accept_operation(zorai_protocol::tool_names::PLUGIN_API_CALL, Some("plugin:dedup".to_string()));
+        let first = registry.accept_operation(
+            zorai_protocol::tool_names::PLUGIN_API_CALL,
+            Some("plugin:dedup".to_string()),
+        );
 
         registry.mark_completed(&first.operation_id);
 
@@ -230,7 +247,10 @@ mod operation_registry_tests {
             zorai_protocol::OperationLifecycleState::Completed
         );
 
-        let second = registry.accept_operation(zorai_protocol::tool_names::PLUGIN_API_CALL, Some("plugin:dedup".to_string()));
+        let second = registry.accept_operation(
+            zorai_protocol::tool_names::PLUGIN_API_CALL,
+            Some("plugin:dedup".to_string()),
+        );
         assert_ne!(first.operation_id, second.operation_id);
         assert_eq!(
             second.state,

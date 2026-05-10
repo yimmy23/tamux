@@ -21,6 +21,7 @@ pub struct TelegramProvider {
     pending_events: VecDeque<GatewayProviderEvent>,
     health: PlatformHealthState,
     rate_limiter: TokenBucket,
+    http_client: reqwest::Client,
 }
 
 impl TelegramProvider {
@@ -78,6 +79,7 @@ impl TelegramProvider {
             pending_events: VecDeque::new(),
             health: PlatformHealthState::new(),
             rate_limiter: TokenBucket::telegram(),
+            http_client: reqwest::Client::new(),
         }))
     }
 
@@ -91,7 +93,7 @@ impl TelegramProvider {
     }
 
     async fn request_json(&self, method: &str) -> Result<Value> {
-        reqwest::Client::new()
+        self.http_client
             .get(self.endpoint(method))
             .timeout(Duration::from_secs(5))
             .send()
@@ -103,7 +105,7 @@ impl TelegramProvider {
     }
 
     async fn send_payload(&self, payload: &Value) -> Result<Value> {
-        reqwest::Client::new()
+        self.http_client
             .post(self.endpoint("sendMessage"))
             .json(payload)
             .timeout(Duration::from_secs(5))
@@ -214,7 +216,8 @@ impl GatewayProvider for TelegramProvider {
                 self.update_offset
             );
             let outcome = async {
-                let body = reqwest::Client::new()
+                let body = self
+                    .http_client
                     .get(&url)
                     .timeout(Duration::from_secs(5))
                     .send()

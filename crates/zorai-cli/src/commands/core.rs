@@ -59,6 +59,13 @@ fn command_startup_action(
     command: &Commands,
     probe: setup_wizard::SetupProbe,
 ) -> DefaultStartupAction {
+    if matches!(
+        command,
+        Commands::Stop | Commands::Restart | Commands::Upgrade
+    ) {
+        return DefaultStartupAction::ShowHelp;
+    }
+
     match probe {
         setup_wizard::SetupProbe::DaemonUnavailable => DefaultStartupAction::StartDaemonAndRetry,
         setup_wizard::SetupProbe::NeedsSetup if !matches!(command, Commands::Setup) => {
@@ -979,6 +986,14 @@ mod tests {
         );
         assert_eq!(
             command_startup_action(&Commands::Setup, SetupProbe::NeedsSetup),
+            DefaultStartupAction::ShowHelp
+        );
+    }
+
+    #[test]
+    fn command_startup_does_not_start_daemon_for_upgrade() {
+        assert_eq!(
+            command_startup_action(&Commands::Upgrade, SetupProbe::DaemonUnavailable),
             DefaultStartupAction::ShowHelp
         );
     }

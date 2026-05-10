@@ -1,3 +1,21 @@
+use super::*;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::{
+    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
+    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
+    ThreadWorkContext,
+};
+use anyhow::Result;
+use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
+use serde_json::Value;
+use std::sync::Mutex;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio::time::{Instant, MissedTickBehavior};
+use tokio_util::codec::Framed;
+use tracing::{debug, error, info, warn};
+use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
 impl DaemonClient {
     pub fn request_agent_status(&self) -> Result<()> {
         self.send(ClientMessage::AgentStatusQuery)
@@ -203,6 +221,21 @@ impl DaemonClient {
         self.send(ClientMessage::AgentSetWorkspaceOperator {
             workspace_id,
             operator,
+        })
+    }
+
+    pub fn set_workspace_repo_monitor(
+        &self,
+        workspace_id: String,
+        repo_monitor_enabled: bool,
+        repo_monitor_include_dirs: Vec<String>,
+        repo_monitor_exclude_dirs: Vec<String>,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentSetWorkspaceRepoMonitor {
+            workspace_id,
+            repo_monitor_enabled,
+            repo_monitor_include_dirs,
+            repo_monitor_exclude_dirs,
         })
     }
 
@@ -495,5 +528,4 @@ impl DaemonClient {
             defer_until_unix_ms,
         })
     }
-
 }

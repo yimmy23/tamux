@@ -1,7 +1,21 @@
-fn render_markdown_segment(content: &str, width: usize) -> Vec<Line<'static>> {
+use super::markdown_table;
+use super::*;
+use crate::state::chat::{AgentMessage, MessageRole, TranscriptMode};
+use crate::theme::ThemeTokens;
+use crate::widgets::image_preview;
+use crate::widgets::message_operator_question::render_operator_question_message;
+use crate::widgets::tool_diff::{
+    render_tool_edit_diff, render_tool_structured_json, ToolStructuredValueSource,
+};
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use zorai_protocol::tool_names;
+pub(crate) fn render_markdown_segment(content: &str, width: usize) -> Vec<Line<'static>> {
     let normalized = normalize_markdown_for_tui(content);
     let md_text = tui_markdown::from_str(&normalized);
-    // Convert ratatui_core::Line to ratatui::Line via plain text + styles
     let mut result = Vec::new();
     for md_line in md_text.lines {
         let mut spans: Vec<Span<'static>> = Vec::new();
@@ -12,7 +26,6 @@ fn render_markdown_segment(content: &str, width: usize) -> Vec<Line<'static>> {
         result.push(Line::from(spans).style(convert_style(md_line.style)));
     }
     if result.is_empty() {
-        // Fallback to plain wrap
         wrap_text(content, width)
             .into_iter()
             .map(|s| Line::from(Span::raw(s)))
@@ -22,7 +35,7 @@ fn render_markdown_segment(content: &str, width: usize) -> Vec<Line<'static>> {
     }
 }
 
-fn convert_style(style: ratatui_core::style::Style) -> Style {
+pub(crate) fn convert_style(style: ratatui_core::style::Style) -> Style {
     let mut result = Style::default();
 
     if let Some(fg) = style.fg {
@@ -45,7 +58,7 @@ fn convert_style(style: ratatui_core::style::Style) -> Style {
     result
 }
 
-fn convert_modifier(modifier: ratatui_core::style::Modifier) -> Modifier {
+pub(crate) fn convert_modifier(modifier: ratatui_core::style::Modifier) -> Modifier {
     let mut result = Modifier::empty();
 
     if modifier.contains(ratatui_core::style::Modifier::BOLD) {
@@ -79,7 +92,7 @@ fn convert_modifier(modifier: ratatui_core::style::Modifier) -> Modifier {
     result
 }
 
-fn convert_color(c: ratatui_core::style::Color) -> Color {
+pub(crate) fn convert_color(c: ratatui_core::style::Color) -> Color {
     match c {
         ratatui_core::style::Color::Reset => Color::Reset,
         ratatui_core::style::Color::Black => Color::Black,
@@ -112,7 +125,9 @@ pub(crate) fn is_collapsible_system_notice_message(msg: &AgentMessage) -> bool {
 }
 
 pub(crate) fn collapsible_system_notice_label(msg: &AgentMessage) -> Option<&'static str> {
-    if is_meta_cognition_message(msg) {
+    if msg.message_kind == "compaction_artifact" {
+        Some("Auto compaction")
+    } else if is_meta_cognition_message(msg) {
         Some("🕵🏻‍♂️ Meta-cognition")
     } else if msg.role == MessageRole::System {
         background_operation_finished_label(&msg.content)
@@ -121,13 +136,39 @@ pub(crate) fn collapsible_system_notice_label(msg: &AgentMessage) -> Option<&'st
     }
 }
 
-fn is_meta_cognition_content(content: &str) -> bool {
+pub(crate) fn collapsible_system_notice_detail(msg: &AgentMessage) -> Option<String> {
+    collapsible_system_notice_label(msg)?;
+
+    if msg.message_kind == "compaction_artifact" {
+        Some(compaction_artifact_content(msg))
+    } else {
+        Some(msg.content.clone())
+    }
+}
+
+pub(crate) fn compaction_artifact_content(msg: &AgentMessage) -> String {
+    let visible_header = msg.content.trim();
+    let payload = msg
+        .compaction_payload
+        .as_deref()
+        .map(str::trim)
+        .filter(|payload| !payload.is_empty());
+
+    match payload {
+        Some(payload) if visible_header.is_empty() => payload.to_string(),
+        Some(payload) if visible_header.contains(payload) => visible_header.to_string(),
+        Some(payload) => format!("{visible_header}\n\nContent:\n{payload}"),
+        None => msg.content.clone(),
+    }
+}
+
+pub(crate) fn is_meta_cognition_content(content: &str) -> bool {
     content
         .trim_start()
         .starts_with("Meta-cognitive intervention")
 }
 
-fn background_operation_finished_label(content: &str) -> Option<&'static str> {
+pub(crate) fn background_operation_finished_label(content: &str) -> Option<&'static str> {
     let content = content.trim_start();
     if content.starts_with("Background operations finished.") {
         Some("🖥️ Background operations finished")
@@ -138,7 +179,7 @@ fn background_operation_finished_label(content: &str) -> Option<&'static str> {
     }
 }
 
-fn toggle_glyph(expanded: bool) -> &'static str {
+pub(crate) fn toggle_glyph(expanded: bool) -> &'static str {
     if expanded {
         "\u{25be}"
     } else {
@@ -147,7 +188,7 @@ fn toggle_glyph(expanded: bool) -> &'static str {
 }
 
 /// Convert a message into ratatui Lines (all owned/static)
-pub fn message_to_lines(
+pub(crate) fn message_to_lines(
     msg: &AgentMessage,
     msg_index: usize,
     mode: TranscriptMode,
@@ -183,7 +224,7 @@ pub fn message_to_lines(
     lines
 }
 
-fn render_compact(
+pub(crate) fn render_compact(
     msg: &AgentMessage,
     msg_index: usize,
     theme: &ThemeTokens,
@@ -195,36 +236,6 @@ fn render_compact(
     let content_width = width.max(1);
     let image_lines = inline_image_attachment_lines(msg, content_width, theme);
 
-    if msg.message_kind == "compaction_artifact" {
-        let compaction_content = {
-            let visible_header = msg.content.trim();
-            let payload = msg
-                .compaction_payload
-                .as_deref()
-                .map(str::trim)
-                .filter(|payload| !payload.is_empty());
-
-            match payload {
-                Some(payload) if visible_header.is_empty() => payload.to_string(),
-                Some(payload) if visible_header.contains(payload) => visible_header.to_string(),
-                Some(payload) => format!("{visible_header}\n\nContent:\n{payload}"),
-                None => msg.content.clone(),
-            }
-        };
-        lines.push(Line::from(Span::styled(
-            "---- auto compaction ----",
-            theme.fg_dim,
-        )));
-        for line in wrap_text(&compaction_content, content_width) {
-            lines.push(Line::from(Span::styled(line, theme.fg_active)));
-        }
-        lines.push(Line::from(Span::styled(
-            "------------------------",
-            theme.fg_dim,
-        )));
-        return;
-    }
-
     if let Some(operator_question_lines) =
         render_operator_question_message(msg, theme, content_width)
     {
@@ -232,7 +243,6 @@ fn render_compact(
         return;
     }
 
-    // TOOL messages: compact one-liner or expanded with args + result
     if msg.role == MessageRole::Tool {
         if let Some(name) = &msg.tool_name {
             let status = msg.tool_status.as_deref().unwrap_or("done");
@@ -256,7 +266,6 @@ fn render_compact(
             }
             lines.push(Line::from(header_spans));
 
-            // Expanded tool details
             if is_expanded {
                 let detail_indent = 4;
                 let detail_width = width.saturating_sub(detail_indent + 1);
@@ -265,7 +274,6 @@ fn render_compact(
                     render_weles_review_details(review, theme, detail_width, lines);
                 }
 
-                // Show arguments
                 if let Some(args) = &msg.tool_arguments {
                     if !args.is_empty() {
                         if let Some(diff_lines) =
@@ -301,7 +309,6 @@ fn render_compact(
                     }
                 }
 
-                // Show full result
                 let result_text = &msg.content;
                 if !result_text.is_empty() {
                     if let Some(structured_result) = render_tool_structured_json(
@@ -337,8 +344,33 @@ fn render_compact(
         return;
     }
 
+    if let Some(label) = collapsible_system_notice_label(msg) {
+        let is_expanded = expanded.contains(&msg_index);
+        lines.push(Line::from(vec![Span::styled(
+            format!("{} {label}", toggle_glyph(is_expanded)),
+            theme.meta_cognitive,
+        )]));
+
+        if is_expanded {
+            let detail_width = width.saturating_sub(2).max(1);
+            let dark_blue = Style::default().fg(Color::Indexed(24));
+            let detail = collapsible_system_notice_detail(msg).unwrap_or_default();
+            for detail_line in wrap_text(&detail, detail_width) {
+                lines.push(Line::from(vec![
+                    Span::styled("\u{2502}", dark_blue),
+                    Span::raw(" "),
+                    Span::styled(detail_line, theme.fg_dim),
+                ]));
+            }
+        }
+
+        if !image_lines.is_empty() {
+            lines.extend(image_lines);
+        }
+        return;
+    }
+
     let content = &msg.content;
-    // Skip truly empty non-assistant messages (no content, no reasoning)
     if content.is_empty() && image_lines.is_empty() && msg.role != MessageRole::Assistant {
         return;
     }
@@ -364,30 +396,6 @@ fn render_compact(
             .map(|s| Line::from(Span::styled(s, theme.fg_active)))
             .collect()
     };
-    if let Some(label) = collapsible_system_notice_label(msg) {
-        let is_expanded = expanded.contains(&msg_index);
-        lines.push(Line::from(vec![Span::styled(
-            format!("{} {label}", toggle_glyph(is_expanded)),
-            theme.meta_cognitive,
-        )]));
-
-        if is_expanded {
-            let detail_width = width.saturating_sub(2).max(1);
-            let dark_blue = Style::default().fg(Color::Indexed(24));
-            for detail_line in wrap_text(content, detail_width) {
-                lines.push(Line::from(vec![
-                    Span::styled("\u{2502}", dark_blue),
-                    Span::raw(" "),
-                    Span::styled(detail_line, theme.fg_dim),
-                ]));
-            }
-        }
-
-        if !image_lines.is_empty() {
-            lines.extend(image_lines);
-        }
-        return;
-    }
 
     let has_reasoning = msg.role == MessageRole::Assistant
         && msg
@@ -429,7 +437,7 @@ fn render_compact(
     }
 }
 
-fn inline_image_attachment_lines(
+pub(crate) fn inline_image_attachment_lines(
     msg: &AgentMessage,
     width: usize,
     theme: &ThemeTokens,
@@ -437,10 +445,10 @@ fn inline_image_attachment_lines(
     let Some(path) = crate::widgets::chat::message_image_preview_path(msg) else {
         return Vec::new();
     };
-    image_preview::render_image_preview_lines(&path, width, 12, theme)
+    crate::widgets::image_preview::render_image_preview_lines(&path, width, 12, theme)
 }
 
-fn render_tools_only(
+pub(crate) fn render_tools_only(
     msg: &AgentMessage,
     theme: &ThemeTokens,
     width: usize,
@@ -479,7 +487,7 @@ fn render_tools_only(
     }
 }
 
-fn render_full(
+pub(crate) fn render_full(
     msg: &AgentMessage,
     msg_index: usize,
     theme: &ThemeTokens,
@@ -488,7 +496,6 @@ fn render_full(
     expanded_tools: &ExpandedTools,
     lines: &mut Vec<Line<'static>>,
 ) {
-    // Full mode: always expand reasoning and tools
     let mut full_expanded = expanded.clone();
     full_expanded.insert(msg_index);
     let mut full_tools = expanded_tools.clone();
@@ -504,7 +511,7 @@ fn render_full(
     );
 }
 
-fn format_tool_status(status: &str, theme: &ThemeTokens) -> (&'static str, Style) {
+pub(crate) fn format_tool_status(status: &str, theme: &ThemeTokens) -> (&'static str, Style) {
     match status {
         "completed" | "done" | "success" => ("\u{2713} done", theme.accent_success),
         "error" | "failed" => ("\u{2717} error", theme.accent_danger),

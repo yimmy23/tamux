@@ -1,4 +1,5 @@
-fn anthropic_messages_url(base_url: &str) -> String {
+use super::*;
+pub(crate) fn anthropic_messages_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     if base.ends_with("/v1") {
         format!("{}/messages", base)
@@ -42,7 +43,7 @@ fn redacted_header_value(name: &str, value: &reqwest::header::HeaderValue) -> St
             .unwrap_or_else(|_| "<binary>".to_string()),
     }
 }
-fn anthropic_request_fingerprint(request: &reqwest::Request) -> String {
+pub(crate) fn anthropic_request_fingerprint(request: &reqwest::Request) -> String {
     let mut header_lines: Vec<String> = request
         .headers()
         .iter()
@@ -55,7 +56,10 @@ fn anthropic_request_fingerprint(request: &reqwest::Request) -> String {
         })
         .collect();
     header_lines.sort();
-    let body_bytes = request.body().and_then(|body| body.as_bytes()).unwrap_or(&[]);
+    let body_bytes = request
+        .body()
+        .and_then(|body| body.as_bytes())
+        .unwrap_or(&[]);
     let canonical = format!(
         "method={}\nurl={}\nversion={:?}\nheaders={}\nbody_sha256={}\nbody_len={}",
         request.method(),
@@ -67,7 +71,7 @@ fn anthropic_request_fingerprint(request: &reqwest::Request) -> String {
     );
     short_sha256_hex(canonical.as_bytes())
 }
-fn build_anthropic_request(
+pub(crate) fn build_anthropic_request(
     client: &reqwest::Client,
     provider: &str,
     config: &ProviderConfig,
@@ -85,7 +89,7 @@ fn build_anthropic_request(
     build_anthropic_post_request(client, provider, config, &url, body, force_connection_close)
 }
 
-fn build_anthropic_base_body(
+pub(crate) fn build_anthropic_base_body(
     provider: &str,
     config: &ProviderConfig,
     system_prompt: &str,
@@ -201,7 +205,7 @@ fn build_anthropic_count_tokens_request(
     build_anthropic_post_request(client, provider, config, &url, body, false)
 }
 
-async fn run_anthropic(
+pub(crate) async fn run_anthropic(
     client: &reqwest::Client,
     provider: &str,
     attempt: u32,
@@ -212,21 +216,21 @@ async fn run_anthropic(
     force_connection_close: bool,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
-    let client = if force_connection_close || provider_requires_fresh_anthropic_connection(provider) {
+    let client = if force_connection_close || provider_requires_fresh_anthropic_connection(provider)
+    {
         build_fresh_anthropic_http_client()?
     } else {
         client.clone()
     };
-    let request =
-        build_anthropic_request(
-            &client,
-            provider,
-            config,
-            system_prompt,
-            messages,
-            tools,
-            force_connection_close,
-        )?;
+    let request = build_anthropic_request(
+        &client,
+        provider,
+        config,
+        system_prompt,
+        messages,
+        tools,
+        force_connection_close,
+    )?;
     let request_fingerprint = anthropic_request_fingerprint(&request);
     tracing::info!(
         provider = %provider,
@@ -287,7 +291,7 @@ async fn run_anthropic(
     parse_anthropic_sse(response, request_id, tx).await
 }
 
-async fn count_anthropic_tokens(
+pub(crate) async fn count_anthropic_tokens(
     client: &reqwest::Client,
     provider: &str,
     config: &ProviderConfig,
@@ -332,7 +336,7 @@ async fn count_anthropic_tokens(
     serde_json::from_value(parsed).context("decode Anthropic count_tokens response")
 }
 
-async fn parse_anthropic_sse(
+pub(crate) async fn parse_anthropic_sse(
     response: reqwest::Response,
     request_id: Option<String>,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
@@ -343,10 +347,13 @@ async fn parse_anthropic_sse(
     let mut buffer = String::new();
     let mut total_content = String::new();
     let mut total_reasoning = String::new();
-    let mut usage = AnthropicStreamUsage::default(); let mut stop_metadata = AnthropicStreamStopMetadata::default();
-    let mut message_start = AnthropicStreamMessageStart::default(); let mut upstream_message = AnthropicStreamUpstreamMessage::default();
+    let mut usage = AnthropicStreamUsage::default();
+    let mut stop_metadata = AnthropicStreamStopMetadata::default();
+    let mut message_start = AnthropicStreamMessageStart::default();
+    let mut upstream_message = AnthropicStreamUpstreamMessage::default();
     let mut pending_tool_calls: Vec<PendingToolCall> = Vec::new();
-    let mut current_tool_input = String::new(); let mut in_thinking_block = false;
+    let mut current_tool_input = String::new();
+    let mut in_thinking_block = false;
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.context("failed to read Anthropic SSE chunk")?;
@@ -420,7 +427,6 @@ async fn parse_anthropic_sse(
 
                     if delta_type == "text_delta" {
                         if in_thinking_block {
-                            // Thinking block text delivered as text_delta
                             let text = parsed
                                 .pointer("/delta/text")
                                 .and_then(|v| v.as_str())
@@ -450,7 +456,6 @@ async fn parse_anthropic_sse(
                             }
                         }
                     } else if delta_type == "thinking_delta" {
-                        // Anthropic extended thinking delta
                         let thinking = parsed
                             .pointer("/delta/thinking")
                             .and_then(|v| v.as_str())
@@ -473,7 +478,8 @@ async fn parse_anthropic_sse(
                     }
                 }
                 "content_block_stop" => {
-                    upstream_message.finish_content_block(); if let Some(tc) = pending_tool_calls.last_mut() {
+                    upstream_message.finish_content_block();
+                    if let Some(tc) = pending_tool_calls.last_mut() {
                         if tc.arguments.is_empty() && !current_tool_input.is_empty() {
                             tc.arguments = current_tool_input.clone();
                             current_tool_input.clear();
@@ -504,7 +510,8 @@ async fn parse_anthropic_sse(
                     return Ok(());
                 }
                 "message_stop" => {
-                    let final_reasoning = (!total_reasoning.is_empty()).then_some(total_reasoning.clone());
+                    let final_reasoning =
+                        (!total_reasoning.is_empty()).then_some(total_reasoning.clone());
                     let final_upstream_message = upstream_message.build(&stop_metadata);
                     if !pending_tool_calls.is_empty() {
                         let tool_calls: Vec<ToolCall> = pending_tool_calls
@@ -589,12 +596,18 @@ async fn parse_anthropic_sse(
             cache_creation_input_tokens: usage.cache_creation_input_tokens,
             cache_read_input_tokens: usage.cache_read_input_tokens,
             server_tool_use: usage.server_tool_use,
-            response_id: message_start.response_id, request_id, upstream_model: message_start.upstream_model,
-            upstream_role: message_start.upstream_role, upstream_message_type: message_start.upstream_message_type, upstream_container: message_start.upstream_container, upstream_message: final_upstream_message.clone(), provider_final_result: final_upstream_message.map(crate::agent::types::CompletionProviderFinalResult::AnthropicMessage),
+            response_id: message_start.response_id,
+            request_id,
+            upstream_model: message_start.upstream_model,
+            upstream_role: message_start.upstream_role,
+            upstream_message_type: message_start.upstream_message_type,
+            upstream_container: message_start.upstream_container,
+            upstream_message: final_upstream_message.clone(),
+            provider_final_result: final_upstream_message
+                .map(crate::agent::types::CompletionProviderFinalResult::AnthropicMessage),
             upstream_thread_id: None,
         }))
         .await;
 
     Ok(())
 }
-

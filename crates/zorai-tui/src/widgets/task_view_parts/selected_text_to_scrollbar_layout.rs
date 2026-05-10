@@ -1,4 +1,19 @@
-pub fn selected_text(
+use super::sections;
+use super::sections::*;
+use super::selection;
+use super::selection::*;
+use super::*;
+use crate::state::sidebar::{SidebarItemTarget, SidebarTab};
+use crate::state::task::*;
+use crate::theme::ThemeTokens;
+use crate::widgets::chat::SelectionPoint;
+use crate::widgets::duration_format::format_duration_ms;
+use ratatui::layout::{Position, Rect};
+use ratatui::prelude::*;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+pub(crate) fn selected_text(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -56,7 +71,7 @@ pub fn selected_text(
     }
 }
 
-pub fn render(
+pub(crate) fn render(
     frame: &mut Frame,
     area: Rect,
     tasks: &TaskState,
@@ -76,27 +91,30 @@ pub fn render(
         return;
     }
 
-    if let Some(layout) = scrollbar_layout(
-        area,
+    // Single-pass row build. The previous structure called `rows_for_width`
+    // up to three times per frame: scrollbar_layout did it twice (full
+    // width + content width), then the render path called it again. With
+    // an active goal-run forcing fast-tick redraws, that meant 15+ row-
+    // tree rebuilds per second — the user-visible 2× CPU + delayed input.
+    //
+    // Strategy: compute rows ONCE at content_width (inner.width minus the
+    // scrollbar gutter). Wrapping at the narrower width gives ≥ rows than
+    // at inner.width, so "fits at content_width" implies "fits at full
+    // width" — safe to use this for both the scrollbar-needed decision
+    // and the actual render. Worst case: 1 call (was 3).
+    let content_width = inner.width.saturating_sub(SCROLLBAR_WIDTH).max(1) as usize;
+    let mut lines = rows_for_width(
         tasks,
         target,
         theme,
-        scroll,
+        content_width,
         show_live_todos,
         show_timeline,
         show_files,
-    ) {
-        let lines = rows_for_width(
-            tasks,
-            target,
-            theme,
-            layout.content.width as usize,
-            show_live_todos,
-            show_timeline,
-            show_files,
-            Some(current_tick),
-        );
-        let mut lines = lines;
+        Some(current_tick),
+    );
+
+    if let Some(layout) = scrollbar_layout_from_metrics(inner, lines.len(), scroll) {
         if let Some((start, end)) = mouse_selection {
             let (start_point, end_point) =
                 if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
@@ -143,17 +161,10 @@ pub fn render(
         return;
     }
 
-    let lines = rows_for_width(
-        tasks,
-        target,
-        theme,
-        inner.width as usize,
-        show_live_todos,
-        show_timeline,
-        show_files,
-        Some(current_tick),
-    );
-    let mut lines = lines;
+    // No scrollbar needed: render the same content_width-wrapped rows
+    // directly across `inner` (the small visual gap on the right where
+    // the scrollbar would be is invisible — empty space — and saves
+    // a second row-build pass).
     if let Some((start, end)) = mouse_selection {
         let (start_point, end_point) =
             if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
@@ -185,7 +196,7 @@ pub fn render(
     frame.render_widget(paragraph, inner);
 }
 
-pub fn max_scroll(
+pub(crate) fn max_scroll(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -225,7 +236,7 @@ pub fn max_scroll(
     })
 }
 
-pub fn scrollbar_layout(
+pub(crate) fn scrollbar_layout(
     area: Rect,
     tasks: &TaskState,
     target: &SidebarItemTarget,
@@ -267,4 +278,3 @@ pub fn scrollbar_layout(
     );
     scrollbar_layout_from_metrics(inner, rows.len(), scroll)
 }
-

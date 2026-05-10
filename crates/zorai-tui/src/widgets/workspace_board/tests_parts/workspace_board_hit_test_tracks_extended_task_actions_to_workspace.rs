@@ -1,3 +1,10 @@
+use super::super::*;
+use super::workspace_board_hit_test_tracks::*;
+use crate::state::workspace::WorkspaceState;
+use ratatui::backend::TestBackend;
+use ratatui::layout::{Position, Rect};
+use zorai_protocol::WorkspaceTaskStatus;
+
 #[test]
 fn workspace_board_hit_test_tracks_extended_task_actions() {
     let state = workspace_with_assigned_task();

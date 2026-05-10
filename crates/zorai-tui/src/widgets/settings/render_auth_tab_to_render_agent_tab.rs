@@ -1,4 +1,26 @@
-fn render_auth_tab<'a>(
+use super::render_about_tab::*;
+use super::render_advanced_value_to_render_advanced_tab::*;
+use super::render_chat_tab_to_render_honcho_editor_actions::*;
+use super::render_concierge_tab_to_render_feature_toggle_line::*;
+use super::render_features_tab::*;
+use super::render_gateway_text_field::*;
+use super::render_plugins_tab_to_connector_readiness_style::*;
+use super::render_provider_tab_to_render_tools_tab::*;
+use super::render_websearch_tab::*;
+use super::*;
+use crate::providers;
+use crate::state::concierge::ConciergeState;
+use crate::state::config::ConfigState;
+use crate::state::modal::{ModalState, WhatsAppLinkPhase};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use zorai_protocol::has_whatsapp_allowed_contacts;
+pub(crate) fn render_auth_tab<'a>(
     content_width: u16,
     auth: &'a crate::state::auth::AuthState,
     config: &'a ConfigState,
@@ -164,7 +186,7 @@ fn render_auth_tab<'a>(
     lines
 }
 
-fn render_agent_tab<'a>(
+pub(crate) fn render_agent_tab<'a>(
     settings: &'a SettingsState,
     config: &'a ConfigState,
     theme: &ThemeTokens,
@@ -196,7 +218,6 @@ fn render_agent_tab<'a>(
         String::new()
     };
 
-    // (field_index, label, value, field_name, hint)
     let editable_fields: [(usize, &str, String, &str, &str); 1] = [(
         8,
         "System Prompt ",
@@ -215,14 +236,12 @@ fn render_agent_tab<'a>(
             theme.fg_dim
         };
 
-        // System prompt: textarea mode when editing
         if *field_name == "system_prompt" && is_editing && settings.is_textarea() {
             lines.push(Line::from(vec![
                 Span::styled(marker, marker_style),
                 Span::styled(*label, theme.fg_dim),
                 Span::styled(" [Ctrl+S/Ctrl+Enter: save, Esc: cancel]", theme.fg_dim),
             ]));
-            // Render the edit buffer as a multi-line textarea with border
             lines.push(Line::from(Span::styled(
                 "  ╭──────────────────────────────────────────╮",
                 theme.fg_dim,
@@ -244,12 +263,10 @@ fn render_agent_tab<'a>(
             continue;
         }
 
-        // System prompt: show truncated preview when NOT editing
         if *field_name == "system_prompt" && !is_editing {
             let preview = if value.is_empty() {
                 "(not set)".to_string()
             } else {
-                // Show first 2 lines, truncated
                 let first_lines: Vec<&str> = value.lines().take(2).collect();
                 let preview = first_lines.join(" ");
                 if preview.chars().count() > 45 {
@@ -311,7 +328,6 @@ fn render_agent_tab<'a>(
         lines.push(Line::from(spans));
     }
 
-    // Field 9: backend (read-only)
     {
         let is_selected = settings.field_cursor() == 9;
         let marker = if is_selected { "> " } else { "  " };

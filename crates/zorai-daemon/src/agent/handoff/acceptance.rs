@@ -27,8 +27,6 @@ impl AcceptanceCriteria {
     pub fn validate_structural(&self, output: &str) -> ValidationResult {
         let mut failures = Vec::new();
 
-        // Always check that output is non-empty if there are no explicit checks
-        // but only add failure if output is actually empty
         let is_empty = output.trim().is_empty();
 
         for check in &self.structural_checks {
@@ -160,10 +158,8 @@ mod tests {
     #[test]
     fn test_multiple_checks_all_must_pass() {
         let criteria = make_criteria(vec!["non_empty", "min_length:10", "contains:ok"], false);
-        // Short and missing "ok"
         let result = criteria.validate_structural("hi");
         assert!(!result.passed);
-        // Should have 2 failures: min_length and contains
         assert_eq!(result.failures.len(), 2);
     }
 

@@ -133,6 +133,72 @@ fn stale_goal_step_task_reason(goal_run: &GoalRun, task: &AgentTask) -> Option<S
 }
 
 impl AgentEngine {
+    async fn task_by_id_for_goal_progress(&self, task_id: &str) -> Option<AgentTask> {
+        self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
+        .await
+        .into_iter()
+        .next()
+    }
+
+    async fn update_goal_completion_marker_task<F>(
+        &self,
+        task_id: &str,
+        missing_message: &str,
+        mut apply: F,
+    ) -> Result<(AgentTask, bool)>
+    where
+        F: FnMut(&mut AgentTask),
+    {
+        let mut updated_live_task = false;
+        let mut updated_task = {
+            let mut tasks = self.tasks.lock().await;
+            tasks
+                .iter_mut()
+                .find(|entry| entry.id == task_id)
+                .map(|task| {
+                    apply(task);
+                    updated_live_task = true;
+                    task.clone()
+                })
+        };
+
+        if updated_task.is_none() {
+            let Some(mut task) = self.task_by_id_for_goal_progress(task_id).await else {
+                anyhow::bail!("{missing_message}");
+            };
+            apply(&mut task);
+            self.history.upsert_agent_task(&task).await?;
+            {
+                let mut tasks = self.tasks.lock().await;
+                if !tasks.iter().any(|entry| entry.id == task.id) {
+                    tasks.push_back(task.clone());
+                }
+            }
+            updated_task = Some(task);
+        }
+
+        Ok((
+            updated_task.expect("updated task should exist after live or persisted lookup"),
+            updated_live_task,
+        ))
+    }
+
     async fn load_goal_step_review_record(
         &self,
         task_id: &str,
@@ -347,32 +413,33 @@ impl AgentEngine {
         let detail = completion_marker_detail(context, reminder_number, todos_completed);
         let reminder_prompt = completion_marker_prompt(context);
 
-        let updated_task = {
-            let mut tasks = self.tasks.lock().await;
-            let Some(current) = tasks.iter_mut().find(|entry| entry.id == task.id) else {
-                anyhow::bail!("goal step task disappeared during completion marker retry");
-            };
-            current.status = TaskStatus::Queued;
-            current.progress = current.progress.max(95);
-            current.started_at = None;
-            current.completed_at = None;
-            current.awaiting_approval_id = None;
-            current.blocked_reason = Some(detail.clone());
-            current.description = reminder_prompt;
-            current.error = None;
-            current.last_error = None;
-            current.logs.push(make_task_log_entry(
-                current.retry_count,
-                TaskLogLevel::Warn,
-                "completion_marker",
-                &format!(
+        let (updated_task, updated_live_task) = self
+            .update_goal_completion_marker_task(
+                &task.id,
+                "goal step task disappeared during completion marker retry",
+                |current| {
+                    current.status = TaskStatus::Queued;
+                    current.progress = current.progress.max(95);
+                    current.started_at = None;
+                    current.completed_at = None;
+                    current.awaiting_approval_id = None;
+                    current.blocked_reason = Some(detail.clone());
+                    current.description = reminder_prompt.clone();
+                    current.error = None;
+                    current.last_error = None;
+                    current.logs.push(make_task_log_entry(
+                        current.retry_count,
+                        TaskLogLevel::Warn,
+                        "completion_marker",
+                        &format!(
                     "required completion marker missing; retry {reminder_number} of {} queued",
                     GOAL_COMPLETION_MARKER_REMINDER_LIMIT
                 ),
-                Some(detail.clone()),
-            ));
-            current.clone()
-        };
+                        Some(detail.clone()),
+                    ));
+                },
+            )
+            .await?;
 
         let updated_goal = {
             let mut goal_runs = self.goal_runs.lock().await;
@@ -393,7 +460,9 @@ impl AgentEngine {
             goal_run.clone()
         };
 
-        self.persist_tasks().await;
+        if updated_live_task {
+            self.persist_tasks().await;
+        }
         self.persist_goal_runs().await;
         self.emit_task_update(
             &updated_task,
@@ -425,26 +494,27 @@ impl AgentEngine {
             context.absolute_path.display(),
         );
 
-        let updated_task = {
-            let mut tasks = self.tasks.lock().await;
-            let Some(current) = tasks.iter_mut().find(|entry| entry.id == task.id) else {
-                anyhow::bail!("goal step task disappeared before approval gating");
-            };
-            current.status = TaskStatus::AwaitingApproval;
-            current.progress = current.progress.max(95);
-            current.started_at = None;
-            current.completed_at = None;
-            current.awaiting_approval_id = Some(approval_id.clone());
-            current.blocked_reason = Some(detail.clone());
-            current.logs.push(make_task_log_entry(
-                current.retry_count,
-                TaskLogLevel::Warn,
-                "completion_marker",
-                "required completion marker missing; human approval required",
-                Some(detail.clone()),
-            ));
-            current.clone()
-        };
+        let (updated_task, updated_live_task) = self
+            .update_goal_completion_marker_task(
+                &task.id,
+                "goal step task disappeared before approval gating",
+                |current| {
+                    current.status = TaskStatus::AwaitingApproval;
+                    current.progress = current.progress.max(95);
+                    current.started_at = None;
+                    current.completed_at = None;
+                    current.awaiting_approval_id = Some(approval_id.clone());
+                    current.blocked_reason = Some(detail.clone());
+                    current.logs.push(make_task_log_entry(
+                        current.retry_count,
+                        TaskLogLevel::Warn,
+                        "completion_marker",
+                        "required completion marker missing; human approval required",
+                        Some(detail.clone()),
+                    ));
+                },
+            )
+            .await?;
 
         let updated_goal = {
             let mut goal_runs = self.goal_runs.lock().await;
@@ -463,7 +533,9 @@ impl AgentEngine {
             goal_run.clone()
         };
 
-        self.persist_tasks().await;
+        if updated_live_task {
+            self.persist_tasks().await;
+        }
         self.persist_goal_runs().await;
         self.emit_task_update(&updated_task, Some("Task awaiting approval".into()));
         self.emit_goal_run_update(

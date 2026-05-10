@@ -95,9 +95,8 @@ pub async fn enforce_retention(
     history: &HistoryStore,
     config: &SnapshotRetentionConfig,
 ) -> Result<Vec<String>> {
-    let mut entries = history.list_snapshot_index(None).await?;
+    let mut entries = history.list_snapshot_index_ordered(None, true).await?;
     let mut removed = Vec::new();
-    entries.sort_by_key(|e| e.created_at);
 
     while entries.len() > config.max_snapshots {
         if let Some(old) = entries.first() {
@@ -135,8 +134,7 @@ pub async fn enforce_retention(
 }
 
 pub async fn get_snapshot_stats(history: &HistoryStore) -> Result<SnapshotStats> {
-    let mut entries = history.list_snapshot_index(None).await?;
-    entries.sort_by_key(|e| e.created_at);
+    let entries = history.list_snapshot_index_ordered(None, true).await?;
 
     let total_size: u64 = entries
         .iter()
@@ -277,6 +275,18 @@ impl SnapshotStore {
 
     pub async fn list(&self, workspace_id: Option<&str>) -> Result<Vec<SnapshotInfo>> {
         let entries = self.history.list_snapshot_index(workspace_id).await?;
+        Ok(entries.into_iter().map(decode_snapshot).collect())
+    }
+
+    pub async fn list_limited(
+        &self,
+        workspace_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<SnapshotInfo>> {
+        let entries = self
+            .history
+            .list_snapshot_index_ordered_limited(workspace_id, false, Some(limit))
+            .await?;
         Ok(entries.into_iter().map(decode_snapshot).collect())
     }
 

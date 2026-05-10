@@ -3,9 +3,9 @@ use regex::Regex;
 use std::path::Path;
 use std::sync::LazyLock;
 
-pub const MAX_MANIFEST_SIZE: usize = 100 * 1024; // 100KB per D-10
-pub const MAX_ENDPOINTS: usize = 50; // per D-10
-pub const MAX_SETTINGS: usize = 30; // per D-10
+pub const MAX_MANIFEST_SIZE: usize = 100 * 1024;
+pub const MAX_ENDPOINTS: usize = 50;
+pub const MAX_SETTINGS: usize = 30;
 
 /// Plugin name validation regex: lowercase alphanumeric with dots, hyphens, underscores.
 static NAME_PATTERN: LazyLock<Regex> =
@@ -25,7 +25,6 @@ pub fn validate_plugin_name(name: &str) -> Result<String> {
     }
 
     if let Some(rest) = name.strip_prefix('@') {
-        // Scoped name: @scope/short-name
         let parts: Vec<&str> = rest.splitn(2, '/').collect();
         if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
             return Err(anyhow!("invalid scoped plugin name: '{}'", name));
@@ -62,7 +61,6 @@ pub fn validate_manifest(
     raw_bytes: &[u8],
     validator: &jsonschema::Validator,
 ) -> Result<(super::manifest::PluginManifest, String)> {
-    // Phase 1: Size gate
     if raw_bytes.len() > MAX_MANIFEST_SIZE {
         return Err(anyhow!(
             "manifest exceeds 100KB limit ({} bytes)",
@@ -70,7 +68,6 @@ pub fn validate_manifest(
         ));
     }
 
-    // Phase 2: JSON Schema validation
     let value: serde_json::Value =
         serde_json::from_slice(raw_bytes).map_err(|e| anyhow!("invalid JSON: {e}"))?;
     let errors: Vec<_> = validator.iter_errors(&value).collect();
@@ -82,10 +79,8 @@ pub fn validate_manifest(
         return Err(anyhow!("manifest validation failed:\n{}", msgs.join("\n")));
     }
 
-    // Deserialize into typed struct
     let manifest: super::manifest::PluginManifest = serde_json::from_value(value)?;
 
-    // Phase 3: Structural limits
     let endpoint_count = manifest
         .api
         .as_ref()
@@ -108,7 +103,6 @@ pub fn validate_manifest(
         ));
     }
 
-    // Validate plugin name
     validate_plugin_name(&manifest.name)?;
     validate_python_sections(&manifest)?;
 
@@ -161,7 +155,7 @@ fn validate_python_source(source: Option<&str>, field_name: &str) -> Result<()> 
 /// Result of scanning the plugins directory.
 pub struct ScanResult {
     pub loaded: Vec<LoadedPlugin>,
-    pub skipped: Vec<(String, String)>, // (dir_name, error_message)
+    pub skipped: Vec<(String, String)>,
 }
 
 /// A plugin successfully loaded from disk.

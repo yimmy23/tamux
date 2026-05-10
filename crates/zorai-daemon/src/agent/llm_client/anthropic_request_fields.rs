@@ -1,6 +1,7 @@
+use super::*;
 use crate::agent::types::AnthropicCacheControlEphemeral;
 
-fn apply_anthropic_optional_request_fields(
+pub(crate) fn apply_anthropic_optional_request_fields(
     body: &mut serde_json::Value,
     config: &ProviderConfig,
 ) {
@@ -42,14 +43,14 @@ fn apply_anthropic_optional_request_fields(
     body["cache_control"] = serde_json::json!(cache_control);
 }
 
-fn anthropic_tool_choice_json(config: &ProviderConfig) -> Option<serde_json::Value> {
+pub(crate) fn anthropic_tool_choice_json(config: &ProviderConfig) -> Option<serde_json::Value> {
     config
         .anthropic_tool_choice
         .as_ref()
         .map(|choice| serde_json::json!(choice))
 }
 
-fn anthropic_request_id(headers: &reqwest::header::HeaderMap) -> Option<String> {
+pub(crate) fn anthropic_request_id(headers: &reqwest::header::HeaderMap) -> Option<String> {
     headers
         .get("request-id")
         .and_then(|value| value.to_str().ok())

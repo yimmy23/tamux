@@ -1,4 +1,26 @@
-fn render_plugins_tab<'a>(
+use super::render_about_tab::*;
+use super::render_advanced_value_to_render_advanced_tab::*;
+use super::render_auth_tab_to_render_agent_tab::*;
+use super::render_chat_tab_to_render_honcho_editor_actions::*;
+use super::render_concierge_tab_to_render_feature_toggle_line::*;
+use super::render_features_tab::*;
+use super::render_gateway_text_field::*;
+use super::render_provider_tab_to_render_tools_tab::*;
+use super::render_websearch_tab::*;
+use super::*;
+use crate::providers;
+use crate::state::concierge::ConciergeState;
+use crate::state::config::ConfigState;
+use crate::state::modal::{ModalState, WhatsAppLinkPhase};
+use crate::state::settings::{PluginListItem, PluginSettingsState, SettingsState, SettingsTab};
+use crate::state::subagents::SubAgentsState;
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use zorai_protocol::has_whatsapp_allowed_contacts;
+pub(crate) fn render_plugins_tab<'a>(
     settings: &'a SettingsState,
     plugin_state: &PluginSettingsState,
     _content_width: u16,
@@ -7,7 +29,6 @@ fn render_plugins_tab<'a>(
     let mut lines = Vec::new();
 
     if plugin_state.list_mode {
-        // ── List mode ──────────────────────────────────────────────
         lines.push(Line::raw(""));
         lines.push(Line::from(Span::styled("  Plugins", theme.fg_active)));
         lines.push(Line::from(Span::styled(
@@ -70,7 +91,6 @@ fn render_plugins_tab<'a>(
             ]));
         }
     } else {
-        // ── Detail mode ────────────────────────────────────────────
         let Some(plugin) = plugin_state.selected_plugin() else {
             lines.push(Line::from(Span::styled(
                 "  No plugin selected.",
@@ -129,10 +149,7 @@ fn render_plugins_tab<'a>(
             }
             if !plugin.workflow_primitives.is_empty() {
                 lines.push(Line::from(Span::styled(
-                    format!(
-                        "  Primitives: {}",
-                        plugin.workflow_primitives.join(", ")
-                    ),
+                    format!("  Primitives: {}", plugin.workflow_primitives.join(", ")),
                     theme.fg_dim,
                 )));
             }
@@ -151,7 +168,6 @@ fn render_plugins_tab<'a>(
             lines.push(Line::raw(""));
         }
 
-        // Settings fields
         for (i, field) in plugin_state.schema_fields.iter().enumerate() {
             let is_active = !plugin_state.list_mode && i == plugin_state.detail_cursor;
             let marker = if is_active { "> " } else { "  " };
@@ -203,7 +219,6 @@ fn render_plugins_tab<'a>(
             ]));
         }
 
-        // Action buttons
         let action_offset = plugin_state.schema_fields.len();
         if plugin.has_api {
             let btn_idx = action_offset;
@@ -226,7 +241,6 @@ fn render_plugins_tab<'a>(
                     },
                 ),
             ]));
-            // Show test result if available
             if let Some((success, ref msg)) = plugin_state.test_result {
                 let result_style = if success {
                     Style::default().fg(Color::Green)
@@ -270,7 +284,7 @@ fn render_plugins_tab<'a>(
     lines
 }
 
-fn mask_api_key(key: &str) -> String {
+pub(crate) fn mask_api_key(key: &str) -> String {
     if key.is_empty() {
         return "(not set)".to_string();
     }
@@ -287,7 +301,7 @@ fn mask_api_key(key: &str) -> String {
     )
 }
 
-fn connector_readiness_label(plugin: &PluginListItem) -> String {
+pub(crate) fn connector_readiness_label(plugin: &PluginListItem) -> String {
     match plugin.readiness_state.as_str() {
         "ready" => "Ready".to_string(),
         "needs_setup" => "Setup".to_string(),
@@ -306,7 +320,7 @@ fn connector_readiness_label(plugin: &PluginListItem) -> String {
     }
 }
 
-fn connector_readiness_style(plugin: &PluginListItem, theme: &ThemeTokens) -> Style {
+pub(crate) fn connector_readiness_style(plugin: &PluginListItem, theme: &ThemeTokens) -> Style {
     match plugin.readiness_state.as_str() {
         "ready" => Style::default().fg(Color::Green),
         "degraded" => Style::default().fg(Color::Yellow),

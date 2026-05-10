@@ -20,6 +20,19 @@ impl AgentEngine {
                 .any(|id| id == thread_id)
     }
 
+    fn goal_run_status_message_for_status(status: GoalRunStatus) -> &'static str {
+        match status {
+            GoalRunStatus::Queued => "Goal queued",
+            GoalRunStatus::Planning => "Goal planning",
+            GoalRunStatus::Running => "Goal running",
+            GoalRunStatus::AwaitingApproval => "Goal awaiting approval",
+            GoalRunStatus::Paused => "Goal paused",
+            GoalRunStatus::Completed => "Goal completed",
+            GoalRunStatus::Failed => "Goal failed",
+            GoalRunStatus::Cancelled => "Goal cancelled",
+        }
+    }
+
     fn extract_gateway_approval_id_from_message(content: &str) -> Option<String> {
         let (_, remainder) = content.split_once("Approval ID:")?;
         remainder
@@ -141,16 +154,28 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<String> {
+        match self
+            .history
+            .latest_agent_task_approval_id_for_thread(thread_id)
+            .await
+        {
+            Ok(Some(approval_id)) => return Some(approval_id),
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "gateway: failed to query pending task approval id"
+                );
+            }
+        }
+
         {
             let tasks = self.tasks.lock().await;
             if let Some(approval_id) = tasks
                 .iter()
-                .rev()
-                .find(|task| {
-                    task.thread_id.as_deref() == Some(thread_id)
-                        && task.awaiting_approval_id.is_some()
-                })
-                .and_then(|task| task.awaiting_approval_id.clone())
+                .filter(|task| task.thread_id.as_deref() == Some(thread_id))
+                .find_map(|task| task.awaiting_approval_id.clone())
             {
                 return Some(approval_id);
             }
@@ -167,21 +192,35 @@ impl AgentEngine {
             return Some(approval_id);
         }
 
-        let approval_ids = {
-            let threads = self.threads.read().await;
-            threads
-                .get(thread_id)
-                .map(|thread| {
-                    thread
-                        .messages
-                        .iter()
-                        .rev()
-                        .filter_map(|message| {
-                            Self::extract_gateway_approval_id_from_message(&message.content)
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
+        let approval_ids = match self
+            .history
+            .gateway_approval_ids_for_thread(thread_id)
+            .await
+        {
+            Ok(approval_ids) if !approval_ids.is_empty() => approval_ids,
+            other => {
+                if let Err(error) = &other {
+                    tracing::warn!(
+                        thread_id = %thread_id,
+                        %error,
+                        "gateway: failed to query persisted approval ids; falling back to live thread messages"
+                    );
+                }
+                let threads = self.threads.read().await;
+                threads
+                    .get(thread_id)
+                    .map(|thread| {
+                        thread
+                            .messages
+                            .iter()
+                            .rev()
+                            .filter_map(|message| {
+                                Self::extract_gateway_approval_id_from_message(&message.content)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default()
+            }
         };
         if approval_ids.is_empty() {
             return None;
@@ -194,10 +233,18 @@ impl AgentEngine {
     }
 
     async fn gateway_has_pending_approval_anywhere(&self) -> bool {
-        {
-            let tasks = self.tasks.lock().await;
-            if tasks.iter().any(|task| task.awaiting_approval_id.is_some()) {
-                return true;
+        match self.history.has_agent_task_pending_approval().await {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "gateway: failed to query task-owned pending approvals"
+                );
+                let tasks = self.tasks.lock().await;
+                if tasks.iter().any(|task| task.awaiting_approval_id.is_some()) {
+                    return true;
+                }
             }
         }
 
@@ -296,21 +343,46 @@ impl AgentEngine {
             }
         }
 
-        let goal_run = {
-            let goal_runs = self.goal_runs.lock().await;
-            goal_runs
+        let mut goal_runs = match self
+            .history
+            .latest_goal_run_status_reply_ref_for_thread_ids(&[thread_id.to_string()])
+            .await
+        {
+            Ok(Some(goal_run)) => vec![goal_run],
+            Ok(None) => Vec::new(),
+            Err(error) => {
+                tracing::warn!(
+                    thread_id,
+                    "gateway: failed to query latest persisted goal run status reply fields: {error}"
+                );
+                Vec::new()
+            }
+        };
+        let mut seen_goal_ids = goal_runs
+            .iter()
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        {
+            let live_goal_runs = self.goal_runs.lock().await;
+            for goal_run in live_goal_runs
                 .iter()
                 .filter(|goal_run| Self::goal_run_matches_thread(goal_run, thread_id))
-                .max_by_key(|goal_run| goal_run.updated_at)
-                .cloned()
-        };
+            {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    goal_runs.push(crate::history::GoalRunStatusReplyRef::from(goal_run));
+                }
+            }
+        }
+        let goal_run = goal_runs
+            .into_iter()
+            .max_by_key(|goal_run| goal_run.updated_at);
 
         if let Some(goal_run) = goal_run {
             let mut response = format!(
                 "{} ({}) — {}.",
                 goal_run.title,
                 goal_run.id,
-                goal_run_status_message(&goal_run)
+                Self::goal_run_status_message_for_status(goal_run.status)
             );
 
             if let Some(step_title) = goal_run
@@ -829,15 +901,33 @@ impl AgentEngine {
         msg: &gateway::IncomingMessage,
         reply_tool_name: &str,
     ) {
-        let last_response = {
-            let threads = self.threads.read().await;
-            let Some(thread) = threads.get(thread_id) else {
-                return;
-            };
-            if gateway_turn_used_send_tool(&thread.messages) {
-                return;
+        let last_response = match self
+            .history
+            .gateway_turn_auto_send_projection(thread_id)
+            .await
+        {
+            Ok(Some(projection)) => {
+                if projection.used_send_tool {
+                    return;
+                }
+                projection.latest_assistant_response
             }
-            latest_gateway_turn_assistant_response(&thread.messages)
+            Ok(None) => return,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    %error,
+                    "gateway: failed to query persisted auto-send state; falling back to live thread messages"
+                );
+                let threads = self.threads.read().await;
+                let Some(thread) = threads.get(thread_id) else {
+                    return;
+                };
+                if gateway_turn_used_send_tool(&thread.messages) {
+                    return;
+                }
+                latest_gateway_turn_assistant_response(&thread.messages)
+            }
         };
 
         if let Some(response_text) = last_response {
@@ -919,5 +1009,76 @@ impl AgentEngine {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn gateway_has_pending_approval_anywhere_finds_persisted_task_owned_approval() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine.tasks.lock().await.push_back(AgentTask {
+            id: "approval-task-anywhere".to_string(),
+            title: "approval task".to_string(),
+            description: "awaiting approval anywhere".to_string(),
+            status: TaskStatus::Queued,
+            priority: TaskPriority::Normal,
+            progress: 0,
+            created_at: now_millis(),
+            started_at: None,
+            completed_at: None,
+            error: None,
+            result: None,
+            thread_id: Some("thread-approval-anywhere".to_string()),
+            source: "managed_command".to_string(),
+            notify_on_complete: false,
+            notify_channels: Vec::new(),
+            dependencies: Vec::new(),
+            command: Some("echo ok".to_string()),
+            session_id: None,
+            goal_run_id: None,
+            goal_run_title: None,
+            goal_step_id: None,
+            goal_step_title: None,
+            parent_task_id: None,
+            parent_thread_id: None,
+            runtime: "daemon".to_string(),
+            retry_count: 0,
+            max_retries: 0,
+            next_retry_at: None,
+            scheduled_at: None,
+            blocked_reason: Some("awaiting approval".to_string()),
+            awaiting_approval_id: Some("approval-task-anywhere-1".to_string()),
+            policy_fingerprint: None,
+            approval_expires_at: None,
+            containment_scope: None,
+            compensation_status: None,
+            compensation_summary: None,
+            lane_id: None,
+            last_error: None,
+            logs: Vec::new(),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_overflow_action: None,
+            termination_conditions: None,
+            success_criteria: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            override_provider: None,
+            override_model: None,
+            override_system_prompt: None,
+            sub_agent_def_id: None,
+        });
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        assert!(engine.gateway_has_pending_approval_anywhere().await);
     }
 }

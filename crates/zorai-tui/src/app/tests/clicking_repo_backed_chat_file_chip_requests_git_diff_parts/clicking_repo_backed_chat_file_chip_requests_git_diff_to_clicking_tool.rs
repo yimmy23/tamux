@@ -1,3 +1,10 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 #[test]
 fn clicking_repo_backed_chat_file_chip_requests_git_diff() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
@@ -428,4 +435,3 @@ fn clicking_tool_file_path_metadata_requests_plain_preview() {
         other => panic!("expected file preview pane, got {:?}", other),
     }
 }
-

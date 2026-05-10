@@ -1,3 +1,5 @@
+use super::tests_part2_support::*;
+use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[tokio::test]
@@ -43,9 +45,9 @@ async fn concierge_welcome_request_does_not_block_ping() {
                     continue;
                 }
                 DaemonMessage::AgentEvent { .. } => continue,
-                other => panic!(
-                    "expected Pong while concierge work runs in background, got {other:?}"
-                ),
+                other => {
+                    panic!("expected Pong while concierge work runs in background, got {other:?}")
+                }
             }
         }
     })
@@ -72,7 +74,8 @@ async fn concierge_welcome_streams_partial_content_before_completion() {
         let mut request_buf = [0u8; 4096];
         let _ = stream.read(&mut request_buf).await;
 
-        let chunk_one = "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_partial\"}}\n\n";
+        let chunk_one =
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_partial\"}}\n\n";
         let chunk_two =
             "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Partial welcome\"}\n\n";
         let chunk_three = "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_partial\",\"usage\":{\"input_tokens\":7,\"output_tokens\":3}}}\n\n";
@@ -88,7 +91,10 @@ async fn concierge_welcome_streams_partial_content_before_completion() {
             )
             .await
             .expect("write response head");
-        stream.write_all(chunk_one.as_bytes()).await.expect("write created event");
+        stream
+            .write_all(chunk_one.as_bytes())
+            .await
+            .expect("write created event");
         stream
             .write_all(chunk_two.as_bytes())
             .await
@@ -265,7 +271,10 @@ async fn second_client_can_query_accepted_operation_before_concierge_work_comple
         .await
         .expect("query accepted concierge operation from second client");
 
-    match second_client.recv_with_timeout(Duration::from_millis(250)).await {
+    match second_client
+        .recv_with_timeout(Duration::from_millis(250))
+        .await
+    {
         DaemonMessage::OperationStatus { snapshot } => {
             assert_eq!(snapshot.operation_id, operation_id);
             assert_eq!(snapshot.kind, "concierge_welcome");
@@ -307,9 +316,16 @@ fn direct_message_response_includes_provider_final_result_json() {
             assert_eq!(thread_id, "thread-1");
             assert_eq!(response, "protocol reply");
             let json = provider_final_result_json.expect("expected provider-native final result");
-            let value: serde_json::Value = serde_json::from_str(&json).expect("parse final result json");
-            assert_eq!(value.get("provider").and_then(|v| v.as_str()), Some("open_ai_responses"));
-            assert_eq!(value.get("id").and_then(|v| v.as_str()), Some("resp_dm_protocol"));
+            let value: serde_json::Value =
+                serde_json::from_str(&json).expect("parse final result json");
+            assert_eq!(
+                value.get("provider").and_then(|v| v.as_str()),
+                Some("open_ai_responses")
+            );
+            assert_eq!(
+                value.get("id").and_then(|v| v.as_str()),
+                Some("resp_dm_protocol")
+            );
         }
         other => panic!("expected direct message response, got {other:?}"),
     }
@@ -589,7 +605,10 @@ async fn concierge_welcome_skips_onboarding_when_hydrated_history_exists() {
         .await
         .expect("persist assistant message");
 
-    conn.agent.hydrate().await.expect("hydrate persisted history");
+    conn.agent
+        .hydrate()
+        .await
+        .expect("hydrate persisted history");
 
     conn.framed
         .send(ClientMessage::AgentSubscribe)

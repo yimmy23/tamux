@@ -1,3 +1,9 @@
+use super::whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings::*;
+use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn concierge_model_picker_uses_rarog_current_model_instead_of_primary_model() {
     let (mut model, _daemon_rx) = make_model();
@@ -97,6 +103,84 @@ fn thread_picker_right_arrow_switches_to_rarog_tab() {
         model.modal.thread_picker_tab(),
         modal::ThreadPickerTab::Rarog
     );
+}
+
+#[test]
+fn thread_picker_agent_tab_switch_debounces_refresh_until_tick_window() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model.modal.thread_picker_tab(),
+        modal::ThreadPickerTab::Rarog
+    );
+    assert_eq!(
+        model.thread_picker_loading_tab(),
+        Some(modal::ThreadPickerTab::Rarog)
+    );
+    assert!(daemon_rx.try_recv().is_err());
+
+    model.on_tick_elapsed(THREAD_PICKER_AGENT_REFRESH_DEBOUNCE_TICKS - 1);
+    assert!(daemon_rx.try_recv().is_err());
+
+    model.on_tick();
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::RefreshThreadsForAgent {
+            agent_filter: Some(filter),
+        }) if filter == "rarog"
+    ));
+
+    model.handle_client_event(ClientEvent::ThreadList(Vec::new()));
+    assert_eq!(model.thread_picker_loading_tab(), None);
+}
+
+#[test]
+fn thread_picker_agent_tab_switch_only_refreshes_latest_selection() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+
+    assert!(!model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    ));
+    assert!(!model.handle_key_modal(
+        KeyCode::Right,
+        KeyModifiers::NONE,
+        modal::ModalKind::ThreadPicker,
+    ));
+
+    assert_eq!(
+        model.modal.thread_picker_tab(),
+        modal::ThreadPickerTab::Weles
+    );
+    assert_eq!(
+        model.thread_picker_loading_tab(),
+        Some(modal::ThreadPickerTab::Weles)
+    );
+    assert!(daemon_rx.try_recv().is_err());
+
+    model.on_tick_elapsed(THREAD_PICKER_AGENT_REFRESH_DEBOUNCE_TICKS);
+
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::RefreshThreadsForAgent {
+            agent_filter: Some(filter),
+        }) if filter == "weles"
+    ));
+    assert!(daemon_rx.try_recv().is_err());
 }
 
 #[test]

@@ -45,7 +45,7 @@ impl TokenBucket {
     fn refill(&mut self) {
         let now = Instant::now();
         let elapsed_secs = now.duration_since(self.last_refill).as_secs_f64();
-        let refill_rate = self.capacity as f64 / 60.0; // tokens per second
+        let refill_rate = self.capacity as f64 / 60.0;
         self.tokens = (self.tokens + elapsed_secs * refill_rate).min(self.capacity as f64);
         self.last_refill = now;
     }
@@ -97,21 +97,19 @@ mod tests {
     #[test]
     fn exhausting_tokens_blocks_next_request() {
         let mut bucket = TokenBucket::new(2);
-        assert!(bucket.try_acquire()); // token 1
-        assert!(bucket.try_acquire()); // token 2
-        assert!(!bucket.try_acquire()); // depleted
+        assert!(bucket.try_acquire());
+        assert!(bucket.try_acquire());
+        assert!(!bucket.try_acquire());
     }
 
     #[test]
     fn tokens_refill_after_time() {
         let mut bucket = TokenBucket::new(60);
-        // Exhaust all tokens
         for _ in 0..60 {
             bucket.try_acquire();
         }
-        assert!(!bucket.try_acquire()); // depleted
+        assert!(!bucket.try_acquire());
 
-        // Simulate 2 seconds passing (should refill 2 tokens at 60 RPM = 1/sec)
         bucket.set_last_refill(Instant::now() - Duration::from_secs(2));
         assert!(bucket.try_acquire());
     }
@@ -119,25 +117,21 @@ mod tests {
     #[test]
     fn rate_limiter_map_creates_bucket_on_first_check() {
         let mut map = RateLimiterMap::new();
-        // First check should succeed (creates new bucket with full capacity)
         assert!(map.check("my-plugin", 60));
     }
 
     #[test]
     fn rate_limiter_map_default_rpm() {
         let mut map = RateLimiterMap::new();
-        // Use default RPM constant
         assert!(map.check("test-plugin", DEFAULT_REQUESTS_PER_MINUTE));
     }
 
     #[test]
     fn rate_limiter_map_tracks_per_plugin() {
         let mut map = RateLimiterMap::new();
-        // Exhaust plugin A with capacity 1
         assert!(map.check("plugin-a", 1));
-        assert!(!map.check("plugin-a", 1)); // depleted
+        assert!(!map.check("plugin-a", 1));
 
-        // Plugin B should still work (separate bucket)
         assert!(map.check("plugin-b", 1));
     }
 }

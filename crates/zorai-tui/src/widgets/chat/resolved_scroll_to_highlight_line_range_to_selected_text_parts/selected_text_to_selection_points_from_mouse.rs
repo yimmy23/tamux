@@ -1,5 +1,21 @@
+use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
+use super::super::selection_point_from_snapshot_to_render::*;
+use super::super::*;
+use crate::state::chat::{
+    AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode,
+};
+use crate::theme::ThemeTokens;
+use crate::widgets::message;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 #[cfg(test)]
-pub fn selected_text(
+pub(crate) fn selected_text(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
@@ -7,18 +23,10 @@ pub fn selected_text(
     start: SelectionPoint,
     end: SelectionPoint,
 ) -> Option<String> {
-    let inner = content_inner(area);
-    let (all_lines, message_line_ranges) =
-        build_rendered_lines(chat, theme, inner.width as usize, current_tick, false);
-    if all_lines.is_empty() {
+    let snapshot = selection_snapshot(area, chat, theme, current_tick, false)?;
+    if snapshot.total_lines == 0 {
         return None;
     }
-    let _scroll = resolved_scroll(
-        chat,
-        all_lines.len(),
-        inner.height as usize,
-        &message_line_ranges,
-    );
 
     let (start_point, end_point) =
         if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
@@ -26,8 +34,8 @@ pub fn selected_text(
         } else {
             (end, start)
         };
-    let start_row = start_point.row.min(all_lines.len().saturating_sub(1));
-    let end_row = end_point.row.min(all_lines.len().saturating_sub(1));
+    let start_row = start_point.row.min(snapshot.total_lines.saturating_sub(1));
+    let end_row = end_point.row.min(snapshot.total_lines.saturating_sub(1));
     let start_col = start_point.col;
     let end_col = end_point.col;
 
@@ -38,7 +46,7 @@ pub fn selected_text(
     let mut lines = Vec::new();
 
     for row in start_row..=end_row {
-        let rendered = all_lines.get(row)?;
+        let rendered = snapshot_line_at(&snapshot, row)?;
         let (plain, content_start, content_end) = rendered_line_content_bounds(rendered);
         let content_width = content_end.saturating_sub(content_start);
         let from = if row == start_row {
@@ -68,7 +76,7 @@ pub fn selected_text(
 }
 
 #[cfg(test)]
-pub fn selection_point_from_mouse(
+pub(crate) fn selection_point_from_mouse(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,
@@ -79,7 +87,7 @@ pub fn selection_point_from_mouse(
     selection_point_from_snapshot(&snapshot, mouse)
 }
 
-pub fn selection_points_from_mouse(
+pub(crate) fn selection_points_from_mouse(
     area: Rect,
     chat: &ChatState,
     theme: &ThemeTokens,

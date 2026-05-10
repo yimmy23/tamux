@@ -100,7 +100,6 @@ mod tests {
 
     #[test]
     fn test_confidence_below_fires_guessing_below_low() {
-        // "low" = 1, "guessing" = 0 => 0 < 1 => fires
         let rules = vec![make_rule(
             HandoffEscalationTrigger::ConfidenceBelow("low".to_string()),
             HandoffEscalationAction::HandBack,
@@ -171,7 +170,6 @@ mod tests {
                 HandoffEscalationAction::AbortWithReport,
             ),
         ];
-        // Only time trigger fires (failures=0 < 5)
         let result = evaluate_escalation_triggers(&rules, 0, 200, "confident");
         assert!(matches!(
             result,

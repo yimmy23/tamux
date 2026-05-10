@@ -1,11 +1,27 @@
-fn is_svarog_agent_name(agent_name: &str) -> bool {
+use super::from_tasks_to_is_weles_thread::*;
+use super::hit_test_for_workspace_to_now_millis::*;
+use super::*;
+use crate::state::chat::{AgentThread, ChatState};
+use crate::state::modal::{ModalState, ThreadPickerTab};
+use crate::state::subagents::SubAgentsState;
+use crate::state::task::{GoalRunStatus, TaskState, TaskStatus};
+use crate::state::workspace::WorkspaceState;
+use crate::theme::ThemeTokens;
+use crate::widgets::token_format::format_token_count;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, Paragraph};
+use zorai_protocol::{AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
+
+pub(super) fn is_svarog_agent_name(agent_name: &str) -> bool {
     matches!(
         agent_name.trim().to_ascii_lowercase().as_str(),
         "svarog" | "swarog" | "main"
     )
 }
 
-fn is_svarog_thread(thread: &AgentThread) -> bool {
+pub(super) fn is_svarog_thread(thread: &AgentThread) -> bool {
     thread
         .agent_name
         .as_deref()
@@ -33,7 +49,7 @@ pub(crate) fn thread_display_title_for_workspace(
     thread_display_title_inner(thread, Some(&goal_index), Some(&workspace_index))
 }
 
-fn thread_display_title_inner(
+pub(super) fn thread_display_title_inner(
     thread: &AgentThread,
     goal_index: Option<&GoalThreadIndex>,
     workspace_index: Option<&WorkspaceThreadIndex>,
@@ -99,7 +115,7 @@ pub(crate) fn filtered_threads_for_workspace<'a>(
     )
 }
 
-fn filtered_threads_inner<'a>(
+pub(super) fn filtered_threads_inner<'a>(
     chat: &'a ChatState,
     modal: &ModalState,
     subagents: &SubAgentsState,
@@ -140,11 +156,11 @@ fn filtered_threads_inner<'a>(
 }
 
 #[cfg(test)]
-fn tab_cells(chat: &ChatState, subagents: &SubAgentsState) -> Vec<ThreadPickerTabCell> {
+pub(super) fn tab_cells(chat: &ChatState, subagents: &SubAgentsState) -> Vec<ThreadPickerTabCell> {
     tab_cells_inner(chat, subagents, None, None)
 }
 
-fn tab_cells_inner(
+pub(super) fn tab_cells_inner(
     chat: &ChatState,
     subagents: &SubAgentsState,
     goal_index: Option<&GoalThreadIndex>,
@@ -167,7 +183,7 @@ fn tab_cells_inner(
         .collect()
 }
 
-fn tab_scroll_offset(
+pub(super) fn tab_scroll_offset(
     area_width: u16,
     cells: &[ThreadPickerTabCell],
     selected: &ThreadPickerTab,
@@ -197,7 +213,7 @@ fn tab_scroll_offset(
     desired_offset.min(max_offset)
 }
 
-fn visible_tab_cells(
+pub(super) fn visible_tab_cells(
     area: Rect,
     cells: &[ThreadPickerTabCell],
     scroll: u16,
@@ -248,7 +264,7 @@ pub(crate) fn visible_window(
     (start, height)
 }
 
-fn synthetic_row_label(tab: ThreadPickerTab) -> &'static str {
+pub(super) fn synthetic_row_label(tab: ThreadPickerTab) -> &'static str {
     match tab {
         ThreadPickerTab::Goals => "Goal threads are created automatically",
         ThreadPickerTab::Workspace => "Workspace threads are created from workspace tasks",
@@ -268,6 +284,8 @@ pub fn render_for_workspace(
     tasks: &TaskState,
     workspace: &WorkspaceState,
     theme: &ThemeTokens,
+    loading_tab: Option<ThreadPickerTab>,
+    tick_counter: u64,
 ) {
     let block = Block::default()
         .title(" THREADS ")
@@ -294,12 +312,17 @@ pub fn render_for_workspace(
             .iter()
             .enumerate()
             .flat_map(|(index, cell)| {
+                let label = if loading_tab.as_ref() == Some(&cell.tab) {
+                    format!("{} {}", cell.label, thread_picker_spinner_frame(tick_counter))
+                } else {
+                    cell.label.clone()
+                };
                 let style = if cell.tab == selected_tab {
                     theme.accent_primary
                 } else {
                     theme.fg_dim
                 };
-                let mut spans = vec![Span::styled(cell.label.clone(), style)];
+                let mut spans = vec![Span::styled(label, style)];
                 if index + 1 < tab_cells.len() {
                     spans.push(Span::raw(" "));
                 }
@@ -309,7 +332,6 @@ pub fn render_for_workspace(
     );
     frame.render_widget(Paragraph::new(tab_line).scroll((0, tab_scroll)), tabs_row);
 
-    // Search input
     let query = modal.command_query();
     let input_line = Line::from(vec![
         Span::raw(" "),
@@ -329,14 +351,12 @@ pub fn render_for_workspace(
     ]);
     frame.render_widget(Paragraph::new(input_line), search_row);
 
-    // Separator
     let sep = Line::from(Span::styled(
         "\u{2500}".repeat(separator_row.width as usize),
         theme.fg_dim,
     ));
     frame.render_widget(Paragraph::new(sep), separator_row);
 
-    // Build thread list
     let active_id = chat.active_thread_id();
     let filtered_threads = filtered_threads_inner(
         chat,
@@ -454,7 +474,6 @@ pub fn render_for_workspace(
     let list = List::new(list_items);
     frame.render_widget(list, list_row);
 
-    // Hints
     let mut hints = vec![
         Span::raw(" "),
         Span::styled("↑↓", theme.fg_active),
@@ -489,4 +508,9 @@ pub fn hit_test(
     let tasks = TaskState::default();
     let workspace = WorkspaceState::new();
     hit_test_for_workspace(area, chat, modal, subagents, &tasks, &workspace, mouse)
+}
+
+fn thread_picker_spinner_frame(tick_counter: u64) -> &'static str {
+    const FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
+    FRAMES[((tick_counter / 2) as usize) % FRAMES.len()]
 }

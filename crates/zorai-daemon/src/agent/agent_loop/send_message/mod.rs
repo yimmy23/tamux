@@ -208,8 +208,27 @@ impl AgentEngine {
         task_id: Option<&str>,
     ) -> String {
         if let Some(current_task_id) = task_id {
-            let tasks = self.tasks.lock().await;
-            return agent_scope_id_for_task(tasks.iter().find(|task| task.id == current_task_id));
+            match self
+                .history
+                .agent_task_override_system_prompt(current_task_id)
+                .await
+            {
+                Ok(Some(Some(prompt))) => {
+                    return crate::agent::agent_identity::extract_persona_id(Some(&prompt))
+                        .unwrap_or_else(|| MAIN_AGENT_ID.to_string());
+                }
+                Ok(Some(None)) => return MAIN_AGENT_ID.to_string(),
+                Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        task_id = current_task_id,
+                        %error,
+                        "failed to query task scope prompt from history"
+                    );
+                }
+            }
+            let task = self.task_by_id_for_turn_scope(current_task_id).await;
+            return agent_scope_id_for_task(task.as_ref());
         }
 
         if thread_id == Some(crate::agent::concierge::CONCIERGE_THREAD_ID) {
@@ -224,6 +243,37 @@ impl AgentEngine {
         }
 
         MAIN_AGENT_ID.to_string()
+    }
+
+    async fn task_by_id_for_turn_scope(&self, task_id: &str) -> Option<AgentTask> {
+        match self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+            .into_iter()
+            .next()
+        {
+            Some(task) => Some(task),
+            None => {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find(|task| task.id == task_id).cloned()
+            }
+        }
     }
 
     pub(in crate::agent) async fn run_internal_send_loop(

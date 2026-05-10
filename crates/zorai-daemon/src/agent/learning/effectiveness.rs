@@ -4,9 +4,6 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// Per-tool statistics
-// ---------------------------------------------------------------------------
 
 /// Accumulated statistics for a single tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,9 +31,6 @@ impl ToolStats {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Composition statistics
-// ---------------------------------------------------------------------------
 
 /// Statistics for a specific sequence of tools used together.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,9 +42,6 @@ pub struct CompositionStats {
     pub last_used_at: u64,
 }
 
-// ---------------------------------------------------------------------------
-// Effectiveness tracker
-// ---------------------------------------------------------------------------
 
 /// Tracks per-tool call outcomes and multi-tool composition success rates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,7 +100,6 @@ impl EffectivenessTracker {
         steps: u32,
         now: u64,
     ) {
-        // Look for an existing entry with the same sequence.
         if let Some(cs) = self
             .compositions
             .iter_mut()
@@ -117,7 +107,6 @@ impl EffectivenessTracker {
         {
             cs.total_uses += 1;
             if completed {
-                // Running average of steps-to-success.
                 let prev_completions = cs.completions as f64;
                 cs.completions += 1;
                 cs.avg_steps_to_success = (cs.avg_steps_to_success * prev_completions
@@ -126,9 +115,7 @@ impl EffectivenessTracker {
             }
             cs.last_used_at = now;
         } else {
-            // Evict the oldest composition if we are at capacity.
             if self.compositions.len() >= self.max_compositions {
-                // Remove the entry with the smallest `last_used_at`.
                 if let Some(idx) = self
                     .compositions
                     .iter()
@@ -151,9 +138,6 @@ impl EffectivenessTracker {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Per-tool queries
-    // -----------------------------------------------------------------------
 
     /// Success rate for a given tool (0.0–1.0), or `None` if unknown.
     pub fn tool_success_rate(&self, tool_name: &str) -> Option<f64> {
@@ -188,9 +172,6 @@ impl EffectivenessTracker {
         })
     }
 
-    // -----------------------------------------------------------------------
-    // Ranking helpers
-    // -----------------------------------------------------------------------
 
     /// Tools with the highest success rate. Only tools with at least 5 calls
     /// are considered. Returns up to `top_n` entries as `(tool_name, rate)`.
@@ -230,9 +211,6 @@ impl EffectivenessTracker {
         ranked
     }
 
-    // -----------------------------------------------------------------------
-    // Composition queries
-    // -----------------------------------------------------------------------
 
     /// Completion rate for a known tool-sequence, or `None` if unrecorded.
     pub fn composition_completion_rate(&self, sequence: &[String]) -> Option<f64> {
@@ -248,9 +226,6 @@ impl EffectivenessTracker {
             })
     }
 
-    // -----------------------------------------------------------------------
-    // Reporting
-    // -----------------------------------------------------------------------
 
     /// Build a human-readable effectiveness report.
     pub fn build_effectiveness_report(&self) -> String {
@@ -258,7 +233,6 @@ impl EffectivenessTracker {
         lines.push("=== Tool Effectiveness Report ===".to_string());
         lines.push(String::new());
 
-        // Per-tool summary (sorted by name for determinism).
         let mut tool_names: Vec<&String> = self.tools.keys().collect();
         tool_names.sort();
 
@@ -294,7 +268,6 @@ impl EffectivenessTracker {
             }
         }
 
-        // Top / bottom rankings.
         let top = self.most_effective_tools(5);
         if !top.is_empty() {
             lines.push(String::new());
@@ -313,7 +286,6 @@ impl EffectivenessTracker {
             }
         }
 
-        // Compositions summary.
         if !self.compositions.is_empty() {
             lines.push(String::new());
             lines.push(format!("Tracked compositions: {}", self.compositions.len()));
@@ -336,9 +308,6 @@ impl EffectivenessTracker {
     }
 }
 
-// ===========================================================================
-// Tests
-// ===========================================================================
 
 #[cfg(test)]
 #[path = "effectiveness/tests.rs"]

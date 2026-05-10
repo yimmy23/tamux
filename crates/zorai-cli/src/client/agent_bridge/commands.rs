@@ -86,6 +86,7 @@ where
                     limit: None,
                     offset: None,
                     include_internal: false,
+                    agent_filter: None,
                 })
                 .await?;
         }
@@ -233,6 +234,21 @@ where
                 .send(ClientMessage::AgentSetWorkspaceOperator {
                     workspace_id,
                     operator,
+                })
+                .await?;
+        }
+        AgentBridgeCommand::SetWorkspaceRepoMonitor {
+            workspace_id,
+            repo_monitor_enabled,
+            repo_monitor_include_dirs,
+            repo_monitor_exclude_dirs,
+        } => {
+            framed
+                .send(ClientMessage::AgentSetWorkspaceRepoMonitor {
+                    workspace_id,
+                    repo_monitor_enabled,
+                    repo_monitor_include_dirs,
+                    repo_monitor_exclude_dirs,
                 })
                 .await?;
         }

@@ -55,6 +55,118 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn implicit_signal_exists(
+        &self,
+        session_id: &str,
+        signal_type: &str,
+    ) -> Result<bool> {
+        let session_id = session_id.to_string();
+        let signal_type = signal_type.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let exists: i64 = conn.query_row(
+                    "SELECT EXISTS(
+                         SELECT 1
+                         FROM implicit_signals
+                         WHERE session_id = ?1
+                           AND signal_type = ?2
+                     )",
+                    params![session_id, signal_type],
+                    |row| row.get(0),
+                )?;
+                Ok(exists != 0)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn latest_implicit_signal_by_types(
+        &self,
+        session_id: &str,
+        signal_types: &[&str],
+    ) -> Result<Option<ImplicitSignalRow>> {
+        if signal_types.is_empty() {
+            return Ok(None);
+        }
+
+        let session_id = session_id.to_string();
+        let signal_types = signal_types
+            .iter()
+            .map(|signal_type| signal_type.to_string())
+            .collect::<Vec<_>>();
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(signal_types.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let mut values = Vec::<rusqlite::types::Value>::with_capacity(
+                    signal_types.len().saturating_add(1),
+                );
+                values.push(rusqlite::types::Value::Text(session_id));
+                values.extend(signal_types.into_iter().map(rusqlite::types::Value::Text));
+
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT id, session_id, signal_type, weight, timestamp_ms, context_snapshot_json
+                     FROM implicit_signals
+                     WHERE session_id = ?
+                       AND signal_type IN ({placeholders})
+                     ORDER BY timestamp_ms DESC, id DESC
+                     LIMIT 1"
+                ))?;
+                stmt.query_row(rusqlite::params_from_iter(values.iter()), |row| {
+                    Ok(ImplicitSignalRow {
+                        id: row.get(0)?,
+                        session_id: row.get(1)?,
+                        signal_type: row.get(2)?,
+                        weight: row.get(3)?,
+                        timestamp_ms: row.get::<_, i64>(4)?.max(0) as u64,
+                        context_snapshot_json: row.get(5)?,
+                    })
+                })
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn list_implicit_signals_by_type(
+        &self,
+        session_id: &str,
+        signal_type: &str,
+        limit: usize,
+    ) -> Result<Vec<ImplicitSignalRow>> {
+        let session_id = session_id.to_string();
+        let signal_type = signal_type.to_string();
+        let limit = limit.max(1) as i64;
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, session_id, signal_type, weight, timestamp_ms, context_snapshot_json
+                     FROM implicit_signals
+                     WHERE session_id = ?1
+                       AND signal_type = ?2
+                     ORDER BY timestamp_ms DESC, id DESC
+                     LIMIT ?3",
+                )?;
+                let rows = stmt.query_map(params![session_id, signal_type, limit], |row| {
+                    Ok(ImplicitSignalRow {
+                        id: row.get(0)?,
+                        session_id: row.get(1)?,
+                        signal_type: row.get(2)?,
+                        weight: row.get(3)?,
+                        timestamp_ms: row.get::<_, i64>(4)?.max(0) as u64,
+                        context_snapshot_json: row.get(5)?,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn insert_satisfaction_score(&self, row: &SatisfactionScoreRow) -> Result<()> {
         let row = row.clone();
         self.conn

@@ -1,3 +1,6 @@
+use super::*;
+use crate::state::chat::*;
+use zorai_shared::providers::*;
 #[test]
 fn select_thread_with_empty_id_clears_active_selection() {
     let mut state = ChatState::new();

@@ -1,3 +1,5 @@
+use super::*;
+use crate::state::chat::*;
 #[test]
 fn thread_detail_preserves_local_messages_in_active_compaction_window() {
     let mut state = ChatState::new();

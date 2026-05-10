@@ -91,11 +91,26 @@ impl<'a> SendMessageRunner<'a> {
             return false;
         };
 
-        self.engine.list_tasks().await.into_iter().any(|task| {
-            task.source == "subagent"
-                && task.parent_task_id.as_deref() == Some(task_id)
-                && !crate::agent::task_scheduler::is_task_terminal_status(task.status)
-        })
+        self.engine
+            .count_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: Some("subagent".to_string()),
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: Some(task_id.to_string()),
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: true,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+            > 0
     }
 
     async fn handle_metacognitive_intervention(

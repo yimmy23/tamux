@@ -35,7 +35,34 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    // ── Operator Profile: fields ────────────────────────────────────────
+    pub async fn get_collaboration_session(
+        &self,
+        parent_task_id: &str,
+    ) -> Result<Option<CollaborationSessionRow>> {
+        let parent_task_id = parent_task_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT parent_task_id, session_json, updated_at \
+                     FROM collaboration_sessions \
+                     WHERE parent_task_id = ?1 \
+                     LIMIT 1",
+                    params![parent_task_id],
+                    |row| {
+                        Ok(CollaborationSessionRow {
+                            parent_task_id: row.get(0)?,
+                            session_json: row.get(1)?,
+                            updated_at: row.get::<_, i64>(2)? as u64,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
 
     pub async fn upsert_profile_field(
         &self,
@@ -113,7 +140,35 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    // ── Operator Profile: consents ──────────────────────────────────────
+    pub async fn list_profile_fields_excluding_ordered_by_key(
+        &self,
+        excluded_field_key: &str,
+    ) -> Result<Vec<OperatorProfileFieldRow>> {
+        let excluded_field_key = excluded_field_key.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT field_key, field_value_json, confidence, source, updated_at \
+                     FROM operator_profile_fields \
+                     WHERE field_key != ?1 \
+                     ORDER BY field_key ASC",
+                )?;
+                let rows = stmt.query_map(params![excluded_field_key], |row| {
+                    Ok(OperatorProfileFieldRow {
+                        field_key: row.get(0)?,
+                        field_value_json: row.get(1)?,
+                        confidence: row.get(2)?,
+                        source: row.get(3)?,
+                        updated_at: row.get(4)?,
+                    })
+                })?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
 
     pub async fn upsert_profile_consent(&self, consent_key: &str, granted: bool) -> Result<()> {
         let consent_key = consent_key.to_string();
@@ -178,7 +233,6 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    // ── Operator Profile: events ────────────────────────────────────────
 
     pub async fn append_profile_event(
         &self,
@@ -243,7 +297,6 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    // ── Operator Profile: checkins ──────────────────────────────────────
 
     pub async fn upsert_profile_checkin(&self, row: OperatorProfileCheckinRow) -> Result<()> {
         let now = now_ts() as i64;

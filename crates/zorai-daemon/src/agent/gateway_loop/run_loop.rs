@@ -74,17 +74,9 @@ impl AgentEngine {
                 let rx = shutdown.clone();
                 async move { engine.run_subagent_supervision_loop(rx).await }
             }),
-            tokio::spawn({
-                let engine = self.clone();
-                let rx = shutdown.clone();
-                async move { engine.run_embedding_index_loop(rx).await }
-            }),
-            tokio::spawn({
-                let engine = self.clone();
-                let rx = shutdown.clone();
-                async move { engine.run_semantic_document_index_loop(rx).await }
-            }),
         ];
+
+        spawn_lancedb_indexer_runtime(self.clone(), shutdown.clone());
 
         let _ = shutdown.changed().await;
 
@@ -406,14 +398,29 @@ impl AgentEngine {
     }
 
     async fn run_subagent_supervision_tick(&self) {
-        let supervised: Vec<_> = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .filter(|t| t.status == TaskStatus::InProgress && t.supervisor_config.is_some())
-                .cloned()
-                .collect()
-        };
+        let in_progress_status = serde_json::to_value(TaskStatus::InProgress)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned))
+            .unwrap_or_else(|| "in_progress".to_string());
+        let supervised = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: Some(in_progress_status),
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: true,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await;
 
         let now_secs = now_millis() / 1000;
         for task in supervised {
@@ -582,6 +589,57 @@ impl AgentEngine {
     }
 }
 
+fn spawn_lancedb_indexer_runtime(
+    engine: Arc<AgentEngine>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) {
+    let thread_result = std::thread::Builder::new()
+        .name("zorai-lancedb-indexer".into())
+        .spawn(move || {
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .thread_name("zorai-lancedb-indexer")
+                .build()
+            {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    tracing::error!(
+                        error = %error,
+                        "failed to build dedicated LanceDB indexer runtime; loops will not run"
+                    );
+                    return;
+                }
+            };
+            tracing::info!(
+                "lancedb indexer runtime started on dedicated OS thread"
+            );
+            runtime.block_on(async move {
+                let embedding_engine = engine.clone();
+                let semantic_engine = engine.clone();
+                let embedding_shutdown = shutdown.clone();
+                let semantic_shutdown = shutdown.clone();
+                let embedding_handle = tokio::spawn(async move {
+                    embedding_engine
+                        .run_embedding_index_loop(embedding_shutdown)
+                        .await;
+                });
+                let semantic_handle = tokio::spawn(async move {
+                    semantic_engine
+                        .run_semantic_document_index_loop(semantic_shutdown)
+                        .await;
+                });
+                let _ = tokio::join!(embedding_handle, semantic_handle);
+            });
+            tracing::info!("lancedb indexer runtime exiting");
+        });
+    if let Err(error) = thread_result {
+        tracing::error!(
+            error = %error,
+            "failed to spawn dedicated LanceDB indexer thread; loops will not run"
+        );
+    }
+}
+
 fn next_heartbeat_deadline(heartbeat_cron: &croner::Cron) -> tokio::time::Instant {
     let now_local = chrono::Local::now();
     heartbeat_cron
@@ -593,4 +651,50 @@ fn next_heartbeat_deadline(heartbeat_cron: &croner::Cron) -> tokio::time::Instan
             tokio::time::Instant::now() + dur
         })
         .unwrap_or_else(|_| tokio::time::Instant::now() + std::time::Duration::from_secs(900))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn subagent_supervision_tick_uses_persisted_supervised_tasks_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let mut task = engine
+            .enqueue_task(
+                "Persisted supervised subagent".to_string(),
+                "supervision should find this task from persisted rows".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                None,
+                Some("thread-supervised-subagent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        task.status = TaskStatus::InProgress;
+        task.supervisor_config = Some(SupervisorConfig::default());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            tasks.clear();
+            tasks.push_back(task.clone());
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        engine.run_subagent_supervision_tick().await;
+
+        assert!(
+            engine.subagent_runtime.read().await.contains_key(&task.id),
+            "supervision should initialize runtime for persisted supervised tasks"
+        );
+    }
 }

@@ -1,3 +1,24 @@
+use super::*;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::{
+    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
+    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
+    ThreadWorkContext,
+};
+use anyhow::Result;
+use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
+use serde_json::Value;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+#[cfg(unix)]
+use tokio::net::UnixStream;
+use tokio::sync::mpsc;
+use tokio::time::{Instant, MissedTickBehavior};
+use tokio_util::codec::Framed;
+use tracing::{debug, error, info, warn};
+use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
 impl DaemonClient {
     fn daemon_message_kind(message: &DaemonMessage) -> &'static str {
         match message {
@@ -27,9 +48,7 @@ impl DaemonClient {
     }
 
     #[cfg(unix)]
-    fn configure_daemon_bootstrap_command(command: &mut tokio::process::Command) {
-        // Detach the daemon from the TUI process group so terminal/session hangups
-        // do not tear down the daemon silently after bootstrap.
+    pub(crate) fn configure_daemon_bootstrap_command(command: &mut tokio::process::Command) {
         unsafe {
             command.pre_exec(|| {
                 if libc::setsid() == -1 {
@@ -41,9 +60,9 @@ impl DaemonClient {
     }
 
     #[cfg(not(unix))]
-    fn configure_daemon_bootstrap_command(_command: &mut tokio::process::Command) {}
+    pub(crate) fn configure_daemon_bootstrap_command(_command: &mut tokio::process::Command) {}
 
-    fn next_bootstrap_attempted(bootstrap_attempted: bool, connected: bool) -> bool {
+    pub(crate) fn next_bootstrap_attempted(bootstrap_attempted: bool, connected: bool) -> bool {
         if connected {
             false
         } else {
@@ -118,14 +137,14 @@ impl DaemonClient {
                         "Daemon bootstrap process spawned"
                     );
                     drop(child);
-                    for _ in 0..20 {
+                    for _ in 0..120 {
                         tokio::time::sleep(Duration::from_millis(250)).await;
                         if Self::probe_daemon_once().await {
                             info!(candidate = %candidate_display, "Daemon bootstrap succeeded");
                             return true;
                         }
                     }
-                    warn!(candidate = %candidate_display, "Daemon bootstrap command ran but daemon never became ready");
+                    warn!(candidate = %candidate_display, "Daemon bootstrap command ran but daemon never became ready within 30s");
                 }
                 Err(err) => {
                     debug!(candidate = %candidate_display, error = %err, "Daemon bootstrap spawn failed");
@@ -203,7 +222,8 @@ impl DaemonClient {
                     }
                 }
 
-                bootstrap_attempted = Self::next_bootstrap_attempted(bootstrap_attempted, connected);
+                bootstrap_attempted =
+                    Self::next_bootstrap_attempted(bootstrap_attempted, connected);
 
                 if !connected && !bootstrap_attempted {
                     bootstrap_attempted = true;
@@ -279,8 +299,6 @@ impl DaemonClient {
         let keepalive_timeout = Duration::from_secs(10);
         let mut ping_tick = tokio::time::interval(keepalive_interval);
         ping_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-        let mut last_inbound_at = Instant::now();
-        let mut awaiting_pong_since: Option<Instant> = None;
         let mut thread_detail_chunks = None;
 
         for request in [
@@ -295,6 +313,7 @@ impl DaemonClient {
                 limit: None,
                 offset: None,
                 include_internal: true,
+                agent_filter: Some(zorai_protocol::AGENT_HANDLE_SVAROG.to_string()),
             },
         ] {
             if let Err(err) = zorai_protocol::validate_client_message_size(&request) {
@@ -315,93 +334,180 @@ impl DaemonClient {
             }
         }
 
-        loop {
-            tokio::select! {
-                inbound = stream.next() => {
-                    match inbound {
-                        Some(Ok(message)) => {
-                            debug!(
-                                kind = Self::daemon_message_kind(&message),
-                                "Daemon client received daemon message"
-                            );
-                            last_inbound_at = Instant::now();
-                            awaiting_pong_since = None;
-                            if !Self::handle_daemon_message(
-                                message,
-                                &event_tx,
-                                &mut thread_detail_chunks,
-                            )
-                            .await
-                            {
-                                debug!("Daemon client stopping after daemon message handler requested exit");
-                                break;
-                            }
-                        }
-                        Some(Err(err)) => {
-                            debug!(error = %err, "Daemon client stopping after inbound stream error");
-                            let _ = event_tx.send(ClientEvent::Error(format!("Connection error: {}", err))).await;
-                            break;
-                        }
-                        None => {
-                            debug!("Daemon client stopping after daemon stream reached EOF");
-                            break;
-                        }
-                    }
-                }
-                _ = ping_tick.tick() => {
-                    let now = Instant::now();
-                    if let Some(pending_since) = awaiting_pong_since {
-                        if now.duration_since(pending_since) >= keepalive_timeout {
-                            debug!(
-                                elapsed_ms = now.duration_since(pending_since).as_millis() as u64,
-                                "Daemon client stopping after keepalive timeout"
-                            );
-                            let _ = event_tx
-                                .send(ClientEvent::Error(
-                                    "Connection lost: daemon health-check timed out".to_string(),
-                                ))
-                                .await;
-                            break;
-                        }
-                    }
+        let last_inbound_ms: Arc<AtomicI64> = Arc::new(AtomicI64::new(now_unix_ms()));
+        let last_inbound_for_writer = last_inbound_ms.clone();
+        let event_tx_for_writer = event_tx.clone();
 
-                    if now.duration_since(last_inbound_at) >= keepalive_interval {
-                        if let Err(err) = sink.send(ClientMessage::Ping).await {
-                            debug!(error = %err, "Daemon client stopping after keepalive send error");
-                            let _ = event_tx
-                                .send(ClientEvent::Error(format!("Keepalive send error: {}", err)))
-                                .await;
-                            break;
+        let reader_fut = async {
+            loop {
+                match stream.next().await {
+                    Some(Ok(message)) => {
+                        debug!(
+                            kind = Self::daemon_message_kind(&message),
+                            "Daemon client received daemon message"
+                        );
+                        last_inbound_ms.store(now_unix_ms(), Ordering::Relaxed);
+                        if !Self::handle_daemon_message(
+                            message,
+                            &event_tx,
+                            &mut thread_detail_chunks,
+                        )
+                        .await
+                        {
+                            debug!("Daemon client stopping after daemon message handler requested exit");
+                            return;
                         }
-                        awaiting_pong_since = Some(now);
+                    }
+                    Some(Err(err)) => {
+                        debug!(error = %err, "Daemon client stopping after inbound stream error");
+                        let _ = event_tx
+                            .send(ClientEvent::Error(format!("Connection error: {}", err)))
+                            .await;
+                        return;
+                    }
+                    None => {
+                        debug!("Daemon client stopping after daemon stream reached EOF");
+                        return;
                     }
                 }
-                outbound = request_rx.recv() => {
-                    match outbound {
-                        Some(request) => {
-                            if let Err(err) = zorai_protocol::validate_client_message_size(&request) {
-                                debug!(error = %err, "Dropping oversized outbound daemon request");
-                                let _ = event_tx
-                                    .send(ClientEvent::Error(format!("Send error: {}", err)))
-                                    .await;
-                                continue;
+            }
+        };
+
+        let writer_fut = async {
+            let mut awaiting_pong_since: Option<Instant> = None;
+            loop {
+                tokio::select! {
+                    outbound = request_rx.recv() => {
+                        match outbound {
+                            Some(request) => {
+                                let kind = client_message_short_name(&request);
+                                if let Err(err) = zorai_protocol::validate_client_message_size(&request) {
+                                    debug!(error = %err, "Dropping oversized outbound daemon request");
+                                    let _ = event_tx_for_writer
+                                        .send(ClientEvent::Error(format!("Send error: {}", err)))
+                                        .await;
+                                    continue;
+                                }
+                                let send_started = Instant::now();
+                                if let Err(err) = sink.send(request).await {
+                                    debug!(error = %err, "Daemon client writer stopping after outbound send error");
+                                    let _ = event_tx_for_writer
+                                        .send(ClientEvent::Error(format!("Send error: {}", err)))
+                                        .await;
+                                    return;
+                                }
+                                info!(
+                                    kind,
+                                    send_ms = send_started.elapsed().as_millis() as u64,
+                                    "writer: sent client message to daemon"
+                                );
                             }
-                            if let Err(err) = sink.send(request).await {
-                                debug!(error = %err, "Daemon client stopping after outbound send error");
-                                let _ = event_tx.send(ClientEvent::Error(format!("Send error: {}", err))).await;
-                                break;
+                            None => {
+                                debug!("Daemon client writer stopping after request channel closed");
+                                return;
                             }
                         }
-                        None => {
-                            debug!("Daemon client stopping after request channel closed");
-                            break;
+                    }
+                    _ = ping_tick.tick() => {
+                        let now = Instant::now();
+                        let last_inbound_at = Instant::now()
+                            .checked_sub(Duration::from_millis(
+                                (now_unix_ms() - last_inbound_for_writer.load(Ordering::Relaxed))
+                                    .max(0) as u64,
+                            ))
+                            .unwrap_or_else(Instant::now);
+
+                        if let Some(pending_since) = awaiting_pong_since {
+                            if now.duration_since(pending_since) >= keepalive_timeout {
+                                debug!(
+                                    elapsed_ms = now.duration_since(pending_since).as_millis() as u64,
+                                    "Daemon client writer stopping after keepalive timeout"
+                                );
+                                let _ = event_tx_for_writer
+                                    .send(ClientEvent::Error(
+                                        "Connection lost: daemon health-check timed out".to_string(),
+                                    ))
+                                    .await;
+                                return;
+                            }
+                        }
+
+                        if now.duration_since(last_inbound_at) >= keepalive_interval {
+                            let ping_send_started = Instant::now();
+                            info!(
+                                last_inbound_age_ms =
+                                    now.duration_since(last_inbound_at).as_millis() as u64,
+                                "writer: ping_tick fired, attempting Ping send"
+                            );
+                            if let Err(err) = sink.send(ClientMessage::Ping).await {
+                                debug!(error = %err, "Daemon client writer stopping after keepalive send error");
+                                let _ = event_tx_for_writer
+                                    .send(ClientEvent::Error(format!(
+                                        "Keepalive send error: {}",
+                                        err
+                                    )))
+                                    .await;
+                                return;
+                            }
+                            let ping_send_ms =
+                                ping_send_started.elapsed().as_millis() as u64;
+                            if ping_send_ms > 1000 {
+                                tracing::warn!(
+                                    ping_send_ms,
+                                    "writer: Ping sink.send blocked >1s — daemon RX buffer full?"
+                                );
+                            } else {
+                                info!(ping_send_ms, "writer: Ping send completed");
+                            }
+                            awaiting_pong_since = Some(now);
+                        } else {
+                            awaiting_pong_since = None;
                         }
                     }
                 }
             }
+        };
+
+        tokio::pin!(reader_fut);
+        tokio::pin!(writer_fut);
+        tokio::select! {
+            _ = &mut reader_fut => {}
+            _ = &mut writer_fut => {}
         }
 
         let _ = event_tx.send(ClientEvent::Disconnected).await;
     }
+}
 
+fn client_message_short_name(msg: &ClientMessage) -> &'static str {
+    use ClientMessage::*;
+    match msg {
+        Ping => "Ping",
+        AgentSubscribe => "AgentSubscribe",
+        AgentUnsubscribe => "AgentUnsubscribe",
+        AgentGetConfig => "AgentGetConfig",
+        AgentListThreads { .. } => "AgentListThreads",
+        AgentListTasks => "AgentListTasks",
+        AgentListGoalRuns { .. } => "AgentListGoalRuns",
+        AgentListSubAgents => "AgentListSubAgents",
+        AgentGetConciergeConfig => "AgentGetConciergeConfig",
+        AgentRequestConciergeWelcome => "AgentRequestConciergeWelcome",
+        AgentDeclareAsyncCommandCapability { .. } => "AgentDeclareAsyncCommandCapability",
+        AgentGetProviderAuthStates => "AgentGetProviderAuthStates",
+        AgentHeartbeatGetItems => "AgentHeartbeatGetItems",
+        AgentGetThread { .. } => "AgentGetThread",
+        ListAgentEvents { .. } => "ListAgentEvents",
+        UpsertAgentEvent { .. } => "UpsertAgentEvent",
+        PluginList { .. } => "PluginList",
+        PluginListCommands { .. } => "PluginListCommands",
+        _ => "<other>",
+    }
+}
+
+fn now_unix_ms() -> i64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
 }

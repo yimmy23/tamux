@@ -128,13 +128,40 @@ async fn persist_reflection_skill_activation_note(
 
 impl AgentEngine {
     async fn active_goal_tasks(&self, goal_run_id: &str) -> Vec<AgentTask> {
-        let tasks = self.tasks.lock().await;
-        tasks
-            .iter()
-            .filter(|task| task.goal_run_id.as_deref() == Some(goal_run_id))
-            .filter(|task| is_active_goal_task_status(task.status))
-            .cloned()
-            .collect()
+        let active_statuses = [
+            TaskStatus::Queued,
+            TaskStatus::InProgress,
+            TaskStatus::Blocked,
+            TaskStatus::FailedAnalyzing,
+            TaskStatus::AwaitingApproval,
+        ]
+        .into_iter()
+        .filter(|status| is_active_goal_task_status(*status))
+        .filter_map(|status| {
+            serde_json::to_value(status)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        })
+        .collect::<Vec<_>>();
+
+        self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: active_statuses,
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: Some(goal_run_id.to_string()),
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
+        .await
     }
 
     async fn resume_existing_goal_final_review(

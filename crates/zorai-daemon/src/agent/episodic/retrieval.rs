@@ -11,9 +11,6 @@ use crate::agent::engine::AgentEngine;
 use anyhow::Result;
 use rusqlite::params;
 
-// ---------------------------------------------------------------------------
-// FTS5 query helpers
-// ---------------------------------------------------------------------------
 
 /// Escape and format a raw user query into an FTS5 OR query.
 ///
@@ -47,9 +44,6 @@ pub fn compute_recency_weight(episode_created_at: u64, now_ms: u64) -> f64 {
     weight.clamp(0.01, 1.0)
 }
 
-// ---------------------------------------------------------------------------
-// Episodic context formatting
-// ---------------------------------------------------------------------------
 
 /// Format a slice of episodes into a human-readable episodic context section
 /// suitable for injection into a system prompt or goal planning context.
@@ -121,9 +115,6 @@ fn format_age(created_at: u64) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Row mapping helper (reusable across retrieval queries)
-// ---------------------------------------------------------------------------
 
 fn row_to_episode_with_rank(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Episode, f64)> {
     let episode_type_str: String = row.get(5)?;
@@ -207,9 +198,6 @@ fn str_to_episode_outcome(s: &str) -> EpisodeOutcome {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Retrieval methods on AgentEngine
-// ---------------------------------------------------------------------------
 
 impl AgentEngine {
     /// Retrieve relevant episodes using FTS5 BM25 ranking with recency re-weighting.
@@ -271,12 +259,10 @@ impl AgentEngine {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        // Re-rank by combined score: bm25 rank (negative, lower is better) * recency weight
         let mut scored: Vec<(Episode, f64)> = rows
             .into_iter()
             .map(|(ep, bm25_rank)| {
                 let recency = compute_recency_weight(ep.created_at, now_ms);
-                // BM25 scores are negative (lower = more relevant), so we negate for sorting
                 let combined = (-bm25_rank) * recency;
                 (ep, combined)
             })

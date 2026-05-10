@@ -1,4 +1,20 @@
-fn build_cached_lines(
+use super::scroll_offset_from_thumb_offset_to_file_preview_cache_key::*;
+use super::syntax_highlighting::*;
+use crate::app::ChatFilePreviewTarget;
+use crate::state::task::TaskState;
+use crate::terminal_graphics::{active_protocol, TerminalImageOverlaySpec, TerminalImageProtocol};
+use crate::theme::ThemeTokens;
+use crate::widgets::image_preview;
+use crate::widgets::message::{render_markdown_pub, wrap_text};
+use crate::widgets::tool_diff::render_unified_diff;
+use ratatui::prelude::*;
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use std::sync::{Arc, Mutex, OnceLock};
+use unicode_width::UnicodeWidthChar;
+
+pub(super) fn build_cached_lines(
     area: Rect,
     tasks: &TaskState,
     target: &ChatFilePreviewTarget,
@@ -42,11 +58,11 @@ fn build_cached_lines(
 }
 
 #[cfg(not(test))]
-const FILE_PREVIEW_CACHE_CAPACITY: usize = 8;
+pub(super) const FILE_PREVIEW_CACHE_CAPACITY: usize = 8;
 #[cfg(test)]
-const FILE_PREVIEW_CACHE_CAPACITY: usize = 64;
+pub(super) const FILE_PREVIEW_CACHE_CAPACITY: usize = 64;
 
-fn snapshot_with_cache(
+pub(super) fn snapshot_with_cache(
     cache: &mut FilePreviewRenderCache,
     area: Rect,
     tasks: &TaskState,
@@ -91,7 +107,7 @@ fn snapshot_with_cache(
     })
 }
 
-fn snapshot(
+pub(super) fn snapshot(
     area: Rect,
     tasks: &TaskState,
     target: &ChatFilePreviewTarget,
@@ -102,7 +118,7 @@ fn snapshot(
     snapshot_with_cache(&mut cache, area, tasks, target, theme, scroll)
 }
 
-fn selection_snapshot(
+pub(super) fn selection_snapshot(
     area: Rect,
     tasks: &TaskState,
     target: &ChatFilePreviewTarget,
@@ -128,7 +144,7 @@ fn selection_snapshot(
     })
 }
 
-fn selection_point_from_snapshot(
+pub(super) fn selection_point_from_snapshot(
     snapshot: &SelectionSnapshot,
     mouse: Position,
 ) -> Option<crate::widgets::chat::SelectionPoint> {
@@ -176,14 +192,16 @@ fn selection_point_from_snapshot(
     })
 }
 
-fn selection_line<'a>(
+pub(super) fn selection_line<'a>(
     snapshot: &'a SelectionSnapshot,
     row: usize,
 ) -> Option<&'a Line<'static>> {
     if row < snapshot.header_lines.len() {
         snapshot.header_lines.get(row)
     } else {
-        snapshot.body_lines.get(row.saturating_sub(snapshot.header_lines.len()))
+        snapshot
+            .body_lines
+            .get(row.saturating_sub(snapshot.header_lines.len()))
     }
 }
 
@@ -264,7 +282,7 @@ pub fn selected_text(
     }
 }
 
-fn apply_mouse_selection_highlight_to_line(
+pub(super) fn apply_mouse_selection_highlight_to_line(
     row: usize,
     line: &mut Line<'static>,
     mouse_selection: Option<(
@@ -299,7 +317,7 @@ fn apply_mouse_selection_highlight_to_line(
     highlight_line_range(line, from, to, Style::default().bg(Color::Indexed(31)));
 }
 
-fn uses_terminal_graphics(target: &ChatFilePreviewTarget, scroll: usize) -> bool {
+pub(super) fn uses_terminal_graphics(target: &ChatFilePreviewTarget, scroll: usize) -> bool {
     scroll == 0
         && target.repo_root.is_none()
         && active_protocol() != TerminalImageProtocol::None
@@ -308,7 +326,7 @@ fn uses_terminal_graphics(target: &ChatFilePreviewTarget, scroll: usize) -> bool
             .is_some_and(image_preview::is_previewable_image_path)
 }
 
-fn push_terminal_graphics_placeholder(
+pub(super) fn push_terminal_graphics_placeholder(
     lines: &mut Vec<Line<'static>>,
     image_preview_height: usize,
     theme: &ThemeTokens,

@@ -1,3 +1,18 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_shared::providers::*;
 impl TuiModel {
     pub(super) fn mission_control_navigation_state(&self) -> MissionControlNavigationState {
         self.mission_control_navigation.clone()
@@ -23,14 +38,14 @@ impl TuiModel {
         });
     }
 
-    pub(super) fn mission_control_return_to_goal_target(
+    pub(crate) fn mission_control_return_to_goal_target(
         &self,
     ) -> Option<sidebar::SidebarItemTarget> {
         self.mission_control_navigation_state()
             .return_to_goal_target
     }
 
-    pub(super) fn set_mission_control_return_to_goal_target(
+    pub(crate) fn set_mission_control_return_to_goal_target(
         &mut self,
         target: Option<sidebar::SidebarItemTarget>,
     ) {
@@ -39,33 +54,33 @@ impl TuiModel {
         });
     }
 
-    pub(super) fn mission_control_return_to_thread_id(&self) -> Option<String> {
+    pub(crate) fn mission_control_return_to_thread_id(&self) -> Option<String> {
         self.mission_control_navigation_state().return_to_thread_id
     }
 
-    pub(super) fn set_mission_control_return_to_thread_id(&mut self, thread_id: Option<String>) {
+    pub(crate) fn set_mission_control_return_to_thread_id(&mut self, thread_id: Option<String>) {
         self.update_mission_control_navigation_state(|state| {
             state.return_to_thread_id = thread_id;
         });
     }
 
-    pub(super) fn mission_control_return_to_workspace(&self) -> bool {
+    pub(crate) fn mission_control_return_to_workspace(&self) -> bool {
         self.mission_control_navigation_state().return_to_workspace
     }
 
-    pub(super) fn set_mission_control_return_to_workspace(&mut self, return_to_workspace: bool) {
+    pub(crate) fn set_mission_control_return_to_workspace(&mut self, return_to_workspace: bool) {
         self.update_mission_control_navigation_state(|state| {
             state.return_to_workspace = return_to_workspace;
         });
     }
 
-    pub(super) fn clear_mission_control_return_context(&mut self) {
+    pub(crate) fn clear_mission_control_return_context(&mut self) {
         self.set_mission_control_return_to_goal_target(None);
         self.set_mission_control_return_to_thread_id(None);
         self.set_mission_control_return_to_workspace(false);
     }
 
-    pub(super) fn current_goal_return_target(&self) -> Option<sidebar::SidebarItemTarget> {
+    pub(crate) fn current_goal_return_target(&self) -> Option<sidebar::SidebarItemTarget> {
         self.mission_control_return_to_goal_target().or_else(|| {
             if matches!(self.main_pane_view, MainPaneView::GoalComposer) {
                 self.mission_control_source_goal_target()
@@ -75,7 +90,7 @@ impl TuiModel {
         })
     }
 
-    pub(super) fn set_mission_control_return_targets(
+    pub(crate) fn set_mission_control_return_targets(
         &mut self,
         goal_target: Option<sidebar::SidebarItemTarget>,
         thread_id: Option<String>,
@@ -85,13 +100,13 @@ impl TuiModel {
         self.set_mission_control_return_to_workspace(false);
     }
 
-    pub(super) fn has_mission_control_return_target(&self) -> bool {
+    pub(crate) fn has_mission_control_return_target(&self) -> bool {
         self.mission_control_return_to_thread_id().is_some()
             || self.mission_control_return_to_goal_target().is_some()
             || self.mission_control_return_to_workspace()
     }
 
-    fn open_work_context_for_thread(
+    pub(crate) fn open_work_context_for_thread(
         &mut self,
         thread_id: String,
         path: Option<String>,
@@ -131,13 +146,13 @@ impl TuiModel {
         }
     }
 
-    fn mission_control_goal_run(&self) -> Option<&task::GoalRun> {
+    pub(crate) fn mission_control_goal_run(&self) -> Option<&task::GoalRun> {
         let target = self.mission_control_source_goal_target()?;
         let goal_run_id = target_goal_run_id(self, &target)?;
         self.tasks.goal_run_by_id(&goal_run_id)
     }
 
-    fn mission_control_thread_target(&self) -> Option<(String, bool)> {
+    pub(crate) fn mission_control_thread_target(&self) -> Option<(String, bool)> {
         let run = self.mission_control_goal_run()?;
         run.active_thread_id
             .clone()
@@ -149,7 +164,7 @@ impl TuiModel {
             })
     }
 
-    fn goal_prompt_thread_target(&self) -> Option<(sidebar::SidebarItemTarget, String)> {
+    pub(crate) fn goal_prompt_thread_target(&self) -> Option<(sidebar::SidebarItemTarget, String)> {
         let target = self.current_goal_target_for_mission_control()?;
         let goal_run_id = target_goal_run_id(self, &target)?;
         let run = self.tasks.goal_run_by_id(&goal_run_id)?;
@@ -169,7 +184,7 @@ impl TuiModel {
         Some((target, thread_id))
     }
 
-    pub(super) fn mission_control_has_thread_target(&self) -> bool {
+    pub(crate) fn mission_control_has_thread_target(&self) -> bool {
         self.mission_control_thread_target().is_some()
     }
 
@@ -221,7 +236,11 @@ impl TuiModel {
             })
     }
 
-    fn sync_goal_mission_control_from_run(&mut self, run: &task::GoalRun, preserve_pending: bool) {
+    pub(crate) fn sync_goal_mission_control_from_run(
+        &mut self,
+        run: &task::GoalRun,
+        preserve_pending: bool,
+    ) {
         let (assignments, uses_fallback) = self.runtime_assignments_for_goal_run(run);
         let active_index = self.active_runtime_assignment_index_for_run(run, &assignments);
         let preserved_pending = preserve_pending
@@ -256,7 +275,7 @@ impl TuiModel {
         }
     }
 
-    fn sync_goal_mission_control_from_selected_goal_run(&mut self) -> bool {
+    pub(crate) fn sync_goal_mission_control_from_selected_goal_run(&mut self) -> bool {
         let Some(run) = self.selected_goal_run().cloned() else {
             return false;
         };
@@ -265,14 +284,14 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn sidebar_uses_goal_sidebar(&self) -> bool {
+    pub(crate) fn sidebar_uses_goal_sidebar(&self) -> bool {
         matches!(
             self.main_pane_view,
             MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { .. })
         ) && self.sidebar_visible()
     }
 
-    fn active_goal_sidebar_goal_run(&self) -> Option<&str> {
+    pub(crate) fn active_goal_sidebar_goal_run(&self) -> Option<&str> {
         let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
             &self.main_pane_view
         else {
@@ -303,7 +322,7 @@ impl TuiModel {
             .collect()
     }
 
-    pub(super) fn sync_goal_workspace_selection_for_active_goal_pane(&mut self) {
+    pub(crate) fn sync_goal_workspace_selection_for_active_goal_pane(&mut self) {
         let items = self.goal_workspace_plan_items();
         if items.is_empty() {
             self.goal_workspace.set_selected_plan_row(0);
@@ -336,7 +355,7 @@ impl TuiModel {
         self.clamp_goal_workspace_plan_scroll_to_selection();
     }
 
-    pub(super) fn select_goal_workspace_plan_item(
+    pub(crate) fn select_goal_workspace_plan_item(
         &mut self,
         item: crate::state::goal_workspace::GoalPlanSelection,
     ) -> bool {
@@ -415,7 +434,7 @@ impl TuiModel {
             .set_plan_scroll(next_scroll.min(max_scroll));
     }
 
-    pub(super) fn step_goal_workspace_plan_selection(&mut self, delta: i32) -> bool {
+    pub(crate) fn step_goal_workspace_plan_selection(&mut self, delta: i32) -> bool {
         self.sync_goal_workspace_selection_for_active_goal_pane();
         let items = self.goal_workspace_plan_items();
         if items.is_empty() {
@@ -430,7 +449,7 @@ impl TuiModel {
         self.select_goal_workspace_plan_item(items[next].clone())
     }
 
-    pub(super) fn activate_goal_workspace_plan_target(&mut self) -> bool {
+    pub(crate) fn activate_goal_workspace_plan_target(&mut self) -> bool {
         let Some(selection) = self.goal_workspace.selected_plan_item().cloned() else {
             return false;
         };
@@ -455,7 +474,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn expand_selected_goal_workspace_step(&mut self) -> bool {
+    pub(crate) fn expand_selected_goal_workspace_step(&mut self) -> bool {
         self.sync_goal_workspace_selection_for_active_goal_pane();
         let Some(selection) = self.goal_workspace.selected_plan_item().cloned() else {
             return false;
@@ -468,7 +487,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn collapse_goal_workspace_selection(&mut self) -> bool {
+    pub(crate) fn collapse_goal_workspace_selection(&mut self) -> bool {
         self.sync_goal_workspace_selection_for_active_goal_pane();
         let Some(selection) = self.goal_workspace.selected_plan_item().cloned() else {
             return false;
@@ -491,5 +510,4 @@ impl TuiModel {
                 ),
         }
     }
-
 }

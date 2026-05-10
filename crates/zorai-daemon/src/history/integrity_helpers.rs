@@ -305,7 +305,6 @@ pub(super) fn read_last_worm_entry(path: &PathBuf) -> (String, usize) {
                     .unwrap_or(0);
                 (hash, seq)
             } else {
-                // Could not parse last line (possibly old format); start fresh chain.
                 ("genesis".to_string(), 0)
             }
         }
@@ -392,12 +391,10 @@ pub(super) fn verify_ledger_file(kind: &str, path: &PathBuf) -> WormIntegrityRes
             }
         };
 
-        // Detect old-format entries (no seq/prev_hash fields) and handle gracefully.
         let has_seq = entry.get("seq").is_some();
         let has_prev_hash = entry.get("prev_hash").is_some();
 
         if !has_seq || !has_prev_hash {
-            // Old-format entry: verify standalone hash only.
             let payload = &entry["payload"];
             let recorded_hash = entry
                 .get("hash")
@@ -417,13 +414,11 @@ pub(super) fn verify_ledger_file(kind: &str, path: &PathBuf) -> WormIntegrityRes
                 break;
             }
 
-            // For chain continuity, treat old entries' hash as the prev_hash for the next entry.
             prev_hash = recorded_hash.to_string();
             expected_seq += 1;
             continue;
         }
 
-        // New-format entry: full hash-chain verification.
         let entry_seq = entry["seq"].as_u64().unwrap_or(0) as usize;
         let entry_prev_hash = entry
             .get("prev_hash")
@@ -436,7 +431,6 @@ pub(super) fn verify_ledger_file(kind: &str, path: &PathBuf) -> WormIntegrityRes
         let payload = &entry["payload"];
         let payload_json = serde_json::to_string(payload).unwrap_or_default();
 
-        // Verify sequence number.
         if entry_seq != expected_seq {
             if first_invalid_seq.is_none() {
                 first_invalid_seq = Some(entry_seq);
@@ -448,7 +442,6 @@ pub(super) fn verify_ledger_file(kind: &str, path: &PathBuf) -> WormIntegrityRes
             break;
         }
 
-        // Verify prev_hash matches previous entry's hash.
         if entry_prev_hash != prev_hash {
             if first_invalid_seq.is_none() {
                 first_invalid_seq = Some(entry_seq);
@@ -462,7 +455,6 @@ pub(super) fn verify_ledger_file(kind: &str, path: &PathBuf) -> WormIntegrityRes
             break;
         }
 
-        // Verify hash = sha256(prev_hash + payload_json).
         let computed_hash = hex_hash(&format!("{}{}", entry_prev_hash, payload_json));
         if recorded_hash != computed_hash {
             if first_invalid_seq.is_none() {

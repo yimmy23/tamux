@@ -3,10 +3,46 @@ use anyhow::Result;
 use crate::agent::metacognitive::{escalation, replanning};
 use crate::agent::{
     generate_message_id, make_task_log_entry, now_millis, AgentEngine, AgentEvent, AgentMessage,
-    MessageRole, TaskLogLevel, TaskStatus,
+    AgentTask, MessageRole, TaskLogLevel, TaskStatus,
 };
 
 use super::*;
+
+impl AgentEngine {
+    async fn task_by_id_for_orchestrator_policy(
+        &self,
+        task_id: &str,
+    ) -> Option<crate::agent::types::AgentTask> {
+        match self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+            .into_iter()
+            .next()
+        {
+            Some(task) => Some(task),
+            None => {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find(|task| task.id == task_id).cloned()
+            }
+        }
+    }
+}
 
 fn build_strategy_refresh_prompt(
     trigger: &PolicyTriggerContext,
@@ -41,6 +77,21 @@ fn build_strategy_refresh_prompt(
     prompt
 }
 
+fn mark_task_policy_halted_retry_failure(task: &mut AgentTask, detail: Option<String>) {
+    task.retry_count = task.max_retries;
+    task.status = TaskStatus::Failed;
+    task.completed_at = Some(now_millis());
+    task.blocked_reason = Some("policy halted repeated retry".to_string());
+    task.last_error = Some("policy halted repeated retry".to_string());
+    task.logs.push(make_task_log_entry(
+        task.retry_count,
+        TaskLogLevel::Warn,
+        "policy",
+        "policy halted repeated retry",
+        detail,
+    ));
+}
+
 fn retry_guard_matches_runtime_context(
     decision: &PolicyDecision,
     context: &PolicyEvaluationContext,
@@ -60,26 +111,34 @@ impl AgentEngine {
         detail: Option<String>,
     ) {
         if let Some(task_id) = task_id {
-            let updated = {
+            let live_updated = {
                 let mut tasks = self.tasks.lock().await;
-                let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) else {
+                tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .map(|task| {
+                        mark_task_policy_halted_retry_failure(task, detail.clone());
+                        task.clone()
+                    })
+            };
+            let updated = if let Some(updated) = live_updated {
+                self.persist_tasks().await;
+                updated
+            } else {
+                let Some(mut task) = self.task_by_id_for_orchestrator_policy(task_id).await else {
                     return;
                 };
-                task.retry_count = task.max_retries;
-                task.status = TaskStatus::Failed;
-                task.completed_at = Some(now_millis());
-                task.blocked_reason = Some("policy halted repeated retry".to_string());
-                task.last_error = Some("policy halted repeated retry".to_string());
-                task.logs.push(make_task_log_entry(
-                    task.retry_count,
-                    TaskLogLevel::Warn,
-                    "policy",
-                    "policy halted repeated retry",
-                    detail,
-                ));
-                task.clone()
+                mark_task_policy_halted_retry_failure(&mut task, detail);
+                if let Err(error) = self.history.upsert_agent_task(&task).await {
+                    tracing::warn!(
+                        task_id = %task.id,
+                        %error,
+                        "failed to persist policy-halted task"
+                    );
+                    return;
+                }
+                task
             };
-            self.persist_tasks().await;
             self.emit_task_update(&updated, Some("Policy halted repeated retry".into()));
             if let Some(goal_run_id) = updated.goal_run_id.as_deref() {
                 self.sync_goal_run_with_task(goal_run_id, &updated).await;
@@ -134,6 +193,48 @@ impl AgentEngine {
         self.persist_thread_by_id(thread_id).await;
     }
 
+    async fn goal_run_current_step_title_for_orchestrator_policy(
+        &self,
+        goal_run_id: &str,
+    ) -> Option<String> {
+        let live_title = {
+            let goal_runs = self.goal_runs.lock().await;
+            goal_runs
+                .iter()
+                .find(|goal_run| goal_run.id == goal_run_id)
+                .and_then(|goal_run| {
+                    goal_run.current_step_title.clone().or_else(|| {
+                        goal_run
+                            .steps
+                            .get(goal_run.current_step_index)
+                            .map(|step| step.title.clone())
+                    })
+                })
+        };
+        if live_title.is_some() {
+            return live_title;
+        }
+
+        match self.history.goal_run_current_step_title(goal_run_id).await {
+            Ok(title) => title,
+            Err(error) => {
+                tracing::warn!(
+                    goal_run_id,
+                    %error,
+                    "failed to query goal step title for orchestrator policy"
+                );
+                self.get_goal_run(goal_run_id).await.and_then(|goal_run| {
+                    goal_run.current_step_title.or_else(|| {
+                        goal_run
+                            .steps
+                            .get(goal_run.current_step_index)
+                            .map(|step| step.title.clone())
+                    })
+                })
+            }
+        }
+    }
+
     async fn apply_policy_pivot(
         &self,
         thread_id: &str,
@@ -143,18 +244,15 @@ impl AgentEngine {
         decision: &PolicyDecision,
     ) -> Result<PolicyLoopAction> {
         let step_title = if let Some(goal_run_id) = goal_run_id {
-            self.get_goal_run(goal_run_id)
+            self.goal_run_current_step_title_for_orchestrator_policy(goal_run_id)
                 .await
-                .and_then(|goal_run| goal_run.current_step_title)
                 .unwrap_or_else(|| "current step".to_string())
         } else {
             "current step".to_string()
         };
         let task_retry_count = if let Some(task_id) = task_id {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|task| task.id == task_id)
+            self.task_by_id_for_orchestrator_policy(task_id)
+                .await
                 .map(|task| task.retry_count)
                 .unwrap_or(0)
         } else {
@@ -219,10 +317,8 @@ impl AgentEngine {
             None => return Ok(PolicyLoopAction::Continue),
         };
         let attempts = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|task| task.id == task_id)
+            self.task_by_id_for_orchestrator_policy(task_id)
+                .await
                 .map(|task| task.retry_count)
                 .unwrap_or(0)
         };
@@ -249,20 +345,10 @@ impl AgentEngine {
         };
         self.mark_task_awaiting_approval(task_id, thread_id, &pending_approval)
             .await;
-        let goal_run_id = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|task| task.id == task_id)
-                .and_then(|task| task.goal_run_id.clone())
-        };
-        if let Some(goal_run_id) = goal_run_id {
-            let task = {
-                let tasks = self.tasks.lock().await;
-                tasks.iter().find(|task| task.id == task_id).cloned()
-            };
-            if let Some(task) = task.as_ref() {
-                self.sync_goal_run_with_task(&goal_run_id, task).await;
+        let task = self.task_by_id_for_orchestrator_policy(task_id).await;
+        if let Some(task) = task.as_ref() {
+            if let Some(goal_run_id) = task.goal_run_id.as_deref() {
+                self.sync_goal_run_with_task(goal_run_id, task).await;
             }
         }
         self.append_system_message(

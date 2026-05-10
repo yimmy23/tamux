@@ -1,4 +1,5 @@
-async fn fetch_native_assistant_message(
+use super::*;
+pub(crate) async fn fetch_native_assistant_message(
     client: &reqwest::Client,
     provider: &str,
     config: &ProviderConfig,
@@ -12,8 +13,8 @@ async fn fetch_native_assistant_message(
         apply_openai_auth_headers(client.get(&url), provider, config, copilot_initiator),
         force_connection_close,
     )
-        .send()
-        .await?;
+    .send()
+    .await?;
     if !response.status().is_success() {
         let status = response.status();
         let retry_after_ms = extract_retry_after_ms(Some(response.headers()), "");
@@ -61,7 +62,7 @@ async fn fetch_native_assistant_message(
     ))
 }
 
-async fn run_openai_chat_completions(
+pub(crate) async fn run_openai_chat_completions(
     client: &reqwest::Client,
     provider: &str,
     config: &ProviderConfig,
@@ -151,15 +152,14 @@ fn apply_openrouter_provider_routing(
     body["provider"] = serde_json::Value::Object(provider_preferences);
 }
 
-fn build_openai_chat_completions_body(
+pub(crate) fn build_openai_chat_completions_body(
     provider: &str,
     config: &ProviderConfig,
     system_prompt: &str,
     messages: &[ApiMessage],
     tools: &[ToolDefinition],
 ) -> Result<serde_json::Value> {
-    let include_tool_reasoning_content =
-        chat_completions_replays_tool_reasoning_content(provider);
+    let include_tool_reasoning_content = chat_completions_replays_tool_reasoning_content(provider);
     let include_non_tool_reasoning_content =
         chat_completions_replays_non_tool_reasoning_content(provider);
     let include_non_tool_reasoning_content_after_tool_call =
@@ -246,7 +246,7 @@ fn chat_completions_repairs_missing_tool_reasoning_content(
             && normalize_reasoning_effort(&config.reasoning_effort).is_some())
 }
 
-fn messages_to_responses_input(
+pub(crate) fn messages_to_responses_input(
     provider: &str,
     messages: &[ApiMessage],
     previous_response_id: Option<&str>,
@@ -343,7 +343,7 @@ fn messages_to_responses_input(
         .collect()
 }
 
-fn extract_reasoning_summary_text(item: &serde_json::Value) -> Option<String> {
+pub(crate) fn extract_reasoning_summary_text(item: &serde_json::Value) -> Option<String> {
     let summary = item.get("summary")?.as_array()?;
     let combined = summary
         .iter()
@@ -399,7 +399,9 @@ fn build_anthropic_message_content(message: &ApiMessage) -> serde_json::Value {
     } else {
         match &message.content {
             ApiContent::Text(text) => serde_json::json!(text),
-            ApiContent::Blocks(blocks) => serde_json::json!(map_api_blocks_to_anthropic_blocks(blocks)),
+            ApiContent::Blocks(blocks) => {
+                serde_json::json!(map_api_blocks_to_anthropic_blocks(blocks))
+            }
         }
     }
 }
@@ -408,21 +410,31 @@ fn map_api_blocks_to_anthropic_blocks(blocks: &[serde_json::Value]) -> Vec<serde
     blocks
         .iter()
         .filter_map(|block| {
-            let block_type = block.get("type").and_then(|value| value.as_str()).unwrap_or_default();
+            let block_type = block
+                .get("type")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
             match block_type {
-                "input_text" | "text" => block.get("text").and_then(|value| value.as_str()).map(|text| {
-                    serde_json::json!({
-                        "type": "text",
-                        "text": text,
-                    })
-                }),
+                "input_text" | "text" => {
+                    block
+                        .get("text")
+                        .and_then(|value| value.as_str())
+                        .map(|text| {
+                            serde_json::json!({
+                                "type": "text",
+                                "text": text,
+                            })
+                        })
+                }
                 "input_image" => {
                     let image_url = block.get("image_url")?;
                     let image_url = image_url
                         .get("url")
                         .and_then(|value| value.as_str())
                         .or_else(|| image_url.as_str())?;
-                    let (media_type, data) = image_url.strip_prefix("data:").and_then(parse_data_url_payload)?;
+                    let (media_type, data) = image_url
+                        .strip_prefix("data:")
+                        .and_then(parse_data_url_payload)?;
                     Some(serde_json::json!({
                         "type": "image",
                         "source": {
@@ -483,7 +495,7 @@ fn anthropic_audio_media_type(format: &str) -> &'static str {
 /// Repair message sequence so every assistant tool_use is immediately followed
 /// by its tool_results, and no orphaned tool results appear without a parent.
 /// Drops broken pairs entirely rather than sending malformed sequences.
-fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> {
+pub(crate) fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> {
     let mut out: Vec<ApiMessage> = Vec::with_capacity(messages.len());
     let mut i = 0;
     while i < messages.len() {
@@ -491,10 +503,8 @@ fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> {
         if msg.role == "assistant" {
             if let Some(tool_calls) = &msg.tool_calls {
                 if !tool_calls.is_empty() {
-                    // Collect expected tool_call IDs.
                     let expected_ids: std::collections::HashSet<&str> =
                         tool_calls.iter().map(|tc| tc.id.as_str()).collect();
-                    // Gather subsequent tool results that match.
                     let mut results = Vec::new();
                     let mut matched_ids = std::collections::HashSet::new();
                     let mut j = i + 1;
@@ -515,13 +525,8 @@ fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> {
                         out.push(msg.clone());
                         out.extend(results);
                     } else if is_unanswered_latest_tool_turn {
-                        // Keep only the current unfinished tool-use turn so the caller
-                        // can execute the tools and append results before the next retry.
                         out.push(msg.clone());
                     } else {
-                        // Anthropic requires all tool_results for an assistant tool_use
-                        // turn to arrive together in the next user message. Drop any
-                        // partial or stale batch entirely.
                         tracing::warn!(
                             "sanitize_api_messages: dropping incomplete assistant tool_use with {} calls (matched {}/{})",
                             tool_calls.len(),
@@ -533,10 +538,14 @@ fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> {
                     continue;
                 }
             }
-            // Regular assistant message (no tool calls).
-            out.push(msg.clone());
+            if api_content_has_non_empty_payload(&msg.content) {
+                out.push(msg.clone());
+            } else {
+                tracing::warn!(
+                    "sanitize_api_messages: dropping empty assistant message without tool calls"
+                );
+            }
         } else if msg.role == "tool" {
-            // Orphaned tool result — skip it.
             tracing::warn!(
                 "sanitize_api_messages: dropping orphaned tool result (id={:?})",
                 msg.tool_call_id
@@ -549,7 +558,14 @@ fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> {
     out
 }
 
-fn build_anthropic_messages(messages: &[ApiMessage]) -> Vec<serde_json::Value> {
+fn api_content_has_non_empty_payload(content: &ApiContent) -> bool {
+    match content {
+        ApiContent::Text(text) => !text.trim().is_empty(),
+        ApiContent::Blocks(blocks) => !blocks.is_empty(),
+    }
+}
+
+pub(crate) fn build_anthropic_messages(messages: &[ApiMessage]) -> Vec<serde_json::Value> {
     let messages = sanitize_api_messages(messages);
 
     let mut out = Vec::new();
@@ -596,7 +612,7 @@ fn build_anthropic_messages(messages: &[ApiMessage]) -> Vec<serde_json::Value> {
     out
 }
 
-async fn run_openai_responses(
+pub(crate) async fn run_openai_responses(
     client: &reqwest::Client,
     provider: &str,
     config: &ProviderConfig,
@@ -630,9 +646,9 @@ async fn run_openai_responses(
             client
                 .post(&url)
                 .header("Content-Type", "application/json")
-            .header(
-                "Authorization",
-                format!("Bearer {}", codex_auth.access_token),
+                .header(
+                    "Authorization",
+                    format!("Bearer {}", codex_auth.access_token),
                 )
                 .header("chatgpt-account-id", codex_auth.account_id)
                 .header("OpenAI-Beta", "responses=experimental")

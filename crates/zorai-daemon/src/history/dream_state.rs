@@ -123,31 +123,57 @@ impl HistoryStore {
         &self,
         dream_cycle_id: i64,
     ) -> Result<Vec<CounterfactualEvaluationRow>> {
+        self.list_counterfactual_evaluations_maybe_limited(dream_cycle_id, None)
+            .await
+    }
+
+    pub async fn list_counterfactual_evaluations_limited(
+        &self,
+        dream_cycle_id: i64,
+        limit: usize,
+    ) -> Result<Vec<CounterfactualEvaluationRow>> {
+        self.list_counterfactual_evaluations_maybe_limited(dream_cycle_id, Some(limit))
+            .await
+    }
+
+    async fn list_counterfactual_evaluations_maybe_limited(
+        &self,
+        dream_cycle_id: i64,
+        limit: Option<usize>,
+    ) -> Result<Vec<CounterfactualEvaluationRow>> {
+        let limit = limit.map(|value| value.max(1) as i64);
         self.read_conn
             .call(move |conn| {
-                let mut stmt = conn.prepare(
+                let mut sql = String::from(
                     "SELECT id, dream_cycle_id, source_task_id, variation_type, counterfactual_description, estimated_token_saving, estimated_time_saving_ms, estimated_revision_reduction, score, threshold_met, created_at_ms
                      FROM counterfactual_evaluations
                      WHERE dream_cycle_id = ?1
                      ORDER BY created_at_ms DESC, id DESC",
-                )?;
-                let rows = stmt.query_map(params![dream_cycle_id], |row| {
-                    Ok(CounterfactualEvaluationRow {
-                        id: Some(row.get(0)?),
-                        dream_cycle_id: row.get(1)?,
-                        source_task_id: row.get(2)?,
-                        variation_type: row.get(3)?,
-                        counterfactual_description: row.get(4)?,
-                        estimated_token_saving: row.get(5)?,
-                        estimated_time_saving_ms: row.get(6)?,
-                        estimated_revision_reduction: row
-                            .get::<_, Option<i64>>(7)?
-                            .map(|value| value.max(0) as u64),
-                        score: row.get(8)?,
-                        threshold_met: row.get::<_, i64>(9)? != 0,
-                        created_at_ms: row.get::<_, i64>(10)?.max(0) as u64,
-                    })
-                })?;
+                );
+                let mut values = vec![rusqlite::types::Value::Integer(dream_cycle_id)];
+                if let Some(limit) = limit {
+                    sql.push_str(" LIMIT ?2");
+                    values.push(rusqlite::types::Value::Integer(limit));
+                }
+                let mut stmt = conn.prepare(&sql)?;
+                let rows =
+                    stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                        Ok(CounterfactualEvaluationRow {
+                            id: Some(row.get(0)?),
+                            dream_cycle_id: row.get(1)?,
+                            source_task_id: row.get(2)?,
+                            variation_type: row.get(3)?,
+                            counterfactual_description: row.get(4)?,
+                            estimated_token_saving: row.get(5)?,
+                            estimated_time_saving_ms: row.get(6)?,
+                            estimated_revision_reduction: row
+                                .get::<_, Option<i64>>(7)?
+                                .map(|value| value.max(0) as u64),
+                            score: row.get(8)?,
+                            threshold_met: row.get::<_, i64>(9)? != 0,
+                            created_at_ms: row.get::<_, i64>(10)?.max(0) as u64,
+                        })
+                    })?;
                 rows.collect::<std::result::Result<Vec<_>, _>>()
                     .map_err(Into::into)
             })

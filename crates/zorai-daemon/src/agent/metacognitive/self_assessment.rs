@@ -2,9 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
-// Metrics structs
-// ---------------------------------------------------------------------------
 
 /// How close the agent is to completing its goal and at what pace.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,9 +47,6 @@ pub struct AssessmentInput {
     pub quality: QualityMetrics,
 }
 
-// ---------------------------------------------------------------------------
-// Assessment output
-// ---------------------------------------------------------------------------
 
 /// The result of a self-assessment pass.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,9 +64,6 @@ pub struct Assessment {
     pub recommendations: Vec<String>,
 }
 
-// ---------------------------------------------------------------------------
-// SelfAssessor
-// ---------------------------------------------------------------------------
 
 /// Configurable assessor that evaluates agent state against thresholds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,7 +96,6 @@ impl SelfAssessor {
         let e = &input.efficiency;
         let q = &input.quality;
 
-        // --- individual verdicts -------------------------------------------
 
         let making_progress =
             p.goal_distance_pct > 10.0 && p.momentum >= 0.0 && p.steps_completed > 0;
@@ -121,25 +111,20 @@ impl SelfAssessor {
         let should_terminate = p.goal_distance_pct >= 95.0
             || (p.steps_completed >= p.steps_total && p.steps_total > 0);
 
-        // --- confidence: weighted average of positive signals ---------------
 
-        // Progress component (weight 0.4)
         let progress_signal = if p.steps_total > 0 {
             p.goal_distance_pct / 100.0
         } else {
             0.0
         };
 
-        // Efficiency component (weight 0.3)
         let efficiency_signal = e.tool_success_rate;
 
-        // Quality component (weight 0.3)
         let quality_signal = 1.0 - q.error_rate;
 
         let confidence = (0.4 * progress_signal + 0.3 * efficiency_signal + 0.3 * quality_signal)
             .clamp(0.0, 1.0);
 
-        // --- reasoning -----------------------------------------------------
 
         let mut reasons: Vec<&str> = Vec::new();
         if making_progress {
@@ -163,7 +148,6 @@ impl SelfAssessor {
         }
         let reasoning = reasons.join("; ");
 
-        // --- recommendations -----------------------------------------------
 
         let mut recommendations: Vec<String> = Vec::new();
 
@@ -213,16 +197,12 @@ impl SelfAssessor {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helper function
-// ---------------------------------------------------------------------------
 
 /// Compute momentum (acceleration) from a series of step-completion timestamps.
 ///
 /// Returns positive if steps are completing faster (accelerating), negative if
 /// slower (decelerating), and 0.0 if stable or insufficient data.
 pub fn compute_momentum(recent_step_times: &[u64]) -> f64 {
-    // Need at least 3 timestamps to compute two intervals and their difference.
     if recent_step_times.len() < 3 {
         return 0.0;
     }
@@ -232,8 +212,6 @@ pub fn compute_momentum(recent_step_times: &[u64]) -> f64 {
         .map(|w| (w[1] as f64) - (w[0] as f64))
         .collect();
 
-    // Average change in interval length.  Negative delta means intervals are
-    // *shrinking* (steps completing faster), which is positive momentum.
     let deltas: Vec<f64> = intervals.windows(2).map(|w| w[1] - w[0]).collect();
 
     if deltas.is_empty() {
@@ -242,13 +220,9 @@ pub fn compute_momentum(recent_step_times: &[u64]) -> f64 {
 
     let avg_delta: f64 = deltas.iter().sum::<f64>() / deltas.len() as f64;
 
-    // Invert sign: shrinking intervals => positive momentum.
     -avg_delta
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -287,7 +261,6 @@ mod tests {
         }
     }
 
-    // 1. Default assessor has reasonable thresholds
     #[test]
     fn default_assessor_has_reasonable_thresholds() {
         let a = SelfAssessor::default();
@@ -297,7 +270,6 @@ mod tests {
         assert!((a.escalation_threshold - 0.7).abs() < f64::EPSILON);
     }
 
-    // 2. Making progress when goal_distance > 10% with positive momentum
     #[test]
     fn making_progress_positive_momentum() {
         let assessor = SelfAssessor::default();
@@ -306,7 +278,6 @@ mod tests {
         assert!(result.making_progress);
     }
 
-    // 3. Not making progress when goal_distance is 0
     #[test]
     fn not_making_progress_zero_distance() {
         let assessor = SelfAssessor::default();
@@ -315,7 +286,6 @@ mod tests {
         assert!(!result.making_progress);
     }
 
-    // 4. Approach optimal with high success rate and low errors
     #[test]
     fn approach_optimal_high_success_low_errors() {
         let assessor = SelfAssessor::default();
@@ -324,7 +294,6 @@ mod tests {
         assert!(result.approach_optimal);
     }
 
-    // 5. Should escalate with high error rate and no progress
     #[test]
     fn should_escalate_high_errors_no_progress() {
         let assessor = SelfAssessor::default();
@@ -333,18 +302,14 @@ mod tests {
         assert!(result.should_escalate);
     }
 
-    // 6. Should pivot with negative momentum
     #[test]
     fn should_pivot_negative_momentum() {
         let assessor = SelfAssessor::default();
         let input = make_input(5.0, 1, 10, -0.5, 0.3, 0.5, 0.3);
         let result = assessor.assess(&input);
-        // goal_distance <= 10 AND momentum < 0 => not making_progress
-        // momentum < -0.3 AND not making_progress => should_pivot
         assert!(result.should_pivot);
     }
 
-    // 7. Should terminate when goal_distance >= 95
     #[test]
     fn should_terminate_goal_nearly_complete() {
         let assessor = SelfAssessor::default();
@@ -353,7 +318,6 @@ mod tests {
         assert!(result.should_terminate);
     }
 
-    // 8. Should terminate when all steps completed
     #[test]
     fn should_terminate_all_steps_done() {
         let assessor = SelfAssessor::default();
@@ -362,16 +326,13 @@ mod tests {
         assert!(result.should_terminate);
     }
 
-    // 9. Confidence reflects quality of metrics
     #[test]
     fn confidence_reflects_metric_quality() {
         let assessor = SelfAssessor::default();
 
-        // Good metrics => high confidence
         let good = make_input(80.0, 8, 10, 0.5, 0.9, 0.95, 0.05);
         let good_result = assessor.assess(&good);
 
-        // Poor metrics => low confidence
         let poor = make_input(10.0, 1, 10, -0.5, 0.1, 0.1, 0.9);
         let poor_result = assessor.assess(&poor);
 
@@ -383,19 +344,15 @@ mod tests {
         );
     }
 
-    // 10. Recommendations are generated for each concern
     #[test]
     fn recommendations_generated_for_concerns() {
         let assessor = SelfAssessor::default();
-        // No progress, high errors, low tool success, negative momentum
         let input = make_input(5.0, 1, 10, -0.5, 0.2, 0.1, 0.8);
         let result = assessor.assess(&input);
         assert!(
             !result.recommendations.is_empty(),
             "Should generate recommendations when problems are detected"
         );
-        // Expect at least recommendations for: no progress, high error rate,
-        // low tool success rate, pivot, escalate
         assert!(
             result.recommendations.len() >= 4,
             "Expected >= 4 recommendations, got {}",
@@ -403,10 +360,8 @@ mod tests {
         );
     }
 
-    // 11. compute_momentum accelerating
     #[test]
     fn compute_momentum_accelerating() {
-        // Intervals shrinking: 10, 8, 6 => deltas -2, -2 => avg -2 => momentum +2
         let times = vec![0, 10, 18, 24];
         let m = compute_momentum(&times);
         assert!(
@@ -415,10 +370,8 @@ mod tests {
         );
     }
 
-    // 12. compute_momentum decelerating
     #[test]
     fn compute_momentum_decelerating() {
-        // Intervals growing: 5, 10, 15 => deltas +5, +5 => avg +5 => momentum -5
         let times = vec![0, 5, 15, 30];
         let m = compute_momentum(&times);
         assert!(
@@ -427,19 +380,14 @@ mod tests {
         );
     }
 
-    // 13. compute_momentum stable / empty
     #[test]
     fn compute_momentum_stable_or_empty() {
-        // Empty
         assert!((compute_momentum(&[]) - 0.0).abs() < f64::EPSILON);
 
-        // Single timestamp
         assert!((compute_momentum(&[42]) - 0.0).abs() < f64::EPSILON);
 
-        // Two timestamps (not enough for two intervals)
         assert!((compute_momentum(&[0, 10]) - 0.0).abs() < f64::EPSILON);
 
-        // Equal intervals => 0 momentum
         let times = vec![0, 10, 20, 30];
         assert!(
             compute_momentum(&times).abs() < f64::EPSILON,

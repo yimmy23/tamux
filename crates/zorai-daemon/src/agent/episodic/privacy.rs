@@ -100,7 +100,6 @@ mod tests {
         let mut episode = make_episode();
         scrub_episode(&mut episode);
 
-        // Summary should have the api_key pattern scrubbed
         assert!(
             !episode.summary.contains("sk-secret-key-12345"),
             "API key should be scrubbed from summary: {}",
@@ -112,7 +111,6 @@ mod tests {
             episode.summary
         );
 
-        // Root cause should have Bearer token scrubbed
         let root_cause = episode.root_cause.as_ref().unwrap();
         assert!(
             !root_cause.contains("abc123token"),
@@ -125,7 +123,6 @@ mod tests {
             root_cause
         );
 
-        // Entities should have token value scrubbed
         let entity = &episode.entities[1];
         assert!(
             !entity.contains("super_secret_value"),

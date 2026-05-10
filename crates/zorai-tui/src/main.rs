@@ -43,14 +43,15 @@ use crate::state::DaemonCommand;
 
 const MAX_TRANSIENT_TERMINAL_ERRORS: usize = 5;
 const TERMINAL_ERROR_RETRY_DELAY_MS: u64 = 150;
-const MAX_DAEMON_EVENTS_PER_FRAME: usize = 32;
+const MAX_DAEMON_EVENTS_PER_FRAME: usize = 256;
 const IDLE_TICK_RATE_MULTIPLIER: u32 = 5;
+const MIN_REDRAW_INTERVAL_MS: u128 = 33;
 
 fn build_log_filter(tui_log: Option<&str>, zorai_log: Option<&str>) -> EnvFilter {
     tui_log
         .and_then(parse_log_filter)
         .or_else(|| zorai_log.and_then(parse_log_filter))
-        .unwrap_or_else(|| EnvFilter::new("error"))
+        .unwrap_or_else(|| EnvFilter::new("warn,zorai_tui=info"))
 }
 
 fn parse_log_filter(value: &str) -> Option<EnvFilter> {
@@ -259,7 +260,6 @@ fn main() -> Result<()> {
     write_runtime_marker("startup: logging initialized");
     install_terminal_panic_hook();
 
-    // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     stdout.execute(EnterAlternateScreen)?;
@@ -283,20 +283,17 @@ fn main() -> Result<()> {
     write_runtime_marker("startup: terminal initialized");
 
     let app_result = panic::catch_unwind(AssertUnwindSafe(|| {
-        // Setup daemon bridge
         let (daemon_event_tx, daemon_event_rx) = mpsc::channel();
         let (daemon_cmd_tx, daemon_cmd_rx) = tokio_mpsc::unbounded_channel();
         start_daemon_bridge(daemon_event_tx, daemon_cmd_rx);
         update::spawn_update_check(daemon_cmd_tx.clone());
 
-        // Create model
         let mut model = TuiModel::new(daemon_event_rx, daemon_cmd_tx);
         model.load_saved_settings();
         let protocol = crate::terminal_graphics::configure_detected_protocol();
         let mut graphics_renderer =
             crate::terminal_graphics::TerminalGraphicsRenderer::new(protocol);
 
-        // Main loop
         let tick_rate = Duration::from_millis(crate::app::TUI_TICK_RATE_MS);
         run_loop(&mut terminal, &mut model, &mut graphics_renderer, tick_rate)
     }));
@@ -337,6 +334,8 @@ fn run_loop(
     let mut next_tick = last_tick + loop_tick_rate(model, tick_rate);
     let mut terminal_error_streak = 0usize;
     let mut needs_draw = true;
+    let mut last_drawn_at = Instant::now() - Duration::from_secs(1);
+    let mut input_pending = false;
 
     loop {
         let now = Instant::now();
@@ -356,11 +355,35 @@ fn run_loop(
             needs_draw = true;
         }
 
-        if needs_draw {
+        // Throttle redraws: when daemon events flood in (active goal run
+        // streaming deltas / tool calls), we used to redraw on every
+        // 32-event batch, which under heavy view-render cost backed up
+        // the event drain by seconds. Cap render rate to ~30 fps unless
+        // the user just pressed a key (input_pending always renders so
+        // typing stays snappy). Tick-driven redraws still run at their
+        // scheduled cadence.
+        let since_last_draw = now.saturating_duration_since(last_drawn_at);
+        let throttled = !input_pending
+            && processed_daemon_events > 0
+            && since_last_draw.as_millis() < MIN_REDRAW_INTERVAL_MS;
+        if needs_draw && !throttled {
+            let render_started = Instant::now();
+            let pumped_for_log = processed_daemon_events;
             match terminal.draw(|frame| {
                 model.render(frame);
             }) {
-                Ok(_) => terminal_error_streak = 0,
+                Ok(_) => {
+                    let elapsed_ms = render_started.elapsed().as_millis() as u64;
+                    if elapsed_ms > 100 {
+                        tracing::warn!(
+                            elapsed_ms,
+                            pumped = pumped_for_log,
+                            input_pending,
+                            "tui: slow render frame (>100ms)"
+                        );
+                    }
+                    terminal_error_streak = 0;
+                }
                 Err(err) => {
                     if should_retry_terminal_error(terminal_error_streak) {
                         terminal_error_streak += 1;
@@ -378,6 +401,8 @@ fn run_loop(
 
             graphics_renderer.render(terminal, model.terminal_image_overlay_spec())?;
             needs_draw = false;
+            last_drawn_at = now;
+            input_pending = false;
         }
 
         let now = Instant::now();
@@ -445,22 +470,27 @@ fn run_loop(
                         return Ok(());
                     }
                     needs_draw = true;
+                    input_pending = true;
                 }
                 Event::Key(key) if key.kind == crossterm::event::KeyEventKind::Release => {
                     model.handle_key_release(key.code, key.modifiers);
                     needs_draw = true;
+                    input_pending = true;
                 }
                 Event::Paste(text) => {
                     model.handle_paste(text);
                     needs_draw = true;
+                    input_pending = true;
                 }
                 Event::Resize(w, h) => {
                     model.handle_resize(w, h);
                     needs_draw = true;
+                    input_pending = true;
                 }
                 Event::Mouse(mouse) => {
                     model.handle_mouse(mouse);
                     needs_draw = true;
+                    input_pending = true;
                 }
                 _ => {}
             }
@@ -485,7 +515,7 @@ fn start_daemon_bridge(
         };
 
         runtime.block_on(async move {
-            let (client_event_tx, mut client_event_rx) = tokio_mpsc::channel(512);
+            let (client_event_tx, mut client_event_rx) = tokio_mpsc::channel(65_536);
             let client = DaemonClient::new(client_event_tx);
             let mut queued_goal_hydrations: VecDeque<String> = VecDeque::new();
             let mut queued_goal_hydration_ids: HashSet<String> = HashSet::new();
@@ -518,6 +548,13 @@ fn start_daemon_bridge(
                                     &daemon_event_tx,
                                     "refresh",
                                     client.refresh(),
+                                );
+                            }
+                            DaemonCommand::RefreshThreadsForAgent { agent_filter } => {
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "refresh threads for agent",
+                                    client.refresh_threads_for_agent(agent_filter),
                                 );
                             }
                             DaemonCommand::GetConfig => {
@@ -866,6 +903,19 @@ fn start_daemon_bridge(
                             } => {
                                 let _ = client.set_workspace_operator(workspace_id, operator);
                             }
+                            DaemonCommand::SetWorkspaceRepoMonitor {
+                                workspace_id,
+                                repo_monitor_enabled,
+                                repo_monitor_include_dirs,
+                                repo_monitor_exclude_dirs,
+                            } => {
+                                let _ = client.set_workspace_repo_monitor(
+                                    workspace_id,
+                                    repo_monitor_enabled,
+                                    repo_monitor_include_dirs,
+                                    repo_monitor_exclude_dirs,
+                                );
+                            }
                             DaemonCommand::CreateWorkspaceTask(request) => {
                                 let _ = client.create_workspace_task(request);
                             }
@@ -1060,7 +1110,6 @@ fn start_daemon_bridge(
                             DaemonCommand::AuditDismiss { entry_id } => {
                                 let _ = client.dismiss_audit_entry(entry_id);
                             }
-                            // Plugin commands (Plan 16-03)
                             DaemonCommand::PluginList => {
                                 let _ = client.plugin_list();
                             }

@@ -1,3 +1,5 @@
+use super::*;
+
 fn submit_input_for_history(model: &mut TuiModel, text: &str) {
     for ch in text.chars() {
         model.input.reduce(input::InputAction::InsertChar(ch));

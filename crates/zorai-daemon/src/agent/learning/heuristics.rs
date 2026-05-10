@@ -20,7 +20,7 @@ pub struct ContextHeuristic {
 pub struct ToolHeuristic {
     pub tool_name: String,
     pub task_type: String,
-    pub effectiveness_score: f64, // 0.0-1.0
+    pub effectiveness_score: f64,
     pub avg_duration_ms: u64,
     pub usage_count: u32,
 }
@@ -57,17 +57,14 @@ impl HeuristicStore {
             h.sample_count += 1;
             let new_count = h.sample_count;
 
-            // Running average of actual token usage.
             h.avg_actual_tokens = ((h.avg_actual_tokens as u64 * old_count as u64
                 + tokens_used as u64)
                 / new_count as u64) as u32;
 
-            // Running average of success rate.
             let old_successes = (h.success_rate_at_optimal * old_count as f64).round() as u32;
             let new_successes = old_successes + u32::from(succeeded);
             h.success_rate_at_optimal = new_successes as f64 / new_count as f64;
 
-            // Optimal tokens tracks the average actual usage (best predictor of need).
             h.optimal_tokens = h.avg_actual_tokens;
         } else {
             self.context_heuristics.push(ContextHeuristic {
@@ -97,11 +94,9 @@ impl HeuristicStore {
             h.usage_count += 1;
             let new_count = h.usage_count;
 
-            // Running average of duration.
             h.avg_duration_ms =
                 (h.avg_duration_ms * old_count as u64 + duration_ms) / new_count as u64;
 
-            // Running average of effectiveness (success rate).
             let old_successes = (h.effectiveness_score * old_count as f64).round() as u32;
             let new_successes = old_successes + u32::from(succeeded);
             h.effectiveness_score = new_successes as f64 / new_count as f64;
@@ -190,7 +185,6 @@ impl HeuristicStore {
     pub fn build_system_prompt_hints(&self, task_type: &str) -> String {
         let mut hints = String::new();
 
-        // Context budget hint.
         if let Some(budget) = self.suggest_context_budget(task_type) {
             hints.push_str(&format!(
                 "- Suggested context budget for '{}': {} tokens\n",
@@ -198,7 +192,6 @@ impl HeuristicStore {
             ));
         }
 
-        // Tool recommendations.
         let tools = self.suggest_tools(task_type, 3);
         if !tools.is_empty() {
             hints.push_str(&format!(
@@ -208,7 +201,6 @@ impl HeuristicStore {
             ));
         }
 
-        // Tool-specific effectiveness details.
         for th in self
             .tool_heuristics
             .iter()
@@ -274,7 +266,6 @@ mod tests {
         let h = &store.tool_heuristics[0];
         assert_eq!(h.usage_count, 3);
         assert_eq!(h.avg_duration_ms, 200);
-        // 2 successes out of 3 => ~0.6667
         assert!((h.effectiveness_score - 2.0 / 3.0).abs() < 0.01);
     }
 
@@ -287,14 +278,12 @@ mod tests {
 
         let h = &store.replan_heuristics[0];
         assert_eq!(h.sample_count, 3);
-        // 2 out of 3
         assert!((h.success_rate - 2.0 / 3.0).abs() < 0.01);
     }
 
     #[test]
     fn suggest_context_budget_none_without_enough_samples() {
         let mut store = HeuristicStore::default();
-        // Only 3 samples — below MIN_SAMPLES (5).
         for _ in 0..3 {
             store.update_context("coding", 1000, true);
         }
@@ -313,13 +302,10 @@ mod tests {
     #[test]
     fn suggest_tools_returns_sorted_by_effectiveness() {
         let mut store = HeuristicStore::default();
-        // Tool A: 50% effective
         store.update_tool("tool_a", "coding", true, 100);
         store.update_tool("tool_a", "coding", false, 100);
-        // Tool B: 100% effective
         store.update_tool("tool_b", "coding", true, 100);
         store.update_tool("tool_b", "coding", true, 100);
-        // Tool C: 0% effective
         store.update_tool("tool_c", "coding", false, 100);
         store.update_tool("tool_c", "coding", false, 100);
 
@@ -330,11 +316,9 @@ mod tests {
     #[test]
     fn suggest_replan_strategy_picks_highest_success_rate() {
         let mut store = HeuristicStore::default();
-        // Strategy A: 40% success (2 out of 5)
         for i in 0..5 {
             store.update_replan("stuck", "strategy_a", i < 2);
         }
-        // Strategy B: 80% success (4 out of 5)
         for i in 0..5 {
             store.update_replan("stuck", "strategy_b", i < 4);
         }
@@ -347,11 +331,9 @@ mod tests {
     fn build_system_prompt_hints_includes_relevant_info() {
         let mut store = HeuristicStore::default();
 
-        // Add enough context samples for budget suggestion.
         for _ in 0..6 {
             store.update_context("coding", 2000, true);
         }
-        // Add tool data.
         store.update_tool("grep", "coding", true, 50);
 
         let hints = store.build_system_prompt_hints("coding");
@@ -397,7 +379,6 @@ mod tests {
     fn suggest_replan_strategy_none_without_enough_samples() {
         let mut store = HeuristicStore::default();
         store.update_replan("stuck", "retry", true);
-        // Only 1 sample — below MIN_SAMPLES.
         assert!(store.suggest_replan_strategy("stuck").is_none());
     }
 }

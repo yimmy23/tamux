@@ -150,16 +150,13 @@ impl AgentEngine {
             .map(|value| value.to_ascii_lowercase());
         let effective_limit = limit.max(1);
 
-        let rows = self.history.list_external_runtime_profiles().await?;
-        let filtered = rows
-            .into_iter()
-            .filter(|row| {
-                normalized_filter
-                    .as_deref()
-                    .is_none_or(|runtime| row.runtime.eq_ignore_ascii_case(runtime))
-            })
-            .take(effective_limit)
-            .collect::<Vec<_>>();
+        let filtered = self
+            .history
+            .list_external_runtime_profiles_filtered(
+                normalized_filter.as_deref(),
+                Some(effective_limit),
+            )
+            .await?;
 
         let profiles = filtered
             .iter()

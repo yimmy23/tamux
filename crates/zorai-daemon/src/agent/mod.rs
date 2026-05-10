@@ -100,7 +100,7 @@ mod task_crud;
 mod task_prompt;
 mod task_scheduler;
 mod temporal_foresight_runtime;
-mod thread_crud;
+pub(crate) mod thread_crud;
 mod thread_handoffs;
 mod thread_participant_runner;
 pub(crate) mod thread_participants;
@@ -145,8 +145,6 @@ pub mod operator_profile;
 pub mod subagent;
 pub mod uncertainty;
 
-// Re-exports from extracted modules — keeps everything accessible across
-// sibling submodules via `use super::*;`.
 use agent_identity::*;
 use anticipatory::*;
 use anticipatory_support::*;
@@ -174,7 +172,6 @@ use thread_handoffs::*;
 pub(crate) use thread_participants::*;
 use thread_pins::*;
 
-// Imports needed by child modules via `use super::*;`.
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -216,7 +213,6 @@ fn goal_run_apply_thread_routing(goal_run: &mut GoalRun, thread_id: Option<Strin
     goal_run.thread_id = Some(thread_id);
 }
 
-// Public re-exports consumed by sibling modules in this bin crate.
 #[cfg(test)]
 pub(crate) use aline_startup::AlineStartupShortCircuitReason;
 pub(crate) use aline_startup::{

@@ -1,3 +1,4 @@
+use super::*;
 fn configured_image_generation_setting<'a>(
     config: &'a AgentConfig,
     field: &str,
@@ -29,7 +30,7 @@ fn configured_image_generation_model(config: &AgentConfig) -> Option<&str> {
     configured_image_generation_setting(config, "model")
 }
 
-fn add_available_tools_part_c(
+pub(crate) fn add_available_tools_part_c(
     tools: &mut Vec<ToolDefinition>,
     config: &AgentConfig,
     _agent_data_dir: &std::path::Path,
@@ -68,7 +69,6 @@ fn add_available_tools_part_c(
         ));
     }
 
-    // Always available — the agent can detect, install, and configure web browsing.
     tools.push(tool_def(
         tool_names::SETUP_WEB_BROWSING,
         "Detect, install, and configure a headless browser for web browsing. \
@@ -150,7 +150,6 @@ fn add_available_tools_part_c(
         }
     }
 
-    // Terminal pane tools
     tools.push(tool_def(
         tool_names::PYTHON_EXECUTE,
         "Execute Python code directly in a daemon-native subprocess without going through a shell. Use this instead of shell-launched Python when you need Python execution.",
@@ -159,7 +158,8 @@ fn add_available_tools_part_c(
             "properties": {
                 "code": { "type": "string", "description": "Python source code to execute" },
                 "cwd": { "type": "string", "description": "Optional working directory" },
-                "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 30, max: 600)" }
+                "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true). On the TUI surface, long-running executions detach after a short foreground grace and continue as a background operation." },
+                "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the execution auto-backgrounds, returns an `operation_id`, and will auto-notify the thread on completion." }
             },
             "required": ["code"]
         }),
@@ -171,8 +171,8 @@ fn add_available_tools_part_c(
         None,
         false,
     );
-    let image_generation_enabled =
-        configured_image_generation_model(config).is_some() || active_model_features.image_generation;
+    let image_generation_enabled = configured_image_generation_model(config).is_some()
+        || active_model_features.image_generation;
     let active_model_supports_image = crate::agent::types::model_supports(
         &config.provider,
         &config.model,
@@ -202,7 +202,6 @@ fn add_available_tools_part_c(
                 }
             }),
         ));
-
     }
 
     if image_generation_enabled {

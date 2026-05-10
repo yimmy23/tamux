@@ -1,5 +1,20 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn open_new_goal_view(&mut self) {
+    pub(crate) fn open_new_goal_view(&mut self) {
         let current_goal_target = self.current_goal_target_for_mission_control();
         self.set_mission_control_source_goal_target(current_goal_target.clone());
         self.clear_mission_control_return_context();
@@ -62,7 +77,7 @@ impl TuiModel {
         self.status_line = "Mission Control preflight is ready".to_string();
     }
 
-    pub(super) fn open_mission_control_goal_thread(&mut self) -> bool {
+    pub(crate) fn open_mission_control_goal_thread(&mut self) -> bool {
         let Some((thread_id, used_root_fallback)) = self.mission_control_thread_target() else {
             self.status_line = if self.mission_control_source_goal_target().is_some() {
                 "Mission Control source goal has no active or root thread".to_string()
@@ -94,7 +109,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn return_from_mission_control_navigation(&mut self) -> bool {
+    pub(crate) fn return_from_mission_control_navigation(&mut self) -> bool {
         if let Some(thread_id) = self.mission_control_return_to_thread_id() {
             self.set_mission_control_return_to_thread_id(None);
             self.cleanup_concierge_on_navigate();
@@ -129,12 +144,12 @@ impl TuiModel {
     }
 
     #[cfg(test)]
-    pub(super) fn start_goal_run_from_prompt(&mut self, goal: String) {
+    pub(crate) fn start_goal_run_from_prompt(&mut self, goal: String) {
         self.goal_mission_control.set_prompt_text(goal);
         self.start_goal_run_from_mission_control();
     }
 
-    fn consume_attachments_for_text_prompt(
+    pub(crate) fn consume_attachments_for_text_prompt(
         &mut self,
         prompt: String,
     ) -> (String, Vec<serde_json::Value>) {
@@ -159,7 +174,7 @@ impl TuiModel {
         (content_with_attachments, content_blocks)
     }
 
-    pub(super) fn start_goal_run_from_mission_control(&mut self) {
+    pub(crate) fn start_goal_run_from_mission_control(&mut self) {
         if !self.connected {
             self.status_line = "Not connected to daemon".to_string();
             return;
@@ -202,7 +217,7 @@ impl TuiModel {
         self.status_line = "Starting goal run...".to_string();
     }
 
-    pub(super) fn sync_goal_mission_control_prompt_from_input(&mut self) {
+    pub(crate) fn sync_goal_mission_control_prompt_from_input(&mut self) {
         if matches!(self.main_pane_view, MainPaneView::GoalComposer)
             && self.focus == FocusArea::Input
         {
@@ -225,7 +240,7 @@ impl TuiModel {
         self.status_line = "Loading workspace...".to_string();
     }
 
-    pub(super) fn refresh_workspace_board(&mut self) {
+    pub(crate) fn refresh_workspace_board(&mut self) {
         let workspace_id = self.workspace.workspace_id().to_string();
         let include_deleted = self.workspace.filter().include_deleted;
         self.send_daemon_command(DaemonCommand::GetWorkspaceSettings {
@@ -241,7 +256,7 @@ impl TuiModel {
         });
     }
 
-    pub(super) fn open_workspace_picker(&mut self) {
+    pub(crate) fn open_workspace_picker(&mut self) {
         self.send_daemon_command(DaemonCommand::ListWorkspaceSettings);
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::WorkspacePicker));
@@ -249,7 +264,7 @@ impl TuiModel {
         self.status_line = "Loading workspaces...".to_string();
     }
 
-    pub(super) fn sync_workspace_picker_item_count(&mut self) {
+    pub(crate) fn sync_workspace_picker_item_count(&mut self) {
         let count = self
             .workspace
             .workspace_picker_items(self.modal.command_query())
@@ -258,7 +273,7 @@ impl TuiModel {
         self.modal.set_picker_item_count(count);
     }
 
-    pub(super) fn submit_workspace_picker(&mut self) {
+    pub(crate) fn submit_workspace_picker(&mut self) {
         let cursor = self.modal.picker_cursor();
         let workspace_id = self
             .workspace
@@ -268,7 +283,7 @@ impl TuiModel {
         self.switch_workspace_from_ui(&workspace_id);
     }
 
-    pub(super) fn switch_workspace_operator_from_ui(
+    pub(crate) fn switch_workspace_operator_from_ui(
         &mut self,
         operator: zorai_protocol::WorkspaceOperator,
     ) {
@@ -295,7 +310,7 @@ impl TuiModel {
         self.status_line = format!("Switched workspace to {workspace_id}");
     }
 
-    pub(super) fn handle_workspace_command(&mut self, args: &str) {
+    pub(crate) fn handle_workspace_command(&mut self, args: &str) {
         let arg = args.trim();
         if matches!(arg, "auto" | "svarog" | "user") {
             let operator = if arg == "user" {
@@ -380,7 +395,7 @@ impl TuiModel {
         self.open_workspace_picker();
     }
 
-    pub(super) fn create_workspace_from_args(&mut self, args: &str) {
+    pub(crate) fn create_workspace_from_args(&mut self, args: &str) {
         let args = args.trim();
         if args.is_empty() {
             self.open_workspace_create_workspace_modal();
@@ -409,7 +424,7 @@ impl TuiModel {
         self.open_workspace_create_workspace_modal_with_values(workspace_id.to_string(), operator);
     }
 
-    fn resolve_workspace_task_id(&mut self, raw: &str) -> Option<String> {
+    pub(crate) fn resolve_workspace_task_id(&mut self, raw: &str) -> Option<String> {
         let raw = raw.trim();
         if raw.is_empty() {
             return None;
@@ -435,7 +450,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn run_workspace_task_from_args(&mut self, args: &str) {
+    pub(crate) fn run_workspace_task_from_args(&mut self, args: &str) {
         let Some(task_id) = self.resolve_workspace_task_id(args) else {
             self.status_line = "Usage: /workspace-run <task_id>".to_string();
             return;
@@ -450,7 +465,7 @@ impl TuiModel {
         self.status_line = "Running workspace task...".to_string();
     }
 
-    pub(super) fn pause_workspace_task_from_args(&mut self, args: &str) {
+    pub(crate) fn pause_workspace_task_from_args(&mut self, args: &str) {
         let Some(task_id) = self.resolve_workspace_task_id(args) else {
             self.status_line = "Usage: /workspace-pause <task_id>".to_string();
             return;
@@ -459,7 +474,7 @@ impl TuiModel {
         self.status_line = "Pausing workspace task...".to_string();
     }
 
-    pub(super) fn stop_workspace_task_from_args(&mut self, args: &str) {
+    pub(crate) fn stop_workspace_task_from_args(&mut self, args: &str) {
         let Some(task_id) = self.resolve_workspace_task_id(args) else {
             self.status_line = "Usage: /workspace-stop <task_id>".to_string();
             return;
@@ -468,7 +483,7 @@ impl TuiModel {
         self.status_line = "Stopping workspace task...".to_string();
     }
 
-    pub(super) fn delete_workspace_task_from_args(&mut self, args: &str) {
+    pub(crate) fn delete_workspace_task_from_args(&mut self, args: &str) {
         let Some(task_id) = self.resolve_workspace_task_id(args) else {
             self.status_line = "Usage: /workspace-delete <task_id>".to_string();
             return;
@@ -476,5 +491,4 @@ impl TuiModel {
         self.send_daemon_command(DaemonCommand::DeleteWorkspaceTask(task_id));
         self.status_line = "Deleting workspace task...".to_string();
     }
-
 }

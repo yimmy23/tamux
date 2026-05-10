@@ -894,6 +894,21 @@ async fn completed_goal_workspace_task_syncs_to_review_when_reviewer_exists() ->
     goal_run.completed_at = Some(now_millis());
     goal_run.updated_at = now_millis();
     engine.history.upsert_goal_run(&goal_run).await?;
+    engine
+        .history
+        .conn
+        .call({
+            let goal_run_id = goal_run_id.clone();
+            move |conn| {
+                conn.execute(
+                    "UPDATE goal_run_steps SET started_at = 'not-an-integer' WHERE goal_run_id = ?1",
+                    rusqlite::params![goal_run_id],
+                )?;
+                Ok(())
+            }
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
 
     let synced = engine
         .get_workspace_task(&task.id)

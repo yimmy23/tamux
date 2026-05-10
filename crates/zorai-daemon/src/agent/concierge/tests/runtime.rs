@@ -239,7 +239,7 @@ async fn generate_welcome_survives_low_confidence_goal_plan_approval_resume() {
 
     let welcome = engine
         .concierge
-        .generate_welcome(&engine.threads, &engine.tasks, &engine.goal_runs)
+        .generate_welcome(&engine.threads, &engine.history)
         .await
         .expect("welcome should be returned after approval resume");
 
@@ -266,6 +266,9 @@ async fn concierge_recovery_deduplicates_inflight_investigations_per_thread_sign
             &serde_json::json!({"raw_message": "Invalid 'input[12].name': empty string"}),
         )
         .await;
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
+
     let second = engine
         .concierge
         .maybe_start_recovery_investigation(
@@ -281,7 +284,26 @@ async fn concierge_recovery_deduplicates_inflight_investigations_per_thread_sign
     assert!(first.is_some());
     assert!(second.is_none());
 
-    let tasks = engine.tasks.lock().await;
+    let first_task_id = first.as_deref().expect("first recovery task id");
+    let tasks = engine
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: Some(first_task_id.to_string()),
+            status: None,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
+        .await;
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].source, "concierge_recovery");
     assert_eq!(
@@ -311,7 +333,7 @@ async fn generate_welcome_uses_latest_goal_summary_and_running_paused_counts() {
     engine.concierge.initialize(&engine.threads).await;
 
     let now = now_millis();
-    engine.goal_runs.lock().await.extend([
+    for goal_run in [
         sample_goal_run_for_welcome(
             "goal-old-running",
             "Ship concierge perf fix",
@@ -333,11 +355,13 @@ async fn generate_welcome_uses_latest_goal_summary_and_running_paused_counts() {
             now - 2_000,
             Some("Wrap up cleanup"),
         ),
-    ]);
+    ] {
+        engine.history.upsert_goal_run(&goal_run).await.unwrap();
+    }
 
     let welcome = engine
         .concierge
-        .generate_welcome(&engine.threads, &engine.tasks, &engine.goal_runs)
+        .generate_welcome(&engine.threads, &engine.history)
         .await
         .expect("welcome should be returned");
 
@@ -444,13 +468,13 @@ async fn generate_welcome_reuses_recent_persisted_welcome_without_new_user_messa
             ),
         ),
     ]));
+    let root = tempdir().unwrap();
+    let history = crate::history::HistoryStore::new_test_store(root.path())
+        .await
+        .unwrap();
 
     let result = engine
-        .generate_welcome(
-            &threads,
-            &Mutex::new(std::collections::VecDeque::new()),
-            &Mutex::new(std::collections::VecDeque::new()),
-        )
+        .generate_welcome(&threads, &history)
         .await
         .expect("welcome should be returned");
     assert_eq!(result.0, "persisted welcome");
@@ -485,13 +509,13 @@ async fn generate_welcome_regenerates_when_user_messaged_after_welcome() {
             ),
         ),
     ]));
+    let root = tempdir().unwrap();
+    let history = crate::history::HistoryStore::new_test_store(root.path())
+        .await
+        .unwrap();
 
     let result = engine
-        .generate_welcome(
-            &threads,
-            &Mutex::new(std::collections::VecDeque::new()),
-            &Mutex::new(std::collections::VecDeque::new()),
-        )
+        .generate_welcome(&threads, &history)
         .await
         .expect("welcome should be returned");
     assert_ne!(result.0, "persisted welcome");
@@ -535,13 +559,13 @@ async fn generate_welcome_reuses_persisted_welcome_when_only_heartbeat_ran_after
             ),
         ),
     ]));
+    let root = tempdir().unwrap();
+    let history = crate::history::HistoryStore::new_test_store(root.path())
+        .await
+        .unwrap();
 
     let result = engine
-        .generate_welcome(
-            &threads,
-            &Mutex::new(std::collections::VecDeque::new()),
-            &Mutex::new(std::collections::VecDeque::new()),
-        )
+        .generate_welcome(&threads, &history)
         .await
         .expect("welcome should be returned");
     assert_eq!(result.0, "persisted welcome");
@@ -576,13 +600,13 @@ async fn generate_welcome_regenerates_when_persisted_welcome_is_stale() {
             ),
         ),
     ]));
+    let root = tempdir().unwrap();
+    let history = crate::history::HistoryStore::new_test_store(root.path())
+        .await
+        .unwrap();
 
     let result = engine
-        .generate_welcome(
-            &threads,
-            &Mutex::new(std::collections::VecDeque::new()),
-            &Mutex::new(std::collections::VecDeque::new()),
-        )
+        .generate_welcome(&threads, &history)
         .await
         .expect("welcome should be returned");
     assert_ne!(result.0, "persisted welcome");

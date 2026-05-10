@@ -1,4 +1,5 @@
-async fn execute_list_subagents(
+use super::*;
+pub(crate) async fn execute_list_subagents(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -18,15 +19,36 @@ async fn execute_list_subagents(
         false
     }
 
-    let all_tasks = agent.list_tasks().await;
-    let fallback_parent_task_id = if let Some(task_id) = task_id {
-        all_tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .and_then(|task| task.parent_task_id.clone().or_else(|| Some(task.id.clone())))
+    let current_task = if let Some(task_id) = task_id {
+        agent
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+            .into_iter()
+            .next()
     } else {
         None
     };
+    let fallback_parent_task_id = current_task.as_ref().and_then(|task| {
+        task.parent_task_id
+            .clone()
+            .or_else(|| Some(task.id.clone()))
+    });
 
     let status_filter = args
         .get("status")
@@ -51,6 +73,37 @@ async fn execute_list_subagents(
         .and_then(|value| value.as_u64())
         .map(|value| value as usize)
         .unwrap_or(20);
+
+    let all_tasks = if let Some(parent_thread_id) = parent_thread_id.as_deref() {
+        let direct_parent_thread_status = if parent_task_id.is_none() {
+            status_filter.as_deref()
+        } else {
+            None
+        };
+        agent
+            .list_parent_thread_subagent_tasks(parent_thread_id, direct_parent_thread_status)
+            .await
+    } else {
+        agent
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: Some("subagent".to_string()),
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+    };
 
     let mut subagents = all_tasks
         .clone()
@@ -174,7 +227,7 @@ async fn execute_list_subagents(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_broadcast_contribution(
+pub(crate) async fn execute_broadcast_contribution(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -191,11 +244,8 @@ async fn execute_broadcast_contribution(
         .map(ToOwned::to_owned);
     let task = if let Some(task_id) = task_id {
         Some(
-            agent
-                .list_tasks()
+            task_by_id_for_tool_scope(agent, task_id)
                 .await
-                .into_iter()
-                .find(|task| task.id == task_id)
                 .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
         )
     } else {
@@ -272,7 +322,7 @@ async fn execute_broadcast_contribution(
     Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_read_peer_memory(
+pub(crate) async fn execute_read_peer_memory(
     args: &serde_json::Value,
     agent: &AgentEngine,
     task_id: Option<&str>,
@@ -288,11 +338,8 @@ async fn execute_read_peer_memory(
         .map(ToOwned::to_owned);
     let task = if let Some(task_id) = task_id {
         Some(
-            agent
-                .list_tasks()
+            task_by_id_for_tool_scope(agent, task_id)
                 .await
-                .into_iter()
-                .find(|task| task.id == task_id)
                 .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
         )
     } else {
@@ -313,7 +360,7 @@ async fn execute_read_peer_memory(
     Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_vote_on_disagreement(
+pub(crate) async fn execute_vote_on_disagreement(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -324,11 +371,8 @@ async fn execute_vote_on_disagreement(
     }
     let task_id =
         task_id.ok_or_else(|| anyhow::anyhow!("vote_on_disagreement requires a current task"))?;
-    let task = agent
-        .list_tasks()
+    let task = task_by_id_for_tool_scope(agent, task_id)
         .await
-        .into_iter()
-        .find(|task| task.id == task_id)
         .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
     let parent_task_id = task.parent_task_id.clone().ok_or_else(|| {
         anyhow::anyhow!("vote_on_disagreement is only available inside subagents")
@@ -376,7 +420,7 @@ async fn execute_vote_on_disagreement(
     Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_dispatch_via_bid_protocol(
+pub(crate) async fn execute_dispatch_via_bid_protocol(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -433,7 +477,7 @@ async fn execute_dispatch_via_bid_protocol(
     Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_collaboration_sessions(
+pub(crate) async fn execute_list_collaboration_sessions(
     args: &serde_json::Value,
     agent: &AgentEngine,
     task_id: Option<&str>,
@@ -442,11 +486,8 @@ async fn execute_list_collaboration_sessions(
         anyhow::bail!("collaboration capability is disabled in agent config");
     }
     let fallback_parent = if let Some(task_id) = task_id {
-        agent
-            .list_tasks()
+        task_by_id_for_tool_scope(agent, task_id)
             .await
-            .into_iter()
-            .find(|task| task.id == task_id)
             .and_then(|task| task.parent_task_id.or_else(|| Some(task.id)))
     } else {
         None
@@ -464,7 +505,10 @@ async fn execute_list_collaboration_sessions(
     Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_enqueue_task(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_enqueue_task(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let description = args
         .get("description")
         .and_then(|value| value.as_str())
@@ -533,7 +577,7 @@ async fn execute_enqueue_task(args: &serde_json::Value, agent: &AgentEngine) -> 
     Ok(serde_json::to_string_pretty(&task).unwrap_or_else(|_| format!("queued task {}", task.id)))
 }
 
-async fn execute_start_goal_run(
+pub(crate) async fn execute_start_goal_run(
     args: &serde_json::Value,
     agent: &AgentEngine,
     current_thread_id: &str,
@@ -664,7 +708,10 @@ fn required_assignment_string(
         })
 }
 
-async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_tasks(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let status_filter = args
         .get("status")
         .and_then(|value| value.as_str())
@@ -674,29 +721,60 @@ async fn execute_list_tasks(args: &serde_json::Value, agent: &AgentEngine) -> Re
         .and_then(|value| value.as_u64())
         .map(|value| value as usize);
 
-    let mut tasks = agent.list_tasks().await;
-    if let Some(status_filter) = status_filter {
-        tasks.retain(|task| {
-            serde_json::to_value(task.status)
-                .ok()
-                .and_then(|value| value.as_str().map(ToOwned::to_owned))
-                .map(|value| value == status_filter)
-                .unwrap_or(false)
-        });
-    }
-    if let Some(limit) = limit {
-        tasks.truncate(limit);
-    }
+    let tasks = agent
+        .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+            id: None,
+            status: status_filter,
+            statuses: Vec::new(),
+            source: None,
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        })
+        .await;
 
     Ok(serde_json::to_string_pretty(&tasks).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_list_goal_runs(agent: &AgentEngine) -> Result<String> {
-    let goal_runs = agent.list_goal_runs().await;
-    Ok(serde_json::to_string_pretty(&goal_runs).unwrap_or_else(|_| "[]".to_string()))
+pub(crate) async fn execute_list_goal_runs(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(20)
+        .clamp(1, 100) as usize;
+    let offset = args
+        .get("offset")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as usize;
+    let (items, total) = agent.list_goal_runs_paginated_for_tool(limit, offset).await;
+    let returned = items.len();
+    let next_offset = offset.saturating_add(returned);
+    let has_more = next_offset < total;
+
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "returned": returned,
+        "has_more": has_more,
+        "next_offset": if has_more { Some(next_offset) } else { None },
+        "items": items,
+    }))
+    .unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_submit_goal_step_verdict(
+pub(crate) async fn execute_submit_goal_step_verdict(
     args: &serde_json::Value,
     agent: &AgentEngine,
     current_task_id: Option<&str>,
@@ -747,15 +825,10 @@ async fn execute_submit_goal_step_verdict(
         .ok_or_else(|| anyhow::anyhow!("missing non-empty 'explanation' argument"))?
         .to_string();
 
-    let task = {
-        let tasks = agent.tasks.lock().await;
-        tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?
-    };
-    if task.source != super::GOAL_VERIFICATION_SOURCE {
+    let task = task_by_id_for_tool_scope(agent, task_id)
+        .await
+        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
+    if task.source != super::super::GOAL_VERIFICATION_SOURCE {
         anyhow::bail!(
             "submit_goal_step_verdict can only be used by goal verification tasks; current task source is '{}'.",
             task.source
@@ -826,31 +899,38 @@ async fn execute_submit_goal_step_verdict(
     agent
         .history
         .set_consolidation_state(
-            &super::goal_step_verdict_state_key(task_id),
+            &super::super::goal_planner::goal_step_verdict_state_key(task_id),
             &record_json,
             record.submitted_at,
         )
         .await?;
 
-    let updated = {
+    let mut updated = task.clone();
+    updated.result = Some(format!(
+        "Structured verdict: {:?}\n{}",
+        record.verdict, record.explanation
+    ));
+    updated.logs.push(make_task_log_entry(
+        updated.retry_count,
+        TaskLogLevel::Info,
+        "verification",
+        "structured goal-step verdict submitted",
+        Some(record_json.clone()),
+    ));
+
+    let updated_live_task = {
         let mut tasks = agent.tasks.lock().await;
-        let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) else {
-            anyhow::bail!("task {task_id} disappeared while recording verdict");
-        };
-        task.result = Some(format!(
-            "Structured verdict: {:?}\n{}",
-            record.verdict, record.explanation
-        ));
-        task.logs.push(make_task_log_entry(
-            task.retry_count,
-            TaskLogLevel::Info,
-            "verification",
-            "structured goal-step verdict submitted",
-            Some(record_json.clone()),
-        ));
-        task.clone()
+        if let Some(task) = tasks.iter_mut().find(|task| task.id == task_id) {
+            *task = updated.clone();
+            true
+        } else {
+            false
+        }
     };
-    agent.persist_tasks().await;
+    agent.history.upsert_agent_task(&updated).await?;
+    if updated_live_task {
+        agent.persist_tasks().await;
+    }
     agent.emit_task_update(&updated, Some("Goal-step verdict submitted".into()));
     agent
         .record_provenance_event(
@@ -868,23 +948,35 @@ async fn execute_submit_goal_step_verdict(
     Ok(serde_json::to_string_pretty(&record).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_triggers(_args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_triggers(
+    _args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     agent.ensure_default_event_triggers().await?;
     let payload = agent.list_event_triggers_json().await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_create_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_create_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let payload = agent.create_routine_from_args(args).await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_routines(_args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_routines(
+    _args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let payload = agent.list_routines_json().await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_get_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_get_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -895,7 +987,10 @@ async fn execute_get_routine(args: &serde_json::Value, agent: &AgentEngine) -> R
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_preview_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_preview_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -911,12 +1006,18 @@ async fn execute_preview_routine(args: &serde_json::Value, agent: &AgentEngine) 
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_update_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_update_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let payload = agent.update_routine_from_args(args).await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_run_routine_now(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_run_routine_now(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -927,7 +1028,10 @@ async fn execute_run_routine_now(args: &serde_json::Value, agent: &AgentEngine) 
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_routine_history(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_list_routine_history(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -943,7 +1047,10 @@ async fn execute_list_routine_history(args: &serde_json::Value, agent: &AgentEng
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_rerun_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_rerun_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let run_id = args
         .get("run_id")
         .and_then(|value| value.as_str())
@@ -954,7 +1061,10 @@ async fn execute_rerun_routine(args: &serde_json::Value, agent: &AgentEngine) ->
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_pause_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_pause_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -965,7 +1075,10 @@ async fn execute_pause_routine(args: &serde_json::Value, agent: &AgentEngine) ->
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_resume_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_resume_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -976,7 +1089,10 @@ async fn execute_resume_routine(args: &serde_json::Value, agent: &AgentEngine) -
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_delete_routine(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_delete_routine(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let routine_id = args
         .get("routine_id")
         .and_then(|value| value.as_str())
@@ -987,7 +1103,7 @@ async fn execute_delete_routine(args: &serde_json::Value, agent: &AgentEngine) -
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_run_workflow_pack(
+pub(crate) async fn execute_run_workflow_pack(
     args: &serde_json::Value,
     agent: &AgentEngine,
     thread_id: &str,
@@ -1002,7 +1118,7 @@ async fn execute_run_workflow_pack(
     ))
 }
 
-async fn execute_whatsapp_link_start(
+pub(crate) async fn execute_whatsapp_link_start(
     _args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1018,7 +1134,7 @@ async fn execute_whatsapp_link_start(
     .to_string())
 }
 
-async fn execute_whatsapp_link_stop(
+pub(crate) async fn execute_whatsapp_link_stop(
     _args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1036,7 +1152,7 @@ async fn execute_whatsapp_link_stop(
     .to_string())
 }
 
-async fn execute_whatsapp_link_reset(
+pub(crate) async fn execute_whatsapp_link_reset(
     _args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1061,7 +1177,7 @@ async fn execute_whatsapp_link_reset(
     .to_string())
 }
 
-async fn execute_whatsapp_link_status(
+pub(crate) async fn execute_whatsapp_link_status(
     _args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1074,7 +1190,7 @@ async fn execute_whatsapp_link_status(
     .to_string())
 }
 
-async fn execute_ingest_webhook_event(
+pub(crate) async fn execute_ingest_webhook_event(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1083,12 +1199,15 @@ async fn execute_ingest_webhook_event(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_add_trigger(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_add_trigger(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let payload = agent.add_event_trigger_from_args(args).await?;
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_trigger_fire_history(
+pub(crate) async fn execute_list_trigger_fire_history(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1136,7 +1255,7 @@ async fn execute_list_trigger_fire_history(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_get_cost_summary(
+pub(crate) async fn execute_get_cost_summary(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1149,7 +1268,7 @@ async fn execute_get_cost_summary(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_list_browser_profiles(
+pub(crate) async fn execute_list_browser_profiles(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1164,23 +1283,12 @@ async fn execute_list_browser_profiles(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let rows = agent.list_browser_profiles_with_current_health().await?;
+    let rows = agent
+        .list_browser_profiles_with_current_health_filtered(health_filter, workspace_filter)
+        .await?;
 
     let filtered: Vec<serde_json::Value> = rows
         .into_iter()
-        .filter(|row| {
-            if let Some(hs) = health_filter {
-                if row.health_state != hs {
-                    return false;
-                }
-            }
-            if let Some(ws) = workspace_filter {
-                if row.workspace_id.as_deref() != Some(ws) {
-                    return false;
-                }
-            }
-            true
-        })
         .map(|row| {
             serde_json::json!({
                 "profile_id": row.profile_id,
@@ -1202,7 +1310,7 @@ async fn execute_list_browser_profiles(
     Ok(serde_json::to_string_pretty(&filtered).unwrap_or_else(|_| "[]".to_string()))
 }
 
-async fn execute_create_browser_profile(
+pub(crate) async fn execute_create_browser_profile(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1272,7 +1380,7 @@ async fn execute_create_browser_profile(
     .unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_update_browser_profile_health(
+pub(crate) async fn execute_update_browser_profile_health(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1328,7 +1436,6 @@ async fn execute_update_browser_profile_health(
         row.last_auth_failure_reason = last_auth_failure_reason;
     }
 
-    // Reconstruct a BrowserProfile from the row for upsert
     let profile = crate::agent::types::BrowserProfile {
         profile_id: row.profile_id.clone(),
         label: row.label.clone(),
@@ -1358,7 +1465,10 @@ async fn execute_update_browser_profile_health(
     .unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_show_dreams(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_show_dreams(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let limit = args
         .get("limit")
         .and_then(|value| value.as_u64())
@@ -1368,7 +1478,7 @@ async fn execute_show_dreams(args: &serde_json::Value, agent: &AgentEngine) -> R
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_show_harness_state(
+pub(crate) async fn execute_show_harness_state(
     args: &serde_json::Value,
     agent: &AgentEngine,
     current_thread_id: &str,
@@ -1403,10 +1513,26 @@ async fn execute_show_harness_state(
     let resolved_task = if let Some(task_id) = requested_task_id.as_deref() {
         Some(
             agent
-                .list_tasks()
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
+                })
                 .await
                 .into_iter()
-                .find(|task| task.id == task_id)
+                .next()
                 .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
         )
     } else {
@@ -1439,7 +1565,7 @@ async fn execute_show_harness_state(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_show_import_report(
+pub(crate) async fn execute_show_import_report(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1458,7 +1584,7 @@ async fn execute_show_import_report(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_import_external_runtime(
+pub(crate) async fn execute_import_external_runtime(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1492,7 +1618,7 @@ async fn execute_import_external_runtime(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_preview_shadow_run(
+pub(crate) async fn execute_preview_shadow_run(
     args: &serde_json::Value,
     agent: &AgentEngine,
 ) -> Result<String> {
@@ -1507,7 +1633,7 @@ async fn execute_preview_shadow_run(
     Ok(serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()))
 }
 
-async fn execute_get_todos(
+pub(crate) async fn execute_get_todos(
     args: &serde_json::Value,
     agent: &AgentEngine,
     current_task_id: Option<&str>,
@@ -1525,11 +1651,8 @@ async fn execute_get_todos(
         .filter(|value| !value.is_empty());
     let resolved_task = if let Some(task_id) = requested_task_id.or(current_task_id) {
         Some(
-            agent
-                .list_tasks()
+            task_by_id_for_tool_scope(agent, task_id)
                 .await
-                .into_iter()
-                .find(|task| task.id == task_id)
                 .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?,
         )
     } else {
@@ -1546,7 +1669,10 @@ async fn execute_get_todos(
     .to_string())
 }
 
-async fn execute_cancel_task(args: &serde_json::Value, agent: &AgentEngine) -> Result<String> {
+pub(crate) async fn execute_cancel_task(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
     let task_id = args
         .get("task_id")
         .and_then(|value| value.as_str())

@@ -1,3 +1,7 @@
+use ratatui::prelude::*;
+
+use super::to_core_color_to_render_status_bar::StatusBarHitTarget;
+
 pub fn status_bar_hit_test(
     area: Rect,
     connected: bool,
@@ -42,4 +46,3 @@ pub fn status_bar_hit_test(
 
     None
 }
-

@@ -11,6 +11,7 @@
 
 use super::*;
 use chrono::Timelike;
+use std::collections::HashSet;
 
 mod helpers;
 mod legacy;
@@ -44,6 +45,39 @@ impl AgentEngine {
         resolve_cron_from_config(&config)
     }
 
+    pub(super) async fn running_goal_trajectory_targets(&self) -> Vec<(String, String)> {
+        let mut running_goal_runs = match self
+            .history
+            .list_goal_run_goal_refs_for_statuses(&[GoalRunStatus::Running])
+            .await
+        {
+            Ok(goal_runs) => goal_runs,
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query persisted running goal runs for heartbeat trajectories: {error}"
+                );
+                Vec::new()
+            }
+        };
+        let mut seen_goal_ids = running_goal_runs
+            .iter()
+            .map(|(goal_run_id, _)| goal_run_id.clone())
+            .collect::<HashSet<_>>();
+        {
+            let live_goal_runs = self.goal_runs.lock().await;
+            for goal_run in live_goal_runs
+                .iter()
+                .filter(|goal_run| goal_run.status == GoalRunStatus::Running)
+            {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    running_goal_runs.push((goal_run.id.clone(), goal_run.goal.clone()));
+                }
+            }
+        }
+
+        running_goal_runs
+    }
+
     /// Run the structured heartbeat (backward-compatible wrapper).
     /// Delegates to `run_structured_heartbeat_adaptive(0)` so existing callers
     /// (tests, legacy code paths) continue to work without changes.
@@ -61,7 +95,6 @@ impl AgentEngine {
         let cycle_id = uuid::Uuid::new_v4().to_string();
         let now = now_millis();
 
-        // --- Phase 0: Check for global priority reset (D-11) ---
         let config = self.config.read().await.clone();
         let checks_config = &config.heartbeat_checks;
 
@@ -70,12 +103,8 @@ impl AgentEngine {
             let mut weights = self.learned_check_weights.write().await;
             weights.clear();
             drop(weights);
-            // Note: The config flag is a one-shot action. The user should set it back to false
-            // after reset. If they leave it true, it just means weights stay at defaults.
         }
 
-        // --- Phase 1: Priority-aware check gathering (D-01, D-06, D-11) ---
-        // Three-level priority cascade: override > learned > config default.
         let mut check_results: Vec<HeartbeatCheckResult> = Vec::new();
         {
             let learned_weights = self.learned_check_weights.read().await;
@@ -162,15 +191,8 @@ impl AgentEngine {
             }
         }
 
-        // --- Phase 1.5: Emit trajectory updates for active goal runs (AWAR-04) ---
         {
-            let goal_runs = self.goal_runs.lock().await;
-            let running: Vec<_> = goal_runs
-                .iter()
-                .filter(|g| g.status == GoalRunStatus::Running)
-                .map(|g| (g.id.clone(), g.goal.clone()))
-                .collect();
-            drop(goal_runs);
+            let running = self.running_goal_trajectory_targets().await;
 
             for (gr_id, gr_goal) in &running {
                 if let Some(traj) = self.get_awareness_trajectory(gr_id).await {
@@ -189,7 +211,6 @@ impl AgentEngine {
             }
         }
 
-        // --- Phase 2: Run custom HeartbeatItem checks (per D-03) ---
         let custom_items = self.heartbeat_items.read().await.clone();
         let mut custom_summaries: Vec<String> = Vec::new();
         for item in &custom_items {
@@ -207,7 +228,6 @@ impl AgentEngine {
             custom_summaries.push(format!("- Custom check '{}': {}", item.label, item.prompt));
         }
 
-        // --- Phase 2.5: Gather anticipatory items for heartbeat merge (D-07, D-08, D-09) ---
         let (anticipatory_items, is_first_heartbeat) = self.get_anticipatory_for_heartbeat().await;
 
         let speculative_summary = {
@@ -249,17 +269,14 @@ impl AgentEngine {
             ""
         };
 
-        // --- Phase 2.6: Learning transparency -- detect and report meaningful pattern changes (D-10) ---
         let mut learning_observations: Vec<String> = Vec::new();
 
-        // (a) Detect peak hours change: compare current smoothed peak hours to last-reported.
         {
             let model = self.operator_model.read().await;
             let config_snap = self.config.read().await;
             let threshold = config_snap.ema_activity_threshold;
             drop(config_snap);
 
-            // Compute current peak hours from smoothed histogram
             let mut current_peaks: Vec<u8> = model
                 .session_rhythm
                 .smoothed_activity_histogram
@@ -271,7 +288,6 @@ impl AgentEngine {
 
             let previous_peaks = &model.session_rhythm.peak_activity_hours_utc;
 
-            // Meaningful change: symmetric difference has > 2 hours
             let added: Vec<u8> = current_peaks
                 .iter()
                 .filter(|h| !previous_peaks.contains(h))
@@ -298,7 +314,6 @@ impl AgentEngine {
             }
         }
 
-        // (b) Detect check deprioritization: when a learned weight crosses below 0.5.
         {
             let weights = self.learned_check_weights.read().await;
             let check_names = [
@@ -337,7 +352,6 @@ impl AgentEngine {
             format!("\n\n== Learning Observations ==\n{}", observations)
         };
 
-        // --- Phase 3: Build LLM synthesis prompt (per D-09, D-10) ---
         let built_in_summary = check_results
             .iter()
             .map(|r| {
@@ -395,7 +409,6 @@ impl AgentEngine {
             learning_section,
         );
 
-        // --- Phase 4: Single LLM synthesis call (per D-09, D-10, BEAT-08) ---
         let checks_json = serde_json::to_string(&check_results).unwrap_or_default();
         let (synthesis_json, actionable, digest_text, digest_items, llm_tokens) = match self
             .send_internal_message_as(
@@ -406,17 +419,17 @@ impl AgentEngine {
             .await
         {
             Ok(thread_id) => {
-                let threads = self.threads.read().await;
-                let response = threads
-                    .get(&thread_id)
-                    .and_then(|t| {
-                        t.messages
-                            .iter()
-                            .rev()
-                            .find(|m| m.role == MessageRole::Assistant)
-                            .map(|m| m.content.clone())
-                    })
-                    .unwrap_or_default();
+                let response = match self.history.latest_assistant_message(&thread_id).await {
+                    Ok(Some(message)) => message.content,
+                    Ok(None) => String::new(),
+                    Err(error) => {
+                        tracing::warn!(
+                            thread_id = %thread_id,
+                            "failed to load persisted heartbeat synthesis response: {error}"
+                        );
+                        String::new()
+                    }
+                };
 
                 let actionable = response.contains("ACTIONABLE: true");
                 let digest = response
@@ -438,7 +451,7 @@ impl AgentEngine {
                     actionable,
                     digest,
                     items,
-                    0u64, // token count from Done event not easily accessible here
+                    0u64,
                 )
             }
             Err(e) => {
@@ -447,8 +460,6 @@ impl AgentEngine {
             }
         };
 
-        // --- Phase 5: Persist to SQLite (per D-12, Pitfall 4) ---
-        // CRITICAL: Persist REGARDLESS of LLM success/failure (Pitfall 4)
         let duration_ms = start.elapsed().as_millis() as i64;
         let status = heartbeat_persistence_status(synthesis_json.as_deref());
         if let Err(e) = self
@@ -471,8 +482,6 @@ impl AgentEngine {
 
         self.refresh_weles_health_from_heartbeat(now).await;
 
-        // --- Phase 6: Broadcast to clients (per D-11, D-13, D-14, BEAT-03, BEAT-04) ---
-        // Build composite explanation from digest items per D-01.
         let digest_explanation = if digest_items.is_empty() {
             None
         } else if digest_items.len() == 1 {
@@ -512,7 +521,6 @@ impl AgentEngine {
             ))
         };
 
-        // Only broadcast when actionable OR LLM had something to say (per D-14: silent by default)
         if should_broadcast(actionable, &digest_items) {
             let _ = self.event_tx.send(AgentEvent::HeartbeatDigest {
                 cycle_id: cycle_id.clone(),
@@ -521,14 +529,12 @@ impl AgentEngine {
                 items: digest_items.clone(),
                 checked_at: now,
                 explanation: digest_explanation,
-                confidence: None, // Heartbeat checks don't have confidence
+                confidence: None,
             });
         } else {
             tracing::debug!(cycle_id = %cycle_id, "heartbeat quiet tick — no broadcast");
         }
 
-        // Clear morning brief flag after consumption (Pitfall 3: prevent repeat).
-        // Only clear AFTER successful synthesis, not before.
         if is_first_heartbeat && synthesis_json.is_some() {
             self.anticipatory.write().await.session_start_pending_at = None;
             tracing::info!("morning brief consumed in heartbeat digest");

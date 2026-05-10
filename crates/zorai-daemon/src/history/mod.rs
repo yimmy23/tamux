@@ -46,13 +46,630 @@ pub struct WormIntegrityResult {
     pub message: String,
 }
 
+/// Maximum wall-clock per `ReadPool::call`. If a chosen connection's background
+/// thread is wedged (long-running query, blocked I/O, etc.), the call errors
+/// instead of awaiting forever — caller can retry, and the next `pick()` will
+/// land on a less-loaded connection. Generous default; under healthy load
+/// every read finishes in <1s.
+const READ_POOL_CALL_TIMEOUT_SECS: u64 = 30;
+/// Above this threshold we emit a `WARN` so slow reads are visible in logs
+/// without spamming for every routine query.
+const READ_POOL_SLOW_CALL_WARN_MS: u64 = 2_000;
+
+/// One pooled connection plus its in-flight call counter.
+///
+/// `in_flight` is incremented before forwarding to `tokio_rusqlite::Connection::call`
+/// and decremented when that future settles (Ok, Err, or timeout). It's used
+/// only for load-balanced picking — atomicity around the count itself is best-
+/// effort: a brief mid-pick race may put two callers on the same conn, but it
+/// self-corrects on the next pick.
+struct PoolEntry {
+    conn: tokio_rusqlite::Connection,
+    in_flight: std::sync::atomic::AtomicUsize,
+}
+
+/// Load-balanced pool of read-only `tokio_rusqlite::Connection`s.
+///
+/// Each underlying connection has its own background thread; calls to a single
+/// connection are serialized through that thread. Distributing calls across N
+/// connections lets up to N read queries run truly concurrently (SQLite WAL
+/// permits unbounded concurrent readers).
+///
+/// `pick()` picks the connection with the smallest in-flight count rather than
+/// blindly round-robin'ing. Round-robin's failure mode was: if conn[k] got
+/// stuck on a slow query, every Nth caller still routed to it and awaited
+/// indefinitely — the user-visible signature was "the daemon hangs every few
+/// requests". Least-loaded selection naturally skips a stuck conn (its
+/// in_flight count grows) until it recovers, and the per-call timeout cap
+/// turns any unrecoverable wedge into a clean error rather than an invisible
+/// hang.
+///
+/// API-compatible with `tokio_rusqlite::Connection`: callers keep using
+/// `.call(...)` unchanged.
+#[derive(Clone)]
+pub(crate) struct ReadPool {
+    entries: std::sync::Arc<Vec<PoolEntry>>,
+    cursor: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl ReadPool {
+    pub(crate) fn new(conns: Vec<tokio_rusqlite::Connection>) -> Self {
+        debug_assert!(!conns.is_empty(), "ReadPool requires at least one connection");
+        let entries = conns
+            .into_iter()
+            .map(|conn| PoolEntry {
+                conn,
+                in_flight: std::sync::atomic::AtomicUsize::new(0),
+            })
+            .collect::<Vec<_>>();
+        Self {
+            entries: std::sync::Arc::new(entries),
+            cursor: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        }
+    }
+
+    /// Returns the index of the connection with the smallest `in_flight`
+    /// count. Ties are broken by a rolling cursor so equally-idle conns get
+    /// fair round-robin treatment.
+    fn pick_idx(&self) -> usize {
+        use std::sync::atomic::Ordering;
+        let len = self.entries.len();
+        let start = self.cursor.fetch_add(1, Ordering::Relaxed) % len;
+        let mut best_idx = start;
+        let mut best_load = self.entries[start].in_flight.load(Ordering::Relaxed);
+        for offset in 1..len {
+            let idx = (start + offset) % len;
+            let load = self.entries[idx].in_flight.load(Ordering::Relaxed);
+            if load < best_load {
+                best_idx = idx;
+                best_load = load;
+                if best_load == 0 {
+                    break;
+                }
+            }
+        }
+        best_idx
+    }
+
+    pub(crate) async fn call<F, R>(&self, function: F) -> tokio_rusqlite::Result<R>
+    where
+        F: FnOnce(&mut rusqlite::Connection) -> tokio_rusqlite::Result<R> + 'static + Send,
+        R: Send + 'static,
+    {
+        use std::sync::atomic::Ordering;
+        let idx = self.pick_idx();
+        let entry = &self.entries[idx];
+        entry.in_flight.fetch_add(1, Ordering::Relaxed);
+        let started = std::time::Instant::now();
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(READ_POOL_CALL_TIMEOUT_SECS),
+            entry.conn.call(function),
+        )
+        .await;
+        entry.in_flight.fetch_sub(1, Ordering::Relaxed);
+        let elapsed_ms = started.elapsed().as_millis() as u64;
+        match outcome {
+            Ok(result) => {
+                if elapsed_ms >= READ_POOL_SLOW_CALL_WARN_MS {
+                    tracing::warn!(
+                        elapsed_ms,
+                        conn_idx = idx,
+                        pool_size = self.entries.len(),
+                        "ReadPool::call slow query — investigate stuck conn or unindexed scan"
+                    );
+                }
+                result
+            }
+            Err(_) => {
+                tracing::warn!(
+                    elapsed_ms,
+                    conn_idx = idx,
+                    pool_size = self.entries.len(),
+                    timeout_secs = READ_POOL_CALL_TIMEOUT_SECS,
+                    "ReadPool::call timed out — connection likely wedged, returning TimedOut error"
+                );
+                Err(tokio_rusqlite::Error::Other(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!(
+                        "ReadPool::call timed out after {READ_POOL_CALL_TIMEOUT_SECS}s on conn {idx}"
+                    ),
+                ))))
+            }
+        }
+    }
+}
+
+/// Per-key caches for hot read paths. All three are bounded LRU-ish
+/// (drop on overflow) with a short TTL safety net plus explicit
+/// invalidation on writes — see `cache.rs` for the design rationale.
+#[derive(Debug)]
+struct HistoryCaches {
+    /// `thread_metadata_json(thread_id) -> Option<String>`. Invalidated by
+    /// any thread upsert/delete touching the same id.
+    thread_metadata_json:
+        cache::TtlCache<String, Option<String>>,
+    /// `get_skill_variant(variant_id) -> Option<SkillVariantRecord>`.
+    /// Invalidated by upsert/update/delete on the variant.
+    skill_variant: cache::TtlCache<String, Option<SkillVariantRecord>>,
+    /// `latest_goal_run_for_thread(thread_id) -> Option<GoalRun>`.
+    /// Goal-run writes can change which run is "latest" for a given
+    /// thread; the safest cheap invalidation is `clear()` on any
+    /// goal_run upsert/delete (the alternative — enumerating every
+    /// thread_id touched — is fragile because a goal_run can be tied to
+    /// multiple thread refs simultaneously).
+    latest_goal_run_for_thread: cache::TtlCache<String, Option<GoalRun>>,
+}
+
+impl HistoryCaches {
+    fn new() -> Self {
+        use std::time::Duration;
+        Self {
+            thread_metadata_json: cache::TtlCache::new(
+                Duration::from_secs(2),
+                256,
+            ),
+            skill_variant: cache::TtlCache::new(Duration::from_secs(5), 128),
+            latest_goal_run_for_thread: cache::TtlCache::new(
+                Duration::from_secs(2),
+                256,
+            ),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct HistoryStore {
     pub(crate) conn: tokio_rusqlite::Connection,
-    pub(crate) read_conn: tokio_rusqlite::Connection,
+    /// Dedicated WRITER connection for embedding-queue maintenance
+    /// (`claim_embedding_jobs`, `complete_embedding_job`, etc.). Without
+    /// this, every embedding tick queued its writes behind the main
+    /// daemon's writer (persist_thread_by_id after every turn, task
+    /// persists, goal-run persists, etc.) — and a single batch of 16
+    /// embedding HTTP requests + LanceDB writes can hold up the writer
+    /// thread for many seconds. This separate connection runs on its own
+    /// `tokio_rusqlite` background thread, so embedding work is *truly*
+    /// off the main lane.
+    pub(crate) embedding_writer_conn: tokio_rusqlite::Connection,
+    /// Reader pool for background work (syncs, indexers, supervision loops).
+    /// These can flood the queue without blocking UI.
+    pub(crate) read_conn: ReadPool,
+    /// Reader pool reserved for user-interactive paths (welcome, thread load,
+    /// message list). Background sync loops never touch these connections, so
+    /// a UI-facing read can never queue behind hundreds of batch jobs. We've
+    /// seen the unified pool wedge for hundreds of seconds under load — split
+    /// pools are the only architectural fix that survives bursty workloads.
+    pub(crate) interactive_read_conn: ReadPool,
+    pub(crate) caches: std::sync::Arc<HistoryCaches>,
     skill_dir: PathBuf,
     telemetry_dir: PathBuf,
     worm_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AgentThreadListQuery {
+    pub created_after: Option<i64>,
+    pub created_before: Option<i64>,
+    pub updated_after: Option<i64>,
+    pub updated_before: Option<i64>,
+    pub agent_names: Vec<String>,
+    pub include_empty_agent_name: bool,
+    pub title_query: Option<String>,
+    pub title_excluded_prefixes: Vec<String>,
+    pub pinned: Option<bool>,
+    pub min_message_count: Option<i64>,
+    pub include_internal: bool,
+    pub excluded_ids: Vec<String>,
+    pub hidden_id_prefixes: Vec<String>,
+    pub hidden_message_substrings: Vec<String>,
+    pub limit: Option<usize>,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ThreadDelegatePayloadMessageRef {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ThreadDelegatePayloadContext {
+    pub title: String,
+    pub messages: Vec<ThreadDelegatePayloadMessageRef>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AgentTaskListQuery {
+    pub id: Option<String>,
+    /// Batch variant of `id`: returns rows for any task id in the slice.
+    /// Used by `goal_related_task_ids` to collapse a per-id N+1 loop into
+    /// a single query. Empty vec is treated as "no filter on this axis"
+    /// (same as `id = None`).
+    pub ids: Vec<String>,
+    pub status: Option<String>,
+    pub statuses: Vec<String>,
+    pub source: Option<String>,
+    pub thread_id: Option<String>,
+    pub thread_ids: Vec<String>,
+    pub goal_run_id: Option<String>,
+    pub parent_task_id: Option<String>,
+    /// Batch variant of `parent_task_id`. Same N+1 fix as `ids`.
+    pub parent_task_ids: Vec<String>,
+    pub awaiting_approval_id: Option<String>,
+    pub supervisor_config_present: bool,
+    pub exclude_terminal_statuses: bool,
+    pub order_by_recent_activity_desc: bool,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTaskGoalContext {
+    pub goal_run_id: Option<String>,
+    pub goal_step_id: Option<String>,
+    pub session_id: Option<String>,
+    pub source: String,
+    pub parent_task_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTaskOperationalRef {
+    pub id: String,
+    pub title: String,
+    pub status: TaskStatus,
+    pub progress: u8,
+    pub awaiting_approval_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTaskSummaryRef {
+    pub id: String,
+    pub title: String,
+    pub status: TaskStatus,
+    pub priority: TaskPriority,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTaskQuietRecoveryRef {
+    pub id: String,
+    pub source: String,
+    pub status: TaskStatus,
+    pub progress: u8,
+    pub created_at: u64,
+    pub started_at: Option<u64>,
+    pub goal_run_id: Option<String>,
+    pub parent_task_id: Option<String>,
+    pub thread_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentTaskSubagentHierarchyRef {
+    pub id: String,
+    pub parent_task_id: Option<String>,
+    pub containment_scope: Option<String>,
+}
+
+impl From<&AgentTask> for AgentTaskOperationalRef {
+    fn from(task: &AgentTask) -> Self {
+        Self {
+            id: task.id.clone(),
+            title: task.title.clone(),
+            status: task.status,
+            progress: task.progress,
+            awaiting_approval_id: task.awaiting_approval_id.clone(),
+        }
+    }
+}
+
+impl From<&AgentTask> for AgentTaskQuietRecoveryRef {
+    fn from(task: &AgentTask) -> Self {
+        Self {
+            id: task.id.clone(),
+            source: task.source.clone(),
+            status: task.status,
+            progress: task.progress,
+            created_at: task.created_at,
+            started_at: task.started_at,
+            goal_run_id: task.goal_run_id.clone(),
+            parent_task_id: task.parent_task_id.clone(),
+            thread_id: task.thread_id.clone(),
+        }
+    }
+}
+
+impl From<&AgentTask> for AgentTaskSubagentHierarchyRef {
+    fn from(task: &AgentTask) -> Self {
+        Self {
+            id: task.id.clone(),
+            parent_task_id: task.parent_task_id.clone(),
+            containment_scope: task.containment_scope.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunOperationalRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub title: String,
+    pub current_step_index: usize,
+    pub step_count: usize,
+}
+
+impl From<&GoalRun> for GoalRunOperationalRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            title: goal_run.title.clone(),
+            current_step_index: goal_run.current_step_index,
+            step_count: goal_run.steps.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunStuckCheckRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub title: String,
+    pub updated_at: u64,
+    pub last_error: Option<String>,
+}
+
+impl From<&GoalRun> for GoalRunStuckCheckRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            title: goal_run.title.clone(),
+            updated_at: goal_run.updated_at,
+            last_error: goal_run.last_error.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunBriefRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub title: String,
+    pub updated_at: u64,
+    pub thread_id: Option<String>,
+    pub current_step_title: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunQuietRecoveryRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub created_at: u64,
+    pub started_at: Option<u64>,
+    pub thread_id: Option<String>,
+    pub root_thread_id: Option<String>,
+    pub execution_thread_ids: Vec<String>,
+    pub current_step_index: usize,
+    pub current_step_id: Option<String>,
+    pub current_step_title: Option<String>,
+    pub active_task_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunStatusReplyRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub title: String,
+    pub updated_at: u64,
+    pub current_step_title: Option<String>,
+    pub plan_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunTaskContextRef {
+    pub current_step_index: usize,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunRepoContextRef {
+    pub id: String,
+    pub session_id: Option<String>,
+    pub current_step_index: usize,
+}
+
+impl From<&GoalRun> for GoalRunRepoContextRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            session_id: goal_run.session_id.clone(),
+            current_step_index: goal_run.current_step_index,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunProgressMetricsRef {
+    pub steps_completed: usize,
+    pub steps_total: usize,
+}
+
+impl From<&GoalRun> for GoalRunProgressMetricsRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            steps_completed: goal_run
+                .steps
+                .iter()
+                .filter(|step| step.status == GoalRunStepStatus::Completed)
+                .count(),
+            steps_total: goal_run.steps.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunPolicyContextRef {
+    pub goal: String,
+    pub title: String,
+    pub current_step_title: Option<String>,
+    pub steps_completed: usize,
+    pub steps_total: usize,
+}
+
+impl From<&GoalRun> for GoalRunPolicyContextRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        let progress = GoalRunProgressMetricsRef::from(goal_run);
+        Self {
+            goal: goal_run.goal.clone(),
+            title: goal_run.title.clone(),
+            current_step_title: goal_run.current_step_title.clone().or_else(|| {
+                goal_run
+                    .steps
+                    .get(goal_run.current_step_index)
+                    .map(|step| step.title.clone())
+            }),
+            steps_completed: progress.steps_completed,
+            steps_total: progress.steps_total,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunTodoContextRef {
+    pub step_index: usize,
+    pub step_id: Option<String>,
+    pub step_status: Option<GoalRunStepStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunWorkspaceRuntimeRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub last_error: Option<String>,
+    pub reflection_summary: Option<String>,
+    pub plan_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunCompactionScopeRef {
+    pub id: String,
+    pub active_task_id: Option<String>,
+    pub title: String,
+    pub goal: String,
+    pub status: GoalRunStatus,
+    pub root_thread_id: Option<String>,
+    pub active_thread_id: Option<String>,
+    pub execution_thread_ids: Vec<String>,
+    pub current_step_title: Option<String>,
+    pub current_step_status: Option<GoalRunStepStatus>,
+    pub current_step_summary: Option<String>,
+    pub plan_summary: Option<String>,
+    pub latest_error: Option<String>,
+    pub recent_events: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GatewayTurnAutoSendProjection {
+    pub used_send_tool: bool,
+    pub latest_assistant_response: Option<String>,
+}
+
+impl From<&GoalRun> for GoalRunStatusReplyRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            title: goal_run.title.clone(),
+            updated_at: goal_run.updated_at,
+            current_step_title: goal_run.current_step_title.clone().or_else(|| {
+                goal_run
+                    .steps
+                    .get(goal_run.current_step_index)
+                    .map(|step| step.title.clone())
+            }),
+            plan_summary: goal_run.plan_summary.clone(),
+        }
+    }
+}
+
+impl From<&GoalRun> for GoalRunQuietRecoveryRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        let current_step = goal_run.steps.get(goal_run.current_step_index);
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            created_at: goal_run.created_at,
+            started_at: goal_run.started_at,
+            thread_id: goal_run.thread_id.clone(),
+            root_thread_id: goal_run.root_thread_id.clone(),
+            execution_thread_ids: goal_run.execution_thread_ids.clone(),
+            current_step_index: goal_run.current_step_index,
+            current_step_id: current_step.map(|step| step.id.clone()),
+            current_step_title: goal_run
+                .current_step_title
+                .clone()
+                .or_else(|| current_step.map(|step| step.title.clone())),
+            active_task_id: goal_run.active_task_id.clone(),
+        }
+    }
+}
+
+impl From<&GoalRun> for GoalRunBriefRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            title: goal_run.title.clone(),
+            updated_at: goal_run.updated_at,
+            thread_id: goal_run.thread_id.clone(),
+            current_step_title: goal_run.current_step_title.clone().or_else(|| {
+                goal_run
+                    .steps
+                    .get(goal_run.current_step_index)
+                    .map(|step| step.title.clone())
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct GoalRunThreadRef {
+    pub id: String,
+    pub status: GoalRunStatus,
+    pub updated_at: u64,
+    pub thread_id: Option<String>,
+    pub root_thread_id: Option<String>,
+    pub active_thread_id: Option<String>,
+    pub execution_thread_ids: Vec<String>,
+}
+
+impl From<&GoalRun> for GoalRunThreadRef {
+    fn from(goal_run: &GoalRun) -> Self {
+        Self {
+            id: goal_run.id.clone(),
+            status: goal_run.status,
+            updated_at: goal_run.updated_at,
+            thread_id: goal_run.thread_id.clone(),
+            root_thread_id: goal_run.root_thread_id.clone(),
+            active_thread_id: goal_run.active_thread_id.clone(),
+            execution_thread_ids: goal_run.execution_thread_ids.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ThreadRecallMatchRow {
+    pub thread_id: String,
+    pub title: String,
+    pub updated_at: u64,
+    pub message_count: u32,
+    pub metadata_json: Option<String>,
+    pub message_role: Option<String>,
+    pub message_content: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ConciergeGoalContext {
+    pub latest_goal_run: Option<GoalRun>,
+    pub running_goal_total: usize,
+    pub paused_goal_total: usize,
 }
 
 mod database_viewer;
@@ -1100,6 +1717,7 @@ pub struct AgentMessagePatch {
 
 mod audit;
 mod browser_profiles;
+mod cache;
 mod causal_traces;
 mod checkpoints;
 mod cognitive_resonance;
@@ -1138,6 +1756,8 @@ mod schema_sql_extra;
 mod semantic_documents;
 pub(crate) use semantic_documents::SemanticDocumentSyncSummary;
 mod skill_generation;
+mod skill_reads;
+pub(crate) use skill_reads::ThreadSkillRead;
 mod statistics;
 mod temporal_foresight;
 #[cfg(feature = "lancedb-vector")]

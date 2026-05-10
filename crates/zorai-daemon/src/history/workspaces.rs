@@ -4,6 +4,89 @@ use zorai_protocol::{
     WorkspaceTask, WorkspaceTaskRuntimeHistoryEntry, WorkspaceTaskStatus, WorkspaceTaskType,
 };
 
+/// Synchronous workspace-task upsert that takes a borrowed connection.
+/// The single-task `upsert_workspace_task` and the batched variant share
+/// this body — keep INSERT column lists in lockstep here.
+fn upsert_workspace_task_on_connection(
+    conn: &mut rusqlite::Connection,
+    task: &WorkspaceTask,
+) -> std::result::Result<(), tokio_rusqlite::Error> {
+    let reporter_json = serialize_actor(&task.reporter)?;
+    let assignee_json = serialize_optional_actor(&task.assignee)?;
+    let reviewer_json = serialize_optional_actor(&task.reviewer)?;
+    let runtime_history_json = serialize_runtime_history(&task.runtime_history)?;
+    conn.execute(
+        "INSERT OR REPLACE INTO workspace_tasks \
+         (id, workspace_id, title, task_type, description, definition_of_done, priority, status, sort_order, reporter_json, assignee_json, reviewer_json, thread_id, goal_run_id, runtime_history_json, created_at, updated_at, started_at, completed_at, deleted_at, last_notice_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+        params![
+            task.id,
+            task.workspace_id,
+            task.title,
+            workspace_task_type_to_str(task.task_type.clone()),
+            task.description,
+            task.definition_of_done,
+            workspace_priority_to_str(task.priority.clone()),
+            workspace_task_status_to_str(task.status.clone()),
+            task.sort_order,
+            reporter_json,
+            assignee_json,
+            reviewer_json,
+            task.thread_id,
+            task.goal_run_id,
+            runtime_history_json,
+            task.created_at as i64,
+            task.updated_at as i64,
+            task.started_at.map(|value| value as i64),
+            task.completed_at.map(|value| value as i64),
+            task.deleted_at.map(|value| value as i64),
+            task.last_notice_id,
+        ],
+    )?;
+    Ok(())
+}
+
+/// Same body as `upsert_workspace_task_on_connection` but accepts a
+/// transaction handle, for use inside a batched transactional call.
+fn upsert_workspace_task_in_tx(
+    transaction: &rusqlite::Transaction<'_>,
+    task: &WorkspaceTask,
+) -> std::result::Result<(), tokio_rusqlite::Error> {
+    let reporter_json = serialize_actor(&task.reporter)?;
+    let assignee_json = serialize_optional_actor(&task.assignee)?;
+    let reviewer_json = serialize_optional_actor(&task.reviewer)?;
+    let runtime_history_json = serialize_runtime_history(&task.runtime_history)?;
+    transaction.execute(
+        "INSERT OR REPLACE INTO workspace_tasks \
+         (id, workspace_id, title, task_type, description, definition_of_done, priority, status, sort_order, reporter_json, assignee_json, reviewer_json, thread_id, goal_run_id, runtime_history_json, created_at, updated_at, started_at, completed_at, deleted_at, last_notice_id) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+        params![
+            task.id,
+            task.workspace_id,
+            task.title,
+            workspace_task_type_to_str(task.task_type.clone()),
+            task.description,
+            task.definition_of_done,
+            workspace_priority_to_str(task.priority.clone()),
+            workspace_task_status_to_str(task.status.clone()),
+            task.sort_order,
+            reporter_json,
+            assignee_json,
+            reviewer_json,
+            task.thread_id,
+            task.goal_run_id,
+            runtime_history_json,
+            task.created_at as i64,
+            task.updated_at as i64,
+            task.started_at.map(|value| value as i64),
+            task.completed_at.map(|value| value as i64),
+            task.deleted_at.map(|value| value as i64),
+            task.last_notice_id,
+        ],
+    )?;
+    Ok(())
+}
+
 fn workspace_operator_to_str(operator: WorkspaceOperator) -> &'static str {
     match operator {
         WorkspaceOperator::User => "user",
@@ -96,6 +179,14 @@ fn parse_runtime_history_json(value: String) -> Vec<WorkspaceTaskRuntimeHistoryE
     serde_json::from_str(&value).unwrap_or_default()
 }
 
+fn serialize_string_list(values: &[String]) -> std::result::Result<String, tokio_rusqlite::Error> {
+    serde_json::to_string(values).call_err()
+}
+
+fn parse_string_list_json(value: String) -> Vec<String> {
+    serde_json::from_str(&value).unwrap_or_default()
+}
+
 fn map_workspace_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceTask> {
     Ok(WorkspaceTask {
         id: row.get(0)?,
@@ -134,19 +225,37 @@ fn map_workspace_notice(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceNo
     })
 }
 
+fn map_workspace_settings(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceSettings> {
+    Ok(WorkspaceSettings {
+        workspace_id: row.get(0)?,
+        workspace_root: row.get(1)?,
+        operator: parse_workspace_operator(&row.get::<_, String>(2)?),
+        repo_monitor_enabled: row.get::<_, i64>(3)? != 0,
+        repo_monitor_include_dirs: parse_string_list_json(row.get(4)?),
+        repo_monitor_exclude_dirs: parse_string_list_json(row.get(5)?),
+        created_at: row.get::<_, i64>(6)? as u64,
+        updated_at: row.get::<_, i64>(7)? as u64,
+    })
+}
+
 impl HistoryStore {
     pub async fn upsert_workspace_settings(&self, settings: &WorkspaceSettings) -> Result<()> {
         let settings = settings.clone();
         self.conn
             .call(move |conn| {
+                let include_dirs_json = serialize_string_list(&settings.repo_monitor_include_dirs)?;
+                let exclude_dirs_json = serialize_string_list(&settings.repo_monitor_exclude_dirs)?;
                 conn.execute(
                     "INSERT OR REPLACE INTO workspace_settings \
-                     (workspace_id, workspace_root, operator, created_at, updated_at) \
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                     (workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                     params![
                         settings.workspace_id,
                         settings.workspace_root,
                         workspace_operator_to_str(settings.operator),
+                        settings.repo_monitor_enabled as i64,
+                        include_dirs_json,
+                        exclude_dirs_json,
                         settings.created_at as i64,
                         settings.updated_at as i64,
                     ],
@@ -165,18 +274,10 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 conn.query_row(
-                    "SELECT workspace_id, workspace_root, operator, created_at, updated_at \
+                    "SELECT workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at \
                      FROM workspace_settings WHERE workspace_id = ?1",
                     params![workspace_id],
-                    |row| {
-                        Ok(WorkspaceSettings {
-                            workspace_id: row.get(0)?,
-                            workspace_root: row.get(1)?,
-                            operator: parse_workspace_operator(&row.get::<_, String>(2)?),
-                            created_at: row.get::<_, i64>(3)? as u64,
-                            updated_at: row.get::<_, i64>(4)? as u64,
-                        })
-                    },
+                    map_workspace_settings,
                 )
                 .optional()
                 .map_err(Into::into)
@@ -189,18 +290,48 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 let mut stmt = conn.prepare(
-                    "SELECT workspace_id, workspace_root, operator, created_at, updated_at \
+                    "SELECT workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at \
                      FROM workspace_settings ORDER BY workspace_id ASC",
                 )?;
-                let rows = stmt.query_map([], |row| {
-                    Ok(WorkspaceSettings {
-                        workspace_id: row.get(0)?,
-                        workspace_root: row.get(1)?,
-                        operator: parse_workspace_operator(&row.get::<_, String>(2)?),
-                        created_at: row.get::<_, i64>(3)? as u64,
-                        updated_at: row.get::<_, i64>(4)? as u64,
-                    })
-                })?;
+                let rows = stmt.query_map([], map_workspace_settings)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn list_repo_monitor_workspace_settings(&self) -> Result<Vec<WorkspaceSettings>> {
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at \
+                     FROM workspace_settings \
+                     WHERE repo_monitor_enabled = 1 \
+                       AND json_valid(repo_monitor_include_dirs_json) \
+                       AND json_array_length(repo_monitor_include_dirs_json) > 0 \
+                     ORDER BY workspace_id ASC",
+                )?;
+                let rows = stmt.query_map([], map_workspace_settings)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn list_workspace_settings_by_operator(
+        &self,
+        operator: WorkspaceOperator,
+    ) -> Result<Vec<WorkspaceSettings>> {
+        let operator = workspace_operator_to_str(operator).to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT workspace_id, workspace_root, operator, repo_monitor_enabled, repo_monitor_include_dirs_json, repo_monitor_exclude_dirs_json, created_at, updated_at \
+                     FROM workspace_settings WHERE operator = ?1 ORDER BY workspace_id ASC",
+                )?;
+                let rows = stmt.query_map(params![operator], map_workspace_settings)?;
                 rows.collect::<std::result::Result<Vec<_>, _>>()
                     .map_err(Into::into)
             })
@@ -211,39 +342,26 @@ impl HistoryStore {
     pub async fn upsert_workspace_task(&self, task: &WorkspaceTask) -> Result<()> {
         let task = task.clone();
         self.conn
+            .call(move |conn| upsert_workspace_task_on_connection(conn, &task))
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    /// Batched upsert. Used by sort-order shift and other multi-task
+    /// updates where the previous per-task `upsert_workspace_task` loop ran
+    /// one round-trip and one BEGIN/COMMIT per task.
+    pub async fn upsert_workspace_tasks_batch(&self, tasks: &[WorkspaceTask]) -> Result<()> {
+        if tasks.is_empty() {
+            return Ok(());
+        }
+        let tasks = tasks.to_vec();
+        self.conn
             .call(move |conn| {
-                let reporter_json = serialize_actor(&task.reporter)?;
-                let assignee_json = serialize_optional_actor(&task.assignee)?;
-                let reviewer_json = serialize_optional_actor(&task.reviewer)?;
-                let runtime_history_json = serialize_runtime_history(&task.runtime_history)?;
-                conn.execute(
-                    "INSERT OR REPLACE INTO workspace_tasks \
-                     (id, workspace_id, title, task_type, description, definition_of_done, priority, status, sort_order, reporter_json, assignee_json, reviewer_json, thread_id, goal_run_id, runtime_history_json, created_at, updated_at, started_at, completed_at, deleted_at, last_notice_id) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
-                    params![
-                        task.id,
-                        task.workspace_id,
-                        task.title,
-                        workspace_task_type_to_str(task.task_type),
-                        task.description,
-                        task.definition_of_done,
-                        workspace_priority_to_str(task.priority),
-                        workspace_task_status_to_str(task.status),
-                        task.sort_order,
-                        reporter_json,
-                        assignee_json,
-                        reviewer_json,
-                        task.thread_id,
-                        task.goal_run_id,
-                        runtime_history_json,
-                        task.created_at as i64,
-                        task.updated_at as i64,
-                        task.started_at.map(|value| value as i64),
-                        task.completed_at.map(|value| value as i64),
-                        task.deleted_at.map(|value| value as i64),
-                        task.last_notice_id,
-                    ],
-                )?;
+                let transaction = conn.transaction()?;
+                for task in &tasks {
+                    upsert_workspace_task_in_tx(&transaction, task)?;
+                }
+                transaction.commit()?;
                 Ok(())
             })
             .await
@@ -307,6 +425,62 @@ impl HistoryStore {
                 );
                 let mut stmt = conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![workspace_id], map_workspace_task)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn list_assigned_workspace_tasks_by_status(
+        &self,
+        workspace_id: &str,
+        status: WorkspaceTaskStatus,
+    ) -> Result<Vec<WorkspaceTask>> {
+        let workspace_id = workspace_id.to_string();
+        let status = workspace_task_status_to_str(status).to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, workspace_id, title, task_type, description, definition_of_done, priority, status, sort_order, reporter_json, assignee_json, reviewer_json, thread_id, goal_run_id, runtime_history_json, created_at, updated_at, started_at, completed_at, deleted_at, last_notice_id \
+                     FROM workspace_tasks \
+                     WHERE workspace_id = ?1 AND status = ?2 AND assignee_json IS NOT NULL AND deleted_at IS NULL \
+                     ORDER BY sort_order ASC, created_at ASC",
+                )?;
+                let rows = stmt.query_map(params![workspace_id, status], map_workspace_task)?;
+                rows.collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn list_workspace_tasks_for_sort_shift(
+        &self,
+        workspace_id: &str,
+        status: WorkspaceTaskStatus,
+        moving_task_id: &str,
+        min_sort_order: i64,
+    ) -> Result<Vec<WorkspaceTask>> {
+        let workspace_id = workspace_id.to_string();
+        let status = workspace_task_status_to_str(status).to_string();
+        let moving_task_id = moving_task_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, workspace_id, title, task_type, description, definition_of_done, priority, status, sort_order, reporter_json, assignee_json, reviewer_json, thread_id, goal_run_id, runtime_history_json, created_at, updated_at, started_at, completed_at, deleted_at, last_notice_id \
+                     FROM workspace_tasks \
+                     WHERE workspace_id = ?1
+                       AND status = ?2
+                       AND id != ?3
+                       AND sort_order >= ?4
+                       AND deleted_at IS NULL \
+                     ORDER BY sort_order ASC, created_at ASC",
+                )?;
+                let rows = stmt.query_map(
+                    params![workspace_id, status, moving_task_id, min_sort_order],
+                    map_workspace_task,
+                )?;
                 rows.collect::<std::result::Result<Vec<_>, _>>()
                     .map_err(Into::into)
             })
@@ -400,6 +574,107 @@ impl HistoryStore {
                     rows.collect::<std::result::Result<Vec<_>, _>>()
                         .map_err(Into::into)
                 }
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn list_workspace_notices_limited(
+        &self,
+        workspace_id: &str,
+        task_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<WorkspaceNotice>> {
+        let workspace_id = workspace_id.to_string();
+        let task_id = task_id.map(str::to_string);
+        let limit = limit.max(1) as i64;
+        self.read_conn
+            .call(move |conn| match task_id {
+                Some(task_id) => {
+                    let mut stmt = conn.prepare(
+                        "SELECT id, workspace_id, task_id, notice_type, message, actor_json, created_at \
+                         FROM workspace_notices \
+                         WHERE workspace_id = ?1 AND task_id = ?2 \
+                         ORDER BY created_at ASC \
+                         LIMIT ?3",
+                    )?;
+                    let rows = stmt.query_map(
+                        params![workspace_id, task_id, limit],
+                        map_workspace_notice,
+                    )?;
+                    rows.collect::<std::result::Result<Vec<_>, _>>()
+                        .map_err(Into::into)
+                }
+                None => {
+                    let mut stmt = conn.prepare(
+                        "SELECT id, workspace_id, task_id, notice_type, message, actor_json, created_at \
+                         FROM workspace_notices \
+                         WHERE workspace_id = ?1 \
+                         ORDER BY created_at ASC \
+                         LIMIT ?2",
+                    )?;
+                    let rows =
+                        stmt.query_map(params![workspace_id, limit], map_workspace_notice)?;
+                    rows.collect::<std::result::Result<Vec<_>, _>>()
+                        .map_err(Into::into)
+                }
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn workspace_notice_exists(
+        &self,
+        workspace_id: &str,
+        task_id: &str,
+        notice_type: &str,
+    ) -> Result<bool> {
+        let workspace_id = workspace_id.to_string();
+        let task_id = task_id.to_string();
+        let notice_type = notice_type.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM workspace_notices
+                        WHERE workspace_id = ?1 AND task_id = ?2 AND notice_type = ?3
+                    )",
+                    params![workspace_id, task_id, notice_type],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map(|value| value == 1)
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))
+    }
+
+    pub async fn workspace_notice_with_message_exists(
+        &self,
+        workspace_id: &str,
+        task_id: &str,
+        notice_type: &str,
+        message: &str,
+    ) -> Result<bool> {
+        let workspace_id = workspace_id.to_string();
+        let task_id = task_id.to_string();
+        let notice_type = notice_type.to_string();
+        let message = message.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM workspace_notices
+                        WHERE workspace_id = ?1
+                          AND task_id = ?2
+                          AND notice_type = ?3
+                          AND message = ?4
+                    )",
+                    params![workspace_id, task_id, notice_type, message],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map(|value| value == 1)
+                .map_err(Into::into)
             })
             .await
             .map_err(|error| anyhow::anyhow!("{error}"))

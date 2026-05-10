@@ -1,19 +1,17 @@
-// ---------------------------------------------------------------------------
-// OpenAI-compatible implementation
-// ---------------------------------------------------------------------------
+use super::*;
 
 use zorai_shared::providers::{
     PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_MINIMAX,
-    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENCODE_ZEN, PROVIDER_ID_OPENAI,
-    PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN, PROVIDER_ID_QWEN_DEEPINFRA,
-    PROVIDER_ID_Z_AI, PROVIDER_ID_Z_AI_CODING_PLAN,
+    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENCODE_ZEN,
+    PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN, PROVIDER_ID_QWEN_DEEPINFRA, PROVIDER_ID_Z_AI,
+    PROVIDER_ID_Z_AI_CODING_PLAN,
 };
 
 const OPENROUTER_ATTRIBUTION_URL: &str = "https://zorai.app";
 const OPENROUTER_ATTRIBUTION_TITLE: &str = "Zorai";
 const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent,personal-agent";
 
-fn build_chat_completion_url(base_url: &str) -> String {
+pub(crate) fn build_chat_completion_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     let lower = base.to_lowercase();
 
@@ -30,7 +28,6 @@ fn build_chat_completion_url(base_url: &str) -> String {
         return format!("{base}/chat/completions");
     }
 
-    // If URL already has a version suffix, just append the endpoint
     if lower.ends_with("/v1")
         || lower.ends_with("/v2")
         || lower.ends_with("/v3")
@@ -45,7 +42,7 @@ fn build_chat_completion_url(base_url: &str) -> String {
     format!("{base}/v1/chat/completions")
 }
 
-fn build_responses_url(base_url: &str) -> String {
+pub(crate) fn build_responses_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
     let lower = base.to_lowercase();
 
@@ -73,7 +70,7 @@ fn build_responses_url(base_url: &str) -> String {
     format!("{base}/v1/responses")
 }
 
-fn normalize_reasoning_effort(effort: &str) -> Option<String> {
+pub(crate) fn normalize_reasoning_effort(effort: &str) -> Option<String> {
     match effort.trim().to_ascii_lowercase().as_str() {
         "" | "off" | "none" => None,
         "minimal" => Some("low".to_string()),
@@ -89,7 +86,7 @@ fn copilot_reasoning_summary(effort: &str) -> Option<&'static str> {
     normalize_reasoning_effort(effort).map(|_| "auto")
 }
 
-fn build_openai_responses_body(
+pub(crate) fn build_openai_responses_body(
     provider: &str,
     config: &ProviderConfig,
     system_prompt: &str,
@@ -110,7 +107,7 @@ fn build_openai_responses_body(
     serde_json::to_value(request).expect("responses request should serialize")
 }
 
-fn build_openai_responses_request(
+pub(crate) fn build_openai_responses_request(
     provider: &str,
     config: &ProviderConfig,
     system_prompt: &str,
@@ -186,7 +183,7 @@ fn build_openai_responses_request(
     }
 }
 
-fn openai_reasoning_supported(provider: &str, model: &str) -> bool {
+pub(crate) fn openai_reasoning_supported(provider: &str, model: &str) -> bool {
     matches!(
         provider,
         PROVIDER_ID_OPENAI
@@ -200,7 +197,7 @@ fn openai_reasoning_supported(provider: &str, model: &str) -> bool {
         || model.starts_with("gpt-5")
 }
 
-fn dashscope_openai_uses_enable_thinking(provider: &str, model: &str) -> bool {
+pub(crate) fn dashscope_openai_uses_enable_thinking(provider: &str, model: &str) -> bool {
     matches!(provider, PROVIDER_ID_QWEN | PROVIDER_ID_ALIBABA_CODING_PLAN)
         && matches!(
             model,
@@ -208,21 +205,21 @@ fn dashscope_openai_uses_enable_thinking(provider: &str, model: &str) -> bool {
         )
 }
 
-fn is_dashscope_coding_plan_anthropic_base_url(base_url: &str) -> bool {
+pub(crate) fn is_dashscope_coding_plan_anthropic_base_url(base_url: &str) -> bool {
     let lower = base_url.trim().to_ascii_lowercase();
     lower.contains("dashscope.aliyuncs.com") && lower.contains("/apps/anthropic")
 }
 
 /// Providers whose "coding plan" tiers gate access behind SDK-identification
 /// headers (User-Agent, x-stainless-*).  Without them the gateway returns 405.
-fn needs_coding_plan_sdk_headers(provider: &str) -> bool {
+pub(crate) fn needs_coding_plan_sdk_headers(provider: &str) -> bool {
     matches!(
         provider,
         PROVIDER_ID_ALIBABA_CODING_PLAN | PROVIDER_ID_MINIMAX | PROVIDER_ID_MINIMAX_CODING_PLAN
     )
 }
 
-fn apply_dashscope_coding_plan_sdk_headers(
+pub(crate) fn apply_dashscope_coding_plan_sdk_headers(
     req: reqwest::RequestBuilder,
     provider: &str,
     _base_url: &str,
@@ -248,7 +245,7 @@ fn apply_dashscope_coding_plan_sdk_headers(
     .header("x-stainless-runtime-version", "v22.0.0")
 }
 
-fn anthropic_thinking_budget(effort: &str) -> Option<u32> {
+pub(crate) fn anthropic_thinking_budget(effort: &str) -> Option<u32> {
     match effort.trim().to_ascii_lowercase().as_str() {
         "" | "off" | "none" => None,
         "minimal" => Some(512),
@@ -260,7 +257,7 @@ fn anthropic_thinking_budget(effort: &str) -> Option<u32> {
     }
 }
 
-fn build_openai_auth_request<'a>(
+pub(crate) fn build_openai_auth_request<'a>(
     client: &'a reqwest::Client,
     url: &str,
     provider: &str,
@@ -279,7 +276,7 @@ fn build_openai_auth_request<'a>(
     )
 }
 
-fn apply_openrouter_attribution_headers(
+pub(crate) fn apply_openrouter_attribution_headers(
     req: reqwest::RequestBuilder,
     provider: &str,
 ) -> reqwest::RequestBuilder {
@@ -289,10 +286,7 @@ fn apply_openrouter_attribution_headers(
 
     req.header("HTTP-Referer", OPENROUTER_ATTRIBUTION_URL)
         .header("X-OpenRouter-Title", OPENROUTER_ATTRIBUTION_TITLE)
-        .header(
-            "X-OpenRouter-Categories",
-            OPENROUTER_ATTRIBUTION_CATEGORIES,
-        )
+        .header("X-OpenRouter-Categories", OPENROUTER_ATTRIBUTION_CATEGORIES)
 }
 
 fn apply_openrouter_response_cache_headers(
@@ -306,7 +300,7 @@ fn apply_openrouter_response_cache_headers(
     req.header("X-OpenRouter-Cache", "true")
 }
 
-fn maybe_force_connection_close(
+pub(crate) fn maybe_force_connection_close(
     req: reqwest::RequestBuilder,
     force_connection_close: bool,
 ) -> reqwest::RequestBuilder {
@@ -317,7 +311,7 @@ fn maybe_force_connection_close(
     }
 }
 
-fn apply_openai_auth_headers(
+pub(crate) fn apply_openai_auth_headers(
     req: reqwest::RequestBuilder,
     provider: &str,
     config: &ProviderConfig,
@@ -329,9 +323,10 @@ fn apply_openai_auth_headers(
             .header("Openai-Intent", "conversation-edits")
             .header("x-initiator", copilot_initiator.as_header_value())
             .header("User-Agent", "zorai-daemon");
-        if let Some(resolved) =
-            super::copilot_auth::resolve_github_copilot_auth(&config.api_key, config.auth_source)
-        {
+        if let Some(resolved) = super::super::copilot_auth::resolve_github_copilot_auth(
+            &config.api_key,
+            config.auth_source,
+        ) {
             if let Some(token) = resolved
                 .access_token
                 .as_deref()
@@ -363,7 +358,10 @@ fn apply_openai_auth_headers(
     }
 }
 
-fn build_native_assistant_base_url(provider: &str, config: &ProviderConfig) -> Option<String> {
+pub(crate) fn build_native_assistant_base_url(
+    provider: &str,
+    config: &ProviderConfig,
+) -> Option<String> {
     let preferred =
         get_provider_definition(provider).and_then(|definition| definition.native_base_url);
     preferred
@@ -371,24 +369,26 @@ fn build_native_assistant_base_url(provider: &str, config: &ProviderConfig) -> O
         .map(|url| url.trim_end_matches('/').to_string())
 }
 
-fn api_message_to_text(message: &ApiMessage) -> Option<String> {
+pub(crate) fn api_message_to_text(message: &ApiMessage) -> Option<String> {
     match &message.content {
         ApiContent::Text(text) => Some(text.clone()),
         ApiContent::Blocks(blocks) => {
             let combined = blocks
                 .iter()
                 .filter_map(|block| {
-                    block.get("text").and_then(|value| value.as_str()).or_else(|| {
-                        block
-                            .get("type")
-                            .and_then(|value| value.as_str())
-                            .and_then(|block_type| match block_type {
-                                "input_image" => Some("[image attachment]"),
-                                "input_audio" => Some("[audio attachment]"),
-                                _ => None,
-                            })
-                    })
-                    .map(ToOwned::to_owned)
+                    block
+                        .get("text")
+                        .and_then(|value| value.as_str())
+                        .or_else(|| {
+                            block.get("type").and_then(|value| value.as_str()).and_then(
+                                |block_type| match block_type {
+                                    "input_image" => Some("[image attachment]"),
+                                    "input_audio" => Some("[audio attachment]"),
+                                    _ => None,
+                                },
+                            )
+                        })
+                        .map(ToOwned::to_owned)
                 })
                 .collect::<Vec<_>>()
                 .join("\n");

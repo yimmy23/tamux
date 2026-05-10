@@ -80,12 +80,10 @@ pub fn lookup_rate<'a>(
     provider: &str,
     model: &str,
 ) -> Option<&'a RateCard> {
-    // 1. Exact match
     if let Some(card) = rate_cards.get(model) {
         return Some(card);
     }
 
-    // 2. Strip trailing date suffix (8+ digit suffix after a hyphen)
     let stripped = strip_date_suffix(model);
     if stripped != model {
         if let Some(card) = rate_cards.get(stripped) {
@@ -93,7 +91,6 @@ pub fn lookup_rate<'a>(
         }
     }
 
-    // 3. "provider/model" composite
     let composite = format!("{provider}/{model}");
     rate_cards.get(&composite)
 }
@@ -103,7 +100,6 @@ pub fn lookup_rate<'a>(
 fn strip_date_suffix(model: &str) -> &str {
     if let Some(pos) = model.rfind('-') {
         let suffix = &model[pos + 1..];
-        // A date suffix is typically 8 digits (YYYYMMDD)
         if suffix.len() >= 8 && suffix.chars().all(|c| c.is_ascii_digit()) {
             return &model[..pos];
         }

@@ -4,6 +4,142 @@ use super::*;
 
 const TASK_APPROVAL_REASON_PREFIX: &str = "waiting for operator approval: ";
 
+fn apply_weles_task_target(task: &mut AgentTask, persona_prompt: &str) {
+    task.sub_agent_def_id =
+        Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID.to_string());
+    task.override_system_prompt = Some(match task.override_system_prompt.take() {
+        Some(existing) if !existing.trim().is_empty() => {
+            format!("{persona_prompt}\n\n{existing}")
+        }
+        _ => persona_prompt.to_string(),
+    });
+}
+
+fn task_matches_list_query(task: &AgentTask, query: &crate::history::AgentTaskListQuery) -> bool {
+    if let Some(id) = query.id.as_deref().filter(|value| !value.is_empty()) {
+        if task.id != id {
+            return false;
+        }
+    }
+    if let Some(status) = query.status.as_deref().filter(|value| !value.is_empty()) {
+        let task_status = serde_json::to_value(task.status)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned));
+        if task_status.as_deref() != Some(status) {
+            return false;
+        }
+    }
+    if !query.statuses.is_empty() {
+        let task_status = serde_json::to_value(task.status)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned));
+        let matches_status = task_status.as_deref().is_some_and(|task_status| {
+            query
+                .statuses
+                .iter()
+                .map(|status| status.trim())
+                .any(|status| !status.is_empty() && status == task_status)
+        });
+        if !matches_status {
+            return false;
+        }
+    }
+    if let Some(source) = query.source.as_deref().filter(|value| !value.is_empty()) {
+        if task.source != source {
+            return false;
+        }
+    }
+    if let Some(thread_id) = query.thread_id.as_deref().filter(|value| !value.is_empty()) {
+        if task.thread_id.as_deref() != Some(thread_id) {
+            return false;
+        }
+    }
+    if !query.thread_ids.is_empty()
+        && !task.thread_id.as_deref().is_some_and(|thread_id| {
+            query
+                .thread_ids
+                .iter()
+                .map(|candidate| candidate.trim())
+                .any(|candidate| !candidate.is_empty() && candidate == thread_id)
+        })
+    {
+        return false;
+    }
+    if let Some(goal_run_id) = query
+        .goal_run_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        if task.goal_run_id.as_deref() != Some(goal_run_id) {
+            return false;
+        }
+    }
+    if let Some(parent_task_id) = query
+        .parent_task_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        if task.parent_task_id.as_deref() != Some(parent_task_id) {
+            return false;
+        }
+    }
+    if let Some(approval_id) = query
+        .awaiting_approval_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        if task.awaiting_approval_id.as_deref() != Some(approval_id) {
+            return false;
+        }
+    }
+    if query.supervisor_config_present && task.supervisor_config.is_none() {
+        return false;
+    }
+    if query.exclude_terminal_statuses
+        && crate::agent::task_scheduler::is_task_terminal_status(task.status)
+    {
+        return false;
+    }
+    true
+}
+
+fn task_recent_activity_at(task: &AgentTask) -> u64 {
+    task.completed_at
+        .or(task.started_at)
+        .unwrap_or(task.created_at)
+}
+
+fn filter_task_snapshot_for_query(
+    mut tasks: Vec<AgentTask>,
+    query: &crate::history::AgentTaskListQuery,
+) -> Vec<AgentTask> {
+    tasks.retain(|task| task_matches_list_query(task, query));
+    if query.order_by_recent_activity_desc {
+        tasks.sort_by_key(|task| std::cmp::Reverse(task_recent_activity_at(task)));
+    }
+    if let Some(limit) = query.limit {
+        tasks.truncate(limit.max(1));
+    }
+    tasks
+}
+
+fn matches_parent_thread_subagent(
+    task: &AgentTask,
+    parent_thread_id: &str,
+    status: Option<&str>,
+) -> bool {
+    if task.source != "subagent" || task.parent_thread_id.as_deref() != Some(parent_thread_id) {
+        return false;
+    }
+    let Some(status) = status else {
+        return true;
+    };
+    serde_json::to_value(task.status)
+        .ok()
+        .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        .is_some_and(|value| value == status)
+}
+
 fn is_policy_escalation_approval(approval_id: &str) -> bool {
     approval_id.starts_with("policy-escalation-")
 }
@@ -100,22 +236,28 @@ impl AgentEngine {
         &self,
         approval_id: &str,
     ) -> Result<Option<zorai_protocol::TaskApprovalRule>> {
-        let command = {
-            let tasks = self.tasks.lock().await;
-            tasks.iter().find_map(|task| {
-                (task.awaiting_approval_id.as_deref() == Some(approval_id))
-                    .then(|| Self::approval_command_from_task(task))
-                    .flatten()
-            })
-        };
-        let command = match command {
+        let persisted_command = self
+            .history
+            .pending_agent_task_approval_command(approval_id)
+            .await?;
+        let command = match persisted_command {
             Some(command) => Some(command),
-            None => self
-                .pending_approval_commands
-                .read()
-                .await
-                .get(approval_id)
-                .cloned(),
+            None => match {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find_map(|task| {
+                    (task.awaiting_approval_id.as_deref() == Some(approval_id))
+                        .then(|| Self::approval_command_from_task(task))
+                        .flatten()
+                })
+            } {
+                Some(command) => Some(command),
+                None => self
+                    .pending_approval_commands
+                    .read()
+                    .await
+                    .get(approval_id)
+                    .cloned(),
+            },
         };
         let Some(command) = command else {
             return Ok(None);
@@ -182,6 +324,62 @@ impl AgentEngine {
             Some(pending_approval.command.clone()),
         );
         true
+    }
+
+    async fn pending_approval_task_for_resolution(
+        &self,
+        approval_id: &str,
+        source: Option<&str>,
+    ) -> Option<AgentTask> {
+        let task = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: source.map(ToOwned::to_owned),
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: Some(approval_id.to_string()),
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: true,
+                limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+            .into_iter()
+            .next();
+        if let Some(task) = task {
+            {
+                let mut tasks = self.tasks.lock().await;
+                if !tasks.iter().any(|entry| entry.id == task.id) {
+                    tasks.push_back(task.clone());
+                }
+            }
+            return Some(task);
+        }
+
+        let task = {
+            let tasks = self.tasks.lock().await;
+            tasks
+                .iter()
+                .find(|task| {
+                    task.awaiting_approval_id.as_deref() == Some(approval_id)
+                        && source.is_none_or(|source| task.source == source)
+                })
+                .cloned()
+        };
+        let task = task?;
+        {
+            let mut tasks = self.tasks.lock().await;
+            if !tasks.iter().any(|entry| entry.id == task.id) {
+                tasks.push_back(task.clone());
+            }
+        }
+        Some(task)
     }
 
     pub async fn add_task(
@@ -335,25 +533,67 @@ impl AgentEngine {
         let persona_prompt = crate::agent::agent_identity::build_weles_persona_prompt(
             crate::agent::agent_identity::WELES_GOVERNANCE_SCOPE,
         );
-        let updated = {
+        let mut updated_live_task = false;
+        let mut updated = {
             let mut tasks = self.tasks.lock().await;
-            let task = tasks.iter_mut().find(|task| task.id == task_id)?;
-            task.sub_agent_def_id =
-                Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID.to_string());
-            task.override_system_prompt = Some(match task.override_system_prompt.take() {
-                Some(existing) if !existing.trim().is_empty() => {
-                    format!("{persona_prompt}\n\n{existing}")
-                }
-                _ => persona_prompt.clone(),
-            });
-            task.clone()
+            tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .map(|task| {
+                    apply_weles_task_target(task, &persona_prompt);
+                    updated_live_task = true;
+                    task.clone()
+                })
         };
+        if updated.is_none() {
+            let Some(mut task) = self
+                .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(task_id.to_string()),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
+                })
+                .await
+                .into_iter()
+                .next()
+            else {
+                return None;
+            };
+            apply_weles_task_target(&mut task, &persona_prompt);
+            if let Err(error) = self.history.upsert_agent_task(&task).await {
+                tracing::warn!(
+                    task_id,
+                    "failed to persist Weles task retarget update: {error}"
+                );
+                return None;
+            }
+            {
+                let mut tasks = self.tasks.lock().await;
+                if !tasks.iter().any(|entry| entry.id == task.id) {
+                    tasks.push_back(task.clone());
+                }
+            }
+            updated = Some(task);
+        }
         self.trusted_weles_tasks
             .write()
             .await
             .insert(task_id.to_string());
-        self.persist_tasks().await;
-        Some(updated)
+        if updated_live_task {
+            self.persist_tasks().await;
+        }
+        updated
     }
 
     pub async fn cancel_task(&self, task_id: &str) -> bool {
@@ -415,7 +655,92 @@ impl AgentEngine {
                 return true;
             }
         }
-        false
+        drop(tasks);
+
+        let Some(mut task) = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+            .into_iter()
+            .next()
+        else {
+            return false;
+        };
+        if !matches!(
+            task.status,
+            TaskStatus::Queued
+                | TaskStatus::InProgress
+                | TaskStatus::Blocked
+                | TaskStatus::FailedAnalyzing
+                | TaskStatus::AwaitingApproval
+        ) {
+            return false;
+        }
+
+        let thread_to_stop = task.thread_id.clone();
+        let session_to_interrupt = task.session_id.clone();
+        task.status = TaskStatus::Cancelled;
+        task.completed_at = Some(now_millis());
+        task.lane_id = None;
+        task.blocked_reason = None;
+        task.awaiting_approval_id = None;
+        task.logs.push(make_task_log_entry(
+            task.retry_count,
+            TaskLogLevel::Warn,
+            "queue",
+            "task cancelled by user",
+            None,
+        ));
+        {
+            let mut tasks = self.tasks.lock().await;
+            if !tasks.iter().any(|entry| entry.id == task.id) {
+                tasks.push_back(task.clone());
+            }
+        }
+        self.persist_tasks().await;
+        if let Some(thread_id) = thread_to_stop {
+            let _ = self.stop_stream(&thread_id).await;
+        }
+        if let Some(session_id) =
+            session_to_interrupt.and_then(|value| Uuid::parse_str(&value).ok())
+        {
+            let _ = self.session_manager.write_input(session_id, &[3]).await;
+        }
+        self.emit_task_update(&task, Some("Cancelled by user".into()));
+        self.settle_task_skill_consultations(&task, "cancelled")
+            .await;
+        self.record_collaboration_outcome(&task, "cancelled").await;
+        self.record_provenance_event(
+            "step_cancelled",
+            "task cancelled by operator",
+            serde_json::json!({
+                "task_id": task.id,
+                "title": task.title,
+                "source": task.source,
+            }),
+            task.goal_run_id.as_deref(),
+            Some(task.id.as_str()),
+            task.thread_id.as_deref(),
+            None,
+            None,
+        )
+        .await;
+        true
     }
 
     pub async fn handle_task_approval_resolution(
@@ -423,16 +748,9 @@ impl AgentEngine {
         approval_id: &str,
         decision: zorai_protocol::ApprovalDecision,
     ) -> bool {
-        let goal_plan_approval_task = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|task| {
-                    task.awaiting_approval_id.as_deref() == Some(approval_id)
-                        && task.source == "goal_plan_approval"
-                })
-                .cloned()
-        };
+        let goal_plan_approval_task = self
+            .pending_approval_task_for_resolution(approval_id, Some("goal_plan_approval"))
+            .await;
         if let Some(task) = goal_plan_approval_task {
             let review_task_id = task.id.clone();
             let goal_run_id = task.goal_run_id.clone();
@@ -568,16 +886,9 @@ impl AgentEngine {
             return true;
         }
 
-        let handoff_task = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|task| {
-                    task.awaiting_approval_id.as_deref() == Some(approval_id)
-                        && task.source == "thread_handoff"
-                })
-                .cloned()
-        };
+        let handoff_task = self
+            .pending_approval_task_for_resolution(approval_id, Some("thread_handoff"))
+            .await;
         if let Some(task) = handoff_task {
             let handoff_task_id = task.id.clone();
             let request = task.command.as_deref().and_then(|value| {
@@ -712,6 +1023,14 @@ impl AgentEngine {
                     return true;
                 }
             }
+        }
+
+        if self
+            .pending_approval_task_for_resolution(approval_id, None)
+            .await
+            .is_none()
+        {
+            return false;
         }
 
         let updated = {
@@ -856,11 +1175,210 @@ impl AgentEngine {
     }
 
     pub async fn list_tasks(&self) -> Vec<AgentTask> {
-        self.snapshot_tasks().await
+        self.list_tasks_filtered(&crate::history::AgentTaskListQuery::default())
+            .await
+    }
+
+    async fn refresh_task_queue_state_for_filtered_list(&self) {
+        let sessions = self.session_manager.list().await;
+        let config = self.config.read().await.clone();
+        let changed = {
+            let mut tasks = self.tasks.lock().await;
+            refresh_task_queue_state(&mut tasks, now_millis(), &sessions, &config)
+        };
+
+        if !changed.is_empty() {
+            self.persist_tasks().await;
+            for task in changed {
+                self.emit_task_update(&task, Some(status_message(&task).into()));
+            }
+        }
+    }
+
+    pub(crate) async fn list_tasks_filtered(
+        &self,
+        query: &crate::history::AgentTaskListQuery,
+    ) -> Vec<AgentTask> {
+        self.refresh_task_queue_state_for_filtered_list().await;
+        match self.history.list_agent_tasks_filtered(query).await {
+            Ok(mut tasks) => {
+                for task in &mut tasks {
+                    crate::agent::persistence::sanitize_task_for_external_view(task);
+                }
+                let in_memory = filter_task_snapshot_for_query(self.snapshot_tasks().await, query);
+                if !in_memory.is_empty() {
+                    let known_ids: std::collections::HashSet<String> =
+                        tasks.iter().map(|task| task.id.clone()).collect();
+                    for task in in_memory {
+                        if !known_ids.contains(&task.id) {
+                            tasks.push(task);
+                        }
+                    }
+                    if query.order_by_recent_activity_desc {
+                        tasks.sort_by_key(|task| std::cmp::Reverse(task_recent_activity_at(task)));
+                    }
+                    if let Some(limit) = query.limit {
+                        tasks.truncate(limit.max(1));
+                    }
+                }
+                tasks
+            }
+            Err(error) => {
+                tracing::warn!("failed to list filtered persisted tasks: {error}");
+                let snapshot = self.snapshot_tasks().await;
+                filter_task_snapshot_for_query(snapshot, query)
+            }
+        }
+    }
+
+    pub(crate) async fn list_parent_thread_subagent_tasks(
+        &self,
+        parent_thread_id: &str,
+        status: Option<&str>,
+    ) -> Vec<AgentTask> {
+        self.refresh_task_queue_state_for_filtered_list().await;
+        match self
+            .history
+            .list_agent_tasks_for_parent_thread_subagents(parent_thread_id, status, None)
+            .await
+        {
+            Ok(mut tasks) => {
+                for task in &mut tasks {
+                    crate::agent::persistence::sanitize_task_for_external_view(task);
+                }
+                tasks
+            }
+            Err(error) => {
+                tracing::warn!("failed to list parent-thread persisted subagent tasks: {error}");
+                self.snapshot_tasks()
+                    .await
+                    .into_iter()
+                    .filter(|task| matches_parent_thread_subagent(task, parent_thread_id, status))
+                    .collect()
+            }
+        }
+    }
+
+    pub(crate) async fn count_tasks_filtered(
+        &self,
+        query: &crate::history::AgentTaskListQuery,
+    ) -> usize {
+        self.refresh_task_queue_state_for_filtered_list().await;
+        match self.history.count_agent_tasks_filtered(query).await {
+            Ok(count) => count,
+            Err(error) => {
+                tracing::warn!("failed to count filtered persisted tasks: {error}");
+                let snapshot = self.snapshot_tasks().await;
+                filter_task_snapshot_for_query(snapshot, query).len()
+            }
+        }
+    }
+
+    pub(crate) async fn list_task_quiet_recovery_refs_filtered(
+        &self,
+        query: &crate::history::AgentTaskListQuery,
+    ) -> Vec<crate::history::AgentTaskQuietRecoveryRef> {
+        self.refresh_task_queue_state_for_filtered_list().await;
+        match self
+            .history
+            .list_agent_task_quiet_recovery_refs_filtered(query)
+            .await
+        {
+            Ok(refs) => refs,
+            Err(error) => {
+                tracing::warn!("failed to list quiet-goal recovery task refs: {error}");
+                let snapshot = self.snapshot_tasks().await;
+                filter_task_snapshot_for_query(snapshot, query)
+                    .iter()
+                    .map(crate::history::AgentTaskQuietRecoveryRef::from)
+                    .collect()
+            }
+        }
+    }
+
+    pub(crate) async fn list_task_quiet_recovery_refs_for_goal_runs_statuses(
+        &self,
+        goal_run_ids: &[String],
+        statuses: &[String],
+    ) -> Vec<crate::history::AgentTaskQuietRecoveryRef> {
+        let goal_run_ids = goal_run_ids
+            .iter()
+            .map(|goal_run_id| goal_run_id.trim())
+            .filter(|goal_run_id| !goal_run_id.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<std::collections::HashSet<_>>();
+        let statuses = statuses
+            .iter()
+            .map(|status| status.trim())
+            .filter(|status| !status.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<std::collections::HashSet<_>>();
+        if goal_run_ids.is_empty() || statuses.is_empty() {
+            return Vec::new();
+        }
+
+        self.refresh_task_queue_state_for_filtered_list().await;
+        let persisted_goal_run_ids = goal_run_ids.iter().cloned().collect::<Vec<_>>();
+        let persisted_statuses = statuses.iter().cloned().collect::<Vec<_>>();
+        let mut refs = match self
+            .history
+            .list_agent_task_quiet_recovery_refs_for_goal_runs_statuses(
+                &persisted_goal_run_ids,
+                &persisted_statuses,
+            )
+            .await
+        {
+            Ok(refs) => refs,
+            Err(error) => {
+                tracing::warn!("failed to list quiet-goal recovery task refs by goal run: {error}");
+                Vec::new()
+            }
+        };
+        let known_ids = refs
+            .iter()
+            .map(|task| task.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let live_refs = self
+            .snapshot_tasks()
+            .await
+            .iter()
+            .filter(|task| {
+                task.goal_run_id
+                    .as_deref()
+                    .is_some_and(|goal_run_id| goal_run_ids.contains(goal_run_id))
+                    && serde_json::to_value(task.status)
+                        .ok()
+                        .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                        .is_some_and(|status| statuses.contains(&status))
+                    && !known_ids.contains(&task.id)
+            })
+            .map(crate::history::AgentTaskQuietRecoveryRef::from)
+            .collect::<Vec<_>>();
+        refs.extend(live_refs);
+        refs.sort_by(|a, b| a.id.cmp(&b.id));
+        refs
     }
 
     pub async fn list_runs(&self) -> Vec<AgentRun> {
-        let tasks = self.snapshot_tasks().await;
+        let tasks = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: None,
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: None,
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await;
         let sessions = self.session_manager.list().await;
         let mut runs = project_task_runs(&tasks, &sessions);
         runs.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -868,7 +1386,48 @@ impl AgentEngine {
     }
 
     pub async fn get_run(&self, run_id: &str) -> Option<AgentRun> {
-        let tasks = self.snapshot_tasks().await;
+        let mut tasks = self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(run_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await;
+        let parent_task_id = tasks.first().and_then(|task| task.parent_task_id.clone());
+        if let Some(parent_task_id) = parent_task_id {
+            tasks.extend(
+                self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                    id: Some(parent_task_id),
+                    status: None,
+                    statuses: Vec::new(),
+                    source: None,
+                    thread_id: None,
+                    thread_ids: Vec::new(),
+                    goal_run_id: None,
+                    parent_task_id: None,
+                    awaiting_approval_id: None,
+                    supervisor_config_present: false,
+                    exclude_terminal_statuses: false,
+                    order_by_recent_activity_desc: false,
+                    limit: Some(1),
+                    ids: Vec::new(),
+                    parent_task_ids: Vec::new(),
+                })
+                .await,
+            );
+        }
         let sessions = self.session_manager.list().await;
         project_task_runs(&tasks, &sessions)
             .into_iter()

@@ -1,3 +1,6 @@
+use super::super::super::*;
+use super::super::*;
+
 impl TuiModel {
     pub(in crate::app) fn is_placeholder_goal_run_detail(
         &self,
@@ -59,7 +62,7 @@ impl TuiModel {
             .map(|thread| thread.title.clone())
     }
 
-    fn upsert_task_backed_approval(&mut self, task: &task::AgentTask) {
+    pub(super) fn upsert_task_backed_approval(&mut self, task: &task::AgentTask) {
         let Some(approval_id) = task.awaiting_approval_id.as_deref() else {
             return;
         };
@@ -121,7 +124,7 @@ impl TuiModel {
             ));
     }
 
-    fn upsert_goal_run_backed_approval(&mut self, run: &task::GoalRun) {
+    pub(super) fn upsert_goal_run_backed_approval(&mut self, run: &task::GoalRun) {
         let Some(approval_id) = run.awaiting_approval_id.as_deref() else {
             return;
         };
@@ -194,18 +197,16 @@ impl TuiModel {
             ));
     }
 
-    fn sync_pending_approvals_from_tasks(&mut self) {
+    pub(super) fn sync_pending_approvals_from_tasks(&mut self) {
         let tasks = self.tasks.tasks().to_vec();
         for task in &tasks {
-            // Task snapshots hydrate approval details, but absence is not authoritative because
-            // the daemon can cap or omit tasks that still have a live approval event.
             if task.awaiting_approval_id.is_some() {
                 self.upsert_task_backed_approval(task);
             }
         }
     }
 
-    fn sync_pending_approvals_from_goal_runs(&mut self) {
+    pub(super) fn sync_pending_approvals_from_goal_runs(&mut self) {
         let goal_runs = self.tasks.goal_runs().to_vec();
         for goal_run in &goal_runs {
             if goal_run.awaiting_approval_id.is_some() {
@@ -214,7 +215,7 @@ impl TuiModel {
         }
     }
 
-    fn clear_replaced_task_approvals(
+    pub(super) fn clear_replaced_task_approvals(
         &mut self,
         previous_tasks: &[task::AgentTask],
         next_tasks: &[task::AgentTask],
@@ -235,7 +236,7 @@ impl TuiModel {
         }
     }
 
-    fn clear_replaced_goal_run_approvals(
+    pub(super) fn clear_replaced_goal_run_approvals(
         &mut self,
         previous_runs: &[task::GoalRun],
         next_runs: &[task::GoalRun],
@@ -269,9 +270,6 @@ impl TuiModel {
         }
         let active_thread_id = self.chat.active_thread_id().map(str::to_string);
         let pending_loading_thread_id = self.thread_loading_id.clone();
-        // ThreadList events can be paginated, filtered, or IPC-truncated refresh pages; absence
-        // from one page is not a deletion signal. Keep locally cached threads until ThreadDeleted
-        // or an explicit detail/list entry replaces them.
         let preserve_missing_threads = self
             .chat
             .threads()
@@ -306,15 +304,15 @@ impl TuiModel {
             .map(conversion::convert_thread)
             .collect::<Vec<_>>();
         for existing_thread in preserve_missing_threads {
-            if !threads
-                .iter()
-                .any(|thread| thread.id == existing_thread.id)
-            {
+            if !threads.iter().any(|thread| thread.id == existing_thread.id) {
                 threads.push(existing_thread);
             }
         }
         self.chat
             .reduce(chat::ChatAction::ThreadListReceived(threads));
+        if self.pending_thread_picker_refresh.is_none() {
+            self.thread_picker_loading_tab = None;
+        }
         self.sync_open_thread_picker();
         self.sync_pending_approvals_from_tasks();
         if self.fallback_pending_reconnect_restore() {
@@ -374,35 +372,42 @@ impl TuiModel {
         } else {
             self.empty_hydrated_runtime_thread_ids.remove(&thread_id);
         }
+        let incoming_window = chat::chat_window::MessageWindow::from_parts(
+            thread.total_message_count,
+            thread.loaded_message_start,
+            thread.loaded_message_end,
+            thread.messages.len(),
+        );
+        let pending_delete_fetch = self
+            .pending_local_message_delete_fetches
+            .get(&thread_id)
+            .copied();
+        if let Some(fetch) = pending_delete_fetch {
+            tracing::info!(
+                thread_id = %thread_id,
+                requested_limit = fetch.message_limit,
+                requested_offset = fetch.message_offset,
+                outstanding_rows = fetch.outstanding_rows,
+                requested_at_tick = fetch.requested_at_tick,
+                incoming_loaded_count = incoming_window.loaded_count,
+                incoming_loaded_start = incoming_window.start,
+                incoming_loaded_end = incoming_window.end,
+                incoming_total_messages = incoming_window.total,
+                local_deleted_count = self.chat.local_deleted_message_count_for_thread(&thread_id),
+                "received older messages after delete request"
+            );
+        }
         let should_preserve_prepend_anchor = self.chat.active_thread().is_some_and(|existing| {
-            let incoming_total = thread.total_message_count.max(thread.messages.len());
-            let incoming_end = if thread.loaded_message_end == 0 && !thread.messages.is_empty() {
-                incoming_total
-            } else {
-                thread.loaded_message_end.max(thread.messages.len())
-            };
-            let incoming_start = if incoming_end >= thread.messages.len() {
-                thread
-                    .loaded_message_start
-                    .min(incoming_end.saturating_sub(thread.messages.len()))
-            } else {
-                0
-            };
+            let existing_window = chat::chat_window::MessageWindow::from_thread(existing);
             self.chat.active_thread_id() == Some(thread_id.as_str())
                 && self.chat.scroll_offset() > 0
-                && incoming_end == existing.loaded_message_start
-                && incoming_start < incoming_end
+                && incoming_window.prepends_into(existing_window)
+                && incoming_window.has_non_empty_range()
         });
         let preserved_scroll = if should_preserve_prepend_anchor {
-            widgets::chat::scrollbar_layout(
-                self.pane_layout().chat,
-                &self.chat,
-                &self.theme,
-                self.tick_counter,
-                self.retry_wait_start_selected,
-            )
-            .map(|layout| layout.scroll)
-            .unwrap_or_else(|| self.chat.scroll_offset())
+            self.chat_scrollbar_layout()
+                .map(|layout| layout.scroll)
+                .unwrap_or_else(|| self.chat.scroll_offset())
         } else {
             0
         };
@@ -419,6 +424,66 @@ impl TuiModel {
         self.chat.reduce(chat::ChatAction::ThreadDetailReceived(
             conversion::convert_thread(thread),
         ));
+        self.chat_selection_snapshot = None;
+        if let Some(updated) = self
+            .chat
+            .threads()
+            .iter()
+            .find(|thread| thread.id == thread_id)
+        {
+            let updated_window = chat::chat_window::MessageWindow::from_thread(updated);
+            tracing::info!(
+                thread_id = %thread_id,
+                incoming_loaded_count = incoming_window.loaded_count,
+                incoming_loaded_start = incoming_window.start,
+                incoming_loaded_end = incoming_window.end,
+                incoming_total_messages = incoming_window.total,
+                render_loaded_count = updated_window.loaded_count,
+                render_loaded_start = updated_window.start,
+                render_loaded_end = updated_window.end,
+                render_total_messages = updated_window.total,
+                local_deleted_count = self.chat.local_deleted_message_count_for_thread(&thread_id),
+                render_revision = self.chat.render_revision(),
+                scroll_offset = self.chat.scroll_offset(),
+                older_page_pending = self.chat.active_thread_older_page_pending(),
+                "applied thread messages to chat view"
+            );
+        }
+        if self.chat.active_thread_id() != Some(thread_id.as_str()) {
+            self.pending_local_message_delete_backfills
+                .remove(&thread_id);
+            self.pending_local_message_delete_fetches.remove(&thread_id);
+        }
+        if pending_delete_fetch.is_some() {
+            self.pending_local_message_delete_fetches.remove(&thread_id);
+            if let Some(updated) = self
+                .chat
+                .threads()
+                .iter()
+                .find(|thread| thread.id == thread_id)
+            {
+                let updated_window = chat::chat_window::MessageWindow::from_thread(updated);
+                tracing::info!(
+                    thread_id = %thread_id,
+                    appended_loaded_count = incoming_window.loaded_count,
+                    render_loaded_count = updated_window.loaded_count,
+                    render_loaded_start = updated_window.start,
+                    render_loaded_end = updated_window.end,
+                    render_total_messages = updated_window.total,
+                    local_deleted_count = self.chat.local_deleted_message_count_for_thread(&thread_id),
+                    render_revision = self.chat.render_revision(),
+                    scroll_offset = self.chat.scroll_offset(),
+                    older_page_pending = self.chat.active_thread_older_page_pending(),
+                    "applied older messages after delete to chat view"
+                );
+            } else {
+                tracing::info!(
+                    thread_id = %thread_id,
+                    render_revision = self.chat.render_revision(),
+                    "delete backfill response applied but thread is no longer cached"
+                );
+            }
+        }
         if self.active_auto_response_suggestion().is_some() {
             self.auto_response_selection = AutoResponseActionSelection::Yes;
         }
@@ -479,5 +544,4 @@ impl TuiModel {
         let _ = self.maybe_auto_send_always_auto_response();
         self.sync_contextual_approval_overlay();
     }
-
 }

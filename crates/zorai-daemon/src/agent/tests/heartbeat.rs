@@ -91,41 +91,34 @@ async fn read_http_request_body(socket: &mut tokio::net::TcpStream) -> std::io::
     Ok(String::from_utf8_lossy(&buffer[headers_end..headers_end + available]).to_string())
 }
 
-// ── check_quiet_window pure function tests ─────────────────────────
 
 #[test]
 fn quiet_hours_within_midnight_wrap_window() {
-    // start=22, end=6, hour=23 → quiet
     assert!(check_quiet_window(23, Some(22), Some(6), false));
 }
 
 #[test]
 fn quiet_hours_outside_midnight_wrap_window() {
-    // start=22, end=6, hour=12 → not quiet
     assert!(!check_quiet_window(12, Some(22), Some(6), false));
 }
 
 #[test]
 fn quiet_hours_midnight_wrap_early_morning() {
-    // start=22, end=6, hour=3 → quiet (early morning within wrap)
     assert!(check_quiet_window(3, Some(22), Some(6), false));
 }
 
 #[test]
 fn quiet_hours_midnight_wrap_boundary_end() {
-    // start=22, end=6, hour=6 → NOT quiet (end hour is exclusive)
     assert!(!check_quiet_window(6, Some(22), Some(6), false));
 }
 
 #[test]
 fn quiet_hours_midnight_wrap_boundary_start() {
-    // start=22, end=6, hour=22 → quiet (start hour is inclusive)
     assert!(check_quiet_window(22, Some(22), Some(6), false));
 }
 
 #[test]
 fn dnd_enabled_overrides_everything() {
-    // dnd=true → always quiet regardless of hour or window config
     assert!(check_quiet_window(12, None, None, true));
     assert!(check_quiet_window(12, Some(22), Some(6), true));
     assert!(check_quiet_window(0, Some(9), Some(17), true));
@@ -133,7 +126,6 @@ fn dnd_enabled_overrides_everything() {
 
 #[test]
 fn no_quiet_hours_configured_and_no_dnd() {
-    // No quiet hours, no DND → never quiet
     assert!(!check_quiet_window(12, None, None, false));
     assert!(!check_quiet_window(0, None, None, false));
     assert!(!check_quiet_window(23, None, None, false));
@@ -141,29 +133,61 @@ fn no_quiet_hours_configured_and_no_dnd() {
 
 #[test]
 fn same_day_range_inside() {
-    // start=9, end=17, hour=12 → quiet
     assert!(check_quiet_window(12, Some(9), Some(17), false));
 }
 
 #[test]
 fn same_day_range_outside() {
-    // start=9, end=17, hour=20 → not quiet
     assert!(!check_quiet_window(20, Some(9), Some(17), false));
 }
 
 #[test]
 fn partial_config_only_start_set() {
-    // Only start set (no end) → not quiet
     assert!(!check_quiet_window(23, Some(22), None, false));
 }
 
 #[test]
 fn partial_config_only_end_set() {
-    // Only end set (no start) → not quiet
     assert!(!check_quiet_window(3, None, Some(6), false));
 }
 
-// ── resolve_cron_from_config tests ─────────────────────────────────
+#[tokio::test]
+async fn heartbeat_running_goal_targets_use_persisted_running_goals_after_live_queue_clear() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let goal_run = engine
+        .start_goal_run(
+            "Persisted heartbeat target goal".to_string(),
+            Some("Persisted heartbeat target goal".to_string()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        let goal = goal_runs
+            .iter_mut()
+            .find(|goal| goal.id == goal_run.id)
+            .expect("goal should be live before persistence");
+        goal.status = GoalRunStatus::Running;
+    }
+    engine.persist_goal_runs().await;
+    engine.goal_runs.lock().await.clear();
+
+    let targets = engine.running_goal_trajectory_targets().await;
+
+    assert_eq!(
+        targets,
+        vec![(goal_run.id, "Persisted heartbeat target goal".to_string())]
+    );
+}
+
 
 #[test]
 fn resolve_cron_prefers_explicit_cron() {
@@ -205,7 +229,6 @@ fn resolve_cron_explicit_overrides_interval() {
     assert_eq!(resolve_cron_from_config(&config), "30 2 * * *");
 }
 
-// ── should_broadcast tests (D-14: silent default) ───────────────────
 
 #[test]
 fn broadcast_when_actionable_true_and_items_present() {
@@ -236,11 +259,9 @@ fn broadcast_when_not_actionable_but_items_present() {
 
 #[test]
 fn no_broadcast_when_not_actionable_and_no_items() {
-    // D-14: silent default — no event broadcast
     assert!(!should_broadcast(false, &[]));
 }
 
-// ── heartbeat_persistence_status tests (Pitfall 4) ──────────────────
 
 #[test]
 fn persistence_status_completed_when_synthesis_present() {
@@ -255,47 +276,40 @@ fn persistence_status_failed_when_synthesis_none() {
     assert_eq!(heartbeat_persistence_status(None), "synthesis_failed");
 }
 
-// ── is_custom_item_due tests ────────────────────────────────────────
 
 #[test]
 fn custom_item_due_when_never_run() {
-    // last_run_at=None → always due
     assert!(is_custom_item_due(100_000_000, None, 15, 30));
 }
 
 #[test]
 fn custom_item_due_when_interval_elapsed() {
     let now = 100_000_000;
-    let last = now - (16 * 60 * 1000); // 16 minutes ago
-                                       // item_interval=15min → 15*60*1000=900_000 < 960_000 elapsed → due
+    let last = now - (16 * 60 * 1000);
     assert!(is_custom_item_due(now, Some(last), 15, 30));
 }
 
 #[test]
 fn custom_item_not_due_when_interval_not_elapsed() {
     let now = 100_000_000;
-    let last = now - (10 * 60 * 1000); // 10 minutes ago
-                                       // item_interval=15min → not enough time elapsed → not due
+    let last = now - (10 * 60 * 1000);
     assert!(!is_custom_item_due(now, Some(last), 15, 30));
 }
 
 #[test]
 fn custom_item_uses_global_interval_when_item_interval_zero() {
     let now = 100_000_000;
-    let last = now - (31 * 60 * 1000); // 31 minutes ago
-                                       // item_interval=0, global=30min → 30*60*1000=1_800_000 < 1_860_000 elapsed → due
+    let last = now - (31 * 60 * 1000);
     assert!(is_custom_item_due(now, Some(last), 0, 30));
 }
 
 #[test]
 fn custom_item_not_due_with_global_interval() {
     let now = 100_000_000;
-    let last = now - (20 * 60 * 1000); // 20 minutes ago
-                                       // item_interval=0, global=30min → not enough time elapsed → not due
+    let last = now - (20 * 60 * 1000);
     assert!(!is_custom_item_due(now, Some(last), 0, 30));
 }
 
-// ── enabled_checks tests (check gating by config) ───────────────────
 
 #[test]
 fn all_checks_enabled_by_default() {
@@ -341,7 +355,6 @@ fn no_checks_when_all_disabled() {
     assert!(checks.is_empty());
 }
 
-// ── parse_digest_items tests ────────────────────────────────────────
 
 #[test]
 fn parse_digest_items_from_valid_response() {
@@ -830,7 +843,6 @@ async fn structured_heartbeat_keeps_consolidation_carryover_quiet_by_default() {
     );
 }
 
-// ── is_peak_activity_hour tests (BEAT-06/D-01) ──────────────────────
 
 #[test]
 fn peak_activity_hour_in_peak_hours_list() {
@@ -852,7 +864,6 @@ fn peak_activity_hour_below_threshold_and_not_in_list() {
     assert!(!is_peak_activity_hour(3, &[9, 10], &smoothed, 2.0));
 }
 
-// ── should_run_check tests (BEAT-06/D-05) ──────────────────────────
 
 #[test]
 fn should_run_check_weight_one_always_runs() {
@@ -863,15 +874,15 @@ fn should_run_check_weight_one_always_runs() {
 
 #[test]
 fn should_run_check_weight_quarter_every_fourth_cycle() {
-    assert!(should_run_check(0.25, 4)); // 4 % 4 == 0
-    assert!(should_run_check(0.25, 8)); // 8 % 4 == 0
-    assert!(should_run_check(0.25, 0)); // 0 % 4 == 0
+    assert!(should_run_check(0.25, 4));
+    assert!(should_run_check(0.25, 8));
+    assert!(should_run_check(0.25, 0));
 }
 
 #[test]
 fn should_run_check_weight_quarter_skips_other_cycles() {
-    assert!(!should_run_check(0.25, 1)); // 1 % 4 != 0
-    assert!(!should_run_check(0.25, 3)); // 3 % 4 != 0
+    assert!(!should_run_check(0.25, 1));
+    assert!(!should_run_check(0.25, 3));
 }
 
 #[test]
@@ -881,7 +892,6 @@ fn should_run_check_weight_zero_never_runs() {
     assert!(!should_run_check(0.0, 100));
 }
 
-// ── compute_check_priority tests (BEAT-09/D-04/D-05) ───────────────
 
 #[test]
 fn compute_check_priority_zero_dismissals_returns_one() {
@@ -891,26 +901,18 @@ fn compute_check_priority_zero_dismissals_returns_one() {
 
 #[test]
 fn compute_check_priority_many_dismissals_clamped_minimum() {
-    // 100 dismissals * 0.1 decay = 10.0 penalty, capped at 0.6
-    // With 0 inaction, 0 recovery: 1.0 - 0.6 = 0.4
-    // But also test with very high dismissals to hit 0.1 floor
     let result = compute_check_priority(100, 100, 100, 0, 0.1, 0.1);
     assert!((result - 0.1).abs() < f64::EPSILON);
 }
 
 #[test]
 fn compute_check_priority_recovery_partially_restores() {
-    // 5 dismissals * 0.1 = 0.5 penalty
-    // 0 inaction: no penalty
-    // 3 recovery * 0.1 = 0.3 bonus
-    // 1.0 - 0.5 + 0.3 = 0.8
     let result = compute_check_priority(5, 0, 0, 3, 0.1, 0.1);
     assert!((result - 0.8).abs() < f64::EPSILON);
 }
 
 #[test]
 fn priority_floor_never_below_point_one() {
-    // Extreme dismissals and inaction with no recovery
     let result = compute_check_priority(1000, 1000, 1000, 0, 1.0, 0.0);
     assert!((result - 0.1).abs() < f64::EPSILON);
 }

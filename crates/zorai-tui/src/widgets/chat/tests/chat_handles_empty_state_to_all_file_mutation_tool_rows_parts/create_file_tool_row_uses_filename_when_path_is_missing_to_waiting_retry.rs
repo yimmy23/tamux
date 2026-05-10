@@ -1,3 +1,12 @@
+use super::super::chat_with_messages;
+use super::super::*;
+use crate::state::chat::{
+    AgentMessage, AgentThread, ChatAction, ChatState, MessageRole, RetryPhase, RetryStatusVm,
+};
+use crate::theme::ThemeTokens;
+use ratatui::backend::TestBackend;
+use ratatui::layout::Rect;
+use ratatui::Terminal;
 #[test]
 fn create_file_tool_row_uses_filename_when_path_is_missing() {
     let chat = chat_with_messages(vec![AgentMessage {
@@ -237,8 +246,8 @@ fn hit_test_returns_tool_file_path_target_for_read_guideline() {
 
 #[test]
 fn hit_test_returns_tool_file_path_target_for_tool_output_preview_metadata() {
-    let preview_path = std::env::temp_dir()
-        .join(format!("web_search-preview-{}.txt", uuid::Uuid::new_v4()));
+    let preview_path =
+        std::env::temp_dir().join(format!("web_search-preview-{}.txt", uuid::Uuid::new_v4()));
     let chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Tool,
         tool_name: Some("web_search".into()),
@@ -281,10 +290,8 @@ fn hit_test_returns_tool_file_path_target_for_tool_output_preview_metadata() {
 fn hit_test_returns_message_image_target_for_assistant_image_attachment() {
     use base64::Engine as _;
 
-    let image_path = std::env::temp_dir().join(format!(
-        "zorai-inline-image-{}.png",
-        uuid::Uuid::new_v4()
-    ));
+    let image_path =
+        std::env::temp_dir().join(format!("zorai-inline-image-{}.png", uuid::Uuid::new_v4()));
     std::fs::write(
         &image_path,
         base64::engine::general_purpose::STANDARD
@@ -445,4 +452,3 @@ fn waiting_retry_row_shows_yes_countdown_and_no_action() {
     );
     assert_eq!(yes_hit, Some(ChatHitTarget::RetryStartNow));
 }
-

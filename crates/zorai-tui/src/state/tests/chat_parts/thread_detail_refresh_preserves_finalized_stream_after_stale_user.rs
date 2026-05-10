@@ -1,3 +1,5 @@
+use super::*;
+use crate::state::chat::*;
 #[test]
 fn thread_detail_refresh_preserves_finalized_stream_after_stale_user_snapshot() {
     let mut state = ChatState::new();
@@ -469,4 +471,3 @@ fn selected_message_tracks_same_message_when_older_page_is_prepended() {
         Some("msg-80")
     );
 }
-

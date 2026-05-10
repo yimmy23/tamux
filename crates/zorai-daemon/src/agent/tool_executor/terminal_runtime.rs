@@ -1,4 +1,5 @@
-async fn execute_read_terminal(
+use super::*;
+pub(crate) async fn execute_read_terminal(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
 ) -> Result<String> {
@@ -18,18 +19,15 @@ async fn execute_read_terminal(
 
     let sid = target_id.unwrap_or(sessions[0].id);
 
-    // Read full scrollback, no line limit — get everything the session has
     match session_manager.get_scrollback(sid, None).await {
         Ok(data) => {
             if data.is_empty() {
                 return Ok("(terminal buffer is empty)".into());
             }
 
-            // Strip ANSI escapes using the strip-ansi-escapes crate (already in deps)
             let stripped = strip_ansi_escapes::strip(&data);
             let text = String::from_utf8_lossy(&stripped);
 
-            // Take last 200 lines to keep output manageable
             let lines: Vec<&str> = text.lines().collect();
             let start = if lines.len() > 200 {
                 lines.len() - 200
@@ -56,7 +54,7 @@ async fn execute_read_terminal(
     }
 }
 
-async fn execute_run_terminal_command(
+pub(crate) async fn execute_run_terminal_command(
     args: &serde_json::Value,
     agent: &AgentEngine,
     task_id: Option<&str>,
@@ -106,7 +104,7 @@ async fn execute_run_terminal_command(
     }
 }
 
-async fn execute_bash_command(
+pub(crate) async fn execute_bash_command(
     args: &serde_json::Value,
     agent: &AgentEngine,
     task_id: Option<&str>,
@@ -166,11 +164,18 @@ async fn execute_bash_command(
 
 const TUI_HEADLESS_FOREGROUND_GRACE_SECS: u64 = 1;
 
-fn bash_command_should_force_background(args: &serde_json::Value) -> bool {
-    let wait_for_completion = args
-        .get("wait_for_completion")
+pub(crate) fn tool_waits_for_completion(args: &serde_json::Value) -> bool {
+    args.get("wait_for_completion")
         .and_then(|value| value.as_bool())
-        .unwrap_or(true);
+        .or_else(|| {
+            args.get("wait_for_response")
+                .and_then(|value| value.as_bool())
+        })
+        .unwrap_or(true)
+}
+
+pub(crate) fn bash_command_should_force_background(args: &serde_json::Value) -> bool {
+    let wait_for_completion = tool_waits_for_completion(args);
     if !wait_for_completion {
         return false;
     }
@@ -197,12 +202,8 @@ fn bash_command_args_with_wait_false(args: &serde_json::Value) -> serde_json::Va
     serde_json::Value::Object(mapped)
 }
 
-fn bash_command_can_wait_for_completion(args: &serde_json::Value) -> bool {
-    if args
-        .get("wait_for_completion")
-        .and_then(|value| value.as_bool())
-        == Some(false)
-    {
+pub(crate) fn bash_command_can_wait_for_completion(args: &serde_json::Value) -> bool {
+    if !tool_waits_for_completion(args) {
         return false;
     }
 
@@ -243,7 +244,11 @@ fn shell_command_should_start_in_background(command: &str) -> bool {
         return true;
     }
 
-    if trimmed.contains('\n') || trimmed.contains('|') || trimmed.contains('`') || trimmed.contains("$(") {
+    if trimmed.contains('\n')
+        || trimmed.contains('|')
+        || trimmed.contains('`')
+        || trimmed.contains("$(")
+    {
         return true;
     }
 
@@ -269,15 +274,12 @@ fn shell_command_segment_should_start_in_background(segment: &str) -> bool {
                 .skip(1)
                 .any(|arg| matches!(arg.as_str(), "--version" | "-V" | "-v" | "--help" | "-h"))
         }
-        "npm" | "pnpm" | "yarn" => shell_words(segment)
-            .iter()
-            .skip(1)
-            .any(|arg| {
-                matches!(
-                    arg.as_str(),
-                    "run" | "dev" | "start" | "test" | "build" | "install" | "ci" | "watch"
-                )
-            }),
+        "npm" | "pnpm" | "yarn" => shell_words(segment).iter().skip(1).any(|arg| {
+            matches!(
+                arg.as_str(),
+                "run" | "dev" | "start" | "test" | "build" | "install" | "ci" | "watch"
+            )
+        }),
         "cargo" => shell_words(segment).iter().skip(1).any(|arg| {
             matches!(
                 arg.as_str(),
@@ -356,14 +358,14 @@ fn shell_command_segment_is_known_quick(segment: &str) -> bool {
     )
 }
 
-fn headless_foreground_detach_after_for_surface(
+pub(crate) fn headless_foreground_detach_after_for_surface(
     client_surface: Option<zorai_protocol::ClientSurface>,
 ) -> Option<std::time::Duration> {
     matches!(client_surface, Some(zorai_protocol::ClientSurface::Tui))
         .then(|| std::time::Duration::from_secs(TUI_HEADLESS_FOREGROUND_GRACE_SECS))
 }
 
-async fn resolve_shell_tool_client_surface(
+pub(crate) async fn resolve_shell_tool_client_surface(
     agent: &AgentEngine,
     thread_id: &str,
     task_id: Option<&str>,
@@ -374,10 +376,7 @@ async fn resolve_shell_tool_client_surface(
 
     let task_id = task_id?;
     let (task_thread_ids, goal_run_id) = {
-        let tasks = agent.tasks.lock().await;
-        let task = tasks
-            .iter()
-            .find(|task| task.id == task_id)?;
+        let task = task_by_id_for_tool_scope(agent, task_id).await?;
         let mut thread_ids = Vec::new();
         if let Some(task_thread_id) = task.thread_id.as_deref() {
             thread_ids.push(task_thread_id.to_string());
@@ -404,11 +403,11 @@ async fn resolve_shell_tool_client_surface(
     None
 }
 
-fn should_use_managed_execution(args: &serde_json::Value) -> bool {
+pub(crate) fn should_use_managed_execution(args: &serde_json::Value) -> bool {
     should_use_managed_execution_for_surface(None, args)
 }
 
-fn should_use_managed_execution_for_surface(
+pub(crate) fn should_use_managed_execution_for_surface(
     client_surface: Option<zorai_protocol::ClientSurface>,
     args: &serde_json::Value,
 ) -> bool {
@@ -519,7 +518,7 @@ fn can_run_headless_when_terminal_unavailable(args: &serde_json::Value) -> bool 
     matches!(security_level, Some("yolo")) || !command_matches_policy_risk(command)
 }
 
-fn command_matches_policy_risk(command: &str) -> bool {
+pub(crate) fn command_matches_policy_risk(command: &str) -> bool {
     if command.trim().is_empty() {
         return false;
     }
@@ -539,7 +538,7 @@ fn command_matches_policy_risk(command: &str) -> bool {
     )
 }
 
-fn command_requires_managed_state(command: &str) -> bool {
+pub(crate) fn command_requires_managed_state(command: &str) -> bool {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return false;
@@ -585,7 +584,7 @@ fn command_has_followup_work(command: &str) -> bool {
     })
 }
 
-fn command_looks_interactive(command: &str) -> bool {
+pub(crate) fn command_looks_interactive(command: &str) -> bool {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return false;
@@ -625,12 +624,12 @@ fn compact_background_output(raw: &[u8], max_chars: usize) -> String {
     format!("... truncated ...\n{tail}")
 }
 
-struct HeadlessOutputCapture {
-    buffer: Arc<std::sync::Mutex<Vec<u8>>>,
-    task: tokio::task::JoinHandle<Result<(), std::io::Error>>,
+pub(crate) struct HeadlessOutputCapture {
+    pub(crate) buffer: Arc<std::sync::Mutex<Vec<u8>>>,
+    pub(crate) task: tokio::task::JoinHandle<Result<(), std::io::Error>>,
 }
 
-fn spawn_headless_output_capture<R>(stream: R) -> HeadlessOutputCapture
+pub(crate) fn spawn_headless_output_capture<R>(stream: R) -> HeadlessOutputCapture
 where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
@@ -654,7 +653,7 @@ where
     HeadlessOutputCapture { buffer, task }
 }
 
-async fn collect_headless_output_capture(
+pub(crate) async fn collect_headless_output_capture(
     mut capture: HeadlessOutputCapture,
     max_chars: usize,
     drain_grace: std::time::Duration,
@@ -675,7 +674,7 @@ async fn collect_headless_output_capture(
     Some(compact_background_output(&bytes, max_chars)).filter(|value| !value.is_empty())
 }
 
-async fn execute_headless_shell_command(
+pub(crate) async fn execute_headless_shell_command(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
@@ -697,9 +696,7 @@ async fn execute_headless_shell_command(
     let wait_for_completion = if auto_background {
         false
     } else {
-        args.get("wait_for_completion")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(true)
+        tool_waits_for_completion(args)
     };
     let timeout_secs = requested_timeout.min(600);
     let cwd = resolve_tool_cwd(args, session_manager, session_id).await?;

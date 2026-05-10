@@ -391,6 +391,140 @@ async fn implicit_feedback_rows_round_trip() -> Result<()> {
 }
 
 #[tokio::test]
+async fn implicit_signal_exists_filters_session_and_type_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .insert_implicit_signal(&ImplicitSignalRow {
+            id: "implicit-exists-1".to_string(),
+            session_id: "thread-implicit-exists".to_string(),
+            signal_type: "session_abandon".to_string(),
+            weight: -0.2,
+            timestamp_ms: 1_717_300_001,
+            context_snapshot_json: None,
+        })
+        .await?;
+    store
+        .insert_implicit_signal(&ImplicitSignalRow {
+            id: "implicit-exists-2".to_string(),
+            session_id: "thread-implicit-other".to_string(),
+            signal_type: "session_abandon".to_string(),
+            weight: -0.2,
+            timestamp_ms: 1_717_300_002,
+            context_snapshot_json: None,
+        })
+        .await?;
+
+    assert!(
+        store
+            .implicit_signal_exists("thread-implicit-exists", "session_abandon")
+            .await?
+    );
+    assert!(
+        !store
+            .implicit_signal_exists("thread-implicit-exists", "tool_fallback")
+            .await?
+    );
+    assert!(
+        !store
+            .implicit_signal_exists("thread-missing", "session_abandon")
+            .await?
+    );
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn latest_implicit_signal_by_types_filters_before_limiting_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .insert_implicit_signal(&ImplicitSignalRow {
+            id: "older-correction".to_string(),
+            session_id: "thread-typed-latest".to_string(),
+            signal_type: "operator_correction".to_string(),
+            weight: -0.2,
+            timestamp_ms: 100,
+            context_snapshot_json: None,
+        })
+        .await?;
+    for index in 0..12u64 {
+        store
+            .insert_implicit_signal(&ImplicitSignalRow {
+                id: format!("newer-unrelated-{index}"),
+                session_id: "thread-typed-latest".to_string(),
+                signal_type: "tool_fallback".to_string(),
+                weight: -0.01,
+                timestamp_ms: 200 + index,
+                context_snapshot_json: None,
+            })
+            .await?;
+    }
+
+    let latest = store
+        .latest_implicit_signal_by_types(
+            "thread-typed-latest",
+            &["operator_correction", "high_revision_rate", "rapid_revert"],
+        )
+        .await?
+        .expect("typed latest signal should be found even when unrelated rows are newer");
+    assert_eq!(latest.id, "older-correction");
+    assert_eq!(latest.signal_type, "operator_correction");
+    assert!(
+        store
+            .latest_implicit_signal_by_types("thread-typed-latest", &["rapid_revert"])
+            .await?
+            .is_none(),
+        "non-matching type filters should return no row"
+    );
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn list_implicit_signals_by_type_filters_before_limiting_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .insert_implicit_signal(&ImplicitSignalRow {
+            id: "older-rapid-revert".to_string(),
+            session_id: "thread-type-list".to_string(),
+            signal_type: "rapid_revert".to_string(),
+            weight: -0.18,
+            timestamp_ms: 100,
+            context_snapshot_json: Some(serde_json::json!({"path": "src/lib.rs"}).to_string()),
+        })
+        .await?;
+    for index in 0..50u64 {
+        store
+            .insert_implicit_signal(&ImplicitSignalRow {
+                id: format!("newer-type-list-unrelated-{index}"),
+                session_id: "thread-type-list".to_string(),
+                signal_type: "tool_fallback".to_string(),
+                weight: -0.01,
+                timestamp_ms: 200 + index,
+                context_snapshot_json: None,
+            })
+            .await?;
+    }
+
+    let rapid_reverts = store
+        .list_implicit_signals_by_type("thread-type-list", "rapid_revert", 50)
+        .await?;
+    assert_eq!(rapid_reverts.len(), 1);
+    assert_eq!(rapid_reverts[0].id, "older-rapid-revert");
+    assert!(store
+        .list_implicit_signals_by_type("thread-type-list", "operator_correction", 50)
+        .await?
+        .is_empty());
+
+    std::fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn intent_prediction_rows_round_trip_and_resolve() -> Result<()> {
     let (store, root) = make_test_store().await?;
 

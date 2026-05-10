@@ -1,12 +1,17 @@
-// Local wire type copies (will be replaced by crate::wire imports in Task 9)
 #![allow(dead_code)]
 
-include!("config_parts/json_u32_to_from_config.rs");
-include!("config_parts/new_to_default.rs");
+#[path = "config_parts/json_u32_to_from_config.rs"]
+mod json_u32_to_from_config;
+
+#[path = "config_parts/new_to_default.rs"]
+mod new_to_default;
+
+pub use json_u32_to_from_config::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zorai_shared::providers::PROVIDER_ID_MINIMAX_CODING_PLAN;
+    use crate::providers;
+    use zorai_shared::providers::{PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI};
 
     fn make_snapshot(provider: &str, model: &str) -> AgentConfigSnapshot {
         AgentConfigSnapshot {
@@ -74,11 +79,9 @@ mod tests {
             PROVIDER_ID_MINIMAX_CODING_PLAN.into(),
         ));
         assert_eq!(state.provider(), PROVIDER_ID_MINIMAX_CODING_PLAN);
-        // base_url and model reset to the new provider's defaults
         let def = providers::find_by_id(PROVIDER_ID_MINIMAX_CODING_PLAN).unwrap();
         assert_eq!(state.base_url(), def.default_base_url);
         assert_eq!(state.model(), def.default_model);
-        // api_key is preserved (user may have configured it previously)
         assert_eq!(state.api_key(), "sk-test");
     }
 

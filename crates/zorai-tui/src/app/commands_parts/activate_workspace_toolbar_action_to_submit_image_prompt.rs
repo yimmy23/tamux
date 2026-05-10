@@ -1,5 +1,20 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn activate_workspace_toolbar_action(
+    pub(crate) fn activate_workspace_toolbar_action(
         &mut self,
         action: widgets::workspace_board::WorkspaceBoardToolbarAction,
     ) {
@@ -28,7 +43,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn activate_workspace_task_action(
+    pub(crate) fn activate_workspace_task_action(
         &mut self,
         task_id: String,
         status: zorai_protocol::WorkspaceTaskStatus,
@@ -169,7 +184,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn is_builtin_command(&self, command: &str) -> bool {
+    pub(crate) fn is_builtin_command(&self, command: &str) -> bool {
         matches!(
             command,
             "provider"
@@ -217,7 +232,7 @@ impl TuiModel {
         )
     }
 
-    pub(super) fn execute_command(&mut self, command: &str) {
+    pub(crate) fn execute_command(&mut self, command: &str) {
         tracing::info!("execute_command: {:?}", command);
         match command {
             "provider" => {
@@ -452,15 +467,13 @@ impl TuiModel {
                 }
             }
             _ => {
-                // Unrecognized commands — insert into input so user can add
-                // context before sending to the agent (plugin commands, etc.)
                 self.input.set_text(&format!("/{command} "));
                 self.focus = FocusArea::Chat;
             }
         }
     }
 
-    pub(super) fn submit_image_prompt(&mut self, prompt: String) {
+    pub(crate) fn submit_image_prompt(&mut self, prompt: String) {
         if !self.connected {
             self.status_line = "Not connected to daemon".to_string();
             return;
@@ -488,5 +501,4 @@ impl TuiModel {
         self.status_line = "Generating image...".to_string();
         self.error_active = false;
     }
-
 }

@@ -1,6 +1,5 @@
 use super::*;
 
-// ── Consolidation state tests (Phase 5) ──────────────────────────────
 
 async fn wait_for_search_hits(
     store: &HistoryStore,
@@ -40,18 +39,15 @@ where
 async fn consolidation_state_set_get_round_trips() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
-    // Initially empty
     let val = store.get_consolidation_state("last_watermark").await?;
     assert!(val.is_none());
 
-    // Set and get
     store
         .set_consolidation_state("last_watermark", "12345", 1000)
         .await?;
     let val = store.get_consolidation_state("last_watermark").await?;
     assert_eq!(val.as_deref(), Some("12345"));
 
-    // Overwrite
     store
         .set_consolidation_state("last_watermark", "99999", 2000)
         .await?;
@@ -61,6 +57,100 @@ async fn consolidation_state_set_get_round_trips() -> Result<()> {
     store.delete_consolidation_state("last_watermark").await?;
     let val = store.get_consolidation_state("last_watermark").await?;
     assert!(val.is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn first_consolidation_state_by_prefix_value_filters_value_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .set_consolidation_state("skill_draft_candidate:done", "drafted", 100)
+        .await?;
+    store
+        .set_consolidation_state("skill_draft_candidate:pending", "pending", 200)
+        .await?;
+    store
+        .set_consolidation_state("other:pending", "pending", 50)
+        .await?;
+
+    let row = store
+        .first_consolidation_state_by_prefix_value("skill_draft_candidate:", "pending")
+        .await?
+        .expect("pending candidate should be returned");
+
+    assert_eq!(row.0, "skill_draft_candidate:pending");
+    assert_eq!(row.1, "pending");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn degraded_health_log_filters_state_window_and_intervention_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .insert_health_log(
+            "healthy-newest",
+            "daemon",
+            "main",
+            "healthy",
+            None,
+            Some("cargo test failed but recovered"),
+            400,
+        )
+        .await?;
+    store
+        .insert_health_log(
+            "stale-degraded",
+            "daemon",
+            "main",
+            "degraded",
+            None,
+            Some("cargo test failed"),
+            50,
+        )
+        .await?;
+    store
+        .insert_health_log(
+            "other-degraded-newer",
+            "daemon",
+            "main",
+            "degraded",
+            None,
+            Some("network failed"),
+            350,
+        )
+        .await?;
+    store
+        .insert_health_log(
+            "cargo-degraded-older",
+            "daemon",
+            "main",
+            "degraded",
+            None,
+            Some("cargo test failed"),
+            300,
+        )
+        .await?;
+
+    let degraded = store.list_degraded_health_log_since(100, None, 2).await?;
+    let degraded_ids = degraded
+        .iter()
+        .map(|entry| entry.0.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        degraded_ids,
+        vec!["other-degraded-newer", "cargo-degraded-older"]
+    );
+
+    let cargo = store
+        .list_degraded_health_log_since(100, Some("cargo test failed"), 1)
+        .await?;
+    assert_eq!(cargo[0].0, "cargo-degraded-older");
 
     fs::remove_dir_all(root)?;
     Ok(())
@@ -283,13 +373,11 @@ async fn search_does_not_index_capability_documents_without_vector_embeddings() 
     Ok(())
 }
 
-// ── Successful trace query test (Phase 5) ────────────────────────────
 
 #[tokio::test]
 async fn list_recent_successful_traces_with_watermark() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
-    // Insert traces with different outcomes
     store
         .insert_execution_trace(
             "tr-1",
@@ -348,16 +436,13 @@ async fn list_recent_successful_traces_with_watermark() -> Result<()> {
         )
         .await?;
 
-    // Query after watermark=1500 should only return tr-3 (success after watermark)
     let traces = store.list_recent_successful_traces(1500, 100).await?;
     assert_eq!(traces.len(), 1);
     assert_eq!(traces[0].id, "tr-3");
     assert_eq!(traces[0].outcome.as_deref(), Some("success"));
 
-    // Query after watermark=0 should return both successful traces
     let traces = store.list_recent_successful_traces(0, 100).await?;
     assert_eq!(traces.len(), 2);
-    // ASC order
     assert_eq!(traces[0].id, "tr-1");
     assert_eq!(traces[1].id, "tr-3");
 
@@ -365,16 +450,71 @@ async fn list_recent_successful_traces_with_watermark() -> Result<()> {
     Ok(())
 }
 
-// -----------------------------------------------------------------------
-// Skill variant status and retrieval tests (SKIL-01, SKIL-02)
-// -----------------------------------------------------------------------
+#[tokio::test]
+async fn get_successful_execution_trace_by_id_filters_by_id_and_outcome_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .insert_execution_trace(
+            "tr-ok",
+            None,
+            None,
+            Some("task-ok"),
+            "research",
+            "success",
+            Some(0.9),
+            "[]",
+            "{}",
+            100,
+            50,
+            "svarog",
+            1000,
+            1000,
+            1000,
+        )
+        .await?;
+    store
+        .insert_execution_trace(
+            "tr-failed",
+            None,
+            None,
+            Some("task-failed"),
+            "research",
+            "failure",
+            Some(0.1),
+            "[]",
+            "{}",
+            100,
+            50,
+            "svarog",
+            2000,
+            2000,
+            2000,
+        )
+        .await?;
+
+    let found = store
+        .get_successful_execution_trace_by_id("tr-ok")
+        .await?
+        .expect("successful trace should be returned");
+    assert_eq!(found.id, "tr-ok");
+    assert_eq!(found.outcome.as_deref(), Some("success"));
+
+    assert!(store
+        .get_successful_execution_trace_by_id("tr-failed")
+        .await?
+        .is_none());
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
 
 #[tokio::test]
 async fn update_skill_variant_status_changes_status_and_updated_at() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;
 
-    // Register a skill to create a variant
     let skill_dir = root.join("skills").join("generated").join("test-skill");
     fs::create_dir_all(&skill_dir)?;
     let skill_path = skill_dir.join("canonical.md");
@@ -382,12 +522,10 @@ async fn update_skill_variant_status_changes_status_and_updated_at() -> Result<(
     let record = store.register_skill_document(&skill_path).await?;
     assert_eq!(record.status, "active");
 
-    // Update status to "testing"
     store
         .update_skill_variant_status(&record.variant_id, "testing")
         .await?;
 
-    // Verify the status changed
     let updated = store.get_skill_variant(&record.variant_id).await?;
     assert!(updated.is_some());
     let updated = updated.unwrap();

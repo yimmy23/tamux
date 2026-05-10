@@ -38,6 +38,40 @@ fn validate_match_threshold(threshold: f64) -> Result<()> {
 }
 
 impl AgentEngine {
+    async fn task_by_id_for_handoff_context(
+        &self,
+        task_id: &str,
+    ) -> Option<crate::agent::types::AgentTask> {
+        match self
+            .list_tasks_filtered(&crate::history::AgentTaskListQuery {
+                id: Some(task_id.to_string()),
+                status: None,
+                statuses: Vec::new(),
+                source: None,
+                thread_id: None,
+                thread_ids: Vec::new(),
+                goal_run_id: None,
+                parent_task_id: None,
+                awaiting_approval_id: None,
+                supervisor_config_present: false,
+                exclude_terminal_statuses: false,
+                order_by_recent_activity_desc: false,
+                limit: Some(1),
+                ids: Vec::new(),
+                parent_task_ids: Vec::new(),
+            })
+            .await
+            .into_iter()
+            .next()
+        {
+            Some(task) => Some(task),
+            None => {
+                let tasks = self.tasks.lock().await;
+                tasks.iter().find(|task| task.id == task_id).cloned()
+            }
+        }
+    }
+
     async fn route_goal_local_handoff(
         &self,
         task_description: &str,
@@ -299,10 +333,8 @@ impl AgentEngine {
             .await;
         }
 
-        // 1. Pull partial outputs from parent task if available
         if let Some(ptid) = parent_task_id {
-            let tasks = self.tasks.lock().await;
-            if let Some(parent) = tasks.iter().find(|t| t.id == ptid) {
+            if let Some(parent) = self.task_by_id_for_handoff_context(ptid).await {
                 if let Some(ref result) = parent.result {
                     bundle.partial_outputs.push(super::PartialOutput {
                         step_index: 0,
@@ -313,24 +345,24 @@ impl AgentEngine {
             }
         }
 
-        // 2. Parent context summary: last few messages from the thread
-        {
-            let threads = self.threads.read().await;
-            if let Some(thread) = threads.get(thread_id) {
-                let recent: Vec<&str> = thread
-                    .messages
+        match self.history.list_messages(thread_id, Some(3)).await {
+            Ok(recent_messages) => {
+                let joined = recent_messages
                     .iter()
-                    .rev()
-                    .take(3)
-                    .map(|m| m.content.as_str())
-                    .collect();
-                let joined = recent.into_iter().rev().collect::<Vec<_>>().join(" | ");
+                    .map(|message| message.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" | ");
                 bundle.parent_context_summary =
                     crate::agent::goal_parsing::summarize_text(&joined, 500);
             }
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    "failed to load persisted parent context summary for handoff: {error}"
+                );
+            }
         }
 
-        // 3. Enforce token ceiling per HAND-03
         bundle.recompute_estimated_tokens();
         bundle.enforce_token_ceiling(CONTEXT_BUNDLE_TOKEN_CEILING);
 
@@ -351,14 +383,12 @@ impl AgentEngine {
         acceptance_criteria_str: &str,
         current_depth: u8,
     ) -> Result<HandoffResult> {
-        // Depth check (HAND-08)
         if current_depth >= MAX_HANDOFF_DEPTH {
             anyhow::bail!(
                 "Handoff depth limit ({MAX_HANDOFF_DEPTH} hops) reached -- escalating to operator"
             );
         }
 
-        // Read broker profiles
         let broker = self.handoff_broker.read().await;
         let profiles = broker.profiles.clone();
         let threshold = broker.match_threshold;
@@ -374,27 +404,60 @@ impl AgentEngine {
             capability_tags.to_vec()
         };
 
-        let occupied_specialists = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .filter(|task| {
-                    task.source == "handoff"
-                        && matches!(
-                            task.status,
-                            TaskStatus::InProgress | TaskStatus::AwaitingApproval
-                        )
-                })
-                .filter_map(|task| {
-                    task.title
-                        .strip_prefix('[')
-                        .and_then(|rest| rest.split(']').next())
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .map(ToOwned::to_owned)
-                })
-                .collect::<std::collections::HashSet<_>>()
+        let occupied_statuses = [TaskStatus::InProgress, TaskStatus::AwaitingApproval]
+            .into_iter()
+            .filter_map(|status| {
+                serde_json::to_value(status)
+                    .ok()
+                    .and_then(|value| value.as_str().map(ToOwned::to_owned))
+            })
+            .collect::<Vec<_>>();
+        let occupied_query = crate::history::AgentTaskListQuery {
+            id: None,
+            status: None,
+            statuses: occupied_statuses,
+            source: Some("handoff".to_string()),
+            thread_id: None,
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: false,
+            limit: None,
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
         };
+        let occupied_titles = match self
+            .history
+            .list_agent_task_titles_filtered(&occupied_query)
+            .await
+        {
+            Ok(titles) => titles
+                .into_iter()
+                .map(|(_, title)| title)
+                .collect::<Vec<_>>(),
+            Err(error) => {
+                tracing::warn!("failed to query occupied handoff task titles: {error}");
+                self.list_tasks_filtered(&occupied_query)
+                    .await
+                    .into_iter()
+                    .map(|task| task.title)
+                    .collect::<Vec<_>>()
+            }
+        };
+        let occupied_specialists = occupied_titles
+            .into_iter()
+            .filter_map(|title| {
+                title
+                    .strip_prefix('[')
+                    .and_then(|rest| rest.split(']').next())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+            })
+            .collect::<std::collections::HashSet<_>>();
         let available_profiles = profiles
             .iter()
             .filter(|profile| !occupied_specialists.contains(profile.role.as_str()))
@@ -447,7 +510,6 @@ impl AgentEngine {
             select_snapshot_candidate(snapshot, routing_cfg.confidence_threshold)
         });
 
-        // Match specialist
         let (selection, routing_confidence_threshold) =
             if let Some((profile_idx, routing_score)) = learned_selection {
                 (
@@ -583,7 +645,6 @@ impl AgentEngine {
             },
         });
 
-        // Assemble context bundle
         let bundle = self
             .assemble_context_bundle(
                 task_description,
@@ -598,10 +659,8 @@ impl AgentEngine {
 
         let bundle_tokens = bundle.estimated_tokens;
 
-        // Generate handoff log ID
         let handoff_log_id = Uuid::new_v4().to_string();
 
-        // Serialize bundle and criteria for audit
         let bundle_json = serde_json::to_string(&bundle).unwrap_or_else(|_| "{}".to_string());
         let criteria_json = serde_json::to_string(&AcceptanceCriteria {
             description: acceptance_criteria_str.to_string(),
@@ -612,13 +671,12 @@ impl AgentEngine {
         let capability_tags_json =
             serde_json::to_string(capability_tags).unwrap_or_else(|_| "[]".to_string());
 
-        // Log detailed handoff record
         if let Err(e) = self
             .log_handoff_detail(
                 &handoff_log_id,
                 parent_task_id.unwrap_or("none"),
                 &specialist_id,
-                None, // to_task_id not yet known
+                None,
                 task_description,
                 &criteria_json,
                 &bundle_json,
@@ -635,12 +693,11 @@ impl AgentEngine {
             tracing::warn!("handoff broker: failed to log detail: {e}");
         }
 
-        // Record WORM audit
         if let Err(e) = self
             .record_handoff_audit(
                 parent_task_id.unwrap_or("none"),
                 &specialist_id,
-                "pending", // task not yet created
+                "pending",
                 task_description,
                 "dispatched",
                 None,
@@ -656,7 +713,6 @@ impl AgentEngine {
             tracing::warn!("handoff broker: failed to record audit: {e}");
         }
 
-        // Build task description with specialist context
         let full_description = {
             let mut desc = format!(
                 "[Handoff to {specialist_name} ({specialist_role})]\n\n\
@@ -684,7 +740,6 @@ impl AgentEngine {
             desc
         };
 
-        // Enqueue task via existing spawn infrastructure
         let task = self
             .enqueue_task(
                 format!(
@@ -693,21 +748,20 @@ impl AgentEngine {
                 ),
                 full_description,
                 "normal",
-                None,                               // command
-                None,                               // session_id
-                Vec::new(),                         // dependencies
-                None,                               // scheduled_at
-                "handoff",                          // source
-                goal_run_id.map(str::to_string),    // goal_run_id
-                parent_task_id.map(str::to_string), // parent_task_id
-                Some(thread_id.to_string()),        // parent_thread_id
-                None,                               // runtime
+                None,
+                None,
+                Vec::new(),
+                None,
+                "handoff",
+                goal_run_id.map(str::to_string),
+                parent_task_id.map(str::to_string),
+                Some(thread_id.to_string()),
+                None,
             )
             .await;
 
         let task_id = task.id.clone();
 
-        // Bind the handoff log to the actual dispatched task ID.
         if let Err(e) = self.bind_handoff_task_id(&handoff_log_id, &task_id).await {
             tracing::warn!("handoff broker: failed to bind to_task_id for handoff log: {e}");
         }
@@ -742,26 +796,20 @@ impl AgentEngine {
         task_id: &str,
         acceptance_criteria: &AcceptanceCriteria,
     ) -> Result<ValidationResult> {
-        // Look up completed task result
-        let task_result = {
-            let tasks = self.tasks.lock().await;
-            tasks
-                .iter()
-                .find(|t| t.id == task_id)
-                .and_then(|t| t.result.clone())
-        };
+        let task_result = self
+            .task_by_id_for_handoff_context(task_id)
+            .await
+            .and_then(|task| task.result);
 
         let output = match task_result {
             Some(result) => result,
             None => {
-                // Task has no result -- validation fails
                 let result = ValidationResult {
                     passed: false,
                     failures: vec!["specialist task has no result output".to_string()],
                     needs_llm_validation: false,
                 };
 
-                // Record failure in audit
                 if let Err(e) = self
                     .update_handoff_outcome(
                         handoff_log_id,
@@ -774,7 +822,6 @@ impl AgentEngine {
                     tracing::warn!("handoff broker: failed to update outcome: {e}");
                 }
 
-                // WORM audit for rejection
                 if let Err(e) = self
                     .record_handoff_audit(
                         "validation",
@@ -799,10 +846,8 @@ impl AgentEngine {
             }
         };
 
-        // Run structural validation
         let result = acceptance_criteria.validate_structural(&output);
 
-        // Determine outcome
         let outcome = if result.passed {
             "accepted"
         } else {
@@ -814,7 +859,6 @@ impl AgentEngine {
             Some(result.failures.join("; "))
         };
 
-        // Update handoff outcome
         if let Err(e) = self
             .update_handoff_outcome(handoff_log_id, outcome, None, error_msg.as_deref())
             .await
@@ -822,7 +866,6 @@ impl AgentEngine {
             tracing::warn!("handoff broker: failed to update validation outcome: {e}");
         }
 
-        // WORM audit for validation
         if let Err(e) = self
             .record_handoff_audit(
                 "validation",
@@ -961,6 +1004,8 @@ mod tests {
         occupied.title = "[researcher] already running".to_string();
         occupied.description = "existing occupied researcher task".to_string();
         engine.tasks.lock().await.push_back(occupied);
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
 
         let result = engine
             .route_handoff(
@@ -985,6 +1030,51 @@ mod tests {
             "routing result should reflect availability-aware fallback: {:?}",
             result
         );
+    }
+
+    #[tokio::test]
+    async fn validate_specialist_output_uses_persisted_task_result_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let mut task = engine
+            .enqueue_task(
+                "[researcher] completed task".to_string(),
+                "completed specialist task".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "handoff",
+                None,
+                None,
+                Some("thread-validate-specialist-output".to_string()),
+                None,
+            )
+            .await;
+        task.status = TaskStatus::Completed;
+        task.result = Some("specialist output reports success".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            tasks.clear();
+            tasks.push_back(task.clone());
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        let criteria = AcceptanceCriteria {
+            description: "validate persisted result".to_string(),
+            structural_checks: vec!["contains:success".to_string()],
+            require_llm_validation: false,
+        };
+        let result = engine
+            .validate_specialist_output("handoff-log-persisted-result", &task.id, &criteria)
+            .await
+            .expect("validation should run");
+
+        assert!(result.passed, "persisted task result should be validated");
     }
 
     #[tokio::test]
@@ -1285,5 +1375,158 @@ mod tests {
             .await
             .expect("cached resonance snapshot should exist");
         assert!(cached.hit_count >= 1);
+    }
+
+    #[tokio::test]
+    async fn assemble_context_bundle_includes_persisted_parent_result_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        engine.threads.write().await.insert(
+            "thread-handoff-parent-result".to_string(),
+            AgentThread {
+                id: "thread-handoff-parent-result".to_string(),
+                agent_name: Some("Svarog".to_string()),
+                title: "handoff parent result".to_string(),
+                messages: vec![AgentMessage::user("reuse parent result", 1)],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: 1,
+                updated_at: 1,
+            },
+        );
+
+        let mut parent = engine
+            .enqueue_task(
+                "Parent".to_string(),
+                "Coordinate child work".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "user",
+                None,
+                None,
+                Some("thread-handoff-parent-result".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        parent.status = TaskStatus::Completed;
+        parent.result = Some("parent completed result".to_string());
+        {
+            let mut tasks = engine.tasks.lock().await;
+            if let Some(existing) = tasks.iter_mut().find(|task| task.id == parent.id) {
+                *existing = parent.clone();
+            }
+        }
+        engine.persist_tasks().await;
+        engine.tasks.lock().await.clear();
+
+        let bundle = engine
+            .assemble_context_bundle(
+                "build on parent result",
+                Some(parent.id.as_str()),
+                None,
+                "thread-handoff-parent-result",
+                "non_empty",
+                1,
+            )
+            .await
+            .expect("bundle should assemble");
+
+        assert!(bundle.partial_outputs.iter().any(|output| {
+            output.content == "parent completed result" && output.status == "Completed"
+        }));
+    }
+
+    #[tokio::test]
+    async fn resonance_snapshot_uses_persisted_task_parent_after_live_queue_clear() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let parent = engine
+            .enqueue_task(
+                "Parent".to_string(),
+                "Coordinate child work".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "user",
+                None,
+                None,
+                Some("thread-resonance-persisted-parent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+        let child = engine
+            .enqueue_task(
+                "Child".to_string(),
+                "Use collaboration context".to_string(),
+                "normal",
+                None,
+                None,
+                Vec::new(),
+                None,
+                "subagent",
+                None,
+                Some(parent.id.clone()),
+                Some("thread-resonance-persisted-parent".to_string()),
+                Some("daemon".to_string()),
+            )
+            .await;
+
+        engine.collaboration.write().await.insert(
+            parent.id.clone(),
+            crate::agent::collaboration::CollaborationSession {
+                id: "collab-persisted-parent".to_string(),
+                parent_task_id: parent.id.clone(),
+                thread_id: Some("thread-resonance-persisted-parent".to_string()),
+                goal_run_id: None,
+                mission: "shared mission".to_string(),
+                agents: Vec::new(),
+                contributions: vec![crate::agent::collaboration::Contribution {
+                    id: "contrib-persisted-parent".to_string(),
+                    task_id: "peer-task".to_string(),
+                    topic: "debugging".to_string(),
+                    position: "reuse persisted parent context".to_string(),
+                    confidence: 0.8,
+                    evidence: vec!["peer evidence".to_string()],
+                    created_at: 1,
+                }],
+                disagreements: Vec::new(),
+                consensus: None,
+                bids: Vec::new(),
+                role_assignment: None,
+                call_metadata: None,
+                updated_at: 1,
+            },
+        );
+        engine.tasks.lock().await.clear();
+
+        let snapshot = engine
+            .build_resonance_context_snapshot(
+                "inspect persisted parent",
+                Some("thread-resonance-persisted-parent"),
+                Some(child.id.as_str()),
+                3,
+            )
+            .await;
+
+        assert_eq!(snapshot.collaboration_context.len(), 1);
+        assert_eq!(
+            snapshot.collaboration_context[0]["position"].as_str(),
+            Some("reuse persisted parent context")
+        );
     }
 }

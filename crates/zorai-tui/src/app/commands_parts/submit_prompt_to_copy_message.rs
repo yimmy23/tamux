@@ -1,5 +1,20 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn submit_prompt(&mut self, prompt: String) {
+    pub(crate) fn submit_prompt(&mut self, prompt: String) {
         if !self.connected {
             self.status_line = "Not connected to daemon".to_string();
             return;
@@ -258,7 +273,7 @@ impl TuiModel {
         self.error_active = false;
     }
 
-    pub(super) fn focus_next(&mut self) {
+    pub(crate) fn focus_next(&mut self) {
         if matches!(self.main_pane_view, MainPaneView::Collaboration) {
             match self.focus {
                 FocusArea::Chat => match self.collaboration.focus() {
@@ -299,7 +314,7 @@ impl TuiModel {
         self.input.set_mode(input::InputMode::Insert);
     }
 
-    pub(super) fn focus_prev(&mut self) {
+    pub(crate) fn focus_prev(&mut self) {
         if matches!(self.main_pane_view, MainPaneView::Collaboration) {
             match self.focus {
                 FocusArea::Input => {
@@ -357,7 +372,7 @@ impl TuiModel {
         self.input.set_mode(input::InputMode::Insert);
     }
 
-    pub(super) fn handle_sidebar_enter(&mut self) {
+    pub(crate) fn handle_sidebar_enter(&mut self) {
         if self.sidebar_uses_goal_sidebar() {
             let _ = self.handle_goal_sidebar_enter();
             return;
@@ -438,7 +453,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn submit_selected_collaboration_vote(&mut self) {
+    pub(crate) fn submit_selected_collaboration_vote(&mut self) {
         if let (Some(session), Some(disagreement), Some(position)) = (
             self.collaboration.selected_session(),
             self.collaboration.selected_disagreement(),
@@ -457,7 +472,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn copy_message(&mut self, index: usize) {
+    pub(crate) fn copy_message(&mut self, index: usize) {
         let Some(thread) = self.chat.active_thread() else {
             return;
         };
@@ -490,5 +505,4 @@ impl TuiModel {
             .mark_message_copied(index, self.tick_counter.saturating_add(100));
         self.status_line = "Copied to clipboard".to_string();
     }
-
 }

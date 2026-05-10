@@ -150,21 +150,21 @@ impl AgentEngine {
     }
 
     async fn latest_assistant_message_result(&self, thread_id: &str) -> Option<SentMessageResult> {
-        let threads = self.threads.read().await;
-        threads.get(thread_id).and_then(|thread| {
-            thread
-                .messages
-                .iter()
-                .rev()
-                .find(|message| {
-                    message.role == MessageRole::Assistant && !message.content.trim().is_empty()
-                })
-                .map(|message| SentMessageResult {
-                    thread_id: thread_id.to_string(),
-                    response: message.content.clone(),
-                    upstream_message: message.upstream_message.clone(),
-                    provider_final_result: message.provider_final_result.clone(),
-                })
+        let message = match self.history.latest_assistant_message(thread_id).await {
+            Ok(message) => message,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id = %thread_id,
+                    "failed to load latest assistant message from history: {error}"
+                );
+                None
+            }
+        }?;
+        super::agent_message_from_db(message).map(|message| SentMessageResult {
+            thread_id: thread_id.to_string(),
+            response: message.content,
+            upstream_message: message.upstream_message,
+            provider_final_result: message.provider_final_result,
         })
     }
 }

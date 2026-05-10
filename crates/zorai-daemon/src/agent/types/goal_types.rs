@@ -1,6 +1,9 @@
-// ---------------------------------------------------------------------------
-// Goal runner
-// ---------------------------------------------------------------------------
+use super::*;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use zorai_protocol::{SecurityLevel, AGENT_NAME_RAROG, AGENT_NAME_SWAROG};
+
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -217,12 +220,9 @@ pub struct GoalRun {
     pub model_usage: Vec<GoalRunModelUsage>,
     /// Per-goal autonomy dial: autonomous / aware / supervised (AUTO-01).
     #[serde(default)]
-    pub autonomy_level: super::autonomy::AutonomyLevel,
+    pub autonomy_level: super::super::autonomy::AutonomyLevel,
     /// Attribution tag for goal-run output (AUTH-01).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub authorship_tag: Option<super::authorship::AuthorshipTag>,
+    pub authorship_tag: Option<super::super::authorship::AuthorshipTag>,
 }
 
-// ---------------------------------------------------------------------------
-// Heartbeat
-// ---------------------------------------------------------------------------

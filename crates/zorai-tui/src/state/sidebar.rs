@@ -2,7 +2,6 @@
 
 use std::collections::HashSet;
 
-// ── SidebarTab ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarTab {
@@ -23,7 +22,6 @@ pub enum SidebarItemTarget {
     },
 }
 
-// ── SidebarAction ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub enum SidebarAction {
@@ -33,7 +31,6 @@ pub enum SidebarAction {
     Scroll(i32),
 }
 
-// ── SidebarState ──────────────────────────────────────────────────────────────
 
 pub struct SidebarState {
     active_tab: SidebarTab,
@@ -132,8 +129,6 @@ impl SidebarState {
             }
 
             SidebarAction::Navigate(delta) => {
-                // Without a known item_count at reduce time we apply a generous
-                // upper bound and let the render layer re-clamp if needed.
                 if delta > 0 {
                     self.selected_item = self.selected_item.saturating_add(delta as usize);
                 } else {
@@ -166,7 +161,6 @@ impl Default for SidebarState {
     }
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -205,7 +199,7 @@ mod tests {
         let mut state = SidebarState::new();
         let item_count = 5;
         state.navigate(100, item_count);
-        assert_eq!(state.selected_item(), 4); // max index = item_count - 1
+        assert_eq!(state.selected_item(), 4);
     }
 
     #[test]

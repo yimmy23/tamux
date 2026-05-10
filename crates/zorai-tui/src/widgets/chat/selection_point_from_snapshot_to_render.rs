@@ -1,4 +1,18 @@
-fn selection_point_from_snapshot(
+use super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
+use super::render_streaming_markdown_to_message_block_style_to_message_action::*;
+use super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
+use super::*;
+use crate::state::chat::{
+    AgentMessage, ChatHitTarget, ChatState, MessageRole, RetryPhase, TranscriptMode,
+};
+use crate::theme::ThemeTokens;
+use crate::widgets::message::wrap_text;
+use ratatui::prelude::*;
+use ratatui::style::{Color, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::Paragraph;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+pub(crate) fn selection_point_from_snapshot(
     snapshot: &SelectionSnapshot,
     mouse: Position,
 ) -> Option<SelectionPoint> {
@@ -26,8 +40,8 @@ fn selection_point_from_snapshot(
                 .saturating_sub(snapshot.padding)
                 .min(visible_count.saturating_sub(1))
     };
-    let row = nearest_content_row(&snapshot.all_lines, row)?;
-    let rendered = snapshot.all_lines.get(row)?;
+    let row = nearest_content_row(snapshot, row)?;
+    let rendered = snapshot_line_at(snapshot, row)?;
     let (_, content_start, content_end) = rendered_line_content_bounds(rendered);
     let content_width = content_end.saturating_sub(content_start);
     let content_col = rel_col.saturating_sub(content_start).min(content_width);
@@ -38,7 +52,7 @@ fn selection_point_from_snapshot(
     })
 }
 
-fn toggle_button_hit(hit: &RenderedChatLine, inner: Rect, mouse: Position) -> bool {
+pub(crate) fn toggle_button_hit(hit: &RenderedChatLine, inner: Rect, mouse: Position) -> bool {
     let content_col = mouse.x.saturating_sub(inner.x) as usize;
     let (_, content_start, _) = rendered_line_content_bounds(hit);
     content_col >= content_start
@@ -53,6 +67,24 @@ pub fn hit_test(
     mouse: Position,
 ) -> Option<ChatHitTarget> {
     let snapshot = selection_snapshot(area, chat, theme, current_tick, false)?;
+    hit_test_snapshot(&snapshot, chat, current_tick, mouse)
+}
+
+pub fn hit_test_from_cached_snapshot(
+    snapshot: &CachedSelectionSnapshot,
+    chat: &ChatState,
+    current_tick: u64,
+    mouse: Position,
+) -> Option<ChatHitTarget> {
+    hit_test_snapshot(&snapshot.0, chat, current_tick, mouse)
+}
+
+pub(crate) fn hit_test_snapshot(
+    snapshot: &SelectionSnapshot,
+    chat: &ChatState,
+    current_tick: u64,
+    mouse: Position,
+) -> Option<ChatHitTarget> {
     let inner = snapshot.inner;
 
     if mouse.x < inner.x
@@ -71,12 +103,12 @@ pub fn hit_test(
         + rel_row
             .saturating_sub(snapshot.padding)
             .min(visible_count.saturating_sub(1));
-    let resolved_row = match snapshot.all_lines.get(absolute_row) {
+    let resolved_row = match snapshot_line_at(snapshot, absolute_row) {
         Some(line) if !matches!(line.kind, RenderedLineKind::Padding) => absolute_row,
-        Some(_) => nearest_message_content_row(&snapshot.all_lines, absolute_row)?,
+        Some(_) => nearest_message_content_row(snapshot, absolute_row)?,
         None => return None,
     };
-    let hit = snapshot.all_lines.get(resolved_row)?;
+    let hit = snapshot_line_at(snapshot, resolved_row)?;
 
     if matches!(
         hit.kind,
@@ -135,13 +167,14 @@ pub fn hit_test(
                     if action_col < yes_width {
                         Some(ChatHitTarget::RetryStartNow)
                     } else {
-                    let no_start = yes_width.saturating_add(1);
-                    let no_width = UnicodeWidthStr::width("[No]");
-                    if action_col >= no_start && action_col < no_start.saturating_add(no_width) {
-                        Some(ChatHitTarget::RetryStop)
-                    } else {
-                        None
-                    }
+                        let no_start = yes_width.saturating_add(1);
+                        let no_width = UnicodeWidthStr::width("[No]");
+                        if action_col >= no_start && action_col < no_start.saturating_add(no_width)
+                        {
+                            Some(ChatHitTarget::RetryStop)
+                        } else {
+                            None
+                        }
                     }
                 }
             }
@@ -181,9 +214,9 @@ pub fn hit_test(
         | RenderedLineKind::ImageAttachment
         | RenderedLineKind::ReasoningContent
         | RenderedLineKind::ToolDetail => Some(ChatHitTarget::Message(hit.message_index?)),
-        RenderedLineKind::Padding
-        | RenderedLineKind::Streaming
-        | RenderedLineKind::RetryStatus => None,
+        RenderedLineKind::Padding | RenderedLineKind::Streaming | RenderedLineKind::RetryStatus => {
+            None
+        }
     }
 }
 
@@ -200,8 +233,7 @@ pub fn render(
     let inner = content_inner(area);
 
     if chat.active_thread().is_none() && chat.streaming_content().is_empty() {
-        // Render splash
-        super::splash::render(frame, inner, theme);
+        crate::widgets::splash::render(frame, inner, theme);
         return;
     }
     let Some(snapshot) =

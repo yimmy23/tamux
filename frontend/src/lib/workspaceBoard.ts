@@ -56,6 +56,9 @@ export type WorkspaceSettings = {
   workspace_id: string;
   workspace_root: string | null;
   operator: WorkspaceOperator;
+  repo_monitor_enabled: boolean;
+  repo_monitor_include_dirs: string[];
+  repo_monitor_exclude_dirs: string[];
   created_at: number;
   updated_at: number;
 };
@@ -136,6 +139,9 @@ export function mergeWorkspaceSettings(settings: WorkspaceSettings[], tasks: Wor
       workspace_id: task.workspace_id,
       workspace_root: null,
       operator: "user",
+        repo_monitor_enabled: false,
+        repo_monitor_include_dirs: [],
+        repo_monitor_exclude_dirs: [],
       created_at: task.created_at,
       updated_at: task.updated_at,
     });
@@ -259,6 +265,18 @@ export async function setWorkspaceOperator(workspaceId: string, operator: Worksp
   return settingsValue(value);
 }
 
+export async function setWorkspaceRepoMonitor(
+  workspaceId: string,
+  payload: {
+    repo_monitor_enabled: boolean;
+    repo_monitor_include_dirs: string[];
+    repo_monitor_exclude_dirs: string[];
+  },
+): Promise<WorkspaceSettings | null> {
+  const value = await getBridge()?.agentSetWorkspaceRepoMonitor?.(workspaceId, payload);
+  return settingsValue(value);
+}
+
 export async function listWorkspaceTasks(workspaceId: string, includeDeleted = false): Promise<WorkspaceTask[]> {
   try {
     const value = await getBridge()?.agentListWorkspaceTasks?.(workspaceId, includeDeleted);
@@ -379,6 +397,9 @@ function settingsValue(value: unknown): WorkspaceSettings | null {
     workspace_id: workspaceId,
     workspace_root: nullableString(row.workspace_root),
     operator: row.operator === "svarog" ? "svarog" : "user",
+    repo_monitor_enabled: Boolean(row.repo_monitor_enabled),
+    repo_monitor_include_dirs: arrayValue(row.repo_monitor_include_dirs ?? parseJsonValue(row.repo_monitor_include_dirs_json)).map(stringValue).filter(Boolean),
+    repo_monitor_exclude_dirs: arrayValue(row.repo_monitor_exclude_dirs ?? parseJsonValue(row.repo_monitor_exclude_dirs_json)).map(stringValue).filter(Boolean),
     created_at: numberValue(row.created_at),
     updated_at: numberValue(row.updated_at),
   };

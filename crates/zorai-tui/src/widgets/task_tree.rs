@@ -51,11 +51,9 @@ fn build_rows(
 ) -> Vec<SidebarRow> {
     let mut rows = Vec::new();
     let selected = sidebar.selected_item();
-    // item_index tracks selectable items (goal runs, steps, standalone tasks)
     let mut item_index: usize = 0;
     let sel_style = Style::default().bg(Color::Indexed(236));
 
-    // Zone 1: Goal Runs
     let goal_runs = tasks.goal_runs();
 
     for run in goal_runs {
@@ -130,7 +128,6 @@ fn build_rows(
         }
     }
 
-    // Zone 2: Standalone Tasks
     let standalone: Vec<_> = tasks
         .tasks()
         .iter()
@@ -181,7 +178,6 @@ fn build_rows(
         }
     }
 
-    // Zone 3: Heartbeat
     let heartbeat_items = tasks.heartbeat_items();
 
     if !heartbeat_items.is_empty() {
@@ -221,11 +217,9 @@ fn build_rows(
         }
     }
 
-    // Zone 4: Heartbeat Digest (latest structured digest from LLM synthesis)
     if let Some(digest) = tasks.last_digest() {
         if digest.actionable && !digest.items.is_empty() {
             if heartbeat_items.is_empty() {
-                // Only show separator if Zone 3 didn't already render one
                 rows.push(SidebarRow {
                     line: Line::from(Span::styled("\u{2500}".repeat(width.min(40)), theme.fg_dim)),
                     target: None,
@@ -267,10 +261,8 @@ fn build_rows(
                     });
                 }
             }
-            // Inline explanation per D-01: render explanation text beneath digest items
             if let Some(explanation) = &digest.explanation {
                 if !explanation.is_empty() {
-                    // Wrap long explanation text to available width
                     let max_text_width = width.saturating_sub(4);
                     for chunk in wrap_text(explanation, max_text_width) {
                         rows.push(SidebarRow {
@@ -287,7 +279,6 @@ fn build_rows(
         }
     }
 
-    // Empty state
     if rows.is_empty() {
         rows.push(SidebarRow {
             line: Line::from(Span::styled(" No tasks".to_string(), theme.fg_dim)),

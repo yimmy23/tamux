@@ -1,9 +1,17 @@
+use super::super::*;
+use super::preferred_voice_capture_backend_from_env_to_stop_voice_capture_process::{
+    preferred_voice_capture_backend, read_voice_capture_error_summary, spawn_arecord_voice_capture,
+    spawn_ffmpeg_voice_capture, stop_voice_capture_process, voice_capture_backend_label,
+};
+use base64::Engine;
+use std::process::{Command, Stdio};
+
 impl TuiModel {
-    pub(super) fn input_wrap_width(&self) -> usize {
+    pub(in crate::app) fn input_wrap_width(&self) -> usize {
         self.width.saturating_sub(4).max(1) as usize
     }
 
-    pub(super) fn input_height(&self) -> u16 {
+    pub(in crate::app) fn input_height(&self) -> u16 {
         let inner_w = self.input_wrap_width();
         if inner_w <= 2 {
             return 3;
@@ -139,7 +147,7 @@ impl TuiModel {
         self.sync_goal_mission_control_prompt_from_input();
     }
 
-    pub(super) fn attach_file(&mut self, path: &str) {
+    pub(in crate::app) fn attach_file(&mut self, path: &str) {
         let expanded = if path.starts_with('~') {
             let home = std::env::var("HOME")
                 .or_else(|_| std::env::var("USERPROFILE"))
@@ -222,7 +230,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn start_voice_capture(&mut self) {
+    pub(in crate::app) fn start_voice_capture(&mut self) {
         if self.voice_recording {
             self.status_line = "Voice capture already active".to_string();
             return;
@@ -277,7 +285,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn stop_voice_capture(&mut self) -> Option<String> {
+    pub(in crate::app) fn stop_voice_capture(&mut self) -> Option<String> {
         let recorder_status = self
             .voice_recorder
             .as_mut()
@@ -331,7 +339,7 @@ impl TuiModel {
         capture_path
     }
 
-    pub(super) fn stop_voice_playback(&mut self) {
+    pub(in crate::app) fn stop_voice_playback(&mut self) {
         if let Some(mut child) = self.voice_player.take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -342,7 +350,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn play_audio_path(&mut self, path: &str) {
+    pub(in crate::app) fn play_audio_path(&mut self, path: &str) {
         if let Some(mut child) = self.voice_player.take() {
             let _ = child.kill();
             let _ = child.wait();
@@ -412,4 +420,3 @@ fn infer_attachment_mime(path: &std::path::Path) -> &'static str {
         _ => "application/octet-stream",
     }
 }
-

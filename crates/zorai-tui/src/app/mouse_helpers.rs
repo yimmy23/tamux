@@ -24,6 +24,37 @@ impl TuiModel {
         self.chat.reduce(chat::ChatAction::ScrollChat(delta));
     }
 
+    pub(crate) fn cached_chat_hit_test(
+        &mut self,
+        chat_area: Rect,
+        mouse: Position,
+    ) -> Option<chat::ChatHitTarget> {
+        if self
+            .chat_selection_snapshot
+            .as_ref()
+            .is_none_or(|snapshot| {
+                !widgets::chat::cached_snapshot_matches_area(snapshot, chat_area)
+            })
+        {
+            self.chat_selection_snapshot = widgets::chat::build_selection_snapshot(
+                chat_area,
+                &self.chat,
+                &self.theme,
+                self.tick_counter,
+                self.retry_wait_start_selected,
+            );
+        }
+
+        self.chat_selection_snapshot.as_ref().and_then(|snapshot| {
+            widgets::chat::hit_test_from_cached_snapshot(
+                snapshot,
+                &self.chat,
+                self.tick_counter,
+                mouse,
+            )
+        })
+    }
+
     pub(in super::super) fn clear_work_context_drag_selection(&mut self) {
         self.work_context_drag_anchor = None;
         self.work_context_drag_current = None;
@@ -462,8 +493,7 @@ impl TuiModel {
     }
 
     pub(super) fn handle_chat_click(&mut self, chat_area: Rect, mouse: Position) {
-        match widgets::chat::hit_test(chat_area, &self.chat, &self.theme, self.tick_counter, mouse)
-        {
+        match self.cached_chat_hit_test(chat_area, mouse) {
             Some(chat::ChatHitTarget::Message(idx)) => self.chat.toggle_message_selection(idx),
             Some(chat::ChatHitTarget::ReasoningToggle(idx)) => {
                 self.chat.select_message(Some(idx));
@@ -1226,8 +1256,9 @@ impl TuiModel {
                         Position::new(mouse.column, mouse.row),
                     ) {
                         Some(widgets::thread_picker::ThreadPickerHitTarget::Tab(tab)) => {
-                            self.modal.set_thread_picker_tab(tab);
+                            self.modal.set_thread_picker_tab(tab.clone());
                             self.sync_thread_picker_item_count();
+                            self.queue_threads_for_picker_tab_refresh(&tab);
                         }
                         Some(widgets::thread_picker::ThreadPickerHitTarget::Item(idx)) => {
                             self.modal_navigate_to(idx);

@@ -1,5 +1,20 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn go_back_thread(&mut self) {
+    pub(crate) fn go_back_thread(&mut self) {
         if !self.chat.can_go_back_thread() {
             self.status_line = "No previous thread".to_string();
             return;
@@ -26,7 +41,7 @@ impl TuiModel {
         self.status_line = format!("Returned to {thread_id}");
     }
 
-    pub(super) fn open_sidebar_target(&mut self, target: sidebar::SidebarItemTarget) {
+    pub(crate) fn open_sidebar_target(&mut self, target: sidebar::SidebarItemTarget) {
         self.clear_mission_control_return_context();
         self.cleanup_concierge_on_navigate();
         self.clear_task_view_drag_selection();
@@ -53,7 +68,7 @@ impl TuiModel {
         self.sync_contextual_approval_overlay();
     }
 
-    pub(super) fn sync_thread_picker_item_count(&mut self) {
+    pub(crate) fn sync_thread_picker_item_count(&mut self) {
         let thread_count = widgets::thread_picker::filtered_threads_for_workspace(
             &self.chat,
             &self.modal,
@@ -65,12 +80,12 @@ impl TuiModel {
         self.modal.set_picker_item_count(thread_count + 1);
     }
 
-    pub(super) fn sync_goal_picker_item_count(&mut self) {
+    pub(crate) fn sync_goal_picker_item_count(&mut self) {
         self.modal
             .set_picker_item_count(self.filtered_goal_runs().len() + 1);
     }
 
-    pub(super) fn selected_goal_step_context(
+    pub(crate) fn selected_goal_step_context(
         &self,
     ) -> Option<(String, String, usize, crate::state::task::GoalRunStep)> {
         let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
@@ -96,7 +111,7 @@ impl TuiModel {
         Some((run.id.clone(), run.title.clone(), step.order as usize, step))
     }
 
-    pub(super) fn select_goal_step_in_active_run(&mut self, step_id: String) -> bool {
+    pub(crate) fn select_goal_step_in_active_run(&mut self, step_id: String) -> bool {
         let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
             &self.main_pane_view
         else {
@@ -121,7 +136,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn step_goal_step_selection(&mut self, delta: i32) -> bool {
+    pub(crate) fn step_goal_step_selection(&mut self, delta: i32) -> bool {
         let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun {
             goal_run_id,
             step_id,
@@ -167,7 +182,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn request_selected_goal_step_retry_confirmation(&mut self) -> bool {
+    pub(crate) fn request_selected_goal_step_retry_confirmation(&mut self) -> bool {
         if let Some((goal_run_id, goal_title, step_index, step)) = self.selected_goal_step_context()
         {
             self.open_pending_action_confirm(PendingConfirmAction::RetryGoalStep {
@@ -189,7 +204,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn request_selected_goal_step_rerun_confirmation(&mut self) -> bool {
+    pub(crate) fn request_selected_goal_step_rerun_confirmation(&mut self) -> bool {
         if let Some((goal_run_id, goal_title, step_index, step)) = self.selected_goal_step_context()
         {
             self.open_pending_action_confirm(PendingConfirmAction::RerunGoalFromStep {
@@ -211,7 +226,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn goal_action_picker_items(&self) -> Vec<GoalActionPickerItem> {
+    pub(crate) fn goal_action_picker_items(&self) -> Vec<GoalActionPickerItem> {
         let confirmation_items = self.runtime_assignment_confirmation_items();
         if !confirmation_items.is_empty() {
             return confirmation_items;
@@ -249,6 +264,10 @@ impl TuiModel {
             items.push(GoalActionPickerItem::RerunFromStep);
         }
 
+        if self.selected_goal_run().is_some() {
+            items.push(GoalActionPickerItem::DeleteGoal);
+        }
+
         items
     }
 
@@ -264,7 +283,7 @@ impl TuiModel {
             .then(|| (run.id.clone(), run.title.clone()))
     }
 
-    pub(super) fn open_goal_step_action_picker(&mut self) -> bool {
+    pub(crate) fn open_goal_step_action_picker(&mut self) -> bool {
         let items = self.goal_action_picker_items();
         if items.is_empty() {
             return false;
@@ -307,13 +326,13 @@ impl TuiModel {
         }
     }
 
-    fn queue_prompt(&mut self, prompt: String) {
+    pub(crate) fn queue_prompt(&mut self, prompt: String) {
         self.queued_prompts.push(QueuedPrompt::new(prompt));
         self.status_line = format!("QUEUED ({})", self.queued_prompts.len());
         self.sync_queued_prompt_modal_state();
     }
 
-    pub(super) fn queue_participant_suggestion(
+    pub(crate) fn queue_participant_suggestion(
         &mut self,
         thread_id: String,
         suggestion_id: String,
@@ -353,7 +372,7 @@ impl TuiModel {
         Some(prompt)
     }
 
-    pub(super) fn dispatch_next_queued_prompt_if_ready(&mut self) {
+    pub(crate) fn dispatch_next_queued_prompt_if_ready(&mut self) {
         if self.queue_barrier_active() {
             return;
         }
@@ -369,7 +388,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn sync_participant_queued_prompts_for_thread(
+    pub(crate) fn sync_participant_queued_prompts_for_thread(
         &mut self,
         thread_id: &str,
         live_suggestion_ids: &std::collections::HashSet<String>,
@@ -403,7 +422,7 @@ impl TuiModel {
         self.send_daemon_command(DaemonCommand::StopStream { thread_id });
     }
 
-    pub(super) fn execute_selected_queued_prompt_action(&mut self) {
+    pub(crate) fn execute_selected_queued_prompt_action(&mut self) {
         let index = self.modal.picker_cursor();
         let action = self.queued_prompt_action;
         match action {
@@ -451,5 +470,4 @@ impl TuiModel {
             }
         }
     }
-
 }

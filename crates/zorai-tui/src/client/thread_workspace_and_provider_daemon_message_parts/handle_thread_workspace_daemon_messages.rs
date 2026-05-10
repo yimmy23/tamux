@@ -1,5 +1,24 @@
+use super::*;
+use crate::client::ThreadDetailChunkBuffer;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::{
+    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
+    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
+    ThreadWorkContext,
+};
+use anyhow::Result;
+use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
+use serde_json::Value;
+use std::sync::Mutex;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio::time::{Instant, MissedTickBehavior};
+use tokio_util::codec::Framed;
+use tracing::{debug, error, info, warn};
+use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
 impl DaemonClient {
-    async fn handle_thread_workspace_daemon_messages(
+    pub(crate) async fn handle_thread_workspace_daemon_messages(
         message: DaemonMessage,
         event_tx: &mpsc::Sender<ClientEvent>,
         thread_detail_chunks: &mut Option<ThreadDetailChunkBuffer>,
@@ -67,7 +86,9 @@ impl DaemonClient {
                 }
             }
             DaemonMessage::AgentWorkspaceSettings { settings } => {
-                let _ = event_tx.send(ClientEvent::WorkspaceSettings(settings)).await;
+                let _ = event_tx
+                    .send(ClientEvent::WorkspaceSettings(settings))
+                    .await;
             }
             DaemonMessage::AgentWorkspaceSettingsList { settings } => {
                 let _ = event_tx
@@ -148,22 +169,25 @@ impl DaemonClient {
                     })
                     .await;
             }
+            DaemonMessage::AgentGoalRunControlled { goal_run_id, ok } => {
+                let _ = event_tx
+                    .send(ClientEvent::GoalRunControlled { goal_run_id, ok })
+                    .await;
+            }
             DaemonMessage::AgentCheckpointList {
                 goal_run_id,
                 checkpoints_json,
-            } => {
-                match serde_json::from_str::<Vec<CheckpointSummary>>(&checkpoints_json) {
-                    Ok(checkpoints) => {
-                        let _ = event_tx
-                            .send(ClientEvent::GoalRunCheckpoints {
-                                goal_run_id,
-                                checkpoints,
-                            })
-                            .await;
-                    }
-                    Err(err) => warn!("Failed to parse checkpoint list: {}", err),
+            } => match serde_json::from_str::<Vec<CheckpointSummary>>(&checkpoints_json) {
+                Ok(checkpoints) => {
+                    let _ = event_tx
+                        .send(ClientEvent::GoalRunCheckpoints {
+                            goal_run_id,
+                            checkpoints,
+                        })
+                        .await;
                 }
-            }
+                Err(err) => warn!("Failed to parse checkpoint list: {}", err),
+            },
             DaemonMessage::AgentCheckpointRestored { outcome_json } => {
                 match serde_json::from_str::<RestoreOutcome>(&outcome_json) {
                     Ok(outcome) => {
@@ -239,14 +263,31 @@ impl DaemonClient {
                     .await;
             }
             DaemonMessage::AgentConfigResponse { config_json } => {
+                info!(
+                    json_len = config_json.len(),
+                    "client: received AgentConfigResponse"
+                );
                 match serde_json::from_str::<Value>(&config_json) {
                     Ok(raw) => {
-                        if let Ok(config) =
-                            serde_json::from_value::<AgentConfigSnapshot>(raw.clone())
-                        {
-                            let _ = event_tx.send(ClientEvent::AgentConfig(config)).await;
+                        match serde_json::from_value::<AgentConfigSnapshot>(raw.clone()) {
+                            Ok(config) => {
+                                let _ = event_tx.send(ClientEvent::AgentConfig(config)).await;
+                            }
+                            Err(err) => {
+                                warn!(
+                                    "AgentConfigSnapshot decode failed — settings UI will not populate. \
+                                     This usually means the daemon added a field the TUI's snapshot \
+                                     schema doesn't know about. err={}",
+                                    err
+                                );
+                            }
                         }
-                        let _ = event_tx.send(ClientEvent::AgentConfigRaw(raw)).await;
+                        let raw_send = event_tx.send(ClientEvent::AgentConfigRaw(raw)).await;
+                        if raw_send.is_err() {
+                            warn!("client: AgentConfigRaw event send failed (receiver dropped)");
+                        } else {
+                            info!("client: AgentConfigRaw forwarded to app event loop");
+                        }
                     }
                     Err(err) => warn!("Failed to parse agent config response: {}", err),
                 }
@@ -343,5 +384,4 @@ impl DaemonClient {
             _ => unreachable!("thread/workspace daemon message dispatch should be exhaustive"),
         }
     }
-
 }

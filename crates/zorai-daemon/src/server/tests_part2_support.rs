@@ -1,5 +1,7 @@
+use super::*;
+use crate::test_support::repo_root;
 #[test]
-fn daemon_boxes_large_gateway_hot_path_futures() {
+pub(crate) fn daemon_boxes_large_gateway_hot_path_futures() {
     let root = repo_root();
     let source = [
         root.join("crates/zorai-daemon/src/server.rs"),
@@ -28,7 +30,7 @@ fn daemon_boxes_large_gateway_hot_path_futures() {
 }
 
 #[test]
-fn daemon_binds_ipc_listener_before_hydrate_starts() {
+pub(crate) fn daemon_binds_ipc_listener_before_hydrate_starts() {
     let root = repo_root();
     let source = fs::read_to_string(root.join("crates/zorai-daemon/src/server/post_tests.rs"))
         .expect("read server startup source");
@@ -47,7 +49,7 @@ fn daemon_binds_ipc_listener_before_hydrate_starts() {
 }
 
 #[test]
-fn daemon_marks_startup_ready_before_scheduling_participant_observer_restore() {
+pub(crate) fn daemon_marks_startup_ready_before_scheduling_participant_observer_restore() {
     let root = repo_root();
     let source = fs::read_to_string(root.join("crates/zorai-daemon/src/server/post_tests.rs"))
         .expect("read server startup source");
@@ -66,7 +68,7 @@ fn daemon_marks_startup_ready_before_scheduling_participant_observer_restore() {
 }
 
 #[test]
-fn concierge_welcome_starts_before_persisted_history_hydration() {
+pub(crate) fn concierge_welcome_starts_before_persisted_history_hydration() {
     let root = repo_root();
     let source = fs::read_to_string(root.join("crates/zorai-daemon/src/server/dispatch_part7.rs"))
         .expect("read concierge dispatch source");
@@ -79,20 +81,20 @@ fn concierge_welcome_starts_before_persisted_history_hydration() {
 
 use crate::agent::types::SubAgentDefinition;
 
-struct TestConnection {
-    framed: Framed<DuplexStream, ZoraiCodec>,
-    task: JoinHandle<anyhow::Result<()>>,
-    root: PathBuf,
-    agent: Arc<AgentEngine>,
-    plugin_manager: Arc<PluginManager>,
+pub(crate) struct TestConnection {
+    pub(crate) framed: Framed<DuplexStream, ZoraiCodec>,
+    pub(crate) task: JoinHandle<anyhow::Result<()>>,
+    pub(crate) root: PathBuf,
+    pub(crate) agent: Arc<AgentEngine>,
+    pub(crate) plugin_manager: Arc<PluginManager>,
 }
 
 impl TestConnection {
-    async fn recv(&mut self) -> DaemonMessage {
+    pub(crate) async fn recv(&mut self) -> DaemonMessage {
         self.recv_with_timeout(Duration::from_millis(500)).await
     }
 
-    async fn recv_with_timeout(&mut self, duration: Duration) -> DaemonMessage {
+    pub(crate) async fn recv_with_timeout(&mut self, duration: Duration) -> DaemonMessage {
         timeout(duration, self.framed.next())
             .await
             .expect("timed out waiting for daemon message")
@@ -100,7 +102,7 @@ impl TestConnection {
             .expect("codec failure")
     }
 
-    async fn shutdown(self) {
+    pub(crate) async fn shutdown(self) {
         let TestConnection {
             framed,
             task,
@@ -122,11 +124,11 @@ impl TestConnection {
     }
 }
 
-async fn spawn_test_connection_with_config(agent_config: AgentConfig) -> TestConnection {
+pub(crate) async fn spawn_test_connection_with_config(agent_config: AgentConfig) -> TestConnection {
     spawn_test_connection_with_config_and_startup_ready(agent_config, true).await
 }
 
-async fn spawn_test_connection_with_config_and_startup_ready(
+pub(crate) async fn spawn_test_connection_with_config_and_startup_ready(
     agent_config: AgentConfig,
     startup_ready: bool,
 ) -> TestConnection {
@@ -169,12 +171,12 @@ async fn spawn_test_connection_with_config_and_startup_ready(
     }
 }
 
-async fn spawn_test_connection() -> TestConnection {
+pub(crate) async fn spawn_test_connection() -> TestConnection {
     spawn_test_connection_with_config(AgentConfig::default()).await
 }
 
 #[tokio::test]
-async fn startup_readiness_blocks_history_requests_until_hydrate_finishes() {
+pub(crate) async fn startup_readiness_blocks_history_requests_until_hydrate_finishes() {
     let root = std::env::current_dir()
         .expect("cwd")
         .join("tmp")
@@ -263,6 +265,7 @@ async fn startup_readiness_blocks_history_requests_until_hydrate_finishes() {
             limit: None,
             offset: None,
             include_internal: false,
+            agent_filter: None,
         })
         .await
         .expect("request thread list before startup is ready");
@@ -334,7 +337,7 @@ async fn startup_readiness_blocks_history_requests_until_hydrate_finishes() {
     let _ = std::fs::remove_dir_all(root);
 }
 
-fn test_user_sub_agent(id: &str, name: &str) -> SubAgentDefinition {
+pub(crate) fn test_user_sub_agent(id: &str, name: &str) -> SubAgentDefinition {
     SubAgentDefinition {
         id: id.to_string(),
         name: name.to_string(),
@@ -361,7 +364,7 @@ fn test_user_sub_agent(id: &str, name: &str) -> SubAgentDefinition {
     }
 }
 
-async fn declare_async_command_capability(conn: &mut TestConnection) {
+pub(crate) async fn declare_async_command_capability(conn: &mut TestConnection) {
     conn.framed
         .send(ClientMessage::AgentDeclareAsyncCommandCapability {
             capability: zorai_protocol::AsyncCommandCapability {
@@ -381,7 +384,7 @@ async fn declare_async_command_capability(conn: &mut TestConnection) {
     }
 }
 
-async fn register_test_oauth_plugin(conn: &TestConnection, name: &str) {
+pub(crate) async fn register_test_oauth_plugin(conn: &TestConnection, name: &str) {
     let plugin_dir = conn.root.join("plugins").join(name);
     std::fs::create_dir_all(&plugin_dir).expect("create oauth plugin dir");
     let manifest = serde_json::json!({
@@ -418,7 +421,7 @@ async fn register_test_oauth_plugin(conn: &TestConnection, name: &str) {
         .expect("configure oauth plugin client id");
 }
 
-async fn register_test_api_plugin(conn: &TestConnection, name: &str) {
+pub(crate) async fn register_test_api_plugin(conn: &TestConnection, name: &str) {
     let plugin_dir = conn.root.join("plugins").join(name);
     std::fs::create_dir_all(&plugin_dir).expect("create api plugin dir");
     let manifest = serde_json::json!({
@@ -448,7 +451,7 @@ async fn register_test_api_plugin(conn: &TestConnection, name: &str) {
 }
 
 #[tokio::test]
-async fn tui_clients_cannot_execute_managed_terminal_commands() {
+pub(crate) async fn tui_clients_cannot_execute_managed_terminal_commands() {
     let mut conn = spawn_test_connection().await;
     let (session_id, _rx) = conn
         .agent
@@ -485,7 +488,7 @@ async fn tui_clients_cannot_execute_managed_terminal_commands() {
     conn.shutdown().await;
 }
 
-async fn register_publishable_skill_variant(
+pub(crate) async fn register_publishable_skill_variant(
     conn: &TestConnection,
     skill_name: &str,
     status: &str,
@@ -519,7 +522,9 @@ async fn register_publishable_skill_variant(
     record.variant_id
 }
 
-async fn spawn_test_registry_publish_server(delay: Duration) -> (String, JoinHandle<()>) {
+pub(crate) async fn spawn_test_registry_publish_server(
+    delay: Duration,
+) -> (String, JoinHandle<()>) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -565,7 +570,7 @@ async fn spawn_test_registry_publish_server(delay: Duration) -> (String, JoinHan
     (format!("http://{}", addr), task)
 }
 
-fn build_test_skill_archive(skill_name: &str) -> Vec<u8> {
+pub(crate) fn build_test_skill_archive(skill_name: &str) -> Vec<u8> {
     use std::io::Cursor;
 
     let content = format!(
@@ -585,7 +590,7 @@ fn build_test_skill_archive(skill_name: &str) -> Vec<u8> {
     encoder.finish().expect("finish skill archive")
 }
 
-async fn spawn_test_registry_fetch_server(
+pub(crate) async fn spawn_test_registry_fetch_server(
     skill_name: &str,
     delay: Duration,
 ) -> (String, JoinHandle<()>) {
@@ -645,7 +650,7 @@ async fn spawn_test_registry_fetch_server(
     (format!("http://{}", addr), task)
 }
 
-async fn complete_test_oauth_callback(auth_url: &str) {
+pub(crate) async fn complete_test_oauth_callback(auth_url: &str) {
     let parsed = url::Url::parse(auth_url).expect("parse auth url");
     let redirect_uri = parsed
         .query_pairs()
@@ -675,7 +680,7 @@ async fn complete_test_oauth_callback(auth_url: &str) {
         .expect("write oauth callback request");
 }
 
-async fn register_gateway(conn: &mut TestConnection) -> String {
+pub(crate) async fn register_gateway(conn: &mut TestConnection) -> String {
     conn.framed
         .send(ClientMessage::GatewayRegister {
             registration: GatewayRegistration {
@@ -694,7 +699,10 @@ async fn register_gateway(conn: &mut TestConnection) -> String {
     }
 }
 
-async fn acknowledge_gateway_bootstrap(conn: &mut TestConnection, correlation_id: String) {
+pub(crate) async fn acknowledge_gateway_bootstrap(
+    conn: &mut TestConnection,
+    correlation_id: String,
+) {
     conn.framed
         .send(ClientMessage::GatewayAck {
             ack: zorai_protocol::GatewayAck {

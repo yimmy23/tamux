@@ -126,7 +126,6 @@ impl CircuitBreaker {
         self.total_trips
     }
 
-    // ---- internal helpers ----
 
     fn trip(&mut self, now: u64) {
         self.total_trips += 1;
@@ -175,14 +174,12 @@ impl CircuitBreakerRegistry {
     /// Get the breaker for a provider, creating one with default thresholds if
     /// it doesn't already exist.
     pub async fn get(&self, provider: &str) -> Arc<Mutex<CircuitBreaker>> {
-        // Fast path: read lock
         {
             let read = self.breakers.read().await;
             if let Some(breaker) = read.get(provider) {
                 return breaker.clone();
             }
         }
-        // Slow path: write lock, insert new breaker
         let mut write = self.breakers.write().await;
         write
             .entry(provider.to_string())
@@ -239,7 +236,6 @@ mod tests {
         for t in 1..=5 {
             cb.record_failure(t);
         }
-        // Timeout is 30_000ms. State changed at t=5 so HalfOpen at t >= 30_005.
         assert!(cb.can_execute(30_005));
         assert_eq!(cb.state(), CircuitState::HalfOpen);
     }
@@ -250,10 +246,8 @@ mod tests {
         for t in 1..=5 {
             cb.record_failure(t);
         }
-        // Transition to HalfOpen.
         assert!(cb.can_execute(30_005));
         assert_eq!(cb.state(), CircuitState::HalfOpen);
-        // Should still allow execution in HalfOpen.
         assert!(cb.can_execute(30_006));
     }
 
@@ -263,15 +257,14 @@ mod tests {
         for t in 1..=5 {
             cb.record_failure(t);
         }
-        // Transition to HalfOpen.
         cb.can_execute(30_005);
         assert_eq!(cb.state(), CircuitState::HalfOpen);
 
         cb.record_success(30_006);
-        assert_eq!(cb.state(), CircuitState::HalfOpen); // 1 < threshold(2)
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
 
         cb.record_success(30_007);
-        assert_eq!(cb.state(), CircuitState::Closed); // 2 >= threshold(2)
+        assert_eq!(cb.state(), CircuitState::Closed);
     }
 
     #[test]
@@ -280,7 +273,7 @@ mod tests {
         for t in 1..=5 {
             cb.record_failure(t);
         }
-        cb.can_execute(30_005); // -> HalfOpen
+        cb.can_execute(30_005);
         assert_eq!(cb.state(), CircuitState::HalfOpen);
 
         cb.record_failure(30_006);
@@ -305,15 +298,13 @@ mod tests {
         let mut cb = CircuitBreaker::default();
         assert_eq!(cb.trip_count(), 0);
 
-        // First trip.
         for t in 1..=5 {
             cb.record_failure(t);
         }
         assert_eq!(cb.trip_count(), 1);
 
-        // Recover and trip again.
-        cb.can_execute(30_005); // -> HalfOpen
-        cb.record_failure(30_006); // -> Open (second trip)
+        cb.can_execute(30_005);
+        cb.record_failure(30_006);
         assert_eq!(cb.trip_count(), 2);
     }
 
@@ -321,16 +312,13 @@ mod tests {
     fn success_in_closed_resets_failure_count() {
         let mut cb = CircuitBreaker::default();
 
-        // Accumulate 4 failures (one short of threshold).
         for t in 1..=4 {
             cb.record_failure(t);
         }
         assert_eq!(cb.state(), CircuitState::Closed);
 
-        // A success should reset the failure counter.
         cb.record_success(5);
 
-        // Now another 4 failures should NOT trip the breaker since counter was reset.
         for t in 6..=9 {
             cb.record_failure(t);
         }
@@ -347,11 +335,9 @@ mod tests {
         cb.record_failure(2);
         assert_eq!(cb.state(), CircuitState::Open);
 
-        // Transition to HalfOpen after 1000ms.
         assert!(cb.can_execute(1003));
         assert_eq!(cb.state(), CircuitState::HalfOpen);
 
-        // Single success closes (threshold = 1).
         cb.record_success(1004);
         assert_eq!(cb.state(), CircuitState::Closed);
     }
@@ -367,7 +353,6 @@ mod tests {
             .into_iter(),
         );
 
-        // Trip OpenAI's breaker
         let openai_breaker = registry
             .get(zorai_shared::providers::PROVIDER_ID_OPENAI)
             .await;
@@ -380,7 +365,6 @@ mod tests {
             assert_eq!(b.state(), CircuitState::Open);
         }
 
-        // Anthropic's breaker should still be Closed
         let anthropic_breaker = registry
             .get(zorai_shared::providers::PROVIDER_ID_ANTHROPIC)
             .await;
@@ -390,7 +374,6 @@ mod tests {
             assert!(b.can_execute(1000));
         }
 
-        // Dynamic provider creation
         let new_breaker = registry.get("new_provider").await;
         {
             let b = new_breaker.lock().await;
@@ -406,11 +389,9 @@ mod tests {
         }
         assert_eq!(cb.state(), CircuitState::Open);
 
-        // Just before the timeout (state changed at t=3, need 5000ms).
         assert!(!cb.can_execute(5002));
         assert_eq!(cb.state(), CircuitState::Open);
 
-        // Exactly at timeout boundary.
         assert!(cb.can_execute(5003));
         assert_eq!(cb.state(), CircuitState::HalfOpen);
     }

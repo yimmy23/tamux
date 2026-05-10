@@ -1,4 +1,5 @@
-fn emit_workflow_notice_for_tool(
+use super::*;
+pub(crate) fn emit_workflow_notice_for_tool(
     event_tx: &broadcast::Sender<AgentEvent>,
     thread_id: &str,
     tool_name: &str,
@@ -94,7 +95,9 @@ fn emit_workflow_notice_for_tool(
             format!("Agent inspected available tools via {tool_name}."),
             Some(args.to_string()),
         ),
-        tool_names::DISCOVER_GUIDELINES | tool_names::LIST_GUIDELINES | tool_names::READ_GUIDELINE => (
+        tool_names::DISCOVER_GUIDELINES
+        | tool_names::LIST_GUIDELINES
+        | tool_names::READ_GUIDELINE => (
             "guideline-consulted",
             format!("Agent consulted local guidelines via {tool_name}."),
             Some(args.to_string()),
@@ -109,7 +112,9 @@ fn emit_workflow_notice_for_tool(
             "Agent executed a canonical workflow pack.".to_string(),
             Some(args.to_string()),
         ),
-        tool_names::ONECONTEXT_SEARCH | tool_names::SESSION_SEARCH | tool_names::AGENT_QUERY_MEMORY => (
+        tool_names::ONECONTEXT_SEARCH
+        | tool_names::SESSION_SEARCH
+        | tool_names::AGENT_QUERY_MEMORY => (
             "history-consulted",
             format!("Agent consulted history via {tool_name}."),
             Some(args.to_string()),
@@ -130,7 +135,10 @@ fn emit_workflow_notice_for_tool(
     });
 }
 
-fn collect_skill_documents(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) -> Result<()> {
+pub(crate) fn collect_skill_documents(
+    dir: &std::path::Path,
+    out: &mut Vec<std::path::PathBuf>,
+) -> Result<()> {
     if !dir.exists() {
         return Ok(());
     }
@@ -147,8 +155,6 @@ fn collect_skill_documents(dir: &std::path::Path, out: &mut Vec<std::path::PathB
             continue;
         }
 
-        // Include any .md file in the skills tree — covers SKILL.md, generated
-        // skills, and curated skill documents alike.
         let is_md = path
             .extension()
             .and_then(|value| value.to_str())
@@ -161,7 +167,7 @@ fn collect_skill_documents(dir: &std::path::Path, out: &mut Vec<std::path::PathB
     Ok(())
 }
 
-fn resolve_skill_path(
+pub(crate) fn resolve_skill_path(
     skills_root: &std::path::Path,
     skill: &str,
     variant: Option<&SkillVariantRecord>,
@@ -243,7 +249,7 @@ fn resolve_skill_path(
     )
 }
 
-async fn sync_skill_catalog(
+pub(crate) async fn sync_skill_catalog(
     skills_root: &std::path::Path,
     history: &HistoryStore,
 ) -> Result<Vec<SkillVariantRecord>> {
@@ -264,7 +270,7 @@ async fn sync_skill_catalog(
     Ok(entries)
 }
 
-async fn resolve_skill_context_tags(
+pub(crate) async fn resolve_skill_context_tags(
     workspace_root: Option<&PathBuf>,
     session_manager: &Arc<SessionManager>,
     session_id: Option<SessionId>,
@@ -287,7 +293,7 @@ async fn resolve_skill_context_tags(
         .unwrap_or_default()
 }
 
-async fn execute_fetch_url(
+pub(crate) async fn execute_fetch_url(
     args: &serde_json::Value,
     agent: &AgentEngine,
     http_client: &reqwest::Client,
@@ -319,19 +325,22 @@ async fn execute_fetch_url(
         }
     }
 
-    let content = execute_fetch_url_request_with_runner(
-        request,
-        browser.is_some(),
-        move |url, timeout_seconds| async move {
-            let browser = browser
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("no headless browser available"))?;
-            fetch_with_headless_browser(browser, &url, timeout_seconds, profile_dir.as_deref())
-                .await
-        },
-        |url, timeout_seconds| async move { fetch_raw_http(http_client, &url, timeout_seconds).await },
-    )
-    .await?;
+    let content =
+        execute_fetch_url_request_with_runner(
+            request,
+            browser.is_some(),
+            move |url, timeout_seconds| async move {
+                let browser = browser
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("no headless browser available"))?;
+                fetch_with_headless_browser(browser, &url, timeout_seconds, profile_dir.as_deref())
+                    .await
+            },
+            |url, timeout_seconds| async move {
+                fetch_raw_http(http_client, &url, timeout_seconds).await
+            },
+        )
+        .await?;
 
     if let Some(profile) = profile.as_ref() {
         record_browser_profile_fetch_success(agent, profile).await?;
@@ -340,7 +349,7 @@ async fn execute_fetch_url(
     Ok(content)
 }
 
-async fn execute_fetch_url_with_runner<BrowserRunner, BrowserFut, HttpRunner, HttpFut>(
+pub(crate) async fn execute_fetch_url_with_runner<BrowserRunner, BrowserFut, HttpRunner, HttpFut>(
     args: &serde_json::Value,
     browser_available: bool,
     browser_runner: BrowserRunner,
@@ -380,7 +389,6 @@ where
             .ok_or_else(|| anyhow::anyhow!("fetch_url timed out after {timeout_seconds} seconds"))
     };
 
-    // Try headless browser for JS-rendered content, fall back to raw HTTP.
     let raw_html = if browser_available {
         match tokio::time::timeout(
             remaining_budget(started)?,
@@ -452,12 +460,12 @@ async fn fetch_raw_http(
 }
 
 /// Detected headless browser binary and its args for dump-dom mode.
-struct HeadlessBrowser {
-    kind: &'static str,
-    bin: String,
+pub(crate) struct HeadlessBrowser {
+    pub(crate) kind: &'static str,
+    pub(crate) bin: String,
     /// Extra args to produce DOM text on stdout for a given URL.
-    args_prefix: Vec<String>,
-    profile_dir_arg_prefix: Option<&'static str>,
+    pub(crate) args_prefix: Vec<String>,
+    pub(crate) profile_dir_arg_prefix: Option<&'static str>,
 }
 
 /// Resolve which headless browser to use.
@@ -480,7 +488,7 @@ fn resolve_browser_for_profile(preference: &str) -> Option<HeadlessBrowser> {
     }
 }
 
-fn detect_lightpanda() -> Option<HeadlessBrowser> {
+pub(crate) fn detect_lightpanda() -> Option<HeadlessBrowser> {
     which::which("lightpanda").ok().map(|path| HeadlessBrowser {
         kind: "lightpanda",
         bin: path.to_string_lossy().to_string(),
@@ -493,7 +501,7 @@ fn detect_lightpanda() -> Option<HeadlessBrowser> {
     })
 }
 
-fn detect_chrome() -> Option<HeadlessBrowser> {
+pub(crate) fn detect_chrome() -> Option<HeadlessBrowser> {
     let candidates = [
         "google-chrome-stable",
         "google-chrome",
@@ -554,7 +562,7 @@ async fn fetch_with_headless_browser(
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-fn build_headless_browser_args(
+pub(crate) fn build_headless_browser_args(
     browser: &HeadlessBrowser,
     url: &str,
     profile_dir: Option<&str>,
@@ -579,7 +587,7 @@ fn build_headless_browser_args(
     Ok(args)
 }
 
-async fn resolve_fetch_browser_profile(
+pub(crate) async fn resolve_fetch_browser_profile(
     agent: &AgentEngine,
     profile_id: &str,
 ) -> Result<crate::history::BrowserProfileRow> {
@@ -608,17 +616,17 @@ async fn resolve_fetch_browser_profile(
     Ok(profile)
 }
 
-async fn record_browser_profile_fetch_success(
+pub(crate) async fn record_browser_profile_fetch_success(
     agent: &AgentEngine,
     profile: &crate::history::BrowserProfileRow,
 ) -> Result<()> {
     let health_state = crate::agent::types::BrowserProfileHealth::from_str(&profile.health_state)
         .ok_or_else(|| {
-            anyhow::anyhow!(
-                "invalid persisted browser profile health state: {}",
-                profile.health_state
-            )
-        })?;
+        anyhow::anyhow!(
+            "invalid persisted browser profile health state: {}",
+            profile.health_state
+        )
+    })?;
     let now = crate::agent::now_millis();
     let updated = crate::agent::types::BrowserProfile {
         profile_id: profile.profile_id.clone(),
@@ -637,6 +645,3 @@ async fn record_browser_profile_fetch_success(
     agent.history.upsert_browser_profile(&updated).await
 }
 
-// ---------------------------------------------------------------------------
-// Web browsing setup tool
-// ---------------------------------------------------------------------------

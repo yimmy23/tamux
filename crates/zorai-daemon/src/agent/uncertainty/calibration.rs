@@ -75,7 +75,6 @@ impl CalibrationTracker {
             return band;
         }
 
-        // Conservative shift: one step more cautious
         match band {
             ConfidenceBand::Confident => ConfidenceBand::Likely,
             ConfidenceBand::Likely => ConfidenceBand::Uncertain,
@@ -137,13 +136,10 @@ mod tests {
     #[test]
     fn get_calibrated_band_conservative_shift_below_threshold() {
         let tracker = CalibrationTracker::new(50);
-        // No observations -> should shift conservatively
-        // HIGH (Confident) -> MEDIUM (Likely)
         assert_eq!(
             tracker.get_calibrated_band(ConfidenceBand::Confident),
             ConfidenceBand::Likely
         );
-        // MEDIUM (Likely) -> LOW (Uncertain)
         assert_eq!(
             tracker.get_calibrated_band(ConfidenceBand::Likely),
             ConfidenceBand::Uncertain
@@ -153,11 +149,9 @@ mod tests {
     #[test]
     fn get_calibrated_band_unchanged_above_threshold() {
         let mut tracker = CalibrationTracker::new(50);
-        // Add 50 observations for Confident
         for i in 0..50 {
             tracker.record_observation(ConfidenceBand::Confident, true, i as u64);
         }
-        // Now should return band unchanged
         assert_eq!(
             tracker.get_calibrated_band(ConfidenceBand::Confident),
             ConfidenceBand::Confident
@@ -167,11 +161,9 @@ mod tests {
     #[test]
     fn calibration_stats_returns_counts_and_accuracy() {
         let mut tracker = CalibrationTracker::new(50);
-        // 3 HIGH: 2 success, 1 failure
         tracker.record_observation(ConfidenceBand::Confident, true, 1);
         tracker.record_observation(ConfidenceBand::Confident, true, 2);
         tracker.record_observation(ConfidenceBand::Confident, false, 3);
-        // 1 LOW: 0 success
         tracker.record_observation(ConfidenceBand::Uncertain, false, 4);
 
         let stats = tracker.calibration_stats();

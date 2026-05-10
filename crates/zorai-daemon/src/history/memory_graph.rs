@@ -340,4 +340,73 @@ impl HistoryStore {
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
+
+    /// Batched cluster-summary lookup for the BFS in `query_memory_graph`.
+    /// The caller iterates a set of visited nodes and only consumes
+    /// `cluster.summary_text` — it doesn't need the full member list. Per-
+    /// node `list_memory_clusters_for_node` was an N+1 (one query per
+    /// visited node, plus an inner per-cluster member-list query that was
+    /// dead code for this caller). This single query returns up to
+    /// `limit_per_node` summary strings per node, deduped across the
+    /// requested set.
+    pub async fn list_memory_cluster_summaries_for_nodes(
+        &self,
+        node_ids: &[String],
+        limit_per_node: usize,
+    ) -> Result<Vec<String>> {
+        if node_ids.is_empty() || limit_per_node == 0 {
+            return Ok(Vec::new());
+        }
+        let node_ids = node_ids.to_vec();
+        let limit_per_node = limit_per_node as i64;
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(node_ids.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "WITH ranked AS (
+                         SELECT
+                             m.node_id,
+                             c.summary_text,
+                             ROW_NUMBER() OVER (
+                                 PARTITION BY m.node_id
+                                 ORDER BY c.created_at_ms DESC, c.id DESC
+                             ) AS rn
+                         FROM memory_cluster_members m
+                         JOIN memory_graph_clusters c ON c.id = m.cluster_id
+                         WHERE m.node_id IN ({placeholders})
+                           AND m.deleted_at IS NULL
+                     )
+                     SELECT summary_text
+                     FROM ranked
+                     WHERE rn <= ?{limit_param}
+                       AND summary_text IS NOT NULL
+                       AND length(summary_text) > 0",
+                    limit_param = node_ids.len() + 1
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let mut params: Vec<rusqlite::types::Value> = node_ids
+                    .into_iter()
+                    .map(rusqlite::types::Value::Text)
+                    .collect();
+                params.push(rusqlite::types::Value::Integer(limit_per_node));
+                let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
+                    row.get::<_, Option<String>>(0)
+                })?;
+                let mut seen = std::collections::HashSet::new();
+                let mut deduped: Vec<String> = Vec::new();
+                for row in rows {
+                    if let Some(summary) = row? {
+                        if seen.insert(summary.clone()) {
+                            deduped.push(summary);
+                        }
+                    }
+                }
+                Ok(deduped)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
 }

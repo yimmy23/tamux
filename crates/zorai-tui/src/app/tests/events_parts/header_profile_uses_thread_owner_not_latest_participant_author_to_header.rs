@@ -1,3 +1,10 @@
+use super::done_event_persists_final_reasoning_into_chat_message_to_mission_control::*;
+use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
+use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn header_profile_uses_thread_owner_not_latest_participant_author() {
     let mut model = make_model();
@@ -470,4 +477,3 @@ fn header_uses_goal_thread_usage_when_goal_run_thread_exists() {
     assert_ne!(usage.total_thread_tokens, 2_000);
     assert_ne!(usage.total_cost_usd, Some(9.99));
 }
-

@@ -1,4 +1,8 @@
+use super::clicking_footer_queue_indicator_opens_queued_prompts_modal::sample_notification;
+use super::thread_picker_playgrounds_new_row_is_browse_only_to_slash_effort_updates::seed_active_weles_thread;
 use super::*;
+use crate::app::*;
+use crate::state::*;
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::Terminal;
@@ -9,7 +13,7 @@ use zorai_shared::providers::{
     PROVIDER_ID_QWEN, PROVIDER_ID_XAI,
 };
 
-fn make_model() -> (
+pub(super) fn make_model() -> (
     TuiModel,
     tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) {
@@ -18,7 +22,7 @@ fn make_model() -> (
     (TuiModel::new(event_rx, daemon_tx), daemon_rx)
 }
 
-fn make_goal_run(
+pub(super) fn make_goal_run(
     id: &str,
     title: &str,
     status: crate::state::task::GoalRunStatus,
@@ -32,7 +36,7 @@ fn make_goal_run(
     }
 }
 
-fn make_goal_run_with_steps(
+pub(super) fn make_goal_run_with_steps(
     id: &str,
     title: &str,
     status: crate::state::task::GoalRunStatus,
@@ -48,7 +52,7 @@ fn make_goal_run_with_steps(
     }
 }
 
-fn next_goal_run_detail_request(
+pub(super) fn next_goal_run_detail_request(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> Option<String> {
     while let Ok(command) = daemon_rx.try_recv() {
@@ -59,7 +63,7 @@ fn next_goal_run_detail_request(
     None
 }
 
-fn next_goal_run_checkpoints_request(
+pub(super) fn next_goal_run_checkpoints_request(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> Option<String> {
     while let Ok(command) = daemon_rx.try_recv() {
@@ -70,7 +74,7 @@ fn next_goal_run_checkpoints_request(
     None
 }
 
-fn next_goal_hydration_schedule(
+pub(super) fn next_goal_hydration_schedule(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> Option<String> {
     while let Ok(command) = daemon_rx.try_recv() {
@@ -81,7 +85,7 @@ fn next_goal_hydration_schedule(
     None
 }
 
-fn seed_goal_sidebar_model() -> (
+pub(super) fn seed_goal_sidebar_model() -> (
     TuiModel,
     tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) {
@@ -182,7 +186,7 @@ fn seed_goal_sidebar_model() -> (
     (model, daemon_rx)
 }
 
-fn render_screen(model: &mut TuiModel) -> Vec<String> {
+pub(super) fn render_screen(model: &mut TuiModel) -> Vec<String> {
     let backend = TestBackend::new(model.width, model.height);
     let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
     terminal
@@ -199,7 +203,7 @@ fn render_screen(model: &mut TuiModel) -> Vec<String> {
         .collect()
 }
 
-fn collect_daemon_commands(
+pub(super) fn collect_daemon_commands(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
 ) -> Vec<DaemonCommand> {
     let mut commands = Vec::new();
@@ -209,7 +213,7 @@ fn collect_daemon_commands(
     commands
 }
 
-fn seed_goal_approval_overlay(
+pub(super) fn seed_goal_approval_overlay(
     model: &mut TuiModel,
     approval_id: &str,
     goal_run_id: &str,
@@ -264,7 +268,7 @@ fn seed_goal_approval_overlay(
         .reduce(modal::ModalAction::Push(modal::ModalKind::ApprovalOverlay));
 }
 
-fn sample_subagent(id: &str, name: &str, builtin: bool) -> crate::state::SubAgentEntry {
+pub(super) fn sample_subagent(id: &str, name: &str, builtin: bool) -> crate::state::SubAgentEntry {
     crate::state::SubAgentEntry {
         id: id.to_string(),
         name: name.to_string(),
@@ -285,7 +289,7 @@ fn sample_subagent(id: &str, name: &str, builtin: bool) -> crate::state::SubAgen
     }
 }
 
-fn navigate_model_picker_to(model: &mut TuiModel, model_id: &str) {
+pub(super) fn navigate_model_picker_to(model: &mut TuiModel, model_id: &str) {
     let index = model
         .available_model_picker_models()
         .iter()
@@ -298,7 +302,7 @@ fn navigate_model_picker_to(model: &mut TuiModel, model_id: &str) {
     }
 }
 
-fn make_runtime_assignment(
+pub(super) fn make_runtime_assignment(
     role_id: &str,
     provider: &str,
     model: &str,
@@ -314,7 +318,7 @@ fn make_runtime_assignment(
     }
 }
 
-fn make_goal_owner_profile(
+pub(super) fn make_goal_owner_profile(
     agent_label: &str,
     provider: &str,
     model: &str,
@@ -329,7 +333,7 @@ fn make_goal_owner_profile(
 }
 
 #[test]
-fn whatsapp_modal_esc_sends_stop_and_closes() {
+pub(super) fn whatsapp_modal_esc_sends_stop_and_closes() {
     let (mut model, mut daemon_rx) = make_model();
     model
         .modal
@@ -354,7 +358,7 @@ fn whatsapp_modal_esc_sends_stop_and_closes() {
 }
 
 #[test]
-fn whatsapp_modal_esc_keeps_connected_session_running() {
+pub(super) fn whatsapp_modal_esc_keeps_connected_session_running() {
     let (mut model, mut daemon_rx) = make_model();
     model
         .modal
@@ -378,7 +382,7 @@ fn whatsapp_modal_esc_keeps_connected_session_running() {
 }
 
 #[test]
-fn whatsapp_modal_cancel_sends_stop_and_closes() {
+pub(super) fn whatsapp_modal_cancel_sends_stop_and_closes() {
     let (mut model, mut daemon_rx) = make_model();
     model
         .modal
@@ -402,7 +406,7 @@ fn whatsapp_modal_cancel_sends_stop_and_closes() {
 }
 
 #[test]
-fn command_palette_tools_opens_settings_tools_tab() {
+pub(super) fn command_palette_tools_opens_settings_tools_tab() {
     let (mut model, mut daemon_rx) = make_model();
     model
         .modal
@@ -445,7 +449,7 @@ fn command_palette_tools_opens_settings_tools_tab() {
 }
 
 #[test]
-fn clicking_rendered_settings_tab_switches_tabs() {
+pub(super) fn clicking_rendered_settings_tab_switches_tabs() {
     let (mut model, _daemon_rx) = make_model();
     model.width = 100;
     model.height = 40;
@@ -472,4 +476,3 @@ fn clicking_rendered_settings_tab_switches_tabs() {
 
     assert_eq!(model.settings.active_tab(), SettingsTab::Chat);
 }
-

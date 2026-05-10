@@ -1,3 +1,5 @@
+use super::*;
+
 fn make_model_with_daemon_rx_for_multithread_tests() -> (
     TuiModel,
     tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
@@ -78,7 +80,8 @@ fn active_thread_activity_uses_sticky_chat_row_not_input_placeholder() {
         .join("\n");
 
     assert!(
-        rows.get(activity_row).is_some_and(|row| row.contains("thinking")),
+        rows.get(activity_row)
+            .is_some_and(|row| row.contains("thinking")),
         "activity should render in the sticky chat row: {}",
         rows.join("\n")
     );
@@ -102,24 +105,26 @@ fn sticky_thread_activity_uses_generic_phase_labels_with_top_padding() {
         .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
 
     model.set_active_thread_activity("reasoning");
-    model.tick_counter = 0; // Ensure the first variant is selected
+    model.tick_counter = 0;
     let input_start_row = model.height.saturating_sub(model.input_height() + 1);
     let padding_row = input_start_row.saturating_sub(2) as usize;
     let activity_row = input_start_row.saturating_sub(1) as usize;
     let rows = render_plain_rows(&mut model);
     assert!(
-        rows.get(padding_row).is_some_and(|row| row.trim().is_empty()),
+        rows.get(padding_row)
+            .is_some_and(|row| row.trim().is_empty()),
         "sticky activity should reserve a small top spacer: {}",
         rows.join("\n")
     );
     assert!(
-        rows.get(activity_row).is_some_and(|row| row.contains("thinking")),
+        rows.get(activity_row)
+            .is_some_and(|row| row.contains("thinking")),
         "reasoning activity should use a generic thinking label: {}",
         rows.join("\n")
     );
 
     model.set_active_thread_activity("⚙  fetch_gateway_history");
-    model.tick_counter = 0; // Ensure the first variant is selected
+    model.tick_counter = 0;
     let rows = render_plain_rows(&mut model);
     assert!(
         rows.get(activity_row)
@@ -133,10 +138,11 @@ fn sticky_thread_activity_uses_generic_phase_labels_with_top_padding() {
     );
 
     model.set_active_thread_activity("writing");
-    model.tick_counter = 0; // Ensure the first variant is selected
+    model.tick_counter = 0;
     let rows = render_plain_rows(&mut model);
     assert!(
-        rows.get(activity_row).is_some_and(|row| row.contains("crafting")),
+        rows.get(activity_row)
+            .is_some_and(|row| row.contains("crafting")),
         "message delta activity should use a generic crafting label: {}",
         rows.join("\n")
     );
@@ -265,7 +271,8 @@ fn stale_done_before_first_stream_does_not_clear_pending_prompt_activity() {
 
     assert_eq!(model.footer_activity_text().as_deref(), Some("thinking"));
     assert!(
-        model.pending_prompt_response_threads
+        model
+            .pending_prompt_response_threads
             .contains("thread-user"),
         "submitted prompt should mark the thread as awaiting first response activity"
     );
@@ -289,7 +296,8 @@ fn stale_done_before_first_stream_does_not_clear_pending_prompt_activity() {
         "a done event before first output should not clear pending prompt activity"
     );
     assert!(
-        model.pending_prompt_response_threads
+        model
+            .pending_prompt_response_threads
             .contains("thread-user"),
         "stale done should leave first-response pending state intact"
     );
@@ -328,6 +336,91 @@ fn background_delta_isolated_to_origin_thread_until_switch() {
 
     assert_eq!(model.footer_activity_text().as_deref(), Some("writing"));
     assert_eq!(model.chat.streaming_content(), "background partial");
+}
+
+#[test]
+fn pumping_daemon_events_stops_after_first_active_streaming_delta() {
+    let (daemon_tx, daemon_rx) = std::sync::mpsc::channel();
+    let (cmd_tx, _cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    seed_two_visible_threads(&mut model);
+
+    daemon_tx
+        .send(ClientEvent::Delta {
+            thread_id: "thread-user".to_string(),
+            content: "Hel".to_string(),
+        })
+        .expect("delta should enqueue");
+    daemon_tx
+        .send(ClientEvent::Delta {
+            thread_id: "thread-user".to_string(),
+            content: "lo".to_string(),
+        })
+        .expect("second delta should enqueue");
+    daemon_tx
+        .send(ClientEvent::Done {
+            thread_id: "thread-user".to_string(),
+            input_tokens: 1,
+            output_tokens: 1,
+            cost: None,
+            provider: None,
+            model: None,
+            tps: None,
+            generation_ms: None,
+            reasoning: None,
+            provider_final_result_json: None,
+        })
+        .expect("done should enqueue");
+
+    let processed = model.pump_daemon_events_budgeted(32);
+
+    assert_eq!(
+        processed, 1,
+        "streaming frames should flush after the first delta"
+    );
+    assert_eq!(model.chat.streaming_content(), "Hel");
+
+    let processed_after = model.pump_daemon_events_budgeted(32);
+    assert_eq!(
+        processed_after, 1,
+        "next frame should advance the stream incrementally"
+    );
+    assert_eq!(model.chat.streaming_content(), "Hello");
+}
+
+#[test]
+fn pumping_daemon_events_does_not_pause_on_background_event_during_active_stream() {
+    let (daemon_tx, daemon_rx) = std::sync::mpsc::channel();
+    let (cmd_tx, _cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    seed_two_visible_threads(&mut model);
+
+    model.handle_client_event(ClientEvent::Delta {
+        thread_id: "thread-user".to_string(),
+        content: "Hel".to_string(),
+    });
+
+    daemon_tx
+        .send(ClientEvent::Delta {
+            thread_id: "thread-other".to_string(),
+            content: "background".to_string(),
+        })
+        .expect("background delta should enqueue");
+    daemon_tx
+        .send(ClientEvent::Delta {
+            thread_id: "thread-user".to_string(),
+            content: "lo".to_string(),
+        })
+        .expect("foreground delta should enqueue");
+
+    let processed = model.pump_daemon_events_budgeted(32);
+
+    assert_eq!(
+        processed, 2,
+        "background traffic should not prevent the next visible delta from being rendered"
+    );
+    assert_eq!(model.chat.streaming_content(), "Hello");
+    assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
 }
 
 #[test]
@@ -461,7 +554,10 @@ fn background_done_finalizes_origin_thread_without_clearing_selected_thread_busy
         .chat
         .active_thread()
         .expect("background thread should exist");
-    let last_message = thread.messages.last().expect("done should append assistant");
+    let last_message = thread
+        .messages
+        .last()
+        .expect("done should append assistant");
     assert_eq!(last_message.content, "background answer");
     assert!(model.footer_activity_text().is_none());
 }
@@ -649,7 +745,9 @@ fn cached_chat_render_does_not_reuse_previous_thread_after_spawned_navigation() 
     let root_rows = render_plain_rows(&mut model).join("\n");
     assert!(root_rows.contains("root-only transcript"));
 
-    assert!(model.chat.open_spawned_thread("thread-root", "thread-child"));
+    assert!(model
+        .chat
+        .open_spawned_thread("thread-root", "thread-child"));
 
     let child_rows = render_plain_rows(&mut model).join("\n");
     assert!(
@@ -681,9 +779,9 @@ fn paginated_thread_list_refresh_preserves_selected_thread_missing_from_page() {
             ..Default::default()
         },
     });
-    model
-        .chat
-        .reduce(chat::ChatAction::SelectThread("thread-selected".to_string()));
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-selected".to_string(),
+    ));
 
     model.handle_client_event(ClientEvent::ThreadList(vec![crate::wire::AgentThread {
         id: "thread-running".to_string(),
@@ -749,9 +847,9 @@ fn paginated_thread_list_refresh_preserves_other_loaded_threads() {
             ..Default::default()
         },
     });
-    model
-        .chat
-        .reduce(chat::ChatAction::SelectThread("thread-selected".to_string()));
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-selected".to_string(),
+    ));
 
     model.handle_client_event(ClientEvent::ThreadList(vec![crate::wire::AgentThread {
         id: "thread-running".to_string(),

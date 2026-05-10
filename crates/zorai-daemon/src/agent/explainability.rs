@@ -15,9 +15,6 @@ use serde::{Deserialize, Serialize};
 use super::engine::AgentEngine;
 use crate::agent::learning::traces::{CausalFactor, DecisionOption};
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /// Structured response to a "Why did you do that?" query (EXPL-01, EXPL-02).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,9 +43,6 @@ pub struct AlternativeConsidered {
     pub rejection_reason: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// AgentEngine handler
-// ---------------------------------------------------------------------------
 
 impl AgentEngine {
     /// Handle a "Why did you do that?" query for a past action (EXPL-01, EXPL-02).
@@ -63,22 +57,18 @@ impl AgentEngine {
         action_id: &str,
         step_index: Option<usize>,
     ) -> ExplanationResponse {
-        // 1. Try causal traces
         if let Some(response) = self.explain_from_causal_traces(action_id, step_index).await {
             return response;
         }
 
-        // 2. Try episodic memory
         if let Some(response) = self.explain_from_episodic(action_id).await {
             return response;
         }
 
-        // 3. Try negative knowledge
         if let Some(response) = self.explain_from_negative_knowledge(action_id).await {
             return response;
         }
 
-        // 4. Fallback -- always return something (research Pitfall 4)
         ExplanationResponse {
             action_id: action_id.to_string(),
             decision_point: "unknown".to_string(),
@@ -105,10 +95,7 @@ impl AgentEngine {
             return None;
         }
 
-        // If step_index is provided, try to find a trace for that specific step
         let trace = if let Some(idx) = step_index {
-            // Filter traces that have a task_id (step-level), sort them chronologically,
-            // then pick the requested step index so step 0 means the earliest step.
             let mut step_traces: Vec<_> = traces.iter().filter(|t| t.task_id.is_some()).collect();
             step_traces.sort_by_key(|trace| trace.created_at);
             if let Some(trace) = step_traces.get(idx).copied() {
@@ -127,14 +114,11 @@ impl AgentEngine {
             traces.first()
         }?;
 
-        // Parse selected option
         let selected: DecisionOption = serde_json::from_str(&trace.selected_json).ok()?;
 
-        // Parse rejected options
         let rejected: Vec<DecisionOption> =
             serde_json::from_str(&trace.rejected_options_json).unwrap_or_default();
 
-        // Parse causal factors
         let factors: Vec<CausalFactor> =
             serde_json::from_str(&trace.causal_factors_json).unwrap_or_default();
 
@@ -160,7 +144,6 @@ impl AgentEngine {
 
     /// Try to build an explanation from episodic memory.
     async fn explain_from_episodic(&self, action_id: &str) -> Option<ExplanationResponse> {
-        // Query episodes for this goal_run_id
         let episodes = self.list_episodes_for_goal_run(action_id).await.ok()?;
 
         if episodes.is_empty() {
@@ -221,9 +204,6 @@ impl AgentEngine {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

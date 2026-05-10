@@ -54,18 +54,50 @@ impl AgentEngine {
     pub(super) async fn check_stuck_goal_runs(&self, threshold_hours: u64) -> HeartbeatCheckResult {
         let now = now_millis();
         let threshold_ms = threshold_hours * 3600 * 1000;
-        let goal_runs = self.goal_runs.lock().await;
-        let stuck: Vec<CheckDetail> = goal_runs
+        let stuck_statuses = [
+            GoalRunStatus::Running,
+            GoalRunStatus::Planning,
+            GoalRunStatus::AwaitingApproval,
+        ];
+        let cutoff = now.saturating_sub(threshold_ms);
+        let mut goal_runs = match self
+            .history
+            .list_goal_run_stuck_check_refs_updated_before(&stuck_statuses, cutoff)
+            .await
+        {
+            Ok(goal_runs) => goal_runs,
+            Err(error) => {
+                tracing::warn!("failed to query persisted stuck goal run refs: {error}");
+                self.history
+                    .list_goal_runs_for_statuses_updated_before(&stuck_statuses, cutoff)
+                    .await
+                    .map(|goal_runs| {
+                        goal_runs
+                            .iter()
+                            .map(crate::history::GoalRunStuckCheckRef::from)
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+        };
+        let mut seen_goal_ids = goal_runs
             .iter()
-            .filter(|g| {
-                matches!(
-                    g.status,
-                    GoalRunStatus::Running
-                        | GoalRunStatus::Planning
-                        | GoalRunStatus::AwaitingApproval
-                )
-            })
-            .filter(|g| now.saturating_sub(g.updated_at) >= threshold_ms)
+            .map(|goal_run| goal_run.id.clone())
+            .collect::<HashSet<_>>();
+        {
+            let live_goal_runs = self.goal_runs.lock().await;
+            for goal_run in live_goal_runs.iter().filter(|goal_run| {
+                stuck_statuses.contains(&goal_run.status)
+                    && now.saturating_sub(goal_run.updated_at) >= threshold_ms
+            }) {
+                if seen_goal_ids.insert(goal_run.id.clone()) {
+                    goal_runs.push(crate::history::GoalRunStuckCheckRef::from(goal_run));
+                }
+            }
+        }
+
+        let stuck: Vec<CheckDetail> = goal_runs
+            .into_iter()
             .map(|g| {
                 let age_h = (now.saturating_sub(g.updated_at)) as f64 / 3_600_000.0;
                 CheckDetail {
@@ -124,17 +156,14 @@ impl AgentEngine {
         let now = now_millis();
         let threshold_ms = threshold_hours * 3600 * 1000;
 
-        // Read gateway_threads for sender context (maps thread_id -> gateway channel key)
         let gateway_threads = self.gateway_threads.read().await;
 
-        // Read gateway_state for last_incoming_at and last_response_at
         let gw_lock = self.gateway_state.lock().await;
 
         let mut unreplied: Vec<CheckDetail> = Vec::new();
 
         if let Some(gw) = gw_lock.as_ref() {
             for (channel_key, &incoming_at) in &gw.last_incoming_at {
-                // Check if we've responded after the incoming message
                 let responded = gw
                     .last_response_at
                     .get(channel_key)
@@ -145,8 +174,6 @@ impl AgentEngine {
                     continue;
                 }
 
-                // Check if the incoming message is old enough to flag
-                // (prevents flagging messages that just arrived)
                 let elapsed_ms = now.saturating_sub(incoming_at);
                 if elapsed_ms < threshold_ms {
                     continue;
@@ -154,7 +181,6 @@ impl AgentEngine {
 
                 let age_h = elapsed_ms as f64 / 3_600_000.0;
 
-                // Try to find sender info from gateway_threads
                 let sender = gateway_threads
                     .iter()
                     .find(|(_, v)| v.as_str() == channel_key)
@@ -204,7 +230,6 @@ impl AgentEngine {
     /// Uses spawn_blocking to avoid blocking the tokio reactor.
     pub(super) async fn check_repo_changes(&self) -> HeartbeatCheckResult {
         let data_dir = self.data_dir.clone();
-        // Find the parent of data_dir as the likely project root
         let repo_path = data_dir
             .parent()
             .and_then(|p| p.parent())
@@ -222,7 +247,6 @@ impl AgentEngine {
             }
         };
 
-        // Check if git is available on PATH
         let has_git = which::which("git").is_ok();
         if !has_git {
             return HeartbeatCheckResult {
@@ -233,7 +257,6 @@ impl AgentEngine {
             };
         }
 
-        // Run git status in spawn_blocking to avoid blocking the reactor (Pitfall 2)
         let path_clone = repo_path.clone();
         let git_info = match tokio::task::spawn_blocking(move || {
             crate::git::get_git_status(&path_clone)
@@ -379,7 +402,10 @@ impl AgentEngine {
         issues: &[crate::plugin::PluginAuthHealthIssue],
     ) {
         let now = now_millis() as i64;
-        let existing = self.history.list_notifications(true, Some(500)).await;
+        let existing = self
+            .history
+            .list_notifications_by_source("plugin_auth", true, Some(500))
+            .await;
         let Ok(existing) = existing else {
             return;
         };
@@ -449,20 +475,16 @@ impl AgentEngine {
             let _ = self.upsert_inbox_notification(notification.clone()).await;
         }
 
-        let active_ids: std::collections::HashSet<&str> = active_notifications
+        let active_ids = active_notifications
             .iter()
-            .map(|notification| notification.id.as_str())
-            .collect();
-
-        for mut notification in existing.into_iter().filter(|notification| {
-            notification.source == "plugin_auth"
-                && notification.archived_at.is_none()
-                && notification.deleted_at.is_none()
-                && !active_ids.contains(notification.id.as_str())
-        }) {
-            notification.archived_at = Some(now);
-            notification.updated_at = now;
-            let _ = self.upsert_inbox_notification(notification).await;
+            .map(|notification| notification.id.clone())
+            .collect::<Vec<_>>();
+        if let Err(error) = self
+            .history
+            .archive_notifications_by_source_except_ids("plugin_auth", &active_ids, now)
+            .await
+        {
+            tracing::warn!(%error, "failed to archive stale plugin auth notifications");
         }
     }
 }

@@ -244,10 +244,7 @@ pub(crate) async fn prepare_tool_result_thread_message_with_arguments(
         };
     }
 
-    if threshold_bytes == 0
-        || byte_size <= threshold_bytes
-        || result.name == zorai_protocol::tool_names::READ_OFFLOADED_PAYLOAD
-    {
+    if threshold_bytes == 0 || byte_size <= threshold_bytes {
         return PreparedToolResultThreadMessage {
             content: raw_payload,
             offloaded_payload_id: None,
@@ -515,10 +512,7 @@ impl<'a> SendMessageRunner<'a> {
             .await;
 
         if let Some(task_id) = self.task_id {
-            let task_snapshot = {
-                let tasks = self.engine.tasks.lock().await;
-                tasks.iter().find(|task| task.id == task_id).cloned()
-            };
+            let task_snapshot = self.engine.task_by_id_for_turn_scope(task_id).await;
             if let Some(task_snapshot) = task_snapshot {
                 let scope = policy_scope_for_task(&self.tid, &task_snapshot);
                 if result.is_error

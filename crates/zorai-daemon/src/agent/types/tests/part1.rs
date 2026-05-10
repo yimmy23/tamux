@@ -1,3 +1,4 @@
+use super::super::*;
 use zorai_shared::providers::{
     PROVIDER_ID_ANTHROPIC, PROVIDER_ID_OPENAI, PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
     PROVIDER_ID_Z_AI_CODING_PLAN,
@@ -6,7 +7,6 @@ use zorai_shared::providers::{
 /// FOUN-05: Channel capacity is configurable via AgentConfig.
 #[test]
 fn configurable_channel_capacity() {
-    // Test defaults
     let json_minimal = r#"{}"#;
     let parsed: AgentConfig = serde_json::from_str(json_minimal).unwrap();
     assert_eq!(parsed.pty_channel_capacity, 1024);
@@ -21,7 +21,6 @@ fn configurable_channel_capacity() {
     assert_eq!(parsed.tool_call_delay_ms, 500);
     assert_eq!(parsed.llm_stream_chunk_timeout_secs, 300);
 
-    // Test serde roundtrip with custom values
     let json = r#"{"pty_channel_capacity": 2048, "agent_event_channel_capacity": 1024}"#;
     let parsed: AgentConfig = serde_json::from_str(json).unwrap();
     assert_eq!(parsed.pty_channel_capacity, 2048);
@@ -84,9 +83,6 @@ fn stream_chunk_timeout_defaults_to_five_minutes() {
 }
 
 /// FOUN-04: Circuit breaker AgentEvent variants serialize and deserialize correctly.
-// -----------------------------------------------------------------------
-// Heartbeat type contract tests (BEAT-01, BEAT-02, BEAT-04, BEAT-05)
-// -----------------------------------------------------------------------
 
 #[test]
 fn heartbeat_checks_config_deserializes_from_empty_json() {
@@ -104,7 +100,6 @@ fn heartbeat_checks_config_deserializes_from_empty_json() {
     assert!(cfg.unreplied_messages_cron.is_none());
     assert!(cfg.repo_changes_cron.is_none());
     assert!(cfg.plugin_auth_cron.is_none());
-    // BEAT-06: Priority weight fields default to 1.0
     assert!((cfg.stale_todos_priority_weight - 1.0).abs() < f64::EPSILON);
     assert!((cfg.stuck_goals_priority_weight - 1.0).abs() < f64::EPSILON);
     assert!((cfg.unreplied_messages_priority_weight - 1.0).abs() < f64::EPSILON);
@@ -215,7 +210,6 @@ fn heartbeat_digest_item_roundtrips_through_serde() {
 
 #[test]
 fn agent_config_backward_compat_new_heartbeat_fields() {
-    // JSON missing heartbeat_cron, heartbeat_checks, quiet_hours, dnd_enabled
     let json = r#"{}"#;
     let parsed: AgentConfig = serde_json::from_str(json).unwrap();
     assert!(parsed.heartbeat_cron.is_none());
@@ -395,7 +389,10 @@ fn z_ai_coding_plan_catalog_keeps_glm_5_default_and_includes_glm_5_1() {
 
     assert_eq!(provider.default_model, "glm-5");
     assert_eq!(provider.models.first().map(|model| model.id), Some("glm-5"));
-    assert_eq!(provider.models.get(1).map(|model| model.id), Some("glm-5.1"));
+    assert_eq!(
+        provider.models.get(1).map(|model| model.id),
+        Some("glm-5.1")
+    );
     assert_eq!(
         provider.models.get(1).map(|model| model.context_window),
         Some(204800)

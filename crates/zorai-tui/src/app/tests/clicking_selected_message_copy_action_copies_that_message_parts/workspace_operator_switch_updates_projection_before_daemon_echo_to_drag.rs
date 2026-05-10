@@ -1,3 +1,11 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use crate::app::tests::clicking_selected_message_copy_action_copies_that_message_to_click::in_review_open_action_opens_queued_review_task_thread_to_workspace::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 #[test]
 fn workspace_operator_switch_updates_projection_before_daemon_echo() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
@@ -5,11 +13,16 @@ fn workspace_operator_switch_updates_projection_before_daemon_echo() {
     let mut model = TuiModel::new(daemon_rx, cmd_tx);
     model
         .workspace
-        .set_settings(workspace_settings_for_operator(zorai_protocol::WorkspaceOperator::Svarog));
+        .set_settings(workspace_settings_for_operator(
+            zorai_protocol::WorkspaceOperator::Svarog,
+        ));
 
     model.switch_workspace_operator_from_ui(zorai_protocol::WorkspaceOperator::User);
 
-    assert_eq!(model.workspace.operator(), zorai_protocol::WorkspaceOperator::User);
+    assert_eq!(
+        model.workspace.operator(),
+        zorai_protocol::WorkspaceOperator::User
+    );
     assert_eq!(
         model.workspace.projection().operator,
         zorai_protocol::WorkspaceOperator::User
@@ -28,7 +41,9 @@ fn workspace_drag_todo_to_in_progress_moves_unassigned_task_without_running() {
     model.focus = FocusArea::Chat;
     model
         .workspace
-        .set_settings(workspace_settings_for_operator(zorai_protocol::WorkspaceOperator::User));
+        .set_settings(workspace_settings_for_operator(
+            zorai_protocol::WorkspaceOperator::User,
+        ));
     model.workspace.set_tasks(
         "main".to_string(),
         vec![workspace_task_for_board(
@@ -68,11 +83,17 @@ fn workspace_drag_todo_to_in_progress_moves_unassigned_task_without_running() {
     match cmd_rx.try_recv() {
         Ok(DaemonCommand::MoveWorkspaceTask(request)) => {
             assert_eq!(request.task_id, "todo-1");
-            assert_eq!(request.status, zorai_protocol::WorkspaceTaskStatus::InProgress);
+            assert_eq!(
+                request.status,
+                zorai_protocol::WorkspaceTaskStatus::InProgress
+            );
         }
         other => panic!("expected move command, got {other:?}"),
     }
-    assert!(cmd_rx.try_recv().is_err(), "drag should not auto-run unassigned tasks");
+    assert!(
+        cmd_rx.try_recv().is_err(),
+        "drag should not auto-run unassigned tasks"
+    );
 }
 
 #[test]
@@ -87,7 +108,9 @@ fn workspace_drag_from_collapsed_action_row_moves_task() {
     model.focus = FocusArea::Chat;
     model
         .workspace
-        .set_settings(workspace_settings_for_operator(zorai_protocol::WorkspaceOperator::User));
+        .set_settings(workspace_settings_for_operator(
+            zorai_protocol::WorkspaceOperator::User,
+        ));
     model.workspace.set_tasks(
         "main".to_string(),
         vec![workspace_task_for_board(
@@ -148,11 +171,17 @@ fn workspace_drag_from_collapsed_action_row_moves_task() {
     match cmd_rx.try_recv() {
         Ok(DaemonCommand::MoveWorkspaceTask(request)) => {
             assert_eq!(request.task_id, "todo-1");
-            assert_eq!(request.status, zorai_protocol::WorkspaceTaskStatus::InProgress);
+            assert_eq!(
+                request.status,
+                zorai_protocol::WorkspaceTaskStatus::InProgress
+            );
         }
         other => panic!("expected move command, got {other:?}"),
     }
-    assert!(cmd_rx.try_recv().is_err(), "drag should not auto-run unassigned tasks");
+    assert!(
+        cmd_rx.try_recv().is_err(),
+        "drag should not auto-run unassigned tasks"
+    );
 }
 
 #[test]
@@ -167,7 +196,9 @@ fn workspace_task_open_thread_renders_return_to_workspace_and_b_restores_board()
     model.focus = FocusArea::Chat;
     model
         .workspace
-        .set_settings(workspace_settings_for_operator(zorai_protocol::WorkspaceOperator::User));
+        .set_settings(workspace_settings_for_operator(
+            zorai_protocol::WorkspaceOperator::User,
+        ));
     model.chat.reduce(chat::ChatAction::ThreadCreated {
         thread_id: "workspace-thread:thread-task".to_string(),
         title: "Workspace task thread".to_string(),
@@ -223,7 +254,9 @@ fn workspace_task_open_thread_uses_subagent_assignee_as_responder_hint() {
     });
     model
         .workspace
-        .set_settings(workspace_settings_for_operator(zorai_protocol::WorkspaceOperator::User));
+        .set_settings(workspace_settings_for_operator(
+            zorai_protocol::WorkspaceOperator::User,
+        ));
     model.chat.reduce(chat::ChatAction::ThreadCreated {
         thread_id: "workspace-thread:dola-task".to_string(),
         title: "Workspace task thread".to_string(),
@@ -262,7 +295,9 @@ fn workspace_task_open_goal_renders_return_to_workspace_and_b_restores_board() {
     model.focus = FocusArea::Chat;
     model
         .workspace
-        .set_settings(workspace_settings_for_operator(zorai_protocol::WorkspaceOperator::User));
+        .set_settings(workspace_settings_for_operator(
+            zorai_protocol::WorkspaceOperator::User,
+        ));
     let mut workspace_task = workspace_task_for_board(
         "goal-task",
         zorai_protocol::WorkspaceTaskStatus::InProgress,

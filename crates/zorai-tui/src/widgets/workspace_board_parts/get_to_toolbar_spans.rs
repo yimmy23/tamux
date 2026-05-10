@@ -1,20 +1,20 @@
+use super::*;
+use crate::state::workspace::WorkspaceState;
+use crate::theme::ThemeTokens;
 use ratatui::prelude::*;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use std::collections::HashSet;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-
-use crate::state::workspace::WorkspaceState;
-use crate::theme::ThemeTokens;
 use zorai_protocol::WorkspaceTaskStatus;
 
-const TASK_COLLAPSED_ROW_HEIGHT: u16 = 7;
-const TASK_EXPANDED_ROW_HEIGHT: u16 = 11;
-const TASK_PRIMARY_ACTION_ROW: u16 = 4;
-const TASK_SECONDARY_ACTION_ROW: u16 = 5;
-const TASK_ASSIGN_ACTION_ROW: u16 = 6;
-const TASK_DELETE_ACTION_ROW: u16 = 7;
-const TASK_TITLE_MAX_LINES: usize = 2;
+pub(crate) const TASK_COLLAPSED_ROW_HEIGHT: u16 = 7;
+pub(crate) const TASK_EXPANDED_ROW_HEIGHT: u16 = 11;
+pub(crate) const TASK_PRIMARY_ACTION_ROW: u16 = 4;
+pub(crate) const TASK_SECONDARY_ACTION_ROW: u16 = 5;
+pub(crate) const TASK_ASSIGN_ACTION_ROW: u16 = 6;
+pub(crate) const TASK_DELETE_ACTION_ROW: u16 = 7;
+pub(crate) const TASK_TITLE_MAX_LINES: usize = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkspaceBoardToolbarAction {
@@ -93,7 +93,7 @@ impl WorkspaceBoardScroll {
     }
 }
 
-pub fn render_with_scroll(
+pub(crate) fn render_with_scroll(
     frame: &mut Frame,
     area: Rect,
     workspace: &WorkspaceState,
@@ -151,7 +151,7 @@ pub fn render_with_scroll(
     }
 }
 
-pub fn selectable_targets(
+pub(crate) fn selectable_targets(
     workspace: &WorkspaceState,
     expanded_task_ids: &HashSet<String>,
 ) -> Vec<WorkspaceBoardHitTarget> {
@@ -207,7 +207,7 @@ pub fn selectable_targets(
     targets
 }
 
-pub fn step_selection(
+pub(crate) fn step_selection(
     workspace: &WorkspaceState,
     expanded_task_ids: &HashSet<String>,
     current: Option<&WorkspaceBoardHitTarget>,
@@ -225,7 +225,7 @@ pub fn step_selection(
     targets.get(next).cloned()
 }
 
-pub fn hit_test_with_scroll(
+pub(crate) fn hit_test_with_scroll(
     area: Rect,
     workspace: &WorkspaceState,
     expanded_task_ids: &HashSet<String>,
@@ -318,7 +318,7 @@ pub fn hit_test_with_scroll(
     None
 }
 
-pub fn column_status_at_position(
+pub(crate) fn column_status_at_position(
     area: Rect,
     workspace: &WorkspaceState,
     position: Position,
@@ -341,7 +341,7 @@ pub fn column_status_at_position(
     None
 }
 
-pub fn scroll_for_target(
+pub(crate) fn scroll_for_target(
     area: Rect,
     workspace: &WorkspaceState,
     expanded_task_ids: &HashSet<String>,
@@ -378,7 +378,7 @@ pub fn scroll_for_target(
     next
 }
 
-pub fn stepped_scroll_for_status(
+pub(crate) fn stepped_scroll_for_status(
     workspace: &WorkspaceState,
     current: &WorkspaceBoardScroll,
     status: &WorkspaceTaskStatus,
@@ -398,7 +398,7 @@ pub fn stepped_scroll_for_status(
     next
 }
 
-fn target_task(target: &WorkspaceBoardHitTarget) -> Option<(WorkspaceTaskStatus, &str)> {
+pub(crate) fn target_task(target: &WorkspaceBoardHitTarget) -> Option<(WorkspaceTaskStatus, &str)> {
     match target {
         WorkspaceBoardHitTarget::Task { task_id, status }
         | WorkspaceBoardHitTarget::Action {
@@ -408,7 +408,7 @@ fn target_task(target: &WorkspaceBoardHitTarget) -> Option<(WorkspaceTaskStatus,
     }
 }
 
-fn render_toolbar(
+pub(crate) fn render_toolbar(
     frame: &mut Frame,
     area: Rect,
     operator: zorai_protocol::WorkspaceOperator,
@@ -424,11 +424,11 @@ fn render_toolbar(
     let _ = label;
 }
 
-fn toolbar_label(operator: zorai_protocol::WorkspaceOperator) -> String {
+pub(crate) fn toolbar_label(operator: zorai_protocol::WorkspaceOperator) -> String {
     format!("[New task] [operator: {operator:?}]")
 }
 
-fn toolbar_spans(
+pub(crate) fn toolbar_spans(
     operator: zorai_protocol::WorkspaceOperator,
     selected: Option<&WorkspaceBoardHitTarget>,
     theme: &ThemeTokens,
@@ -459,4 +459,3 @@ fn toolbar_spans(
     })
     .collect()
 }
-

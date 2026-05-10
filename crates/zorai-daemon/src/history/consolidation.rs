@@ -123,7 +123,6 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    // ── Consolidation state CRUD (Phase 5) ───────────────────────────────
 
     pub async fn get_consolidation_state(&self, key: &str) -> Result<Option<String>> {
         let key = key.to_string();
@@ -137,6 +136,44 @@ impl HistoryStore {
                     )
                     .optional()?;
                 Ok(value)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// Batched variant of `get_consolidation_state`. Returns a map of
+    /// key -> value for the keys present in the table; missing keys are
+    /// simply absent from the map. Used by hydrate paths that previously
+    /// looped per-task with sequential `get_consolidation_state` awaits
+    /// (N+1 at daemon startup).
+    pub async fn get_consolidation_states_batch(
+        &self,
+        keys: &[String],
+    ) -> Result<std::collections::HashMap<String, String>> {
+        if keys.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let keys = keys.to_vec();
+        self.read_conn
+            .call(move |conn| {
+                let placeholders = std::iter::repeat("?")
+                    .take(keys.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let sql = format!(
+                    "SELECT key, value FROM consolidation_state \
+                     WHERE key IN ({placeholders}) AND deleted_at IS NULL"
+                );
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(keys.iter()), |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+                let mut out = std::collections::HashMap::with_capacity(keys.len());
+                for row in rows {
+                    let (key, value) = row?;
+                    out.insert(key, value);
+                }
+                Ok(out)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
@@ -187,6 +224,31 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn first_consolidation_state_by_prefix_value(
+        &self,
+        prefix: &str,
+        value: &str,
+    ) -> Result<Option<(String, String)>> {
+        let like = format!("{}%", prefix);
+        let value = value.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT key, value \
+                     FROM consolidation_state \
+                     WHERE key LIKE ?1 AND value = ?2 AND deleted_at IS NULL \
+                     ORDER BY updated_at ASC, key ASC \
+                     LIMIT 1",
+                    params![like, value],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     /// List skill variants matching a given status string, up to `limit` rows.
     pub async fn list_skill_variants_by_status(
         &self,
@@ -221,7 +283,6 @@ impl HistoryStore {
         super::page_skill_variants(variants, cursor, limit)
     }
 
-    // ── Successful trace queries (Phase 5) ───────────────────────────────
 
     pub async fn list_recent_successful_traces(
         &self,
@@ -249,6 +310,42 @@ impl HistoryStore {
             })?;
             rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn get_successful_execution_trace_by_id(
+        &self,
+        trace_id: &str,
+    ) -> Result<Option<ExecutionTraceRow>> {
+        let trace_id = trace_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms, tokens_used, created_at \
+                     FROM execution_traces \
+                     WHERE id = ?1 AND outcome = 'success' \
+                     LIMIT 1",
+                    params![trace_id],
+                    |row| {
+                        Ok(ExecutionTraceRow {
+                            id: row.get(0)?,
+                            goal_run_id: row.get(1)?,
+                            task_id: row.get(2)?,
+                            task_type: row.get(3)?,
+                            outcome: row.get(4)?,
+                            quality_score: row.get(5)?,
+                            tool_sequence_json: row.get(6)?,
+                            metrics_json: row.get(7)?,
+                            duration_ms: row.get(8)?,
+                            tokens_used: row.get(9)?,
+                            created_at: row.get(10)?,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn trace_has_skill_consultation(
@@ -337,10 +434,8 @@ impl HistoryStore {
                 let hits: Vec<_> = rows.filter_map(|r| r.ok()).collect();
                 let mut candidates = Vec::new();
 
-                // Find runs of 3+ successful commands within 5-minute windows
                 let mut run: Vec<HistorySearchHit> = Vec::new();
                 for hit in &hits {
-                    // Check if excerpt indicates success (exit=Some(0))
                     if hit.excerpt.contains("exit=Some(0)") {
                         if run.is_empty()
                             || (run.last().unwrap().timestamp.abs_diff(hit.timestamp) < 300)

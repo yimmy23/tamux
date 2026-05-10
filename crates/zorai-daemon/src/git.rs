@@ -35,7 +35,6 @@ pub fn get_git_status(path: &str) -> GitInfo {
         staged: 0,
     };
 
-    // Check if it's a git repo
     let branch = match Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .current_dir(path)
@@ -51,7 +50,6 @@ pub fn get_git_status(path: &str) -> GitInfo {
         _ => return default,
     };
 
-    // Get porcelain status
     let status_output = Command::new("git")
         .args(["status", "--porcelain=v1", "--branch"])
         .current_dir(path)
@@ -64,7 +62,6 @@ pub fn get_git_status(path: &str) -> GitInfo {
         let text = String::from_utf8_lossy(&output.stdout);
         for line in text.lines() {
             if line.starts_with("## ") {
-                // Parse ahead/behind from branch line: ## main...origin/main [ahead 1, behind 2]
                 if let Some(idx) = line.find("[ahead ") {
                     let rest = &line[idx + 7..];
                     if let Some(end) = rest.find(']').or_else(|| rest.find(',')) {
@@ -81,7 +78,6 @@ pub fn get_git_status(path: &str) -> GitInfo {
                 untracked += 1;
             } else if line.len() >= 2 {
                 let bytes = line.as_bytes();
-                // First char = index status, second = work tree status
                 if bytes[0] != b' ' && bytes[0] != b'?' {
                     staged += 1;
                 }

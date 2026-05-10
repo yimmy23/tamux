@@ -140,7 +140,6 @@ mod tests {
         };
         let thresholds = DomainThresholds::default();
         let result = compute_step_confidence(&signals, DomainClassification::Business, &thresholds);
-        // score = 0.30*1.0 + 0.25*1.0 + 0.25*(1.0-0.0) + 0.20*(1.0-0.0) = 0.30+0.25+0.25+0.20 = 1.0
         assert_eq!(result.label, "HIGH");
         assert_eq!(result.band, ConfidenceBand::Confident);
     }
@@ -156,7 +155,6 @@ mod tests {
         };
         let thresholds = DomainThresholds::default();
         let result = compute_step_confidence(&signals, DomainClassification::Business, &thresholds);
-        // score = 0.30*0.0 + 0.25*0.0 + 0.25*(1.0-1.0) + 0.20*(1.0-1.0) = 0.0
         assert_eq!(result.label, "LOW");
         assert!(
             result.band == ConfidenceBand::Guessing || result.band == ConfidenceBand::Uncertain
@@ -174,8 +172,6 @@ mod tests {
         };
         let thresholds = DomainThresholds::default();
         let result = compute_step_confidence(&signals, DomainClassification::Business, &thresholds);
-        // score = 0.30*0.8 + 0.25*0.6 + 0.25*0.7 + 0.20*0.6 = 0.24+0.15+0.175+0.12 = 0.685
-        // 0.685 >= 0.60 -> Likely -> MEDIUM
         assert_eq!(result.label, "MEDIUM");
         assert_eq!(result.band, ConfidenceBand::Likely);
     }
@@ -226,7 +222,7 @@ mod tests {
     #[test]
     fn approach_novelty_score_many_prior_attempts() {
         assert_eq!(approach_novelty_score(5), 0.0);
-        assert_eq!(approach_novelty_score(10), 0.0); // capped at 5
+        assert_eq!(approach_novelty_score(10), 0.0);
     }
 
     #[test]

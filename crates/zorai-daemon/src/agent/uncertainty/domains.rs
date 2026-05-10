@@ -93,7 +93,6 @@ fn default_business_block() -> ConfidenceBand {
     ConfidenceBand::Guessing
 }
 fn default_research_block() -> ConfidenceBand {
-    // Never blocks -- set to an impossible-to-reach threshold
     ConfidenceBand::Guessing
 }
 
@@ -132,9 +131,6 @@ impl DomainThresholds {
             DomainClassification::Business => self.business_block_below,
             DomainClassification::Research => self.research_block_below,
         };
-        // Block if band is strictly below threshold.
-        // For Safety (threshold=Likely): blocks Uncertain and Guessing
-        // For Research (threshold=Guessing): blocks nothing (nothing is below Guessing)
         band_ord(band) < band_ord(threshold)
     }
 }
@@ -178,7 +174,6 @@ mod tests {
     #[test]
     fn default_thresholds_safety_blocks_low() {
         let t = DomainThresholds::default();
-        // Safety blocks below Likely -> Uncertain (LOW) is blocked
         assert!(t.should_block(DomainClassification::Safety, ConfidenceBand::Uncertain));
         assert!(t.should_block(DomainClassification::Safety, ConfidenceBand::Guessing));
     }
@@ -186,7 +181,6 @@ mod tests {
     #[test]
     fn default_thresholds_business_warns_low() {
         let t = DomainThresholds::default();
-        // Business blocks below Guessing -> nothing is below Guessing -> never blocks
         assert!(!t.should_block(DomainClassification::Business, ConfidenceBand::Guessing));
         assert!(!t.should_block(DomainClassification::Business, ConfidenceBand::Uncertain));
     }
@@ -194,7 +188,6 @@ mod tests {
     #[test]
     fn default_thresholds_research_surfaces_all() {
         let t = DomainThresholds::default();
-        // Research never blocks
         assert!(!t.should_block(DomainClassification::Research, ConfidenceBand::Guessing));
         assert!(!t.should_block(DomainClassification::Research, ConfidenceBand::Uncertain));
         assert!(!t.should_block(DomainClassification::Research, ConfidenceBand::Likely));
@@ -203,7 +196,6 @@ mod tests {
     #[test]
     fn should_block_true_for_safety_with_low_band() {
         let t = DomainThresholds::default();
-        // LOW maps to Uncertain or Guessing. Both are below Likely threshold.
         assert!(t.should_block(DomainClassification::Safety, ConfidenceBand::Guessing));
     }
 

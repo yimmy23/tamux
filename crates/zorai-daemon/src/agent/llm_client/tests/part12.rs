@@ -1,3 +1,14 @@
+use super::part1::*;
+use super::part5_support::*;
+use super::*;
+use crate::agent::provider_auth_store;
+use crate::agent::types::{AgentMessage, MessageRole};
+use crate::test_support::EnvGuard;
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+use std::sync::Mutex;
+use tempfile::tempdir;
 #[tokio::test]
 async fn anthropic_batch_results_parse_typed_document_source_and_citations() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -13,7 +24,8 @@ async fn anthropic_batch_results_parse_typed_document_source_and_citations() {
         let read = socket.read(&mut buffer).await.expect("read request");
         let request = String::from_utf8_lossy(&buffer[..read]).to_string();
         assert!(
-            request.starts_with("GET /v1/messages/batches/msgbatch_document_typed/results HTTP/1.1"),
+            request
+                .starts_with("GET /v1/messages/batches/msgbatch_document_typed/results HTTP/1.1"),
             "unexpected request line: {request}"
         );
 
@@ -25,7 +37,10 @@ async fn anthropic_batch_results_parse_typed_document_source_and_citations() {
             body.len(),
             body
         );
-        socket.write_all(response.as_bytes()).await.expect("write response");
+        socket
+            .write_all(response.as_bytes())
+            .await
+            .expect("write response");
     });
 
     let results = retrieve_message_batch_results(

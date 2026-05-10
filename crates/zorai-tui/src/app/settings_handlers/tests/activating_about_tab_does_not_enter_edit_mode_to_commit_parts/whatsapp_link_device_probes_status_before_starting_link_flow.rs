@@ -1,7 +1,20 @@
+use super::super::{auth_env_lock, make_model, unique_test_db_path};
+use super::opening_weles_editor_hides_inherited_main_system_prompt_to_feat_skill::focus_settings_field;
+use super::*;
+use crate::app::TuiModel;
+use crate::state::settings::SettingsTab;
+use crate::state::*;
+use crate::widgets;
+use crossterm::event::{KeyCode, KeyModifiers};
+use rusqlite::{params, Connection};
+use std::ffi::OsString;
+use std::path::PathBuf;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 use zorai_shared::providers::{
-    PROVIDER_ID_ANTHROPIC, PROVIDER_ID_CHUTES, PROVIDER_ID_CUSTOM, PROVIDER_ID_GITHUB_COPILOT,
-    PROVIDER_ID_DEEPSEEK, PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN,
-    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
+    PROVIDER_ID_ANTHROPIC, PROVIDER_ID_CHUTES, PROVIDER_ID_CUSTOM, PROVIDER_ID_DEEPSEEK,
+    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX,
+    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
 };
 
 #[test]
@@ -438,4 +451,3 @@ fn activating_audio_tts_model_fetches_remote_models_for_audio_provider() {
         other => panic!("expected FetchModels for audio TTS picker, got {other:?}"),
     }
 }
-

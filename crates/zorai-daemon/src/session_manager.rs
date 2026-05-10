@@ -100,6 +100,10 @@ impl SessionManager {
         manager
     }
 
+    pub(crate) fn history(&self) -> &Arc<HistoryStore> {
+        &self.history
+    }
+
     pub fn new_with_history(history: Arc<HistoryStore>, pty_channel_capacity: usize) -> Arc<Self> {
         let snapshots = SnapshotStore::new_with_history((*history).clone());
         Arc::new(Self {

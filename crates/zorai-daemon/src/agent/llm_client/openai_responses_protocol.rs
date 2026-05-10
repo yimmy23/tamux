@@ -1,3 +1,4 @@
+use super::*;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct OpenAiResponsesCreateRequest {
     pub model: String,
@@ -63,8 +64,6 @@ pub(crate) struct OpenAiResponsesReasoning {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum OpenAiResponsesInputItem {
-    // Responses API request input accepts either a normal message item or tool-call items
-    // as peers in the same array, so serde must match by shape instead of a shared Rust tag.
     Message(OpenAiResponsesInputMessage),
     FunctionCall(OpenAiResponsesFunctionCall),
     FunctionCallOutput(OpenAiResponsesFunctionCallOutput),
@@ -80,15 +79,13 @@ pub(crate) struct OpenAiResponsesInputMessage {
 #[serde(untagged)]
 pub(crate) enum OpenAiResponsesInputContent {
     Text(String),
-    // Blocks preserves provider-native structured content arrays such as multimodal or
-    // rich text blocks that cannot be loslessly flattened into a single string.
     Blocks(Vec<serde_json::Value>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct OpenAiResponsesFunctionCall {
     #[serde(rename = "type")]
-    item_type: OpenAiResponsesFunctionCallItemType,
+    pub(crate) item_type: OpenAiResponsesFunctionCallItemType,
     pub call_id: String,
     pub name: String,
     pub arguments: String,
@@ -109,7 +106,7 @@ impl OpenAiResponsesFunctionCall {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct OpenAiResponsesFunctionCallOutput {
     #[serde(rename = "type")]
-    item_type: OpenAiResponsesFunctionCallOutputItemType,
+    pub(crate) item_type: OpenAiResponsesFunctionCallOutputItemType,
     pub call_id: String,
     pub output: OpenAiResponsesInputContent,
 }
@@ -307,23 +304,31 @@ pub(crate) fn parse_openai_responses_stream_event(
         .to_string();
 
     match event_type.as_str() {
-        "response.created" => serde_json::from_value(payload).map(OpenAiResponsesStreamEvent::ResponseCreated),
-        "response.output_text.delta" => serde_json::from_value(payload)
-            .map(OpenAiResponsesStreamEvent::ResponseOutputTextDelta),
+        "response.created" => {
+            serde_json::from_value(payload).map(OpenAiResponsesStreamEvent::ResponseCreated)
+        }
+        "response.output_text.delta" => {
+            serde_json::from_value(payload).map(OpenAiResponsesStreamEvent::ResponseOutputTextDelta)
+        }
         "response.reasoning_summary_text.delta" => serde_json::from_value(payload)
             .map(OpenAiResponsesStreamEvent::ResponseReasoningSummaryTextDelta),
-        "response.output_item.added" => serde_json::from_value(payload)
-            .map(OpenAiResponsesStreamEvent::ResponseOutputItemAdded),
-        "response.output_item.done" => serde_json::from_value(payload)
-            .map(OpenAiResponsesStreamEvent::ResponseOutputItemDone),
+        "response.output_item.added" => {
+            serde_json::from_value(payload).map(OpenAiResponsesStreamEvent::ResponseOutputItemAdded)
+        }
+        "response.output_item.done" => {
+            serde_json::from_value(payload).map(OpenAiResponsesStreamEvent::ResponseOutputItemDone)
+        }
         "response.function_call_arguments.delta" => serde_json::from_value(payload)
             .map(OpenAiResponsesStreamEvent::ResponseFunctionCallArgumentsDelta),
-        "response.completed" => serde_json::from_value(payload)
-            .map(OpenAiResponsesStreamEvent::ResponseCompleted),
-        "response.incomplete" => serde_json::from_value(payload)
-            .map(OpenAiResponsesStreamEvent::ResponseIncomplete),
-        "response.failed" => serde_json::from_value(payload)
-            .map(OpenAiResponsesStreamEvent::ResponseFailed),
+        "response.completed" => {
+            serde_json::from_value(payload).map(OpenAiResponsesStreamEvent::ResponseCompleted)
+        }
+        "response.incomplete" => {
+            serde_json::from_value(payload).map(OpenAiResponsesStreamEvent::ResponseIncomplete)
+        }
+        "response.failed" => {
+            serde_json::from_value(payload).map(OpenAiResponsesStreamEvent::ResponseFailed)
+        }
         "error" => serde_json::from_value(payload).map(OpenAiResponsesStreamEvent::Error),
         _ => Ok(OpenAiResponsesStreamEvent::Unknown(
             OpenAiResponsesStreamUnknownEvent {

@@ -7,7 +7,7 @@ use super::concierge::ConciergeEngine;
 use super::*;
 use std::time::Duration;
 
-mod helpers;
+pub(crate) mod helpers;
 pub(in crate::agent) use helpers::aline_available;
 use helpers::build_agent_http_client;
 pub(in crate::agent) use helpers::{
@@ -94,9 +94,6 @@ pub(super) const FILE_WATCH_TICK_MS: u64 = 250;
 const AGENT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const AGENT_HTTP_READ_TIMEOUT: Duration = Duration::from_secs(125);
 
-// ---------------------------------------------------------------------------
-// AgentEngine
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub struct CritiqueApprovalContinuation {
@@ -321,7 +318,6 @@ impl AgentEngine {
         let (watcher_refresh_tx, watcher_refresh_rx) = mpsc::unbounded_channel();
         let (skill_discovery_result_tx, skill_discovery_result_rx) = mpsc::unbounded_channel();
 
-        // Pre-initialize external agent runners for discovery
         let mut runners = HashMap::new();
         for agent_type in &["openclaw", "hermes"] {
             runners.insert(
@@ -330,7 +326,6 @@ impl AgentEngine {
             );
         }
 
-        // Pre-initialize per-provider circuit breakers from configured providers.
         let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
             config
                 .providers
@@ -488,7 +483,6 @@ impl AgentEngine {
         &self.thread_memory_injection_states
     }
 
-    // ── Circuit breaker helpers ──────────────────────────────────────────
 
     /// Check the circuit breaker before an LLM call. Returns `Err` if the
     /// breaker is open (provider is unhealthy). Callers must invoke

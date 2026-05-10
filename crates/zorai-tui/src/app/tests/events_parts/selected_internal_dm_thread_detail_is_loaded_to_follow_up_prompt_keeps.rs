@@ -1,3 +1,10 @@
+use super::done_event_persists_final_reasoning_into_chat_message_to_mission_control::*;
+use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
+use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn selected_internal_dm_thread_detail_is_loaded() {
     let mut model = make_model();
@@ -427,4 +434,3 @@ fn follow_up_prompt_keeps_thinking_across_reload_after_stale_thread_detail_repla
         "reload should preserve thinking even if a stale thread detail temporarily drops the optimistic prompt tail"
     );
 }
-

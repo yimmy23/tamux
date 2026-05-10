@@ -21,7 +21,7 @@ pub use helpers::sanitize_scrollback_for_replay;
 use helpers::{configure_shell_command, default_shell, dispatch_managed_command, pty_reader_loop};
 
 /// Rolling scrollback buffer capacity (bytes).
-const SCROLLBACK_CAPACITY: usize = 1024 * 1024; // 1 MiB
+const SCROLLBACK_CAPACITY: usize = 1024 * 1024;
 
 /// A single terminal session backed by a PTY.
 pub struct PtySession {
@@ -142,7 +142,6 @@ impl PtySession {
         let master_read = pair.master.try_clone_reader()?;
         let master_write = Arc::new(std::sync::Mutex::new(pair.master.take_writer()?));
 
-        // Broadcast channel for output fanout to attached clients.
         let (tx, _) = broadcast::channel(pty_channel_capacity);
         let scrollback = Arc::new(std::sync::Mutex::new(Vec::with_capacity(
             SCROLLBACK_CAPACITY,
@@ -351,7 +350,7 @@ impl PtySession {
     }
 
     pub fn title(&self) -> Option<&str> {
-        None // TODO: Parse OSC title sequences
+        None
     }
 
     pub fn id(&self) -> SessionId {

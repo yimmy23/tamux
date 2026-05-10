@@ -137,6 +137,10 @@ impl GoalWorkspaceState {
         self.expanded_step_ids.contains(step_id)
     }
 
+    pub fn expanded_step_ids_iter(&self) -> impl Iterator<Item = &str> {
+        self.expanded_step_ids.iter().map(String::as_str)
+    }
+
     pub fn prompt_expanded(&self) -> bool {
         self.prompt_expanded
     }

@@ -1,4 +1,9 @@
-use super::*;
+use super::super::*;
+use super::super::{push_section_title, RenderRow};
+use crate::state::task::{AgentTask, GoalRun, GoalRunStatus, GoalRunStep, TaskState, TaskStatus};
+use crate::theme::ThemeTokens;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 
 fn checkpoint_type_label(raw: &str) -> &'static str {
     match raw {
@@ -35,7 +40,7 @@ fn projection_chip(state: &str) -> String {
     format!("[{}]", label.replace('_', " "))
 }
 
-pub(super) fn render_live_activity(
+pub(crate) fn render_live_activity(
     rows: &mut Vec<RenderRow>,
     tasks: &TaskState,
     run: &GoalRun,
@@ -154,7 +159,7 @@ pub(super) fn render_live_activity(
     }
 }
 
-pub(super) fn render_dossier(
+pub(crate) fn render_dossier(
     rows: &mut Vec<RenderRow>,
     run: &GoalRun,
     theme: &ThemeTokens,
@@ -186,7 +191,7 @@ pub(super) fn render_dossier(
     }
 }
 
-pub(super) fn render_delivery_units(
+pub(crate) fn render_delivery_units(
     rows: &mut Vec<RenderRow>,
     run: &GoalRun,
     theme: &ThemeTokens,
@@ -241,7 +246,7 @@ pub(super) fn render_delivery_units(
     }
 }
 
-pub(super) fn render_proof_coverage(
+pub(crate) fn render_proof_coverage(
     rows: &mut Vec<RenderRow>,
     run: &GoalRun,
     theme: &ThemeTokens,
@@ -309,7 +314,7 @@ pub(super) fn render_proof_coverage(
     }
 }
 
-pub(super) fn render_reports(
+pub(crate) fn render_reports(
     rows: &mut Vec<RenderRow>,
     run: &GoalRun,
     theme: &ThemeTokens,
@@ -361,7 +366,7 @@ pub(super) fn render_reports(
     }
 }
 
-pub(super) fn render_resume_decision(
+pub(crate) fn render_resume_decision(
     rows: &mut Vec<RenderRow>,
     run: &GoalRun,
     theme: &ThemeTokens,
@@ -398,7 +403,7 @@ pub(super) fn render_resume_decision(
     }
 }
 
-pub(super) fn render_checkpoints(
+pub(crate) fn render_checkpoints(
     rows: &mut Vec<RenderRow>,
     tasks: &TaskState,
     run: &GoalRun,
@@ -450,4 +455,3 @@ pub(super) fn render_checkpoints(
         }
     }
 }
-

@@ -116,12 +116,22 @@ impl AgentEngine {
             }
         };
         let collaboration_context = if let Some(task_id) = task_id {
-            let parent_task_id = {
-                let tasks = self.tasks.lock().await;
-                tasks
-                    .iter()
-                    .find(|task| task.id == task_id)
-                    .and_then(|task| task.parent_task_id.clone())
+            let parent_task_id = match self
+                .history
+                .agent_task_goal_context(task_id)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|task| task.parent_task_id)
+            {
+                Some(parent_task_id) => Some(parent_task_id),
+                None => {
+                    let tasks = self.tasks.lock().await;
+                    tasks
+                        .iter()
+                        .find(|task| task.id == task_id)
+                        .and_then(|task| task.parent_task_id.clone())
+                }
             };
             if let Some(parent_task_id) = parent_task_id {
                 let collaboration = self.collaboration.read().await;

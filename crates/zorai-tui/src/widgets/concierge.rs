@@ -71,7 +71,6 @@ pub fn render(
     ];
 
     if concierge.loading {
-        // Single line: "Concierge ⣻ working…"
         let status_frames = [
             "working",
             "grinding",
@@ -100,7 +99,6 @@ pub fn render(
             theme,
         ));
     } else if has_actions {
-        // Action buttons row.
         let mut action_spans = owner_prefix_spans(owner_label, theme);
         for (idx, action) in actions.iter().enumerate() {
             if idx > 0 {

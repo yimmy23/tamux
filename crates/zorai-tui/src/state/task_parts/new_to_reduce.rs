@@ -1,3 +1,7 @@
+use super::goal_step_todo_thread_ids_to_merge_usize_field::*;
+use super::merge_goal_run_dossier::*;
+use super::task_status_to_task_state::*;
+use super::*;
 impl TaskState {
     pub fn new() -> Self {
         Self {
@@ -15,6 +19,7 @@ impl TaskState {
             file_previews: std::collections::HashMap::new(),
             heartbeat_items: Vec::new(),
             last_digest: None,
+            goal_thread_ids_cache: std::cell::RefCell::new(None),
         }
     }
 
@@ -101,6 +106,18 @@ impl TaskState {
     }
 
     pub fn all_goal_thread_ids(&self) -> Vec<String> {
+        if let Some((rev, cached)) = &*self.goal_thread_ids_cache.borrow() {
+            if *rev == self.tasks_revision {
+                return cached.clone();
+            }
+        }
+        let computed = self.compute_all_goal_thread_ids();
+        *self.goal_thread_ids_cache.borrow_mut() =
+            Some((self.tasks_revision, computed.clone()));
+        computed
+    }
+
+    fn compute_all_goal_thread_ids(&self) -> Vec<String> {
         let mut thread_ids = Vec::new();
         let mut task_ids = Vec::new();
 
@@ -228,6 +245,93 @@ impl TaskState {
         Vec::new()
     }
 
+    /// Build the full `step_index -> todos` index for a goal_run in a SINGLE
+    /// pass over `goal_run.events` instead of one rev-scan per step. Render
+    /// paths that iterate steps and look up todos per step were
+    /// O(steps × events) per frame — at 30 fps with hundreds of events
+    /// per goal_run that's hundreds of thousands of iterations per second
+    /// and the dominant contributor to the goal-view's input lag.
+    /// Single pass is O(events × snapshot_size) once.
+    ///
+    /// Semantics match `goal_step_todos`: live_todos win for any step_index
+    /// they cover; otherwise we use the *most recent* event whose snapshot
+    /// has a todo for that step_index, and return ALL todos from that event
+    /// matching the step.
+    pub fn goal_step_todos_index(
+        &self,
+        goal_run_id: &str,
+    ) -> std::collections::HashMap<usize, Vec<TodoItem>> {
+        let mut index: std::collections::HashMap<usize, Vec<TodoItem>> =
+            std::collections::HashMap::new();
+        let mut seen_live: std::collections::HashSet<usize> =
+            std::collections::HashSet::new();
+
+        let Some(run) = self.goal_run_by_id(goal_run_id) else {
+            return index;
+        };
+
+        // Live todos override event snapshots.
+        for (key, todos) in &self.goal_step_live_todos {
+            let Some((prefix, suffix)) = key.rsplit_once(':') else {
+                continue;
+            };
+            if prefix != goal_run_id {
+                continue;
+            }
+            let Ok(step_index) = suffix.parse::<usize>() else {
+                continue;
+            };
+            let mut todos = todos.clone();
+            todos.sort_by_key(|todo| todo.position);
+            index.insert(step_index, todos);
+            seen_live.insert(step_index);
+        }
+
+        // For the remaining steps, walk events newest-first. Track which
+        // step has already had a "winning" event so we don't overwrite
+        // with older snapshots (matches the original `for event in rev:
+        // if non_empty { return; }` semantics).
+        let mut claimed: std::collections::HashSet<usize> = seen_live.clone();
+        for event in run.events.iter().rev() {
+            // First pass over this event's snapshot: collect step_indices
+            // present.
+            let mut steps_in_event: std::collections::HashSet<usize> =
+                std::collections::HashSet::new();
+            for todo in &event.todo_snapshot {
+                if let Some(step_index) = todo.step_index.or(event.step_index) {
+                    steps_in_event.insert(step_index);
+                }
+            }
+            // Decide which steps to claim from this event.
+            let claim_now: Vec<usize> = steps_in_event
+                .into_iter()
+                .filter(|step| !claimed.contains(step))
+                .collect();
+            if claim_now.is_empty() {
+                continue;
+            }
+            for step_index in &claim_now {
+                claimed.insert(*step_index);
+                index.insert(*step_index, Vec::new());
+            }
+            // Second pass: copy todos that match a newly-claimed step.
+            for todo in &event.todo_snapshot {
+                let Some(step_index) = todo.step_index.or(event.step_index) else {
+                    continue;
+                };
+                if claim_now.contains(&step_index) {
+                    if let Some(bucket) = index.get_mut(&step_index) {
+                        bucket.push(todo.clone());
+                    }
+                }
+            }
+        }
+        for todos in index.values_mut() {
+            todos.sort_by_key(|todo| todo.position);
+        }
+        index
+    }
+
     pub fn goal_step_checkpoints(
         &self,
         goal_run_id: &str,
@@ -336,17 +440,20 @@ impl TaskState {
                 self.goal_thread_ids.retain(|goal_run_id, _| {
                     self.goal_runs.iter().any(|run| run.id == *goal_run_id)
                 });
+                self.tasks_revision = self.tasks_revision.wrapping_add(1);
             }
 
             TaskAction::GoalRunDetailReceived(run) => {
                 let run = normalize_goal_run_ranges(run);
+                let prefix = format!("{}::", run.id);
                 self.goal_step_live_todos
-                    .retain(|key, _| !key.starts_with(&format!("{}::", run.id)));
+                    .retain(|key, _| !key.starts_with(&prefix));
                 if let Some(existing) = self.goal_runs.iter_mut().find(|r| r.id == run.id) {
                     merge_goal_run(existing, run, false);
                 } else {
                     self.goal_runs.insert(0, run);
                 }
+                self.tasks_revision = self.tasks_revision.wrapping_add(1);
             }
 
             TaskAction::GoalRunUpdate(run) => {
@@ -356,6 +463,7 @@ impl TaskState {
                 } else {
                     self.goal_runs.insert(0, run);
                 }
+                self.tasks_revision = self.tasks_revision.wrapping_add(1);
             }
 
             TaskAction::GoalRunCheckpointsReceived {
@@ -363,20 +471,19 @@ impl TaskState {
                 checkpoints,
             } => {
                 self.goal_run_checkpoints.insert(goal_run_id, checkpoints);
+                self.tasks_revision = self.tasks_revision.wrapping_add(1);
             }
 
             TaskAction::GoalRunDeleted { goal_run_id } => {
                 self.goal_runs.retain(|run| run.id != goal_run_id);
                 self.goal_run_checkpoints.remove(&goal_run_id);
+                let prefix = format!("{goal_run_id}::");
                 self.goal_step_live_todos
-                    .retain(|key, _| !key.starts_with(&format!("{goal_run_id}::")));
+                    .retain(|key, _| !key.starts_with(&prefix));
                 self.goal_thread_ids.remove(&goal_run_id);
-                let previous_task_len = self.tasks.len();
                 self.tasks
                     .retain(|task| task.goal_run_id.as_deref() != Some(goal_run_id.as_str()));
-                if self.tasks.len() != previous_task_len {
-                    self.tasks_revision = self.tasks_revision.wrapping_add(1);
-                }
+                self.tasks_revision = self.tasks_revision.wrapping_add(1);
             }
 
             TaskAction::ThreadTodosReceived {
@@ -389,6 +496,7 @@ impl TaskState {
                     remember_goal_thread(&mut self.goal_thread_ids, &goal_run_id, &thread_id);
                     let Some(step_index) = step_index else {
                         self.thread_todos.insert(thread_id, items);
+                        self.tasks_revision = self.tasks_revision.wrapping_add(1);
                         return;
                     };
                     self.goal_step_live_todos.insert(
@@ -397,6 +505,7 @@ impl TaskState {
                     );
                 }
                 self.thread_todos.insert(thread_id, items);
+                self.tasks_revision = self.tasks_revision.wrapping_add(1);
             }
 
             TaskAction::WorkContextReceived(context) => {
@@ -416,6 +525,7 @@ impl TaskState {
                         .entry(thread_id)
                         .or_insert(selection);
                 }
+                self.tasks_revision = self.tasks_revision.wrapping_add(1);
             }
 
             TaskAction::GitDiffReceived {
@@ -453,4 +563,3 @@ impl TaskState {
         }
     }
 }
-

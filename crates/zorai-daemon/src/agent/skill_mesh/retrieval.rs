@@ -21,10 +21,10 @@ pub(crate) async fn discover_local_skills_via_mesh(
     limit: usize,
     cfg: &SkillRecommendationConfig,
 ) -> Result<SkillDiscoveryResult> {
-    let mut records = history.list_skill_variants(None, 512).await?;
+    let mut records = history.list_discoverable_skill_variants(512).await?;
     if records.is_empty() {
         crate::agent::skill_recommendation::sync_skill_catalog(history, skills_root).await?;
-        records = history.list_skill_variants(None, 512).await?;
+        records = history.list_discoverable_skill_variants(512).await?;
     }
     let query_tokens = tokenize(query);
     if !cfg.enabled || query_tokens.is_empty() || limit == 0 {
@@ -33,12 +33,6 @@ pub(crate) async fn discover_local_skills_via_mesh(
 
     let mut recommendations = Vec::new();
     for record in records {
-        if matches!(record.status.as_str(), "archived" | "merged" | "draft") {
-            continue;
-        }
-        if !record.relative_path.to_ascii_lowercase().ends_with(".md") {
-            continue;
-        }
         let (path, _) = crate::agent::skill_recommendation::resolve_skill_document_path(
             skills_root,
             &record.relative_path,

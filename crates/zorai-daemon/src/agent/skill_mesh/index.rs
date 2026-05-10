@@ -462,7 +462,6 @@ impl SkillMeshIndex for LanceDbSkillMeshIndex {
         let previous = self.load_document(&key).await?;
 
         let write_result = async {
-            // document_json is the canonical stored payload; embeddings are a derived index.
             self.replace_document(&key, &document).await?;
             #[cfg(test)]
             maybe_pause_after_document_replace_for_tests(&self.db_path, &key.storage_key()).await;

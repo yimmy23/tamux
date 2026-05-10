@@ -66,7 +66,6 @@ impl OutcomeWindow {
 
     /// Push a new outcome entry, capping at `max_entries`. Oldest dropped on overflow.
     pub fn push(&mut self, entry: OutcomeEntry, max_entries: usize) {
-        // Update consecutive_same_pattern
         if let Some(last) = self.recent_outcomes.back() {
             if last.args_hash == entry.args_hash {
                 self.consecutive_same_pattern += 1;
@@ -77,7 +76,6 @@ impl OutcomeWindow {
             self.consecutive_same_pattern = 1;
         }
 
-        // Update progress/failure counters
         if entry.is_progress {
             self.total_progress_count += 1;
             self.last_progress_at = entry.timestamp;
@@ -86,7 +84,6 @@ impl OutcomeWindow {
             self.total_failure_count += 1;
         }
 
-        // Push and cap
         self.recent_outcomes.push_back(entry);
         while self.recent_outcomes.len() > max_entries {
             if let Some(removed) = self.recent_outcomes.pop_front() {
@@ -112,7 +109,6 @@ impl OutcomeWindow {
     /// Recompute all three success rates from the VecDeque contents.
     /// `now_ms` is the current time in milliseconds for medium-term window.
     pub fn recompute_rates(&mut self, now_ms: u64) {
-        // Short-term: last SHORT_TERM_COUNT actions
         let short_term_entries: Vec<&OutcomeEntry> = self
             .recent_outcomes
             .iter()
@@ -126,7 +122,6 @@ impl OutcomeWindow {
             self.short_term_success_rate = successes as f64 / short_term_entries.len() as f64;
         }
 
-        // Medium-term: entries within last MEDIUM_TERM_SECS
         let medium_cutoff = now_ms.saturating_sub(MEDIUM_TERM_SECS * 1000);
         let medium_entries: Vec<&OutcomeEntry> = self
             .recent_outcomes
@@ -140,7 +135,6 @@ impl OutcomeWindow {
             self.medium_term_success_rate = successes as f64 / medium_entries.len() as f64;
         }
 
-        // Long-term: all entries in window
         if self.recent_outcomes.is_empty() {
             self.long_term_success_rate = 1.0;
         } else {
@@ -192,14 +186,12 @@ mod tests {
             );
         }
         assert_eq!(w.recent_outcomes.len(), 200);
-        // Oldest entries should be dropped
         assert_eq!(w.recent_outcomes.front().unwrap().args_hash, "h50");
     }
 
     #[test]
     fn short_term_success_rate_from_last_5() {
         let mut w = OutcomeWindow::new("e1".to_string(), "thread".to_string());
-        // Push 10 entries: first 5 success, last 5 failure
         for i in 0..5 {
             w.push(
                 make_entry("tool", &format!("h{i}"), true, false, i as u64),
@@ -213,28 +205,23 @@ mod tests {
             );
         }
         w.recompute_rates(10);
-        // Short-term = last 5 = all failures
         assert_eq!(w.short_term_success_rate, 0.0);
     }
 
     #[test]
     fn medium_term_success_rate_from_last_30_minutes() {
         let now = 2_000_000u64;
-        let medium_cutoff = now - MEDIUM_TERM_SECS * 1000; // 30 min ago in ms
+        let medium_cutoff = now - MEDIUM_TERM_SECS * 1000;
         let mut w = OutcomeWindow::new("e1".to_string(), "thread".to_string());
 
-        // Entry well before the window (should be excluded)
         w.push(
             make_entry("tool", "old", false, false, medium_cutoff - 10000),
             200,
         );
-        // Entry within window (success)
         w.push(make_entry("tool", "new1", true, false, now - 1000), 200);
-        // Entry within window (failure)
         w.push(make_entry("tool", "new2", false, false, now - 500), 200);
 
         w.recompute_rates(now);
-        // Medium-term: 2 entries within window, 1 success -> 0.5
         assert!((w.medium_term_success_rate - 0.5).abs() < 0.01);
     }
 
@@ -245,7 +232,6 @@ mod tests {
         w.push(make_entry("tool", "h2", true, false, 2), 200);
         w.push(make_entry("tool", "h3", false, false, 3), 200);
         w.recompute_rates(4);
-        // 2 out of 3 = 0.666...
         assert!((w.long_term_success_rate - 2.0 / 3.0).abs() < 0.01);
     }
 
@@ -258,7 +244,6 @@ mod tests {
         assert_eq!(w.consecutive_same_pattern, 2);
         w.push(make_entry("tool", "aaa", false, false, 3), 200);
         assert_eq!(w.consecutive_same_pattern, 3);
-        // Different hash resets
         w.push(make_entry("tool", "bbb", true, false, 4), 200);
         assert_eq!(w.consecutive_same_pattern, 1);
     }

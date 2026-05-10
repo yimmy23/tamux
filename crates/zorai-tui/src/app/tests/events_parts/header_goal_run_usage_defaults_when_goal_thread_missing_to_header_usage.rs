@@ -1,3 +1,10 @@
+use super::done_event_persists_final_reasoning_into_chat_message_to_mission_control::*;
+use super::idle_tick_does_not_request_redraw_to_first_raw_config_load_triggers::*;
+use crate::app::*;
+use crate::state::*;
+use std::sync::mpsc;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn header_goal_run_usage_defaults_when_goal_thread_missing() {
     let mut model = make_model();
@@ -125,6 +132,12 @@ fn header_usage_summary_uses_runtime_model_context_window_for_rarog() {
         reasoning: None,
         provider_final_result_json: None,
     });
+    model.handle_client_event(ClientEvent::ContextWindowUpdate {
+        thread_id: "thread-rarog-usage".to_string(),
+        active_context_window_start: 0,
+        active_context_window_end: 1,
+        active_context_window_tokens: 30,
+    });
 
     let usage = model.current_header_usage_summary();
     assert_eq!(usage.context_window_tokens, 205_000);
@@ -138,7 +151,7 @@ fn header_usage_summary_uses_runtime_model_context_window_for_rarog() {
     );
     assert_eq!(
         usage.current_tokens, 30,
-        "header should use daemon-reported token usage from the latest completed turn"
+        "header should use the daemon-reported active context window tokens"
     );
     assert!(usage.utilization_pct <= 100);
 }
@@ -441,4 +454,3 @@ fn header_usage_summary_caps_target_by_weles_compaction_window() {
     assert_eq!(usage.compaction_target_tokens, 164_000);
     assert_eq!(usage.context_window_tokens, 400_000);
 }
-

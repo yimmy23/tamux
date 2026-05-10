@@ -1425,6 +1425,8 @@ async fn operator_send_rejects_budget_exceeded_thread() {
         supervisor_config: None,
         sub_agent_def_id: None,
     });
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     let error = engine
         .send_message_with_session_and_surface(Some("thread-budget"), None, "continue", None, None)

@@ -1,3 +1,13 @@
+use super::*;
+use crate::state::*;
+use crate::app::*;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::submit_operator_profile_answer_allows_empty_input_when_question_mod::sample_collaboration_sessions;
+use std::fs;
+use std::path::PathBuf;
+use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
+use super::super::{build_model, rendered_chat_area, unauthenticated_entry, unbounded_channel};
+use ratatui::backend::TestBackend;
+use std::sync::mpsc;
 #[test]
 fn collaboration_mouse_clicks_select_rows_and_vote_actions() {
     let (_daemon_tx, daemon_rx) = mpsc::channel();
@@ -92,9 +102,16 @@ fn done_event_stores_provider_final_result_on_final_message() {
         .provider_final_result_json
         .as_deref()
         .expect("provider final result should be stored");
-    let value: serde_json::Value = serde_json::from_str(json).expect("parse provider final result json");
-    assert_eq!(value.get("provider").and_then(|v| v.as_str()), Some("open_ai_responses"));
-    assert_eq!(value.get("id").and_then(|v| v.as_str()), Some("resp_tui_done"));
+    let value: serde_json::Value =
+        serde_json::from_str(json).expect("parse provider final result json");
+    assert_eq!(
+        value.get("provider").and_then(|v| v.as_str()),
+        Some("open_ai_responses")
+    );
+    assert_eq!(
+        value.get("id").and_then(|v| v.as_str()),
+        Some("resp_tui_done")
+    );
 }
 
 #[test]
@@ -195,10 +212,7 @@ fn submit_prompt_deduplicates_referenced_files() {
     let lib_rs = cwd.join("lib.rs");
     fs::write(&lib_rs, "pub fn demo() {}\n").expect("fixture file should be writable");
 
-    model.submit_prompt(format!(
-        "Check @{0} and again @{0}",
-        lib_rs.display()
-    ));
+    model.submit_prompt(format!("Check @{0} and again @{0}", lib_rs.display()));
 
     let sent_content = match cmd_rx.try_recv() {
         Ok(DaemonCommand::SendMessage { content, .. }) => content,

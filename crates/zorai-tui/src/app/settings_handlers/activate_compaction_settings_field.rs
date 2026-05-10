@@ -1,3 +1,11 @@
+use super::*;
+use crate::providers;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use zorai_shared::providers::*;
 impl TuiModel {
     pub(super) fn activate_compaction_settings_field(&mut self, field: &str) -> bool {
         match field {
@@ -80,7 +88,6 @@ impl TuiModel {
                 &self.config.snapshot_max_size_mb.to_string(),
             ),
             "snapshot_stats" => {
-                // Read-only field, no-op on Enter
             }
             "agent_name" => {
                 let current = self
@@ -104,7 +111,6 @@ impl TuiModel {
                     .to_string();
                 self.settings.start_editing("system_prompt", &current);
             }
-            // ── Sub-Agents tab ──
             _ => return false,
         }
         true

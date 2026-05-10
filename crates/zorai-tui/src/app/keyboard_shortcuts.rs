@@ -1,5 +1,19 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
 impl TuiModel {
-    fn open_command_palette(&mut self, seed_query: Option<String>) {
+    pub(crate) fn open_command_palette(&mut self, seed_query: Option<String>) {
         self.modal
             .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
         if let Some(query) = seed_query {
@@ -7,12 +21,16 @@ impl TuiModel {
         }
     }
 
-    fn matches_shift_char(code: KeyCode, modifiers: KeyModifiers, expected: char) -> bool {
+    pub(crate) fn matches_shift_char(
+        code: KeyCode,
+        modifiers: KeyModifiers,
+        expected: char,
+    ) -> bool {
         modifiers.contains(KeyModifiers::SHIFT)
             && matches!(code, KeyCode::Char(ch) if ch.eq_ignore_ascii_case(&expected))
     }
 
-    fn pinned_shortcut_scope_active(&self) -> bool {
+    pub(crate) fn pinned_shortcut_scope_active(&self) -> bool {
         !self.sidebar_uses_goal_sidebar()
             && self.sidebar_visible()
             && self.sidebar.active_tab() == sidebar::SidebarTab::Pinned
@@ -23,7 +41,7 @@ impl TuiModel {
         widgets::sidebar::visible_tabs(&self.tasks, &self.chat, self.chat.active_thread_id())
     }
 
-    fn step_sidebar_tab(&mut self, delta: i32) {
+    pub(crate) fn step_sidebar_tab(&mut self, delta: i32) {
         if self.sidebar_uses_goal_sidebar() {
             self.step_goal_sidebar_tab(delta);
             return;
@@ -41,7 +59,7 @@ impl TuiModel {
         self.activate_sidebar_tab(tabs[next_index]);
     }
 
-    fn arm_pinned_shortcut_leader(&mut self) {
+    pub(crate) fn arm_pinned_shortcut_leader(&mut self) {
         self.pending_pinned_shortcut_leader = Some(PendingPinnedShortcutLeader::Active);
         self.status_line = "Pinned shortcuts: J jump, U unpin".to_string();
         self.show_input_notice(
@@ -52,7 +70,7 @@ impl TuiModel {
         );
     }
 
-    fn handle_pending_pinned_shortcut_leader(
+    pub(crate) fn handle_pending_pinned_shortcut_leader(
         &mut self,
         code: KeyCode,
         modifiers: KeyModifiers,
@@ -89,5 +107,4 @@ impl TuiModel {
             _ => false,
         }
     }
-
 }

@@ -1,3 +1,4 @@
+use super::*;
 use serde::de::DeserializeOwned;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -497,8 +498,8 @@ pub async fn list_message_batches(
             .join("")
             .expect("url join should succeed");
     }
-    let response = client.execute(
-        if params == &AnthropicMessageBatchListParams::default() {
+    let response = client
+        .execute(if params == &AnthropicMessageBatchListParams::default() {
             request
         } else {
             let mut builder = client.get(request.url().clone());
@@ -506,8 +507,8 @@ pub async fn list_message_batches(
                 builder = builder.header(name, value.clone());
             }
             builder.query(params).build().map_err(anyhow::Error::from)?
-        },
-    ).await?;
+        })
+        .await?;
     parse_anthropic_json_response(response, "list batches").await
 }
 
@@ -578,7 +579,10 @@ pub async fn retrieve_message_batch_results(
         ));
     }
 
-    let text = response.text().await.context("read Anthropic batch results body")?;
+    let text = response
+        .text()
+        .await
+        .context("read Anthropic batch results body")?;
     text.lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| {

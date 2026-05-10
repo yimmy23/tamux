@@ -17,7 +17,6 @@ const DEFAULT_MEMORY: &str = "# Memory\n\n## zorai Architecture (Verified)\n- zo
 const DEFAULT_USER: &str =
     "# User\nStable operator preferences, constraints, and workflow habits belong here.\n";
 
-// Shared SOUL footer — common architecture every agent knows about
 const SHARED_SOUL_FOOTER: &str = "\
 \n\n## zorai Platform (Shared)\n\
 - zorai is a Rust, daemon-first multi-agent runtime\n\
@@ -149,20 +148,20 @@ fn default_soul_for_scope(scope_id: &str) -> String {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum MemoryTarget {
+pub(crate) enum MemoryTarget {
     Soul,
     Memory,
     User,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum MemoryUpdateMode {
+pub(crate) enum MemoryUpdateMode {
     Replace,
     Append,
     Remove,
 }
 
-pub(super) struct MemoryWriteContext<'a> {
+pub(crate) struct MemoryWriteContext<'a> {
     pub source_kind: &'a str,
     pub thread_id: Option<&'a str>,
     pub task_id: Option<&'a str>,
@@ -170,7 +169,7 @@ pub(super) struct MemoryWriteContext<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct MemoryFactCandidate {
+pub(crate) struct MemoryFactCandidate {
     pub(super) key: String,
     pub(super) normalized: String,
     pub(super) display: String,
@@ -230,7 +229,7 @@ impl MemoryUpdateMode {
     }
 }
 
-pub(super) fn memory_curation_guidance() -> &'static str {
+pub(crate) fn memory_curation_guidance() -> &'static str {
     "SAVE:
 - user preferences, constraints, and workflow habits
 - stable workspace facts and project conventions
@@ -243,7 +242,7 @@ DO NOT SAVE:
 - details that can be trivially rediscovered from the environment"
 }
 
-pub(super) async fn ensure_memory_files_for_scope(
+pub(crate) async fn ensure_memory_files_for_scope(
     agent_data_dir: &std::path::Path,
     scope_id: &str,
 ) -> Result<()> {
@@ -267,11 +266,11 @@ pub(super) async fn ensure_memory_files_for_scope(
     Ok(())
 }
 
-pub(super) async fn ensure_memory_files(agent_data_dir: &std::path::Path) -> Result<()> {
+pub(crate) async fn ensure_memory_files(agent_data_dir: &std::path::Path) -> Result<()> {
     ensure_memory_files_for_scope(agent_data_dir, MAIN_AGENT_ID).await
 }
 
-pub(super) async fn load_memory_for_scope(
+pub(crate) async fn load_memory_for_scope(
     agent_data_dir: &std::path::Path,
     scope_id: &str,
 ) -> Result<AgentMemory> {
@@ -290,7 +289,7 @@ pub(super) async fn load_memory_for_scope(
     })
 }
 
-pub(super) async fn apply_memory_update(
+pub(crate) async fn apply_memory_update(
     agent_data_dir: &std::path::Path,
     history: &HistoryStore,
     target: MemoryTarget,
@@ -376,7 +375,7 @@ pub(super) async fn apply_memory_update(
     ))
 }
 
-pub(super) async fn append_goal_memory_note(
+pub(crate) async fn append_goal_memory_note(
     agent_data_dir: &std::path::Path,
     history: &HistoryStore,
     update: &str,
@@ -716,7 +715,7 @@ async fn repair_memory_contradictions(
     Ok(true)
 }
 
-pub(super) fn extract_memory_fact_candidates(content: &str) -> Vec<MemoryFactCandidate> {
+pub(crate) fn extract_memory_fact_candidates(content: &str) -> Vec<MemoryFactCandidate> {
     let mut facts = Vec::new();
     let mut in_superseded_block = false;
     for raw_line in content.lines() {
@@ -858,9 +857,6 @@ fn normalize_fact_text(value: &str) -> String {
         .join(" ")
 }
 
-// ---------------------------------------------------------------------------
-// Memory fact supersession (D-06, Pitfall 2)
-// ---------------------------------------------------------------------------
 
 impl super::engine::AgentEngine {
     /// Supersede a memory fact with tombstone-before-update ordering per D-06.
@@ -880,7 +876,6 @@ impl super::engine::AgentEngine {
         let tombstone_id = format!("tomb_{}", Uuid::new_v4());
         let now = now_millis();
 
-        // Step 1: Write tombstone FIRST (durable, per Pitfall 2)
         self.history
             .insert_memory_tombstone(
                 &tombstone_id,
@@ -898,9 +893,6 @@ impl super::engine::AgentEngine {
             )
             .await?;
 
-        // Step 2: Mark the original fact with [SUPERSEDED] prefix in the memory file.
-        // D-06 says: "Superseded facts get a `## [SUPERSEDED]` prefix and are moved to
-        // the tombstone table." The file only grows or has lines replaced -- never shrinks.
         let superseded_content = format!("## [SUPERSEDED]\n{}", original_content);
 
         let scope_id = current_agent_scope_id();
@@ -915,7 +907,6 @@ impl super::engine::AgentEngine {
             .unwrap_or_default();
         let updated = existing.replace(original_content, &superseded_content);
 
-        // If replacement content is non-empty, append it as a new section
         let final_content = if replacement_content.is_empty() {
             updated
         } else {
@@ -924,7 +915,6 @@ impl super::engine::AgentEngine {
 
         tokio::fs::write(&memory_path, &final_content).await?;
 
-        // Step 3: Record provenance (audit trail, MEMO-04)
         self.record_provenance_event(
             "memory_consolidation",
             &format!(

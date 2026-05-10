@@ -1,2 +1,7 @@
-include!("thread_workspace_and_provider_daemon_message_parts/handle_thread_workspace_daemon_messages.rs");
-include!("thread_workspace_and_provider_daemon_message_parts/handle_provider_plugin_daemon_messages.rs");
+#[path = "thread_workspace_and_provider_daemon_message_parts/handle_provider_plugin_daemon_messages.rs"]
+mod handle_provider_plugin_daemon_messages;
+#[path = "thread_workspace_and_provider_daemon_message_parts/handle_thread_workspace_daemon_messages.rs"]
+mod handle_thread_workspace_daemon_messages;
+
+pub(crate) use handle_provider_plugin_daemon_messages::*;
+pub(crate) use handle_thread_workspace_daemon_messages::*;

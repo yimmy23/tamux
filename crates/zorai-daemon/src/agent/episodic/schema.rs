@@ -104,8 +104,6 @@ pub fn init_episodic_schema(conn: &rusqlite::Connection) -> Result<()> {
     ensure_episode_columns(conn)?;
     conn.execute_batch(EPISODIC_INDEXES)?;
 
-    // FTS5 virtual table created separately — virtual tables need individual statements.
-    // Use .ok() to tolerate SQLite builds without FTS5 support.
     conn.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
             summary,
@@ -118,7 +116,6 @@ pub fn init_episodic_schema(conn: &rusqlite::Connection) -> Result<()> {
     )
     .ok();
 
-    // FTS5 sync triggers — keep the FTS index in sync with the episodes table.
     conn.execute_batch(
         "CREATE TRIGGER IF NOT EXISTS episodes_ai AFTER INSERT ON episodes BEGIN
             INSERT INTO episodes_fts(rowid, summary, entities, root_cause)

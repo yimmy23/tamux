@@ -1,4 +1,8 @@
-fn managed_alias_args(args: &serde_json::Value, fallback_rationale: &str) -> serde_json::Value {
+use super::*;
+pub(crate) fn managed_alias_args(
+    args: &serde_json::Value,
+    fallback_rationale: &str,
+) -> serde_json::Value {
     let command = args
         .get("command")
         .and_then(|value| value.as_str())
@@ -37,7 +41,7 @@ fn managed_alias_args(args: &serde_json::Value, fallback_rationale: &str) -> ser
     serde_json::Value::Object(mapped)
 }
 
-async fn execute_managed_command(
+pub(crate) async fn execute_managed_command(
     args: &serde_json::Value,
     agent: &AgentEngine,
     session_manager: &Arc<SessionManager>,
@@ -98,14 +102,11 @@ async fn execute_managed_command(
         .and_then(|value| value.as_u64())
         .unwrap_or(30);
     let timeout_secs = requested_timeout.min(600);
-    // Auto-background: if requested timeout exceeds max, run in background with monitoring
     let auto_background = requested_timeout > 600;
     let wait_for_completion = if auto_background {
         false
     } else {
-        args.get("wait_for_completion")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(true)
+        tool_waits_for_completion(args)
     };
     let mut wait_rx = if wait_for_completion {
         Some(session_manager.subscribe(resolved_session_id).await?.0)
@@ -319,7 +320,6 @@ async fn execute_managed_command(
             );
 
             if !wait_for_completion {
-                // Spawn background monitor if auto-backgrounded due to high timeout
                 if auto_background {
                     let sm = session_manager.clone();
                     let sid = resolved_session_id.clone();
@@ -484,7 +484,7 @@ async fn execute_managed_command(
     }
 }
 
-async fn execute_get_background_task_status(
+pub(crate) async fn execute_get_background_task_status(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
 ) -> Result<String> {
@@ -498,7 +498,7 @@ async fn execute_get_background_task_status(
     execute_operation_status_lookup(background_task_id, session_manager, true).await
 }
 
-async fn execute_get_operation_status(
+pub(crate) async fn execute_get_operation_status(
     args: &serde_json::Value,
     session_manager: &Arc<SessionManager>,
 ) -> Result<String> {

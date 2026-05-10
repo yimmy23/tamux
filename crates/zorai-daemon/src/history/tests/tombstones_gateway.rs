@@ -1,6 +1,5 @@
 use super::*;
 
-// ── Memory tombstone tests (Phase 5) ─────────────────────────────────
 
 #[tokio::test]
 async fn memory_tombstone_insert_and_list_round_trips() -> Result<()> {
@@ -31,14 +30,11 @@ async fn memory_tombstone_insert_and_list_round_trips() -> Result<()> {
         )
         .await?;
 
-    // List all
     let all = store.list_memory_tombstones(None, 10).await?;
     assert_eq!(all.len(), 2);
-    // Ordered by created_at DESC
     assert_eq!(all[0].id, "t-2");
     assert_eq!(all[1].id, "t-1");
 
-    // List by target
     let soul_only = store.list_memory_tombstones(Some("soul"), 10).await?;
     assert_eq!(soul_only.len(), 1);
     assert_eq!(soul_only[0].id, "t-1");
@@ -60,7 +56,6 @@ async fn memory_tombstone_delete_expired() -> Result<()> {
         .insert_memory_tombstone("new", "soul", "recent", None, None, "decay", None, 5000)
         .await?;
 
-    // Delete tombstones older than 4000ms as of now=6000
     let deleted = store.delete_expired_tombstones(4000, 6000).await?;
     assert_eq!(deleted, 1);
 
@@ -94,11 +89,9 @@ async fn memory_tombstone_restore() -> Result<()> {
     let row = restored.unwrap();
     assert_eq!(row.original_content, "fact to restore");
 
-    // Should be deleted after restore
     let remaining = store.list_memory_tombstones(None, 10).await?;
     assert_eq!(remaining.len(), 0);
 
-    // Restoring non-existent returns None
     let none = store.restore_tombstone("t-restore").await?;
     assert!(none.is_none());
 
@@ -116,7 +109,6 @@ async fn gateway_thread_bindings_round_trip() -> Result<()> {
     store
         .upsert_gateway_thread_binding("Discord:999", "thread_b", 1100)
         .await?;
-    // overwrite existing binding
     store
         .upsert_gateway_thread_binding("Slack:C123", "thread_c", 1200)
         .await?;
@@ -259,6 +251,10 @@ async fn operator_profile_sessions_round_trip() -> Result<()> {
     let rows = store.list_operator_profile_sessions().await?;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].session_id, "sess-a");
+
+    store.delete_all_operator_profile_sessions().await?;
+    let rows = store.list_operator_profile_sessions().await?;
+    assert!(rows.is_empty());
 
     fs::remove_dir_all(root)?;
     Ok(())

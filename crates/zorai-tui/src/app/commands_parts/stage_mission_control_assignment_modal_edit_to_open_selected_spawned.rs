@@ -1,5 +1,20 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
+use zorai_shared::providers::*;
 impl TuiModel {
-    pub(super) fn stage_mission_control_assignment_modal_edit(
+    pub(crate) fn stage_mission_control_assignment_modal_edit(
         &mut self,
         field: goal_mission_control::RuntimeAssignmentEditField,
     ) -> bool {
@@ -51,7 +66,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn update_selected_runtime_assignment(
+    pub(crate) fn update_selected_runtime_assignment(
         &mut self,
         update: impl FnOnce(&mut task::GoalAgentAssignment),
     ) -> bool {
@@ -108,7 +123,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn cycle_selected_runtime_assignment(&mut self) -> bool {
+    pub(crate) fn cycle_selected_runtime_assignment(&mut self) -> bool {
         if !self.open_mission_control_runtime_editor() {
             return false;
         }
@@ -126,7 +141,7 @@ impl TuiModel {
         true
     }
 
-    fn runtime_assignment_confirmation_items(&self) -> Vec<GoalActionPickerItem> {
+    pub(crate) fn runtime_assignment_confirmation_items(&self) -> Vec<GoalActionPickerItem> {
         if self.goal_mission_control.pending_runtime_change.is_some() {
             vec![
                 GoalActionPickerItem::ApplyRuntimeNextTurn,
@@ -138,7 +153,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn mission_control_role_picker_value(&self) -> String {
+    pub(crate) fn mission_control_role_picker_value(&self) -> String {
         self.goal_mission_control
             .pending_runtime_edit
             .as_ref()
@@ -158,7 +173,7 @@ impl TuiModel {
             .unwrap_or_default()
     }
 
-    pub(super) fn mission_control_effort_picker_value(&self) -> Option<String> {
+    pub(crate) fn mission_control_effort_picker_value(&self) -> Option<String> {
         self.goal_mission_control
             .pending_runtime_edit
             .as_ref()
@@ -173,7 +188,7 @@ impl TuiModel {
             .and_then(|assignment| assignment.reasoning_effort.clone())
     }
 
-    pub(super) fn runtime_model_picker_current_selection(
+    pub(crate) fn runtime_model_picker_current_selection(
         &self,
     ) -> Option<(String, Option<String>)> {
         self.goal_mission_control
@@ -212,7 +227,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn begin_mission_control_custom_model_edit(&mut self) {
+    pub(crate) fn begin_mission_control_custom_model_edit(&mut self) {
         let Some((_, assignment)) = self.selected_runtime_assignment_preview() else {
             self.status_line = "Mission Control roster is unavailable".to_string();
             return;
@@ -226,7 +241,7 @@ impl TuiModel {
         self.status_line = "Enter mission control model ID".to_string();
     }
 
-    pub(super) fn available_runtime_assignment_models(
+    pub(crate) fn available_runtime_assignment_models(
         &self,
     ) -> Vec<crate::state::config::FetchedModel> {
         if let Some((current_model, custom_model_name)) =
@@ -242,7 +257,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn confirm_runtime_assignment_change(
+    pub(crate) fn confirm_runtime_assignment_change(
         &mut self,
         apply_mode: goal_mission_control::RuntimeAssignmentApplyMode,
     ) -> bool {
@@ -279,7 +294,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn request_selected_goal_run_toggle_confirmation(&mut self) -> bool {
+    pub(crate) fn request_selected_goal_run_toggle_confirmation(&mut self) -> bool {
         let Some(action) = self.selected_goal_run_toggle_action() else {
             return false;
         };
@@ -287,7 +302,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn request_selected_goal_run_stop_confirmation(&mut self) -> bool {
+    pub(crate) fn request_selected_goal_run_stop_confirmation(&mut self) -> bool {
         let Some(run) = self.selected_goal_run() else {
             return false;
         };
@@ -306,7 +321,7 @@ impl TuiModel {
         true
     }
 
-    pub(super) fn request_preview_for_selected_path(&mut self, thread_id: &str) {
+    pub(crate) fn request_preview_for_selected_path(&mut self, thread_id: &str) {
         let Some(context) = self.tasks.work_context_for_thread(thread_id) else {
             return;
         };
@@ -333,7 +348,7 @@ impl TuiModel {
         }
     }
 
-    pub(super) fn ensure_task_view_preview(&mut self) {
+    pub(crate) fn ensure_task_view_preview(&mut self) {
         let MainPaneView::Task(target) = &self.main_pane_view else {
             return;
         };
@@ -353,14 +368,14 @@ impl TuiModel {
         self.request_preview_for_selected_path(&thread_id);
     }
 
-    fn request_task_view_context(&mut self, target: &sidebar::SidebarItemTarget) {
+    pub(crate) fn request_task_view_context(&mut self, target: &sidebar::SidebarItemTarget) {
         if let Some(thread_id) = self.target_thread_id(target) {
             self.send_daemon_command(DaemonCommand::RequestThreadTodos(thread_id.clone()));
             self.send_daemon_command(DaemonCommand::RequestThreadWorkContext(thread_id));
         }
     }
 
-    pub(super) fn current_sidebar_snapshot(
+    pub(crate) fn current_sidebar_snapshot(
         &self,
     ) -> Option<&widgets::sidebar::CachedSidebarSnapshot> {
         let area = self.pane_layout().sidebar?;
@@ -376,7 +391,7 @@ impl TuiModel {
         })
     }
 
-    pub(super) fn selected_sidebar_file_path(&self) -> Option<String> {
+    pub(crate) fn selected_sidebar_file_path(&self) -> Option<String> {
         self.current_sidebar_snapshot()
             .and_then(|snapshot| snapshot.selected_file_path(self.sidebar.selected_item()))
             .or_else(|| {
@@ -388,7 +403,7 @@ impl TuiModel {
             })
     }
 
-    pub(super) fn filtered_sidebar_file_index(&self, path: &str) -> Option<usize> {
+    pub(crate) fn filtered_sidebar_file_index(&self, path: &str) -> Option<usize> {
         self.current_sidebar_snapshot()
             .and_then(|snapshot| snapshot.filtered_file_index(path))
             .or_else(|| {
@@ -434,7 +449,7 @@ impl TuiModel {
             .or_else(|| widgets::sidebar::selected_pinned_message(&self.chat, &self.sidebar))
     }
 
-    pub(super) fn sidebar_item_count(&self) -> usize {
+    pub(crate) fn sidebar_item_count(&self) -> usize {
         self.current_sidebar_snapshot()
             .map(widgets::sidebar::CachedSidebarSnapshot::item_count)
             .unwrap_or_else(|| {
@@ -447,7 +462,7 @@ impl TuiModel {
             })
     }
 
-    pub(super) fn activate_sidebar_tab(&mut self, tab: sidebar::SidebarTab) {
+    pub(crate) fn activate_sidebar_tab(&mut self, tab: sidebar::SidebarTab) {
         self.sidebar.reduce(sidebar::SidebarAction::SwitchTab(tab));
         if tab == sidebar::SidebarTab::Spawned {
             if let Some(index) = self.first_openable_sidebar_spawned_index() {
@@ -487,5 +502,4 @@ impl TuiModel {
         self.focus = FocusArea::Chat;
         self.status_line = format!("Opened spawned thread {to_thread_id}");
     }
-
 }

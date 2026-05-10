@@ -448,21 +448,17 @@ pub fn match_specialist(
         })
         .collect();
 
-    // Sort descending by score, then by max_tag_weight for tie-break.
     scored.sort_by(|a, b| {
         b.1.partial_cmp(&a.1)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal))
     });
 
-    // If top-2 are within 10%, use max_tag_weight as tiebreaker.
     if scored.len() >= 2 {
         let (idx1, score1, max1) = scored[0];
         let (_idx2, score2, max2) = scored[1];
         if score1 > 0.0 && (score1 - score2).abs() / score1 < 0.10 {
-            // Within 10% — prefer higher max tag proficiency.
             if max2 > max1 {
-                // Swap: second candidate wins.
                 let winner = scored[1];
                 if winner.1 >= threshold {
                     return Some((winner.0, winner.1));
@@ -800,8 +796,6 @@ mod tests {
     #[test]
     fn match_generalist_as_fallback() {
         let profiles = default_specialist_profiles();
-        // Tags that no specialist is expert at -- generalist should win as
-        // best option or be the only one above threshold.
         let tags = vec!["general".to_string()];
         let result = match_specialist(&profiles, &tags, 0.3);
         assert!(result.is_some());
@@ -826,7 +820,6 @@ mod tests {
 
     #[test]
     fn ambiguous_match_prefers_higher_max_tag() {
-        // Construct two profiles that score within 10% of each other.
         let profile_a = SpecialistProfile {
             id: "a".to_string(),
             name: "A".to_string(),
@@ -865,8 +858,6 @@ mod tests {
             escalation_chain: Vec::new(),
             is_builtin: false,
         };
-        // Both score (0.75+0.75)/2=0.75 vs (1.0+0.5)/2=0.75 -- exactly tied.
-        // Profile B has higher max tag proficiency (1.0 vs 0.75).
         let profiles = vec![profile_a, profile_b];
         let tags = vec!["x".to_string(), "y".to_string()];
         let result = match_specialist(&profiles, &tags, 0.3);
@@ -881,7 +872,6 @@ mod tests {
     #[test]
     fn below_threshold_returns_none() {
         let profiles = default_specialist_profiles();
-        // Tags that no profile matches well.
         let tags = vec!["quantum-physics".to_string(), "neurosurgery".to_string()];
         let result = match_specialist(&profiles, &tags, 0.3);
         assert!(result.is_none(), "should return None when below threshold");

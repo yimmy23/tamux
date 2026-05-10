@@ -1,3 +1,16 @@
+use super::super::{auth_env_lock, make_model, unique_test_db_path};
+use super::opening_weles_editor_hides_inherited_main_system_prompt_to_feat_skill::focus_settings_field;
+use super::*;
+use crate::app::TuiModel;
+use crate::state::settings::SettingsTab;
+use crate::state::*;
+use crate::widgets;
+use crossterm::event::{KeyCode, KeyModifiers};
+use rusqlite::{params, Connection};
+use std::ffi::OsString;
+use std::path::PathBuf;
+use tokio::sync::mpsc::unbounded_channel;
+use zorai_shared::providers::*;
 #[test]
 fn activating_openrouter_audio_tts_model_requests_audio_output_filter() {
     let (mut model, mut daemon_rx) = make_model();
@@ -36,7 +49,9 @@ fn activating_openrouter_audio_tts_model_requests_audio_output_filter() {
             assert_eq!(api_key, "router-key");
             assert_eq!(output_modalities.as_deref(), Some("audio"));
         }
-        other => panic!("expected filtered FetchModels for OpenRouter audio TTS picker, got {other:?}"),
+        other => {
+            panic!("expected filtered FetchModels for OpenRouter audio TTS picker, got {other:?}")
+        }
     }
 }
 
@@ -61,7 +76,11 @@ fn activating_openrouter_image_generation_model_requests_image_output_filter() {
     model
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::Settings));
-    focus_settings_field(&mut model, SettingsTab::Features, "feat_image_generation_model");
+    focus_settings_field(
+        &mut model,
+        SettingsTab::Features,
+        "feat_image_generation_model",
+    );
 
     model.activate_settings_field();
 
@@ -78,9 +97,7 @@ fn activating_openrouter_image_generation_model_requests_image_output_filter() {
             assert_eq!(api_key, "router-key");
             assert_eq!(output_modalities.as_deref(), Some("image"));
         }
-        other => panic!(
-            "expected filtered FetchModels for OpenRouter image picker, got {other:?}"
-        ),
+        other => panic!("expected filtered FetchModels for OpenRouter image picker, got {other:?}"),
     }
 }
 
@@ -119,7 +136,9 @@ fn image_generation_catalog_includes_gpt_image_2_for_openai_and_openrouter() {
     let minimax_coding_models =
         TuiModel::image_generation_catalog_models(PROVIDER_ID_MINIMAX_CODING_PLAN);
     assert!(
-        minimax_coding_models.iter().any(|model| model.id == "image-01"),
+        minimax_coding_models
+            .iter()
+            .any(|model| model.id == "image-01"),
         "expected MiniMax Coding Plan image catalog to include image-01"
     );
 }
@@ -154,8 +173,7 @@ fn minimax_audio_catalog_is_tts_only_and_uses_speech_28_defaults() {
         "expected MiniMax STT catalog to stay empty"
     );
 
-    let minimax_coding_tts =
-        TuiModel::audio_catalog_models("tts", PROVIDER_ID_MINIMAX_CODING_PLAN);
+    let minimax_coding_tts = TuiModel::audio_catalog_models("tts", PROVIDER_ID_MINIMAX_CODING_PLAN);
     assert!(
         minimax_coding_tts
             .iter()
@@ -440,4 +458,3 @@ fn settings_enter_toggles_embedding_enabled() {
         } if key_path == "/semantic/embedding/enabled" && value_json == "true"
     ));
 }
-

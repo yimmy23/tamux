@@ -320,11 +320,14 @@ fn collect_plan_issues_catches_empty_summary() {
     assert!(!collect_plan_issues(&plan).is_empty());
 }
 
+#[path = "tests/goal_dossier.rs"]
+mod goal_dossier_tests;
 #[cfg(feature = "lancedb-vector")]
-include!("tests/skill_mesh.rs");
+#[path = "tests/skill_mesh_compiler.rs"]
+mod skill_mesh_compiler_tests;
 #[cfg(feature = "lancedb-vector")]
-include!("tests/skill_mesh_compiler.rs");
-include!("tests/goal_dossier.rs");
+#[path = "tests/skill_mesh.rs"]
+mod skill_mesh_tests;
 
 #[test]
 fn retry_goal_run_step_resets_selected_step() {
@@ -527,6 +530,8 @@ async fn replace_thread_todos_binds_authoritative_goal_items_to_current_step() {
     task.goal_step_id = Some("step-0".to_string());
     task.goal_step_title = Some("Inspect".to_string());
     engine.tasks.lock().await.push_back(task.clone());
+    engine.persist_tasks().await;
+    engine.tasks.lock().await.clear();
 
     engine
         .replace_thread_todos(

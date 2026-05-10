@@ -7,8 +7,6 @@ pub(crate) fn compact_messages_for_request(
 ) -> Vec<AgentMessage> {
     let runtime_messages = active_request_messages(messages);
     let Some(candidate) = compaction_candidate(&runtime_messages, config, provider_config) else {
-        // Even when compaction is disabled, enforce a hard token limit
-        // so we never exceed the model's context window.
         let model_window = model_context_window(
             &config.provider,
             &provider_config.model,
@@ -122,8 +120,7 @@ pub(crate) fn compaction_candidate_with_mode(
     let trigger = match mode {
         CompactionCandidateMode::Forced => CompactionTrigger::ManualRequest,
         CompactionCandidateMode::Automatic => {
-            let over_message_limit = config.compaction.strategy == CompactionStrategy::Heuristic
-                && active_messages.len() > max_messages;
+            let over_message_limit = active_messages.len() > max_messages;
             let over_token_limit = estimate_message_tokens(active_messages) > target_tokens;
             match (over_message_limit, over_token_limit) {
                 (false, false) => return None,
@@ -143,9 +140,6 @@ pub(crate) fn compaction_candidate_with_mode(
         return None;
     }
 
-    // Never split inside a tool-call / tool-result pair.
-    // If the first kept message is a tool result, move split_at back to include
-    // the assistant message that made the tool call.
     while split_at > 0 && active_messages[split_at].role == MessageRole::Tool {
         split_at -= 1;
     }
@@ -182,13 +176,10 @@ pub(crate) fn trim_compacted_messages(
     {
         let remove_index = if has_summary { 1 } else { 0 };
 
-        // Don't remove an assistant message if the next message is a tool
-        // result — that would orphan the tool result.
         if remove_index < messages.len()
             && messages[remove_index].role == MessageRole::Assistant
             && messages[remove_index].tool_calls.is_some()
         {
-            // Remove the entire tool-call/result group together.
             let mut end = remove_index + 1;
             while end < messages.len() && messages[end].role == MessageRole::Tool {
                 end += 1;
@@ -403,7 +394,6 @@ pub(crate) fn hard_truncate_to_fit(
     messages: &[AgentMessage],
     max_tokens: usize,
 ) -> Vec<AgentMessage> {
-    // Walk backwards, accumulating tokens until we hit the limit.
     let mut kept: Vec<AgentMessage> = Vec::new();
     let mut total = 0usize;
     for msg in messages.iter().rev() {
@@ -416,7 +406,6 @@ pub(crate) fn hard_truncate_to_fit(
     }
     kept.reverse();
 
-    // Ensure we don't start with orphaned tool results.
     while !kept.is_empty() && kept[0].role == MessageRole::Tool {
         kept.remove(0);
     }

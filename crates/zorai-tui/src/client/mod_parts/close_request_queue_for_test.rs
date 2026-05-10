@@ -1,3 +1,5 @@
+use super::*;
+
 use anyhow::Result;
 use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
@@ -106,6 +108,10 @@ pub enum ClientEvent {
     GoalRunStarted(GoalRun),
     GoalRunDetail(Option<GoalRun>),
     GoalRunUpdate(GoalRun),
+    GoalRunControlled {
+        goal_run_id: String,
+        ok: bool,
+    },
     GoalRunDeleted {
         goal_run_id: String,
         deleted: bool,
@@ -364,7 +370,10 @@ pub enum ClientEvent {
         new_tier: String,
     },
 
-    // Plugin settings events (Plan 16-03)
+    SemanticIndexRepaired {
+        summary: String,
+    },
+
     PluginList(Vec<zorai_protocol::PluginInfo>),
     PluginGet {
         plugin: Option<zorai_protocol::PluginInfo>,
@@ -445,9 +454,9 @@ pub struct AgentPromptInspectionVm {
 }
 
 pub struct DaemonClient {
-    event_tx: mpsc::Sender<ClientEvent>,
-    request_tx: mpsc::UnboundedSender<ClientMessage>,
-    request_rx: Mutex<Option<mpsc::UnboundedReceiver<ClientMessage>>>,
+    pub(crate) event_tx: mpsc::Sender<ClientEvent>,
+    pub(crate) request_tx: mpsc::UnboundedSender<ClientMessage>,
+    pub(crate) request_rx: Mutex<Option<mpsc::UnboundedReceiver<ClientMessage>>>,
 }
 
 #[cfg(test)]
@@ -459,4 +468,3 @@ impl DaemonClient {
             .take();
     }
 }
-

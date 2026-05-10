@@ -59,7 +59,6 @@ impl ContextBundle {
             return;
         }
 
-        // Step 1: Summarize parent_context_summary with progressively smaller limits
         if !self.parent_context_summary.is_empty() {
             let mut char_limit = self.parent_context_summary.len();
             while self.estimated_tokens > max_tokens && char_limit > 32 {
@@ -76,13 +75,11 @@ impl ContextBundle {
             }
         }
 
-        // Step 2: Trim partial outputs (oldest first)
         while self.estimated_tokens > max_tokens && !self.partial_outputs.is_empty() {
             self.partial_outputs.remove(0);
             self.recompute_estimated_tokens();
         }
 
-        // Step 3: Truncate negative constraints (oldest first)
         while self.estimated_tokens > max_tokens && !self.negative_constraints.is_empty() {
             self.negative_constraints.remove(0);
             self.recompute_estimated_tokens();
@@ -150,7 +147,6 @@ mod tests {
 
     #[test]
     fn test_estimate_tokens_chars_div_4() {
-        // 100 chars -> 25 tokens
         let text = "a".repeat(100);
         assert_eq!(ContextBundle::estimate_tokens(&text), 25);
     }
@@ -163,9 +159,8 @@ mod tests {
     #[test]
     fn test_recompute_estimated_tokens() {
         let mut bundle = make_bundle_small();
-        bundle.parent_context_summary = "x".repeat(400); // 100 tokens
+        bundle.parent_context_summary = "x".repeat(400);
         bundle.recompute_estimated_tokens();
-        // task_spec + acceptance_criteria + parent_context_summary
         let expected = ContextBundle::estimate_tokens("Write a function")
             + ContextBundle::estimate_tokens("Must compile")
             + 100;
@@ -175,7 +170,6 @@ mod tests {
     #[test]
     fn test_enforce_ceiling_summarizes_parent_context() {
         let mut bundle = make_bundle_small();
-        // Make parent_context_summary very large (10000 chars = 2500 tokens)
         bundle.parent_context_summary = "word ".repeat(2000);
         bundle.recompute_estimated_tokens();
         assert!(bundle.estimated_tokens > 2000);
@@ -191,7 +185,6 @@ mod tests {
     #[test]
     fn test_enforce_ceiling_trims_partial_outputs() {
         let mut bundle = make_bundle_small();
-        // Add large partial outputs
         for i in 0..10 {
             bundle
                 .partial_outputs
@@ -206,7 +199,6 @@ mod tests {
             "estimated_tokens={} should be <= 2000",
             bundle.estimated_tokens
         );
-        // Some partial outputs should have been removed
         assert!(bundle.partial_outputs.len() < 10);
     }
 

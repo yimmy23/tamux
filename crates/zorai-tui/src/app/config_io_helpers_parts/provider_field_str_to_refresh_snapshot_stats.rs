@@ -1,5 +1,13 @@
+use super::super::*;
+use super::{
+    flatten_config_value, normalize_compliance_mode, normalize_provider_auth_source,
+    normalize_provider_transport, openrouter_provider_list_value, split_openrouter_provider_list,
+};
+use crate::providers;
+use zorai_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENROUTER};
+
 impl TuiModel {
-    pub(in super::super) fn provider_field_str<'a>(
+    pub(in crate::app) fn provider_field_str<'a>(
         provider_value: &'a serde_json::Value,
         camel_case: &str,
         snake_case: &str,
@@ -14,7 +22,7 @@ impl TuiModel {
             })
     }
 
-    pub(in super::super) fn provider_field_u64(
+    pub(in crate::app) fn provider_field_u64(
         provider_value: &serde_json::Value,
         camel_case: &str,
         snake_case: &str,
@@ -29,11 +37,11 @@ impl TuiModel {
             })
     }
 
-    pub(in super::super) fn refresh_openai_auth_status(&mut self) {
+    pub(in crate::app) fn refresh_openai_auth_status(&mut self) {
         self.send_daemon_command(DaemonCommand::GetOpenAICodexAuthStatus);
     }
 
-    pub(in super::super) fn effective_context_window_for_provider_value(
+    pub(in crate::app) fn effective_context_window_for_provider_value(
         provider_id: &str,
         provider_value: &serde_json::Value,
     ) -> u32 {
@@ -75,7 +83,7 @@ impl TuiModel {
         providers::known_context_window_for(provider_id, model).unwrap_or(128_000)
     }
 
-    fn effective_current_context_window(&self) -> u32 {
+    pub(in crate::app) fn effective_current_context_window(&self) -> u32 {
         if let Some(context_window) = providers::resolve_context_window_for_provider_auth(
             &self.config.provider,
             &self.config.auth_source,
@@ -96,7 +104,7 @@ impl TuiModel {
         }
     }
 
-    pub(in super::super) fn provider_config_value(&self, provider_id: &str) -> serde_json::Value {
+    pub(in crate::app) fn provider_config_value(&self, provider_id: &str) -> serde_json::Value {
         if provider_id == self.config.provider {
             let mut value = serde_json::json!({
                 "base_url": &self.config.base_url,
@@ -157,7 +165,7 @@ impl TuiModel {
         value
     }
 
-    pub(in super::super) fn provider_wire_config_value(
+    pub(in crate::app) fn provider_wire_config_value(
         &self,
         provider_id: &str,
     ) -> serde_json::Value {
@@ -276,7 +284,9 @@ impl TuiModel {
         providers_json
     }
 
-    fn all_provider_wire_config_values(&self) -> serde_json::Map<String, serde_json::Value> {
+    pub(in crate::app) fn all_provider_wire_config_values(
+        &self,
+    ) -> serde_json::Map<String, serde_json::Value> {
         let mut providers_json = serde_json::Map::new();
         for provider in providers::PROVIDERS {
             providers_json.insert(
@@ -306,7 +316,7 @@ impl TuiModel {
         Some((count, total_size_bytes))
     }
 
-    pub(in super::super) fn refresh_snapshot_stats(&mut self) {
+    pub(in crate::app) fn refresh_snapshot_stats(&mut self) {
         let history_db = zorai_protocol::zorai_data_dir()
             .join("history")
             .join("command-history.db");
@@ -320,5 +330,4 @@ impl TuiModel {
         self.config.snapshot_count = count;
         self.config.snapshot_total_size_bytes = total_size_bytes;
     }
-
 }

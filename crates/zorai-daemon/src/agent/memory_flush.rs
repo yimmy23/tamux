@@ -53,7 +53,6 @@ impl AgentEngine {
             )),
         );
 
-        // Circuit breaker check before memory flush LLM call.
         if let Err(e) = self.check_circuit_breaker(&config.provider).await {
             tracing::warn!(thread_id = %thread_id, "memory flush skipped — circuit breaker open: {e}");
             return Ok(false);

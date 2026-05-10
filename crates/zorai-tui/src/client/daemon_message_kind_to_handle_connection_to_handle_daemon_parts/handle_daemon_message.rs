@@ -1,5 +1,24 @@
+use super::*;
+use crate::client::ThreadDetailChunkBuffer;
+use crate::client::{ClientEvent, DaemonClient};
+use crate::wire::{
+    AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
+    GoalRun, GoalRunStatus, HeartbeatItem, RestoreOutcome, TaskStatus, ThreadParticipantSuggestion,
+    ThreadWorkContext,
+};
+use anyhow::Result;
+use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
+use serde_json::Value;
+use std::sync::Mutex;
+use std::time::Duration;
+use tokio::sync::mpsc;
+use tokio::time::{Instant, MissedTickBehavior};
+use tokio_util::codec::Framed;
+use tracing::{debug, error, info, warn};
+use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
 impl DaemonClient {
-    async fn handle_daemon_message(
+    pub(crate) async fn handle_daemon_message(
         message: DaemonMessage,
         event_tx: &mpsc::Sender<ClientEvent>,
         thread_detail_chunks: &mut Option<ThreadDetailChunkBuffer>,
@@ -13,6 +32,7 @@ impl DaemonClient {
             | DaemonMessage::AgentGoalRunList { .. }
             | DaemonMessage::AgentGoalRunStarted { .. }
             | DaemonMessage::AgentGoalRunDetail { .. }
+            | DaemonMessage::AgentGoalRunControlled { .. }
             | DaemonMessage::AgentCheckpointList { .. }
             | DaemonMessage::AgentCheckpointRestored { .. }
             | DaemonMessage::AgentTodoDetail { .. }
@@ -36,7 +56,12 @@ impl DaemonClient {
             | DaemonMessage::AgentWorkspaceTaskDeleted { .. }
             | DaemonMessage::AgentWorkspaceNoticeList { .. }
             | DaemonMessage::AgentWorkspaceError { .. }) => {
-                Self::handle_thread_workspace_daemon_messages(message, event_tx, thread_detail_chunks).await
+                Self::handle_thread_workspace_daemon_messages(
+                    message,
+                    event_tx,
+                    thread_detail_chunks,
+                )
+                .await
             }
             message @ (DaemonMessage::AgentProviderAuthStates { .. }
             | DaemonMessage::AgentProviderCatalog { .. }
@@ -84,6 +109,8 @@ impl DaemonClient {
             | DaemonMessage::AgentGenerateImageResult { .. }
             | DaemonMessage::AgentOperatorProfileSessionCompleted { .. }
             | DaemonMessage::AgentError { .. }
+            | DaemonMessage::AgentTierChanged { .. }
+            | DaemonMessage::SemanticIndexRepairResult { .. }
             | DaemonMessage::GatewayBootstrap { .. }
             | DaemonMessage::GatewaySendRequest { .. }
             | DaemonMessage::GatewayReloadCommand { .. }
@@ -91,12 +118,52 @@ impl DaemonClient {
             | DaemonMessage::Error { .. }) => {
                 Self::handle_activity_profile_gateway_daemon_messages(message, event_tx).await
             }
+            DaemonMessage::Pong => {
+            }
+            DaemonMessage::AgentConciergeWelcomeDismissed => {
+            }
+            DaemonMessage::AgentAsyncCommandCapabilityAck { capability } => {
+                debug!(
+                    target: "zorai_tui::client",
+                    ?capability,
+                    "received AgentAsyncCommandCapabilityAck"
+                );
+            }
+            DaemonMessage::OperationAccepted {
+                operation_id,
+                kind,
+                dedup,
+                revision,
+            } => {
+                debug!(
+                    target: "zorai_tui::client",
+                    operation_id = %operation_id,
+                    kind = %kind,
+                    dedup = ?dedup,
+                    revision,
+                    "received OperationAccepted"
+                );
+            }
             other => {
-                debug!("Ignoring daemon message: {:?}", other);
+                #[cfg(debug_assertions)]
+                {
+                    warn!(
+                        target: "zorai_tui::client",
+                        message = ?other,
+                        "unhandled DaemonMessage variant — dispatcher needs an explicit arm",
+                    );
+                }
+                #[cfg(not(debug_assertions))]
+                {
+                    debug!(
+                        target: "zorai_tui::client",
+                        message = ?other,
+                        "ignoring unhandled daemon message",
+                    );
+                }
             }
         }
 
         true
     }
-
 }

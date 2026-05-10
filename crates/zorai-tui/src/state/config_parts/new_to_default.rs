@@ -1,3 +1,12 @@
+use crate::providers;
+use zorai_shared::providers::PROVIDER_ID_OPENAI;
+
+use super::json_u32_to_from_config::{
+    embedding_dimensions_from_fetched_model, json_u32, provider_supports_audio,
+    provider_supports_embeddings, provider_supports_image_generation, setting_name_matches,
+};
+use super::{AgentConfigSnapshot, ConfigAction, ConfigState, FetchedModel, FetchedModelPricing};
+
 impl ConfigState {
     pub fn new() -> Self {
         Self {
@@ -109,6 +118,9 @@ impl ConfigState {
             snapshot_auto_cleanup: false,
             snapshot_count: 0,
             snapshot_total_size_bytes: 0,
+            workspace_repo_monitor_enabled: false,
+            workspace_repo_monitor_include_dirs: String::new(),
+            workspace_repo_monitor_exclude_dirs: String::new(),
         }
     }
 
@@ -208,8 +220,6 @@ impl ConfigState {
             .and_then(|group| group.get(field))
     }
 
-    // Audio configuration getters support canonical nested audio settings and
-    // flattened legacy keys from the daemon's extra config bag.
     fn get_audio_field(
         &self,
         group: &str,
@@ -374,4 +384,3 @@ impl Default for ConfigState {
     }
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────

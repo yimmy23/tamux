@@ -25,13 +25,82 @@ use crate::agent::skill_registry::{to_community_entry, RegistryClient};
 use crate::agent::AgentEngine;
 use crate::session_manager::SessionManager;
 
-include!("server/helpers_part1.rs");
-include!("server/helpers_part2.rs");
-include!("server/operations.rs");
-include!("server/subsystem_queue.rs");
-include!("server/subsystem_metrics.rs");
-include!("server/operation_retention.rs");
-include!("server/operations_registry.rs");
+pub(crate) const AGENT_DB_THREAD_DETAIL_MESSAGE_WINDOW: usize = 64;
+
+/// Outcome of a dispatch helper that may also terminate the connection loop.
+pub(crate) enum DispatchOutcome {
+    NotMatched,
+    Continue,
+    Terminate,
+}
+
+pub(crate) const CONNECTION_WRITE_BUFFER: usize = 4096;
+
+#[derive(Clone)]
+pub(crate) struct ConnectionWriter {
+    tx: mpsc::Sender<DaemonMessage>,
+}
+
+impl ConnectionWriter {
+    pub(crate) fn new(tx: mpsc::Sender<DaemonMessage>) -> Self {
+        Self { tx }
+    }
+
+    /// Must be non-blocking: the read loop calls this on the same task that
+    /// reads client messages. A blocking `await` here would deadlock the
+    /// connection if the socket is slow.
+    pub(crate) async fn send(&mut self, msg: DaemonMessage) -> std::io::Result<()> {
+        use mpsc::error::TrySendError;
+        match self.tx.try_send(msg) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => {
+                tracing::warn!(
+                    buffer = CONNECTION_WRITE_BUFFER,
+                    "daemon writer queue full — TUI not draining; closing connection"
+                );
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "daemon writer queue full",
+                ))
+            }
+            Err(TrySendError::Closed(_)) => Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "daemon writer task closed",
+            )),
+        }
+    }
+}
+
+/// Outcome of the pre-dispatch loop step that drains async events before
+/// reading the next ClientMessage.
+pub(crate) enum PreDispatchOutcome {
+    Terminate,
+    Msg(Option<ClientMessage>),
+}
+pub(crate) const AGENT_DB_THREAD_LIST_WINDOW: usize = 128;
+pub(crate) const AGENT_DB_INDEX_LIST_WINDOW: usize = 128;
+
+#[path = "server/helpers_part1.rs"]
+mod helpers_part1;
+#[path = "server/helpers_part2.rs"]
+mod helpers_part2;
+#[path = "server/operation_retention.rs"]
+mod operation_retention;
+#[path = "server/operations.rs"]
+mod operations;
+#[path = "server/operations_registry.rs"]
+mod operations_registry;
+#[path = "server/subsystem_metrics.rs"]
+mod subsystem_metrics;
+#[path = "server/subsystem_queue.rs"]
+mod subsystem_queue;
+pub(crate) use helpers_part1::*;
+pub(crate) use helpers_part2::*;
+pub(crate) use operation_retention::*;
+pub(crate) use operations::*;
+pub(crate) use operations_registry::*;
+pub(crate) use subsystem_metrics::*;
+pub(crate) use subsystem_queue::*;
 
 fn is_unknown_operator_profile_session_error(error: &anyhow::Error) -> bool {
     error
@@ -40,16 +109,37 @@ fn is_unknown_operator_profile_session_error(error: &anyhow::Error) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    include!("server/tests_part1.rs");
-    include!("server/tests_part2.rs");
-    include!("server/tests_part3.rs");
-}
+mod tests;
 
-include!("server/post_tests.rs");
+#[path = "server/post_tests.rs"]
+mod post_tests;
+pub(crate) use post_tests::*;
+
+#[path = "server/connection_pre_dispatch.rs"]
+mod connection_pre_dispatch;
+#[path = "server/dispatch_part1.rs"]
+mod dispatch_part1;
+#[path = "server/dispatch_part10.rs"]
+mod dispatch_part10;
+#[path = "server/dispatch_part2.rs"]
+mod dispatch_part2;
+#[path = "server/dispatch_part3.rs"]
+mod dispatch_part3;
+#[path = "server/dispatch_part4.rs"]
+mod dispatch_part4;
+#[path = "server/dispatch_part5.rs"]
+mod dispatch_part5;
+#[path = "server/dispatch_part6.rs"]
+mod dispatch_part6;
+#[path = "server/dispatch_part7.rs"]
+mod dispatch_part7;
+#[path = "server/dispatch_part8.rs"]
+mod dispatch_part8;
+#[path = "server/dispatch_part9.rs"]
+mod dispatch_part9;
 
 #[derive(Clone)]
-struct StartupReadiness {
+pub(crate) struct StartupReadiness {
     ready: Arc<AtomicBool>,
     notify: Arc<tokio::sync::Notify>,
 }
@@ -108,6 +198,40 @@ fn client_message_requires_startup_readiness(msg: &ClientMessage) -> bool {
             | ClientMessage::AgentGetOperationStatus { .. }
             | ClientMessage::AgentGetHealthStatus
     )
+}
+
+/// Returns a short, log-safe label for a `ClientMessage` variant. Used in
+/// dispatch tracing so we can see *which* message arrived without dumping the
+/// full payload into the log line.
+fn client_message_variant_name(msg: &ClientMessage) -> &'static str {
+    use ClientMessage::*;
+    match msg {
+        Ping => "Ping",
+        AgentSubscribe => "AgentSubscribe",
+        AgentUnsubscribe => "AgentUnsubscribe",
+        AgentGetConfig => "AgentGetConfig",
+        AgentGetGatewayConfig => "AgentGetGatewayConfig",
+        AgentGetEffectiveConfigState => "AgentGetEffectiveConfigState",
+        AgentGetProviderCatalog => "AgentGetProviderCatalog",
+        AgentGetProviderAuthStates => "AgentGetProviderAuthStates",
+        AgentListSubAgents => "AgentListSubAgents",
+        AgentListThreads { .. } => "AgentListThreads",
+        AgentListTasks => "AgentListTasks",
+        AgentListGoalRuns { .. } => "AgentListGoalRuns",
+        AgentGetThread { .. } => "AgentGetThread",
+        AgentRequestConciergeWelcome => "AgentRequestConciergeWelcome",
+        AgentDismissConciergeWelcome => "AgentDismissConciergeWelcome",
+        AgentGetConciergeConfig => "AgentGetConciergeConfig",
+        AgentSetConciergeConfig { .. } => "AgentSetConciergeConfig",
+        AgentDeclareAsyncCommandCapability { .. } => "AgentDeclareAsyncCommandCapability",
+        AgentGetOperationStatus { .. } => "AgentGetOperationStatus",
+        AgentHeartbeatGetItems => "AgentHeartbeatGetItems",
+        ListAgentEvents { .. } => "ListAgentEvents",
+        UpsertAgentEvent { .. } => "UpsertAgentEvent",
+        PluginList { .. } => "PluginList",
+        PluginListCommands { .. } => "PluginListCommands",
+        _ => "<other>",
+    }
 }
 
 fn client_surface_can_write_thread(
@@ -177,7 +301,7 @@ mod startup_readiness_tests {
     }
 }
 
-async fn handle_connection<S>(
+pub(crate) async fn handle_connection<S>(
     stream: S,
     manager: Arc<SessionManager>,
     agent: Arc<AgentEngine>,
@@ -188,7 +312,31 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     use zorai_protocol::DaemonCodec;
-    let mut framed = Framed::new(stream, DaemonCodec);
+    let framed = Framed::new(stream, DaemonCodec);
+    let (mut sink, mut stream) = framed.split();
+
+    let (write_tx, mut write_rx) = mpsc::channel::<DaemonMessage>(CONNECTION_WRITE_BUFFER);
+    let writer_task = tokio::spawn(async move {
+        while let Some(msg) = write_rx.recv().await {
+            let started = std::time::Instant::now();
+            if let Err(error) = sink.send(msg).await {
+                tracing::warn!(
+                    error = %error,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "daemon connection writer task aborting on send error"
+                );
+                return;
+            }
+            let elapsed_ms = started.elapsed().as_millis() as u64;
+            if elapsed_ms > 1000 {
+                tracing::warn!(
+                    elapsed_ms,
+                    "daemon writer: sink.send blocked >1s — likely TUI not draining socket"
+                );
+            }
+        }
+    });
+    let mut framed = ConnectionWriter::new(write_tx);
 
     let mut attached_rxs: Vec<(
         zorai_protocol::SessionId,
@@ -208,22 +356,150 @@ where
     let mut gateway_connection_state = GatewayConnectionState::Unregistered;
 
     loop {
-        let msg = include!("server/connection_pre_dispatch.rs");
+        let msg = match connection_pre_dispatch::pre_dispatch(
+            &agent,
+            &mut stream,
+            &mut framed,
+            &plugin_manager,
+            &mut attached_rxs,
+            &mut client_agent_threads,
+            &mut last_concierge_welcome_fingerprint,
+            &mut agent_event_rx,
+            &mut background_daemon_queues,
+            &mut background_daemon_pending,
+            &mut whatsapp_link_rx,
+            &mut whatsapp_link_snapshot_replayed,
+            &mut gateway_ipc_rx,
+            &gateway_connection_state,
+        )
+        .await?
+        {
+            PreDispatchOutcome::Terminate => return Ok(()),
+            PreDispatchOutcome::Msg(m) => m,
+        };
 
         if let Some(msg) = msg {
+            tracing::info!(
+                variant = client_message_variant_name(&msg),
+                "dispatch: incoming client message"
+            );
             if client_message_requires_startup_readiness(&msg) {
                 startup_readiness.wait_until_ready().await;
             }
-            include!("server/dispatch_part1.rs");
-            include!("server/dispatch_part2.rs");
-            include!("server/dispatch_part3.rs");
-            include!("server/dispatch_part4.rs");
-            include!("server/dispatch_part5.rs");
-            include!("server/dispatch_part6.rs");
-            include!("server/dispatch_part7.rs");
-            include!("server/dispatch_part8.rs");
-            include!("server/dispatch_part9.rs");
-            include!("server/dispatch_part10.rs");
+            match dispatch_part1::dispatch_part1(
+                &msg,
+                &agent,
+                &mut framed,
+                &manager,
+                &mut attached_rxs,
+                &mut gateway_connection_state,
+                &mut gateway_ipc_rx,
+            )
+            .await?
+            {
+                DispatchOutcome::NotMatched => {}
+                DispatchOutcome::Continue => continue,
+                DispatchOutcome::Terminate => return Ok(()),
+            }
+            match dispatch_part2::dispatch_part2(
+                &msg,
+                &agent,
+                &mut framed,
+                &manager,
+                &mut attached_rxs,
+            )
+            .await?
+            {
+                DispatchOutcome::NotMatched => {}
+                DispatchOutcome::Continue => continue,
+                DispatchOutcome::Terminate => return Ok(()),
+            }
+            if dispatch_part3::dispatch_part3(
+                &msg,
+                &agent,
+                &mut framed,
+                &manager,
+                &mut client_agent_threads,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part4::dispatch_part4(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut background_daemon_queues,
+                &mut background_daemon_pending,
+                &mut client_agent_threads,
+                &mut agent_event_rx,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part5::dispatch_part5(&msg, &agent, &mut framed).await? {
+                continue;
+            }
+            if dispatch_part6::dispatch_part6(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut background_daemon_queues,
+                &mut background_daemon_pending,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part7::dispatch_part7(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut background_daemon_queues,
+                &mut background_daemon_pending,
+                &mut last_concierge_welcome_fingerprint,
+                &mut agent_event_rx,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part8::dispatch_part8(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut background_daemon_queues,
+                &mut background_daemon_pending,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part9::dispatch_part9(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut background_daemon_queues,
+                &mut background_daemon_pending,
+                &plugin_manager,
+            )
+            .await?
+            {
+                continue;
+            }
+            if dispatch_part10::dispatch_whatsapp_link(
+                &msg,
+                &agent,
+                &mut framed,
+                &mut whatsapp_link_subscriber_guard,
+                &mut whatsapp_link_rx,
+                &mut whatsapp_link_snapshot_replayed,
+            )
+            .await?
+            {
+                continue;
+            }
         }
     }
 }

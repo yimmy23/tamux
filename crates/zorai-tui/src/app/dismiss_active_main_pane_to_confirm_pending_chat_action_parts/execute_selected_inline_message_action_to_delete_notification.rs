@@ -1,5 +1,19 @@
+use super::*;
+use crate::client::ClientEvent;
+use crate::providers;
+use crate::state::*;
+use crate::theme::ThemeTokens;
+use crate::widgets;
+use crossterm::event::{
+    KeyCode, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
+};
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, BorderType, Borders, Clear};
+use std::process::Child;
+use std::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedSender;
 impl TuiModel {
-    fn execute_selected_inline_message_action(&mut self) -> bool {
+    pub(crate) fn execute_selected_inline_message_action(&mut self) -> bool {
         let Some(message_index) = self.chat.selected_message() else {
             return false;
         };
@@ -71,7 +85,7 @@ impl TuiModel {
         }
     }
 
-    fn update_held_modifier(&mut self, code: KeyCode, pressed: bool) {
+    pub(crate) fn update_held_modifier(&mut self, code: KeyCode, pressed: bool) {
         let modifier = match code {
             KeyCode::Modifier(
                 ModifierKeyCode::LeftShift
@@ -97,7 +111,7 @@ impl TuiModel {
         }
     }
 
-    fn input_notice_style(&self) -> Option<(&str, Style)> {
+    pub(crate) fn input_notice_style(&self) -> Option<(&str, Style)> {
         self.input_notice.as_ref().map(|notice| {
             let style = match notice.kind {
                 InputNoticeKind::Warning => Style::default().fg(Color::Indexed(214)),
@@ -129,7 +143,7 @@ impl TuiModel {
         ))
     }
 
-    fn restore_prompt_and_show_budget_exceeded_notice(
+    pub(crate) fn restore_prompt_and_show_budget_exceeded_notice(
         &mut self,
         thread_id: &str,
         prompt: &str,
@@ -143,12 +157,12 @@ impl TuiModel {
         true
     }
 
-    fn active_thread_budget_exceeded_notice(&self) -> Option<String> {
+    pub(crate) fn active_thread_budget_exceeded_notice(&self) -> Option<String> {
         let thread_id = self.chat.active_thread_id()?;
         self.thread_budget_exceeded_notice(thread_id)
     }
 
-    fn toggle_notifications_modal(&mut self) {
+    pub(crate) fn toggle_notifications_modal(&mut self) {
         if self.modal.top() == Some(modal::ModalKind::Notifications) {
             self.close_top_modal();
         } else {
@@ -162,7 +176,7 @@ impl TuiModel {
         }
     }
 
-    fn toggle_approval_center(&mut self) {
+    pub(crate) fn toggle_approval_center(&mut self) {
         if self.modal.top() == Some(modal::ModalKind::ApprovalCenter) {
             self.close_top_modal();
         } else {
@@ -172,7 +186,7 @@ impl TuiModel {
         }
     }
 
-    fn current_workspace_id(&self) -> Option<&str> {
+    pub(crate) fn current_workspace_id(&self) -> Option<&str> {
         let workspace = self.config.honcho_workspace_id.trim();
         if workspace.is_empty() {
             None
@@ -189,7 +203,7 @@ impl TuiModel {
             .collect()
     }
 
-    fn step_approval_selection(&mut self, delta: i32) {
+    pub(crate) fn step_approval_selection(&mut self, delta: i32) {
         let visible = self.visible_approval_ids();
         if visible.is_empty() {
             return;
@@ -206,7 +220,7 @@ impl TuiModel {
             ));
     }
 
-    fn select_approval_center_row(&mut self, index: usize) {
+    pub(crate) fn select_approval_center_row(&mut self, index: usize) {
         let visible = self.visible_approval_ids();
         if let Some(approval_id) = visible.get(index) {
             self.approval
@@ -216,7 +230,7 @@ impl TuiModel {
         }
     }
 
-    fn select_approval_center_rule_row(&mut self, index: usize) {
+    pub(crate) fn select_approval_center_rule_row(&mut self, index: usize) {
         if let Some(rule_id) = self
             .approval
             .saved_rules()
@@ -228,7 +242,7 @@ impl TuiModel {
         }
     }
 
-    fn create_task_approval_rule(&mut self, approval_id: String) {
+    pub(crate) fn create_task_approval_rule(&mut self, approval_id: String) {
         self.send_daemon_command(DaemonCommand::CreateTaskApprovalRule {
             approval_id: approval_id.clone(),
         });
@@ -236,7 +250,7 @@ impl TuiModel {
         self.status_line = "Saved always-approve rule".to_string();
     }
 
-    fn revoke_selected_task_approval_rule(&mut self) {
+    pub(crate) fn revoke_selected_task_approval_rule(&mut self) {
         let Some(rule_id) = self.approval.selected_rule().map(|rule| rule.id.clone()) else {
             return;
         };
@@ -246,7 +260,7 @@ impl TuiModel {
         self.status_line = "Revoked always-approve rule".to_string();
     }
 
-    fn resolve_approval(&mut self, approval_id: String, decision: &str) {
+    pub(crate) fn resolve_approval(&mut self, approval_id: String, decision: &str) {
         self.approval.reduce(crate::state::ApprovalAction::Resolve {
             approval_id: approval_id.clone(),
             decision: decision.to_string(),
@@ -257,7 +271,7 @@ impl TuiModel {
         });
     }
 
-    fn active_goal_approval_context(&self) -> Option<GoalApprovalContext> {
+    pub(crate) fn active_goal_approval_context(&self) -> Option<GoalApprovalContext> {
         let MainPaneView::Task(sidebar::SidebarItemTarget::GoalRun { goal_run_id, .. }) =
             &self.main_pane_view
         else {
@@ -281,12 +295,14 @@ impl TuiModel {
             .or_else(|| self.next_current_thread_approval_id())
     }
 
-    fn sync_contextual_approval_overlay(&mut self) {
+    pub(crate) fn sync_contextual_approval_overlay(&mut self) {
         let Some(approval_id) = self.active_contextual_approval_id() else {
-            self.modal
-                .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::GoalApprovalRejectPrompt));
-            self.modal
-                .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::ApprovalOverlay));
+            self.modal.reduce(modal::ModalAction::RemoveAll(
+                modal::ModalKind::GoalApprovalRejectPrompt,
+            ));
+            self.modal.reduce(modal::ModalAction::RemoveAll(
+                modal::ModalKind::ApprovalOverlay,
+            ));
             return;
         };
 
@@ -295,9 +311,8 @@ impl TuiModel {
         if self.modal.top() != Some(modal::ModalKind::ApprovalOverlay)
             && self.modal.top() != Some(modal::ModalKind::GoalApprovalRejectPrompt)
         {
-            self.modal.reduce(modal::ModalAction::Push(
-                modal::ModalKind::ApprovalOverlay,
-            ));
+            self.modal
+                .reduce(modal::ModalAction::Push(modal::ModalKind::ApprovalOverlay));
         }
     }
 
@@ -319,22 +334,25 @@ impl TuiModel {
     }
 
     fn close_goal_approval_decision_modals(&mut self) {
-        self.modal
-            .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::GoalApprovalRejectPrompt));
-        self.modal
-            .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::ApprovalOverlay));
-        self.modal
-            .reduce(modal::ModalAction::RemoveAll(modal::ModalKind::ApprovalCenter));
+        self.modal.reduce(modal::ModalAction::RemoveAll(
+            modal::ModalKind::GoalApprovalRejectPrompt,
+        ));
+        self.modal.reduce(modal::ModalAction::RemoveAll(
+            modal::ModalKind::ApprovalOverlay,
+        ));
+        self.modal.reduce(modal::ModalAction::RemoveAll(
+            modal::ModalKind::ApprovalCenter,
+        ));
     }
 
-    fn handle_reject_selected_approval(&mut self, approval_id: String) {
+    pub(crate) fn handle_reject_selected_approval(&mut self, approval_id: String) {
         if !self.open_goal_approval_reject_prompt(approval_id.clone()) {
             self.resolve_approval(approval_id, "reject");
             self.sync_contextual_approval_overlay();
         }
     }
 
-    fn rewrite_active_goal_after_reject(&mut self) {
+    pub(crate) fn rewrite_active_goal_after_reject(&mut self) {
         let Some(context) = self.active_goal_approval_context() else {
             self.close_goal_approval_decision_modals();
             return;
@@ -370,7 +388,7 @@ impl TuiModel {
             format!("Approval rejected for {status_target}. Provide rewrite guidance.");
     }
 
-    fn stop_active_goal_after_reject(&mut self) {
+    pub(crate) fn stop_active_goal_after_reject(&mut self) {
         let Some(context) = self.active_goal_approval_context() else {
             self.close_goal_approval_decision_modals();
             return;
@@ -386,22 +404,19 @@ impl TuiModel {
         self.status_line = "Goal approval rejected. Stopping goal run...".to_string();
     }
 
-    fn goal_approval_reject_prompt_body(&self) -> String {
+    pub(crate) fn goal_approval_reject_prompt_body(&self) -> String {
         let Some(context) = self.active_goal_approval_context() else {
             return "No active goal approval is available.\n\nPress Esc to return.".to_string();
         };
 
-        let step_label = context
-            .step_title
-            .as_deref()
-            .unwrap_or("current goal step");
+        let step_label = context.step_title.as_deref().unwrap_or("current goal step");
         format!(
             "Approval for \"{}\" was rejected.\n\nChoose what to do next for {}:\n\n[R] Rewrite with guidance\nType guidance in the input box on the next step, then press Enter.\n\n[S] Stop goal\nImmediately stop this goal run after rejecting the approval.\n\n[Esc] Back to approval",
             context.goal_title, step_label
         )
     }
 
-    fn next_current_thread_approval_id(&self) -> Option<String> {
+    pub(crate) fn next_current_thread_approval_id(&self) -> Option<String> {
         let current_thread_id = self.chat.active_thread_id()?;
         self.approval
             .pending_approvals()
@@ -410,7 +425,7 @@ impl TuiModel {
             .map(|approval| approval.approval_id.clone())
     }
 
-    fn current_unix_ms() -> i64 {
+    pub(crate) fn current_unix_ms() -> i64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_millis() as i64)
@@ -425,7 +440,7 @@ impl TuiModel {
         self.send_daemon_command(DaemonCommand::UpsertNotification(notification));
     }
 
-    fn mark_notification_read(&mut self, notification_id: &str) {
+    pub(crate) fn mark_notification_read(&mut self, notification_id: &str) {
         let Some(mut notification) = self
             .notifications
             .all_items()
@@ -444,7 +459,7 @@ impl TuiModel {
         self.upsert_notification_local(notification);
     }
 
-    fn toggle_notification_expand(&mut self, notification_id: String) {
+    pub(crate) fn toggle_notification_expand(&mut self, notification_id: String) {
         self.mark_notification_read(&notification_id);
         self.notifications
             .reduce(crate::state::NotificationsAction::ToggleExpand(
@@ -452,7 +467,7 @@ impl TuiModel {
             ));
     }
 
-    fn archive_notification(&mut self, notification_id: &str) {
+    pub(crate) fn archive_notification(&mut self, notification_id: &str) {
         let Some(mut notification) = self
             .notifications
             .all_items()
@@ -469,7 +484,7 @@ impl TuiModel {
         self.upsert_notification_local(notification);
     }
 
-    fn delete_notification(&mut self, notification_id: &str) {
+    pub(crate) fn delete_notification(&mut self, notification_id: &str) {
         let Some(mut notification) = self
             .notifications
             .all_items()
@@ -485,5 +500,4 @@ impl TuiModel {
         notification.updated_at = now;
         self.upsert_notification_local(notification);
     }
-
 }

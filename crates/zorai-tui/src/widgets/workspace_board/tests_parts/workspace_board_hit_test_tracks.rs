@@ -1,5 +1,9 @@
-use super::*;
+use super::super::*;
+use crate::state::workspace::WorkspaceState;
+use crate::theme::ThemeTokens;
 use ratatui::backend::TestBackend;
+use ratatui::layout::{Position, Rect};
+use ratatui::Terminal;
 use zorai_protocol::{
     WorkspaceActor, WorkspaceNotice, WorkspacePriority, WorkspaceSettings, WorkspaceTask,
     WorkspaceTaskStatus, WorkspaceTaskType,
@@ -9,7 +13,7 @@ fn render_plain_text(workspace: &WorkspaceState, area: Rect) -> String {
     render_plain_text_with_scroll(workspace, area, &WorkspaceBoardScroll::default())
 }
 
-fn hit_test(
+pub(super) fn hit_test(
     area: Rect,
     workspace: &WorkspaceState,
     expanded_task_ids: &std::collections::HashSet<String>,
@@ -24,7 +28,7 @@ fn hit_test(
     )
 }
 
-fn task_card_rect(
+pub(super) fn task_card_rect(
     body: Rect,
     tasks: &[WorkspaceTask],
     expanded_task_ids: &std::collections::HashSet<String>,
@@ -93,12 +97,15 @@ fn task(id: &str, status: WorkspaceTaskStatus) -> WorkspaceTask {
     }
 }
 
-fn workspace_with_task() -> WorkspaceState {
+pub(super) fn workspace_with_task() -> WorkspaceState {
     let mut state = WorkspaceState::new();
     state.set_settings(WorkspaceSettings {
         workspace_id: "main".to_string(),
         workspace_root: None,
         operator: zorai_protocol::WorkspaceOperator::User,
+        repo_monitor_enabled: false,
+        repo_monitor_include_dirs: Vec::new(),
+        repo_monitor_exclude_dirs: Vec::new(),
         created_at: 1,
         updated_at: 1,
     });
@@ -109,12 +116,15 @@ fn workspace_with_task() -> WorkspaceState {
     state
 }
 
-fn workspace_with_assigned_task() -> WorkspaceState {
+pub(super) fn workspace_with_assigned_task() -> WorkspaceState {
     let mut state = WorkspaceState::new();
     state.set_settings(WorkspaceSettings {
         workspace_id: "main".to_string(),
         workspace_root: None,
         operator: zorai_protocol::WorkspaceOperator::User,
+        repo_monitor_enabled: false,
+        repo_monitor_include_dirs: Vec::new(),
+        repo_monitor_exclude_dirs: Vec::new(),
         created_at: 1,
         updated_at: 1,
     });
@@ -324,6 +334,9 @@ fn workspace_board_colors_failed_and_done_cards() {
         operator: zorai_protocol::WorkspaceOperator::User,
         created_at: 1,
         updated_at: 1,
+        repo_monitor_enabled: false,
+        repo_monitor_include_dirs: Vec::new(),
+        repo_monitor_exclude_dirs: Vec::new(),
     });
     let mut failed = task("workspace-task-failed", WorkspaceTaskStatus::InProgress);
     failed.title = "Failed task".to_string();
@@ -433,4 +446,3 @@ fn workspace_board_hit_test_tracks_collapsed_open_and_actions_toggle() {
         })
     );
 }
-

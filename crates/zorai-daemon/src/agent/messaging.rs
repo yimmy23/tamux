@@ -58,7 +58,7 @@ pub(super) fn agent_message_from_db(msg: zorai_protocol::AgentDbMessage) -> Opti
     })
 }
 
-fn thread_message_token_totals(messages: &[AgentMessage]) -> (u64, u64) {
+fn sum_message_token_totals(messages: &[AgentMessage]) -> (u64, u64) {
     messages
         .iter()
         .fold((0u64, 0u64), |(input_acc, output_acc), message| {
@@ -70,23 +70,41 @@ fn thread_message_token_totals(messages: &[AgentMessage]) -> (u64, u64) {
 }
 
 impl AgentEngine {
-    pub(super) async fn budget_exceeded_task_for_thread(
-        &self,
-        thread_id: &str,
-    ) -> Option<AgentTask> {
-        let tasks = self.tasks.lock().await;
-        tasks
-            .iter()
-            .filter(|task| {
-                task.thread_id.as_deref() == Some(thread_id)
-                    && task.status == TaskStatus::BudgetExceeded
-            })
-            .max_by_key(|task| {
-                task.completed_at
-                    .or(task.started_at)
-                    .unwrap_or(task.created_at)
-            })
-            .cloned()
+    pub(super) async fn budget_exceeded_task_for_thread(&self, thread_id: &str) -> Option<String> {
+        let budget_exceeded_status = serde_json::to_value(TaskStatus::BudgetExceeded)
+            .ok()
+            .and_then(|value| value.as_str().map(ToOwned::to_owned))
+            .unwrap_or_else(|| "budget_exceeded".to_string());
+        let query = crate::history::AgentTaskListQuery {
+            id: None,
+            status: Some(budget_exceeded_status),
+            statuses: Vec::new(),
+            source: None,
+            thread_id: Some(thread_id.to_string()),
+            thread_ids: Vec::new(),
+            goal_run_id: None,
+            parent_task_id: None,
+            awaiting_approval_id: None,
+            supervisor_config_present: false,
+            exclude_terminal_statuses: false,
+            order_by_recent_activity_desc: true,
+            limit: Some(1),
+            ids: Vec::new(),
+            parent_task_ids: Vec::new(),
+        };
+        match self.history.list_agent_task_refs_filtered(&query).await {
+            Ok(task_refs) => task_refs.into_iter().next().map(|(task_id, _, _)| task_id),
+            Err(error) => {
+                tracing::warn!(
+                    "failed to query budget-exceeded task id for thread {thread_id}: {error}"
+                );
+                self.list_tasks_filtered(&query)
+                    .await
+                    .into_iter()
+                    .next()
+                    .map(|task| task.id)
+            }
+        }
     }
 
     #[cfg(test)]
@@ -108,7 +126,9 @@ impl AgentEngine {
             .await
             .contains(thread_id);
         if !needs_hydration {
-            return self.threads.read().await.contains_key(thread_id);
+            return self
+                .ensure_thread_messages_loaded_from_live_or_db(thread_id)
+                .await;
         }
 
         let _guard = self.thread_message_hydration_lock.lock().await;
@@ -118,7 +138,9 @@ impl AgentEngine {
             .await
             .contains(thread_id);
         if !still_needs_hydration {
-            return self.threads.read().await.contains_key(thread_id);
+            return self
+                .ensure_thread_messages_loaded_from_live_or_db(thread_id)
+                .await;
         }
 
         #[cfg(test)]
@@ -126,14 +148,19 @@ impl AgentEngine {
             tokio::time::sleep(delay).await;
         }
 
-        let Some(db_messages) = self.history.list_messages(thread_id, None).await.ok() else {
+        let (db_messages_result, totals_result) = tokio::join!(
+            self.history.list_messages(thread_id, None),
+            self.history.thread_message_token_totals(thread_id),
+        );
+        let Some(db_messages) = db_messages_result.ok() else {
             return false;
         };
         let messages: Vec<AgentMessage> = db_messages
             .into_iter()
             .filter_map(agent_message_from_db)
             .collect();
-        let (total_input_tokens, total_output_tokens) = thread_message_token_totals(&messages);
+        let (total_input_tokens, total_output_tokens) =
+            totals_result.unwrap_or_else(|_| sum_message_token_totals(&messages));
 
         let updated = {
             let mut threads = self.threads.write().await;
@@ -149,6 +176,21 @@ impl AgentEngine {
             self.clear_thread_message_hydration_pending(thread_id).await;
         }
         updated
+    }
+
+    async fn ensure_thread_messages_loaded_from_live_or_db(&self, thread_id: &str) -> bool {
+        if self.threads.read().await.contains_key(thread_id) {
+            return true;
+        }
+
+        let Some(restored) = self.restore_thread_with_messages_from_db(thread_id).await else {
+            return false;
+        };
+        self.threads
+            .write()
+            .await
+            .insert(thread_id.to_string(), restored);
+        true
     }
 
     async fn prepare_internal_dm_thread(
@@ -199,7 +241,6 @@ impl AgentEngine {
                 .unwrap_or(0)
         };
 
-        // Also delete from SQLite (by synthetic ID or direct ID).
         let id_refs: Vec<&str> = message_ids.iter().map(String::as_str).collect();
         let db_removed = self
             .history
@@ -214,7 +255,7 @@ impl AgentEngine {
                 threads.get(thread_id).map(|thread| thread.pinned)
             };
 
-            if let Some(mut restored) = self.restore_thread_from_db(thread_id).await {
+            if let Some(mut restored) = self.restore_thread_with_messages_from_db(thread_id).await {
                 if let Some(pinned) = existing_pinned {
                     restored.pinned = pinned;
                 }
@@ -283,7 +324,9 @@ impl AgentEngine {
                 threads.get(thread_id).map(|thread| thread.pinned)
             };
 
-            if let Some(mut restored_thread) = self.restore_thread_from_db(thread_id).await {
+            if let Some(mut restored_thread) =
+                self.restore_thread_with_messages_from_db(thread_id).await
+            {
                 if let Some(pinned) = existing_pinned {
                     restored_thread.pinned = pinned;
                 }
@@ -309,7 +352,7 @@ impl AgentEngine {
     ) {
         let tid = match thread_id {
             Some(id) => id.to_string(),
-            None => return, // Can't seed without a thread ID
+            None => return,
         };
 
         let has_pending_persisted_messages = self
@@ -317,16 +360,15 @@ impl AgentEngine {
             .read()
             .await
             .contains(&tid);
-        if has_pending_persisted_messages && !self.ensure_thread_messages_loaded(&tid).await {
-            tracing::warn!(
+        if has_pending_persisted_messages {
+            tracing::debug!(
                 thread_id = %tid,
-                "skipped frontend context seeding because persisted thread hydration failed"
+                "skipped frontend context seeding because persisted thread history is pending lazy hydration"
             );
             return;
         }
 
         let mut threads = self.threads.write().await;
-        // Only seed if the thread doesn't exist yet or has no messages
         let needs_seeding = match threads.get(&tid) {
             None => true,
             Some(t) => t.messages.is_empty(),
@@ -435,13 +477,7 @@ impl AgentEngine {
     pub(super) async fn reserve_unique_thread_id(&self) -> String {
         loop {
             let candidate = format!("thread_{}", Uuid::new_v4());
-            let task_conflict = {
-                let tasks = self.tasks.lock().await;
-                tasks
-                    .iter()
-                    .any(|task| task.thread_id.as_deref() == Some(candidate.as_str()))
-            };
-            if task_conflict {
+            if self.task_thread_id_conflicts(&candidate).await {
                 continue;
             }
 
@@ -451,16 +487,27 @@ impl AgentEngine {
 
             if self
                 .history
-                .get_thread(&candidate)
+                .has_thread_id(&candidate)
                 .await
-                .ok()
-                .flatten()
-                .is_some()
+                .unwrap_or(false)
             {
                 continue;
             }
 
             return candidate;
+        }
+    }
+
+    async fn task_thread_id_conflicts(&self, thread_id: &str) -> bool {
+        match self.history.has_agent_task_for_thread(thread_id).await {
+            Ok(conflicts) => conflicts,
+            Err(error) => {
+                tracing::warn!(
+                    thread_id,
+                    "failed to query task thread id conflict from sqlite: {error}"
+                );
+                false
+            }
         }
     }
 
@@ -496,13 +543,13 @@ impl AgentEngine {
             None
         };
 
-        let mut threads = self.threads.write().await;
-        if !threads.contains_key(&id) {
-            // Try to restore the thread from the database (history continuation)
+        let exists = self.threads.read().await.contains_key(&id);
+        if !exists {
             if let Some(restored) = self.restore_thread_from_db(&id).await {
-                tracing::info!(thread_id = %id, messages = restored.messages.len(), "restored thread from history");
-                threads.insert(id.clone(), restored);
+                tracing::info!(thread_id = %id, "restored thread shell from history");
+                self.threads.write().await.insert(id.clone(), restored);
             } else {
+                let mut threads = self.threads.write().await;
                 created = true;
                 let created_at = now_millis();
                 let active_agent_id = resolved_target
@@ -555,7 +602,6 @@ impl AgentEngine {
                 });
             }
         }
-        drop(threads);
         if let Some(target) = resolved_target.as_ref().filter(|_| !created) {
             self.retarget_existing_thread_to_agent(&id, target).await;
         }
@@ -599,59 +645,12 @@ impl AgentEngine {
             .remove(thread_id);
     }
 
-    /// Attempt to restore a thread and its messages from the SQLite history database.
-    async fn restore_thread_from_db(&self, thread_id: &str) -> Option<AgentThread> {
+    /// Restore a thread shell from SQLite without loading its message payloads.
+    pub(super) async fn restore_thread_from_db(&self, thread_id: &str) -> Option<AgentThread> {
         let db_thread = self.history.get_thread(thread_id).await.ok().flatten()?;
-        let db_messages = self.history.list_messages(thread_id, None).await.ok()?;
         let thread_metadata = parse_thread_metadata(db_thread.metadata_json.as_deref());
-        if let Some(client_surface) = thread_metadata.client_surface {
-            self.thread_client_surfaces
-                .write()
-                .await
-                .insert(thread_id.to_string(), client_surface);
-        }
-        match thread_metadata.identity {
-            Some(identity) => {
-                self.thread_identity_metadata
-                    .write()
-                    .await
-                    .insert(thread_id.to_string(), identity);
-            }
-            None => {
-                self.thread_identity_metadata
-                    .write()
-                    .await
-                    .remove(thread_id);
-            }
-        }
-        match thread_metadata.execution_profile {
-            Some(execution_profile) => {
-                self.thread_execution_profiles
-                    .write()
-                    .await
-                    .insert(thread_id.to_string(), execution_profile);
-            }
-            None => {
-                self.thread_execution_profiles
-                    .write()
-                    .await
-                    .remove(thread_id);
-            }
-        }
-        match thread_metadata.prompt_memory_injection_state {
-            Some(prompt_memory_injection_state) => {
-                self.thread_memory_injection_state_map()
-                    .write()
-                    .await
-                    .insert(thread_id.to_string(), prompt_memory_injection_state);
-            }
-            None => {
-                self.thread_memory_injection_state_map()
-                    .write()
-                    .await
-                    .remove(thread_id);
-            }
-        }
+
+        let has_thread_participants = !thread_metadata.thread_participants.is_empty();
         let handoff_state = normalized_thread_handoff_state(
             thread_id,
             db_thread.agent_name.as_deref(),
@@ -661,33 +660,142 @@ impl AgentEngine {
         let hydrated_agent_name = visible_thread_owner_agent_name_for_handoff_state(
             thread_id,
             &handoff_state,
-            !thread_metadata.thread_participants.is_empty(),
+            has_thread_participants,
         )
         .unwrap_or_else(|| canonical_agent_name(&handoff_state.active_agent_id).to_string());
-        self.thread_handoff_states
-            .write()
-            .await
-            .insert(thread_id.to_string(), handoff_state.clone());
 
-        let messages: Vec<AgentMessage> = db_messages
-            .into_iter()
-            .filter_map(agent_message_from_db)
-            .collect();
+        let ParsedThreadMetadata {
+            identity: meta_identity,
+            client_surface: meta_client_surface,
+            execution_profile: meta_execution_profile,
+            thread_participants: meta_thread_participants,
+            thread_participant_suggestions: meta_thread_participant_suggestions,
+            latest_skill_discovery_state: meta_skill_discovery,
+            prompt_memory_injection_state: meta_memory_injection,
+            handoff_state: _,
+            pinned: _,
+            upstream_thread_id: meta_upstream_thread_id,
+            upstream_transport: meta_upstream_transport,
+            upstream_provider: meta_upstream_provider,
+            upstream_model: meta_upstream_model,
+            upstream_assistant_id: meta_upstream_assistant_id,
+        } = thread_metadata;
 
-        let (total_input, total_output) = thread_message_token_totals(&messages);
-        self.clear_thread_message_hydration_pending(thread_id).await;
+        let thread_id_owned = thread_id.to_string();
+
+        let totals_fut = async {
+            self.history
+                .thread_message_token_totals(thread_id)
+                .await
+                .unwrap_or_else(|_| (db_thread.total_tokens.max(0) as u64, 0))
+        };
+        let client_surface_fut = async {
+            if let Some(client_surface) = meta_client_surface {
+                self.thread_client_surfaces
+                    .write()
+                    .await
+                    .insert(thread_id_owned.clone(), client_surface);
+            }
+        };
+        let identity_fut = async {
+            let mut guard = self.thread_identity_metadata.write().await;
+            match meta_identity {
+                Some(identity) => {
+                    guard.insert(thread_id_owned.clone(), identity);
+                }
+                None => {
+                    guard.remove(thread_id);
+                }
+            }
+        };
+        let execution_profile_fut = async {
+            let mut guard = self.thread_execution_profiles.write().await;
+            match meta_execution_profile {
+                Some(profile) => {
+                    guard.insert(thread_id_owned.clone(), profile);
+                }
+                None => {
+                    guard.remove(thread_id);
+                }
+            }
+        };
+        let participants_fut = async {
+            let mut guard = self.thread_participants.write().await;
+            if meta_thread_participants.is_empty() {
+                guard.remove(thread_id);
+            } else {
+                guard.insert(thread_id_owned.clone(), meta_thread_participants);
+            }
+        };
+        let participant_suggestions_fut = async {
+            let mut guard = self.thread_participant_suggestions.write().await;
+            if meta_thread_participant_suggestions.is_empty() {
+                guard.remove(thread_id);
+            } else {
+                guard.insert(thread_id_owned.clone(), meta_thread_participant_suggestions);
+            }
+        };
+        let skill_discovery_fut = async {
+            let mut guard = self.thread_skill_discovery_states.write().await;
+            match meta_skill_discovery {
+                Some(state) => {
+                    guard.insert(thread_id_owned.clone(), state);
+                }
+                None => {
+                    guard.remove(thread_id);
+                }
+            }
+        };
+        let memory_injection_fut = async {
+            let mut guard = self.thread_memory_injection_state_map().write().await;
+            match meta_memory_injection {
+                Some(state) => {
+                    guard.insert(thread_id_owned.clone(), state);
+                }
+                None => {
+                    guard.remove(thread_id);
+                }
+            }
+        };
+        let handoff_fut = async {
+            self.thread_handoff_states
+                .write()
+                .await
+                .insert(thread_id_owned.clone(), handoff_state.clone());
+        };
+        let pending_fut = async {
+            let mut pending = self.thread_message_hydration_pending.write().await;
+            if db_thread.message_count > 0 {
+                pending.insert(thread_id_owned.clone());
+            } else {
+                pending.remove(thread_id);
+            }
+        };
+
+        let ((total_input, total_output), _, _, _, _, _, _, _, _, _) = tokio::join!(
+            totals_fut,
+            client_surface_fut,
+            identity_fut,
+            execution_profile_fut,
+            participants_fut,
+            participant_suggestions_fut,
+            skill_discovery_fut,
+            memory_injection_fut,
+            handoff_fut,
+            pending_fut,
+        );
 
         Some(AgentThread {
             id: thread_id.to_string(),
             agent_name: Some(hydrated_agent_name),
             title: db_thread.title,
-            messages,
+            messages: Vec::new(),
             pinned: false,
-            upstream_thread_id: thread_metadata.upstream_thread_id,
-            upstream_transport: thread_metadata.upstream_transport,
-            upstream_provider: thread_metadata.upstream_provider,
-            upstream_model: thread_metadata.upstream_model,
-            upstream_assistant_id: thread_metadata.upstream_assistant_id,
+            upstream_thread_id: meta_upstream_thread_id,
+            upstream_transport: meta_upstream_transport,
+            upstream_provider: meta_upstream_provider,
+            upstream_model: meta_upstream_model,
+            upstream_assistant_id: meta_upstream_assistant_id,
             created_at: db_thread.created_at as u64,
             updated_at: db_thread.updated_at as u64,
             total_input_tokens: total_input,
@@ -695,9 +803,26 @@ impl AgentEngine {
         })
     }
 
-    // -----------------------------------------------------------------------
-    // Agent turn (send message → LLM → tool loop → done)
-    // -----------------------------------------------------------------------
+    /// Restore a thread and its complete message payloads from SQLite.
+    pub(super) async fn restore_thread_with_messages_from_db(
+        &self,
+        thread_id: &str,
+    ) -> Option<AgentThread> {
+        let (thread_opt, db_messages_result) = tokio::join!(
+            self.restore_thread_from_db(thread_id),
+            self.history.list_messages(thread_id, None),
+        );
+        let mut thread = thread_opt?;
+        let db_messages = db_messages_result.ok()?;
+        let messages: Vec<AgentMessage> = db_messages
+            .into_iter()
+            .filter_map(agent_message_from_db)
+            .collect();
+        thread.messages = messages;
+        self.clear_thread_message_hydration_pending(thread_id).await;
+        Some(thread)
+    }
+
 
     /// Run a complete agent turn in a thread.
     pub async fn send_message(&self, thread_id: Option<&str>, content: &str) -> Result<String> {
@@ -802,10 +927,9 @@ impl AgentEngine {
         client_surface: Option<zorai_protocol::ClientSurface>,
     ) -> Result<String> {
         if let Some(thread_id) = thread_id {
-            if let Some(task) = self.budget_exceeded_task_for_thread(thread_id).await {
+            if let Some(task_id) = self.budget_exceeded_task_for_thread(thread_id).await {
                 anyhow::bail!(
-                    "thread {thread_id} is locked because task {} exhausted its execution budget",
-                    task.id
+                    "thread {thread_id} is locked because task {task_id} exhausted its execution budget"
                 );
             }
         }
@@ -864,12 +988,15 @@ impl AgentEngine {
         let client_surface = if let Some(thread_id) = thread_id {
             self.get_thread_client_surface(thread_id).await
         } else {
-            let goal_run_id = {
-                let tasks = self.tasks.lock().await;
-                tasks
-                    .iter()
-                    .find(|task| task.id == task_id)
-                    .and_then(|task| task.goal_run_id.clone())
+            let goal_run_id = match self.history.agent_task_goal_context(task_id).await {
+                Ok(Some(task)) => task.goal_run_id,
+                Ok(None) | Err(_) => {
+                    let tasks = self.tasks.lock().await;
+                    tasks
+                        .iter()
+                        .find(|task| task.id == task_id)
+                        .and_then(|task| task.goal_run_id.clone())
+                }
             };
             match goal_run_id {
                 Some(goal_run_id) => self.get_goal_run_client_surface(&goal_run_id).await,

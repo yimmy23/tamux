@@ -42,9 +42,6 @@ pub fn is_stream_cancelled(error: &anyhow::Error) -> bool {
     error.downcast_ref::<StreamCancelledError>().is_some()
 }
 
-// ---------------------------------------------------------------------------
-// External agent runner
-// ---------------------------------------------------------------------------
 
 pub struct ExternalAgentRunner {
     agent_type: String,
@@ -125,7 +122,6 @@ impl ExternalAgentRunner {
 
         let mut child = tokio::process::Command::new(exe)
             .args(&args)
-            // Suppress TUI decorations as much as possible
             .env("TERM", "dumb")
             .env("NO_COLOR", "1")
             .env("CI", "1")
@@ -138,11 +134,9 @@ impl ExternalAgentRunner {
         let stdout = child.stdout.take().context("failed to capture stdout")?;
         let stderr = child.stderr.take().context("failed to capture stderr")?;
 
-        // Read stdout line-by-line with timeout
         let tid = thread_id.to_string();
         let agent_type = self.agent_type.clone();
         let event_tx = self.event_tx.clone();
-        // OpenClaw with --json outputs structured JSON — collect raw without noise filtering
         let is_json_mode = agent_type == "openclaw";
 
         let read_future = async {
@@ -152,7 +146,6 @@ impl ExternalAgentRunner {
 
             while let Some(line) = reader.next_line().await? {
                 if is_json_mode {
-                    // Collect raw JSON lines without filtering
                     if first_output_at.is_none() && !line.trim().is_empty() {
                         first_output_at = Some(Instant::now());
                     }
@@ -170,7 +163,6 @@ impl ExternalAgentRunner {
                     }
                     collected.push(clean.to_string());
 
-                    // Stream each line as a delta event (for Hermes)
                     let content = if collected.len() > 1 {
                         format!("\n{clean}")
                     } else {
@@ -183,7 +175,6 @@ impl ExternalAgentRunner {
                 }
             }
 
-            // Also capture stderr for error context
             let mut stderr_reader = BufReader::new(stderr).lines();
             let mut stderr_lines = Vec::new();
             while let Some(line) = stderr_reader.next_line().await? {
@@ -220,11 +211,9 @@ impl ExternalAgentRunner {
             .await
         };
 
-        // Handle timeout
         let (collected, stderr_lines, first_output_at) = match result {
             Ok(Ok(data)) => data,
             Ok(Err(e)) => {
-                // Kill the process on IO error
                 let _ = child.kill().await;
                 let _ = self.event_tx.send(AgentEvent::Error {
                     thread_id: thread_id.to_string(),
@@ -246,7 +235,6 @@ impl ExternalAgentRunner {
             }
         };
 
-        // Wait for process exit
         let status = if let Some(token) = cancel_token.as_ref() {
             tokio::select! {
                 _ = token.cancelled() => {
@@ -282,7 +270,6 @@ impl ExternalAgentRunner {
             collected.join("\n")
         };
 
-        // Parse structured JSON output (OpenClaw --json) or use raw text
         let parsed = parse_structured_response(&self.agent_type, &raw_output);
         let generation_secs = first_output_at
             .unwrap_or(request_started_at)
@@ -291,7 +278,6 @@ impl ExternalAgentRunner {
         let (generation_ms, tps) =
             super::types::compute_generation_stats(generation_secs, parsed.output_tokens);
 
-        // For JSON-mode agents, emit the parsed text as a delta now
         if is_json_mode && !parsed.text.is_empty() {
             let _ = self.event_tx.send(AgentEvent::Delta {
                 thread_id: thread_id.to_string(),
@@ -299,7 +285,6 @@ impl ExternalAgentRunner {
             });
         }
 
-        // Emit done event with real token counts if available
         let _ = self.event_tx.send(AgentEvent::Done {
             thread_id: thread_id.to_string(),
             input_tokens: parsed.input_tokens,
@@ -333,7 +318,6 @@ impl ExternalAgentRunner {
             .as_deref()
             .context(format!("{} executable not found on PATH", self.agent_type))?;
 
-        // Stop existing gateway process if any
         self.stop_gateway().await;
 
         let args = build_gateway_args(&self.agent_type);

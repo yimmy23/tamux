@@ -1,4 +1,6 @@
-pub(super) fn convert_work_context(c: crate::wire::ThreadWorkContext) -> task::ThreadWorkContext {
+use crate::state::task;
+
+pub(crate) fn convert_work_context(c: crate::wire::ThreadWorkContext) -> task::ThreadWorkContext {
     task::ThreadWorkContext {
         thread_id: c.thread_id,
         entries: c
@@ -31,7 +33,7 @@ pub(super) fn convert_work_context(c: crate::wire::ThreadWorkContext) -> task::T
     }
 }
 
-pub(super) fn convert_heartbeat(h: crate::wire::HeartbeatItem) -> task::HeartbeatItem {
+pub(crate) fn convert_heartbeat(h: crate::wire::HeartbeatItem) -> task::HeartbeatItem {
     task::HeartbeatItem {
         id: h.id,
         label: h.label,
@@ -54,7 +56,7 @@ thread_local! {
 }
 
 #[cfg(test)]
-pub(super) fn reset_last_copied_text() {
+pub(crate) fn reset_last_copied_text() {
     *LAST_COPIED_TEXT
         .lock()
         .expect("clipboard test mutex poisoned") = None;
@@ -62,7 +64,7 @@ pub(super) fn reset_last_copied_text() {
 }
 
 #[cfg(test)]
-pub(super) fn last_copied_text() -> Option<String> {
+pub(crate) fn last_copied_text() -> Option<String> {
     LAST_COPIED_TEXT
         .lock()
         .expect("clipboard test mutex poisoned")
@@ -70,11 +72,11 @@ pub(super) fn last_copied_text() -> Option<String> {
 }
 
 #[cfg(test)]
-fn test_clipboard_owner_held() -> bool {
+pub(crate) fn test_clipboard_owner_held() -> bool {
     TEST_CLIPBOARD_OWNER_HELD.with(std::cell::Cell::get)
 }
 
-pub(super) fn copy_to_clipboard(text: &str) {
+pub(crate) fn copy_to_clipboard(text: &str) {
     #[cfg(test)]
     {
         *LAST_COPIED_TEXT
@@ -86,6 +88,7 @@ pub(super) fn copy_to_clipboard(text: &str) {
 
     #[cfg(not(test))]
     {
+        use super::convert_thread_to_convert_todo_with_fallback_step::SYSTEM_CLIPBOARD;
         use base64::Engine;
 
         let copied = SYSTEM_CLIPBOARD.with(|cell| {
@@ -105,4 +108,3 @@ pub(super) fn copy_to_clipboard(text: &str) {
         }
     }
 }
-
