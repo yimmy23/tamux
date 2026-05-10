@@ -1931,7 +1931,24 @@ async fn dispatch_tool_execution(
         tool_names::DISCOVER_GUIDELINES => {
             execute_discover_guidelines(args, agent, session_id).await
         }
-        tool_names::READ_GUIDELINE => execute_read_guideline(args, agent_data_dir).await,
+        tool_names::READ_GUIDELINE => {
+            let result = execute_read_guideline(args, agent_data_dir).await;
+            if let Ok(ref content) = result {
+                if let Some(name) = args.get("guideline").and_then(|v| v.as_str()) {
+                    let _ = agent
+                        .history
+                        .record_thread_skill_read(
+                            thread_id,
+                            "guideline",
+                            name,
+                            content,
+                            crate::agent::now_millis() as i64,
+                        )
+                        .await;
+                }
+            }
+            result
+        }
         tool_names::LIST_SKILLS => execute_list_skills(args, agent_data_dir, &agent.history).await,
         tool_names::DISCOVER_SKILLS => execute_discover_skills(args, agent, session_id).await,
         tool_names::SEMANTIC_QUERY => {
@@ -1945,7 +1962,7 @@ async fn dispatch_tool_execution(
             .await
         }
         tool_names::READ_SKILL => {
-            execute_read_skill(
+            let result = execute_read_skill(
                 args,
                 agent,
                 agent_data_dir,
@@ -1955,7 +1972,31 @@ async fn dispatch_tool_execution(
                 thread_id,
                 task_id,
             )
-            .await
+            .await;
+            if let Ok(ref content) = result {
+                let name = args
+                    .get("skill")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| {
+                        args.get("skills")
+                            .and_then(|v| v.as_array())
+                            .and_then(|arr| arr.first())
+                            .and_then(|v| v.as_str())
+                    });
+                if let Some(name) = name {
+                    let _ = agent
+                        .history
+                        .record_thread_skill_read(
+                            thread_id,
+                            "skill",
+                            name,
+                            content,
+                            crate::agent::now_millis() as i64,
+                        )
+                        .await;
+                }
+            }
+            result
         }
         tool_names::ASK_QUESTIONS => {
             let parsed = (|| -> Result<(String, Vec<String>, Option<String>, Option<String>)> {

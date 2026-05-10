@@ -109,6 +109,10 @@ impl AgentEngine {
             );
         }
 
+        let payload = self
+            .append_previously_read_section(thread_id, payload, target_tokens)
+            .await;
+
         let visible_content = build_compaction_visible_content(
             pre_compaction_total_tokens,
             effective_context_window_tokens,
@@ -340,6 +344,74 @@ impl AgentEngine {
             )),
         );
         Ok(rule_based.payload)
+    }
+
+    async fn append_previously_read_section(
+        &self,
+        thread_id: &str,
+        payload: String,
+        target_tokens: usize,
+    ) -> String {
+        let budget_chars = target_tokens
+            .saturating_mul(APPROX_CHARS_PER_TOKEN)
+            .saturating_div(5);
+        if budget_chars == 0 {
+            return payload;
+        }
+
+        let skills = self
+            .history
+            .top_thread_skill_reads(thread_id, "skill", 3)
+            .await
+            .unwrap_or_default();
+        let guidelines = self
+            .history
+            .top_thread_skill_reads(thread_id, "guideline", 3)
+            .await
+            .unwrap_or_default();
+        if skills.is_empty() && guidelines.is_empty() {
+            return payload;
+        }
+
+        let mut section = String::new();
+        let mut remaining = budget_chars;
+        let mut append_block = |section: &mut String, header: &str, items: &[crate::history::ThreadSkillRead], remaining: &mut usize, label: &str| {
+            if items.is_empty() || *remaining == 0 {
+                return;
+            }
+            section.push_str("\n\n");
+            section.push_str(header);
+            for item in items {
+                let entry = format!("\n[{label}={}\n\ncontent={}]", item.name, item.content);
+                let take = entry.chars().count().min(*remaining);
+                if take == 0 {
+                    break;
+                }
+                let truncated: String = entry.chars().take(take).collect();
+                section.push_str(&truncated);
+                *remaining = remaining.saturating_sub(take);
+            }
+        };
+        append_block(
+            &mut section,
+            "Previously read skills:",
+            &skills,
+            &mut remaining,
+            "skill",
+        );
+        append_block(
+            &mut section,
+            "Previously read guidelines:",
+            &guidelines,
+            &mut remaining,
+            "guideline",
+        );
+
+        if section.is_empty() {
+            payload
+        } else {
+            format!("{payload}{section}")
+        }
     }
 
     pub(crate) async fn run_llm_compaction(
