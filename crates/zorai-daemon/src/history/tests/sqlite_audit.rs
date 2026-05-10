@@ -1,6 +1,23 @@
 use super::*;
 use crate::history::schema_helpers::table_has_column;
 
+#[test]
+fn table_has_column_detects_generated_columns() -> Result<()> {
+    let conn = rusqlite::Connection::open_in_memory()?;
+    conn.execute_batch(
+        "CREATE TABLE agent_threads (
+            id           TEXT PRIMARY KEY,
+            metadata_json TEXT,
+            pinned       INTEGER GENERATED ALWAYS AS (
+                CASE WHEN metadata_json IS NOT NULL THEN 1 ELSE 0 END
+            ) VIRTUAL
+        );",
+    )?;
+
+    assert!(table_has_column(&conn, "agent_threads", "pinned")?);
+    Ok(())
+}
+
 /// FOUN-01: WAL journal mode is active after HistoryStore construction.
 #[tokio::test]
 async fn wal_mode_enabled() -> Result<()> {
@@ -155,6 +172,62 @@ async fn init_schema_adds_visible_thread_list_index_after_deleted_at_migration()
     assert!(has_deleted_at);
     assert!(index_sql.contains("updated_at DESC"));
     assert!(index_sql.contains("id"));
+    assert!(index_sql.contains("WHERE deleted_at IS NULL"));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn init_schema_handles_existing_generated_pinned_thread_column() -> Result<()> {
+    let root = std::env::temp_dir().join(format!("zorai-history-test-{}", Uuid::new_v4()));
+    let history_dir = root.join("history");
+    fs::create_dir_all(&history_dir)?;
+    let db_path = history_dir.join("command-history.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path)?;
+        conn.execute_batch(
+            "CREATE TABLE agent_threads (
+                id             TEXT PRIMARY KEY,
+                workspace_id   TEXT,
+                surface_id     TEXT,
+                pane_id        TEXT,
+                agent_name     TEXT,
+                title          TEXT NOT NULL,
+                created_at     INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL,
+                message_count  INTEGER NOT NULL DEFAULT 0,
+                total_tokens   INTEGER NOT NULL DEFAULT 0,
+                last_preview   TEXT NOT NULL DEFAULT '',
+                metadata_json  TEXT,
+                pinned         INTEGER GENERATED ALWAYS AS (
+                    CASE WHEN metadata_json IS NOT NULL AND json_valid(metadata_json) AND (
+                        json_extract(metadata_json, '$.pinned') = 1
+                        OR json_extract(metadata_json, '$.pinnedThread') = 1
+                    ) THEN 1 ELSE 0 END
+                ) VIRTUAL
+            );",
+        )?;
+    }
+
+    let store = HistoryStore::new_test_store(&root).await?;
+    let (has_pinned, index_sql) = store
+        .conn
+        .call(|conn| {
+            let has_pinned = table_has_column(conn, "agent_threads", "pinned")?;
+            let index_sql = conn.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_threads_pinned_active_updated'",
+                [],
+                |row| row.get::<_, String>(0),
+            )?;
+            Ok((has_pinned, index_sql))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    assert!(has_pinned);
+    assert!(index_sql.contains("ON agent_threads(pinned, updated_at DESC)"));
     assert!(index_sql.contains("WHERE deleted_at IS NULL"));
 
     fs::remove_dir_all(root)?;

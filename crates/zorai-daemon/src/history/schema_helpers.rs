@@ -22,7 +22,7 @@ pub(super) fn table_has_column(
     table: &str,
     column: &str,
 ) -> std::result::Result<bool, rusqlite::Error> {
-    let pragma = format!("PRAGMA table_info({table})");
+    let pragma = format!("PRAGMA table_xinfo({table})");
     let mut stmt = connection.prepare(&pragma)?;
     let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
     for row in rows {

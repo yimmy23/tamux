@@ -910,10 +910,15 @@ pub(crate) async fn dispatch_part6(
                                         &crate::agent::openai_codex_auth::complete_browser_auth(),
                                     )
                                     .unwrap_or_else(|_| "{}".to_string());
-                                    let _ = background_daemon_tx.send(BackgroundSignal::Deliver(
-                                        DaemonMessage::AgentOpenAICodexAuthStatus { status_json },
-                                    ));
-                                    let _ = background_daemon_tx.send(BackgroundSignal::Finished);
+                                    let _ = background_daemon_tx.blocking_send(
+                                        BackgroundSignal::Deliver(
+                                            DaemonMessage::AgentOpenAICodexAuthStatus {
+                                                status_json,
+                                            },
+                                        ),
+                                    );
+                                    let _ = background_daemon_tx
+                                        .blocking_send(BackgroundSignal::Finished);
                                 });
                             }
                 }

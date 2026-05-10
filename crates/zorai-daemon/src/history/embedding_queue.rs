@@ -114,28 +114,47 @@ fn delete_stale_embedding_chunks(
     source_id: &str,
     active_chunk_ids: &[String],
 ) -> rusqlite::Result<()> {
-    let mut stmt = connection
-        .prepare("SELECT chunk_id FROM embedding_jobs WHERE source_kind = ?1 AND source_id = ?2")?;
-    let existing = stmt
-        .query_map(params![source_kind, source_id], |row| {
-            row.get::<_, String>(0)
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
-    for chunk_id in existing {
-        if active_chunk_ids.iter().any(|active| active == &chunk_id) {
-            continue;
-        }
+    if active_chunk_ids.is_empty() {
         connection.execute(
-            "DELETE FROM embedding_jobs
-             WHERE source_kind = ?1 AND source_id = ?2 AND chunk_id = ?3",
-            params![source_kind, source_id, chunk_id],
+            "DELETE FROM embedding_jobs WHERE source_kind = ?1 AND source_id = ?2",
+            params![source_kind, source_id],
         )?;
         connection.execute(
             "DELETE FROM embedding_job_completions
-             WHERE source_kind = ?1 AND source_id = ?2 AND chunk_id = ?3",
-            params![source_kind, source_id, chunk_id],
+             WHERE source_kind = ?1 AND source_id = ?2",
+            params![source_kind, source_id],
         )?;
+        return Ok(());
     }
+
+    let placeholders = std::iter::repeat("?")
+        .take(active_chunk_ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut sql_params: Vec<&dyn rusqlite::ToSql> =
+        Vec::with_capacity(2 + active_chunk_ids.len());
+    sql_params.push(&source_kind);
+    sql_params.push(&source_id);
+    for id in active_chunk_ids {
+        sql_params.push(id);
+    }
+
+    connection.execute(
+        &format!(
+            "DELETE FROM embedding_jobs
+             WHERE source_kind = ?1 AND source_id = ?2
+               AND chunk_id NOT IN ({placeholders})"
+        ),
+        rusqlite::params_from_iter(sql_params.iter()),
+    )?;
+    connection.execute(
+        &format!(
+            "DELETE FROM embedding_job_completions
+             WHERE source_kind = ?1 AND source_id = ?2
+               AND chunk_id NOT IN ({placeholders})"
+        ),
+        rusqlite::params_from_iter(sql_params.iter()),
+    )?;
     Ok(())
 }
 
@@ -372,6 +391,76 @@ pub(super) fn queue_embedding_deletion_on_connection(
     Ok(())
 }
 
+/// Unlike the per-id variant, this unconditionally inserts a deletion row
+/// for every source_id rather than skipping ids that had no completions —
+/// the downstream pipeline tolerates extra rows.
+pub(super) fn queue_embedding_deletions_on_connection(
+    connection: &Connection,
+    source_kind: &str,
+    source_ids: &[String],
+    now: i64,
+) -> rusqlite::Result<()> {
+    if source_ids.is_empty() {
+        return Ok(());
+    }
+    let placeholders = (0..source_ids.len())
+        .map(|i| format!("?{}", 2 + i))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut sql_params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(1 + source_ids.len());
+    sql_params.push(&source_kind);
+    for id in source_ids {
+        sql_params.push(id);
+    }
+
+    connection.execute(
+        &format!(
+            "DELETE FROM embedding_jobs
+             WHERE source_kind = ?1 AND source_id IN ({placeholders})"
+        ),
+        rusqlite::params_from_iter(sql_params.iter()),
+    )?;
+    connection.execute(
+        &format!(
+            "DELETE FROM embedding_job_completions
+             WHERE source_kind = ?1 AND source_id IN ({placeholders})"
+        ),
+        rusqlite::params_from_iter(sql_params.iter()),
+    )?;
+
+    // Bulk INSERT with multi-row VALUES to make this a single statement.
+    let value_rows = (0..source_ids.len())
+        .map(|i| format!("(?1, ?{}, ?{}, NULL, 0, NULL)", 2 + i, 2 + source_ids.len()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut insert_params: Vec<&dyn rusqlite::ToSql> =
+        Vec::with_capacity(2 + source_ids.len());
+    insert_params.push(&source_kind);
+    for id in source_ids {
+        insert_params.push(id);
+    }
+    insert_params.push(&now);
+
+    connection.execute(
+        &format!(
+            "INSERT INTO embedding_deletions (
+                source_kind,
+                source_id,
+                queued_at,
+                claimed_at,
+                attempts,
+                last_error
+            ) VALUES {value_rows}
+            ON CONFLICT(source_kind, source_id) DO UPDATE SET
+                queued_at = excluded.queued_at,
+                claimed_at = NULL,
+                last_error = NULL"
+        ),
+        rusqlite::params_from_iter(insert_params.iter()),
+    )?;
+    Ok(())
+}
+
 impl HistoryStore {
     pub(crate) async fn enqueue_embedding_job(&self, job: EmbeddingJobInput) -> Result<()> {
         self.embedding_writer_conn
@@ -516,6 +605,92 @@ impl HistoryStore {
                         error
                     ],
                 )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn complete_embedding_jobs(
+        &self,
+        jobs: &[EmbeddingJob],
+        embedding_model: &str,
+        dimensions: u32,
+    ) -> Result<()> {
+        if jobs.is_empty() {
+            return Ok(());
+        }
+        let jobs = jobs.to_vec();
+        let embedding_model = embedding_model.trim().to_string();
+        let dimensions = dimensions as i64;
+        self.embedding_writer_conn
+            .call(move |conn| {
+                let transaction = conn.transaction()?;
+                let now = now_ts() as i64;
+                for job in &jobs {
+                    transaction.execute(
+                        "INSERT OR REPLACE INTO embedding_job_completions (
+                            source_kind,
+                            source_id,
+                            chunk_id,
+                            content_hash,
+                            embedding_model,
+                            dimensions,
+                            completed_at
+                        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        params![
+                            job.source_kind,
+                            job.source_id,
+                            job.chunk_id,
+                            job.content_hash,
+                            embedding_model,
+                            dimensions,
+                            now,
+                        ],
+                    )?;
+                    transaction.execute(
+                        "UPDATE embedding_jobs
+                         SET claimed_at = NULL, last_error = NULL
+                         WHERE source_kind = ?1 AND source_id = ?2 AND chunk_id = ?3",
+                        params![job.source_kind, job.source_id, job.chunk_id],
+                    )?;
+                }
+                transaction.commit()?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn fail_embedding_jobs(
+        &self,
+        jobs: &[EmbeddingJob],
+        error: &str,
+    ) -> Result<()> {
+        if jobs.is_empty() {
+            return Ok(());
+        }
+        let jobs = jobs.to_vec();
+        let error = error.chars().take(2000).collect::<String>();
+        self.embedding_writer_conn
+            .call(move |conn| {
+                let transaction = conn.transaction()?;
+                let now = now_ts() as i64;
+                for job in &jobs {
+                    transaction.execute(
+                        "UPDATE embedding_jobs
+                         SET claimed_at = ?4, last_error = ?5
+                         WHERE source_kind = ?1 AND source_id = ?2 AND chunk_id = ?3",
+                        params![
+                            job.source_kind,
+                            job.source_id,
+                            job.chunk_id,
+                            now,
+                            error,
+                        ],
+                    )?;
+                }
+                transaction.commit()?;
                 Ok(())
             })
             .await

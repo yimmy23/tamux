@@ -39,6 +39,19 @@ pub(crate) fn should_forward_agent_event(
     }
 }
 
+pub(crate) fn lag_recovery_thread_reload_events(
+    client_threads: &HashSet<String>,
+) -> Vec<crate::agent::types::AgentEvent> {
+    client_threads
+        .iter()
+        .map(
+            |thread_id| crate::agent::types::AgentEvent::ThreadReloadRequired {
+                thread_id: thread_id.clone(),
+            },
+        )
+        .collect()
+}
+
 pub(crate) fn concierge_welcome_fingerprint(
     event: &crate::agent::types::AgentEvent,
 ) -> Option<String> {

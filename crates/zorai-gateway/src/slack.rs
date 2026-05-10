@@ -20,6 +20,7 @@ pub struct SlackProvider {
     rate_limiter: TokenBucket,
     last_poll_ms: Option<u64>,
     poll_interval_ms: u64,
+    http_client: reqwest::Client,
 }
 
 impl SlackProvider {
@@ -85,6 +86,7 @@ impl SlackProvider {
             rate_limiter: TokenBucket::slack(),
             last_poll_ms: None,
             poll_interval_ms,
+            http_client: reqwest::Client::new(),
         }))
     }
 
@@ -194,7 +196,8 @@ impl SlackProvider {
     }
 
     async fn get_json(&self, url: &str) -> Result<Value> {
-        let response = reqwest::Client::new()
+        let response = self
+            .http_client
             .get(url)
             .bearer_auth(&self.token)
             .timeout(std::time::Duration::from_secs(5))
@@ -324,7 +327,8 @@ impl GatewayProvider for SlackProvider {
                 {
                     payload["thread_ts"] = json!(thread_ts);
                 }
-                let body = reqwest::Client::new()
+                let body = self
+                    .http_client
                     .post(&url)
                     .bearer_auth(&self.token)
                     .json(&payload)

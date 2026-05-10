@@ -19,6 +19,7 @@ impl TaskState {
             file_previews: std::collections::HashMap::new(),
             heartbeat_items: Vec::new(),
             last_digest: None,
+            goal_thread_ids_cache: std::cell::RefCell::new(None),
         }
     }
 
@@ -105,6 +106,18 @@ impl TaskState {
     }
 
     pub fn all_goal_thread_ids(&self) -> Vec<String> {
+        if let Some((rev, cached)) = &*self.goal_thread_ids_cache.borrow() {
+            if *rev == self.tasks_revision {
+                return cached.clone();
+            }
+        }
+        let computed = self.compute_all_goal_thread_ids();
+        *self.goal_thread_ids_cache.borrow_mut() =
+            Some((self.tasks_revision, computed.clone()));
+        computed
+    }
+
+    fn compute_all_goal_thread_ids(&self) -> Vec<String> {
         let mut thread_ids = Vec::new();
         let mut task_ids = Vec::new();
 
@@ -432,8 +445,9 @@ impl TaskState {
 
             TaskAction::GoalRunDetailReceived(run) => {
                 let run = normalize_goal_run_ranges(run);
+                let prefix = format!("{}::", run.id);
                 self.goal_step_live_todos
-                    .retain(|key, _| !key.starts_with(&format!("{}::", run.id)));
+                    .retain(|key, _| !key.starts_with(&prefix));
                 if let Some(existing) = self.goal_runs.iter_mut().find(|r| r.id == run.id) {
                     merge_goal_run(existing, run, false);
                 } else {
@@ -463,8 +477,9 @@ impl TaskState {
             TaskAction::GoalRunDeleted { goal_run_id } => {
                 self.goal_runs.retain(|run| run.id != goal_run_id);
                 self.goal_run_checkpoints.remove(&goal_run_id);
+                let prefix = format!("{goal_run_id}::");
                 self.goal_step_live_todos
-                    .retain(|key, _| !key.starts_with(&format!("{goal_run_id}::")));
+                    .retain(|key, _| !key.starts_with(&prefix));
                 self.goal_thread_ids.remove(&goal_run_id);
                 self.tasks
                     .retain(|task| task.goal_run_id.as_deref() != Some(goal_run_id.as_str()));

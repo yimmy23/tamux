@@ -403,11 +403,14 @@ fn dispatch_send_request(
     request: GatewaySendRequest,
 ) -> Result<()> {
     let platform = request.platform.to_ascii_lowercase();
-    if let Some(send_tx) = provider_senders.get(&platform) {
-        if send_tx.send(request.clone()).is_ok() {
-            return Ok(());
+    let request = if let Some(send_tx) = provider_senders.get(&platform) {
+        match send_tx.send(request) {
+            Ok(()) => return Ok(()),
+            Err(mpsc::error::SendError(returned)) => returned,
         }
-    }
+    } else {
+        request
+    };
     let requested_channel_id = request.channel_id.clone();
 
     core.emit_send_result(GatewaySendResult {

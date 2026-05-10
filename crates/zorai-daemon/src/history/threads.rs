@@ -481,14 +481,12 @@ impl HistoryStore {
                     let rows = stmt.query_map(params![id], |row| row.get::<_, String>(0))?;
                     rows.collect::<std::result::Result<Vec<_>, _>>()?
                 };
-                for message_id in message_ids {
-                    embedding_queue::queue_embedding_deletion_on_connection(
-                        conn,
-                        "agent_message",
-                        &message_id,
-                        now_ts() as i64,
-                    )?;
-                }
+                embedding_queue::queue_embedding_deletions_on_connection(
+                    conn,
+                    "agent_message",
+                    &message_ids,
+                    now_ts() as i64,
+                )?;
                 conn.execute(
                     "UPDATE agent_threads SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
                     params![id, deleted_at],

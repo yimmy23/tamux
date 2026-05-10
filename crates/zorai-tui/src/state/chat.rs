@@ -1786,10 +1786,14 @@ impl ChatState {
                     existing.loaded_message_start = merged_start;
                     existing.loaded_message_end = merged_end;
                     if !older_history_page && !stale_context_window {
-                        existing.active_context_window_start = incoming.active_context_window_start;
-                        existing.active_context_window_end = incoming.active_context_window_end;
-                        existing.active_context_window_tokens =
-                            incoming.active_context_window_tokens;
+                        if incoming.active_context_window_tokens.is_some() {
+                            existing.active_context_window_start =
+                                incoming.active_context_window_start;
+                            existing.active_context_window_end =
+                                incoming.active_context_window_end;
+                            existing.active_context_window_tokens =
+                                incoming.active_context_window_tokens;
+                        }
                         if incoming.latest_turn_context_tokens.is_some() {
                             existing.latest_turn_context_tokens =
                                 incoming.latest_turn_context_tokens;

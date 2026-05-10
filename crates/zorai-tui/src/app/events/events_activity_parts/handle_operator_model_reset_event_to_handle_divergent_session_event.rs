@@ -325,7 +325,7 @@ impl TuiModel {
             if let (
                 Some(thread_id),
                 Some(active_thread_id),
-                Some((message_limit, message_offset, split_at, total_message_count)),
+                Some((post_compaction_tail_len, _legacy_offset, split_at, total_message_count)),
             ) = (
                 thread_id.as_deref(),
                 self.chat.active_thread_id(),
@@ -337,10 +337,21 @@ impl TuiModel {
                         active_compaction_window_start: split_at,
                         total_message_count,
                     });
+                    let span_start = self
+                        .chat
+                        .threads()
+                        .iter()
+                        .find(|t| t.id == thread_id)
+                        .filter(|t| t.loaded_message_end > t.loaded_message_start)
+                        .map(|t| t.loaded_message_start.min(split_at))
+                        .unwrap_or(split_at);
+                    let message_limit = total_message_count
+                        .saturating_sub(span_start)
+                        .max(post_compaction_tail_len);
                     self.request_thread_page(
                         thread_id.to_string(),
                         message_limit,
-                        message_offset,
+                        0,
                         false,
                     );
                 }

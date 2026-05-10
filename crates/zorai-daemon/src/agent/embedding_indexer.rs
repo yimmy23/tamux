@@ -651,9 +651,7 @@ impl AgentEngine {
             Ok(embeddings) => embeddings,
             Err(error) => {
                 let message = error.to_string();
-                for job in &jobs {
-                    let _ = self.history.fail_embedding_job(job, &message).await;
-                }
+                let _ = self.history.fail_embedding_jobs(&jobs, &message).await;
                 return Err(error);
             }
         };
@@ -692,18 +690,16 @@ impl AgentEngine {
         }
         match index.upsert_many(documents).await {
             Ok(()) => {
-                for job in &vector_jobs {
-                    self.history
-                        .complete_embedding_job(job, &embedding_model, dimensions)
-                        .await?;
-                }
+                self.history
+                    .complete_embedding_jobs(&vector_jobs, &embedding_model, dimensions)
+                    .await?;
                 Ok(vector_jobs.len())
             }
             Err(error) => {
                 let message = error.to_string();
-                for job in &vector_jobs {
-                    self.history.fail_embedding_job(job, &message).await?;
-                }
+                self.history
+                    .fail_embedding_jobs(&vector_jobs, &message)
+                    .await?;
                 Err(error)
             }
         }

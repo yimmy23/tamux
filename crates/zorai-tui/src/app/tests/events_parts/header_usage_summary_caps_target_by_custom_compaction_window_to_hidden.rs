@@ -304,7 +304,7 @@ fn header_usage_summary_does_not_estimate_context_tokens_from_loaded_history() {
 }
 
 #[test]
-fn header_usage_summary_uses_latest_daemon_turn_tokens_without_loaded_history_estimate() {
+fn header_usage_summary_preserves_daemon_context_tokens_when_loading_history() {
     let mut model = make_model();
 
     model.handle_client_event(ClientEvent::ThreadCreated {
@@ -331,6 +331,12 @@ fn header_usage_summary_uses_latest_daemon_turn_tokens_without_loaded_history_es
         reasoning: None,
         provider_final_result_json: None,
     });
+    model.handle_client_event(ClientEvent::ContextWindowUpdate {
+        thread_id: "thread-turn-usage".to_string(),
+        active_context_window_start: 0,
+        active_context_window_end: 1,
+        active_context_window_tokens: 15_000,
+    });
 
     let before = model.current_header_usage_summary();
 
@@ -354,11 +360,11 @@ fn header_usage_summary_uses_latest_daemon_turn_tokens_without_loaded_history_es
     let after = model.current_header_usage_summary();
     assert_eq!(
         before.current_tokens, 15_000,
-        "header should use daemon-reported token usage from the latest completed turn"
+        "header should use the daemon-reported active context window tokens"
     );
     assert_eq!(
         after.current_tokens, before.current_tokens,
-        "loading older history should not replace current usage with older loaded message tokens"
+        "loading older history should not replace authoritative daemon context tokens with per-message estimates"
     );
 }
 

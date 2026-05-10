@@ -1,7 +1,15 @@
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
+use tokio::sync::Mutex;
 use tokio_util::codec::Framed;
 use zorai_protocol::{ClientMessage, DaemonMessage, ZoraiCodec};
+
+#[cfg(unix)]
+type DaemonStream = tokio::net::UnixStream;
+#[cfg(windows)]
+type DaemonStream = tokio::net::TcpStream;
+
+type DaemonFramed = Framed<DaemonStream, ZoraiCodec>;
 
 async fn maybe_handle_roundtrip_gateway_control_message<T>(
     framed: &mut Framed<T, ZoraiCodec>,
@@ -65,8 +73,7 @@ where
     read_next_roundtrip_message(framed).await
 }
 
-pub(super) async fn connect_daemon(
-) -> Result<Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, ZoraiCodec>> {
+pub(super) async fn connect_daemon() -> Result<DaemonFramed> {
     #[cfg(unix)]
     {
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
@@ -87,9 +94,30 @@ pub(super) async fn connect_daemon(
     }
 }
 
+/// Streaming flows (`daemon_roundtrip_until`, direct `connect_daemon()` in
+/// `daemon_tools.rs`) bypass this pool — holding the shared slot across a
+/// long stream would block every other tool call.
+fn pooled_connection() -> &'static Mutex<Option<DaemonFramed>> {
+    static POOL: std::sync::OnceLock<Mutex<Option<DaemonFramed>>> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| Mutex::new(None))
+}
+
 pub(super) async fn daemon_roundtrip(msg: ClientMessage) -> Result<DaemonMessage> {
-    let mut framed = connect_daemon().await?;
-    daemon_roundtrip_framed(&mut framed, msg).await
+    let pool = pooled_connection();
+    let mut guard = pool.lock().await;
+    if guard.is_none() {
+        *guard = Some(connect_daemon().await?);
+    }
+    let framed = guard
+        .as_mut()
+        .expect("connection just placed in pool slot");
+    match daemon_roundtrip_framed(framed, msg).await {
+        Ok(resp) => Ok(resp),
+        Err(err) => {
+            *guard = None;
+            Err(err)
+        }
+    }
 }
 
 pub(super) async fn daemon_roundtrip_until<T, F>(msg: ClientMessage, mut f: F) -> Result<T>

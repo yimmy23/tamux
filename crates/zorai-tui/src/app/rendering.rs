@@ -1042,9 +1042,7 @@ impl TuiModel {
         };
 
         let total_thread_tokens = thread.total_input_tokens + thread.total_output_tokens;
-        let current_tokens = thread
-            .active_context_window_tokens
-            .unwrap_or_else(|| Self::latest_daemon_turn_context_tokens(thread));
+        let current_tokens = thread.active_context_window_tokens.unwrap_or(0);
         let total_cost_usd = thread
             .messages
             .iter()

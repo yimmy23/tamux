@@ -32,7 +32,7 @@ pub(crate) async fn pre_dispatch<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    const MAX_EVENT_DRAIN_PER_CALL: usize = 4;
+    const MAX_EVENT_DRAIN_PER_CALL: usize = 256;
     let mut drained_event_count: usize = 0;
 
     let msg = {
@@ -94,7 +94,19 @@ where
                         }
                     }
                     Err(broadcast::error::TryRecvError::Lagged(n)) => {
-                        tracing::warn!(skipped = n, "agent event broadcast lagged");
+                        tracing::warn!(
+                            skipped = n,
+                            recovering_threads = client_agent_threads.len(),
+                            "agent event broadcast lagged — synthesizing ThreadReloadRequired for subscribed threads"
+                        );
+                        for event in lag_recovery_thread_reload_events(client_agent_threads) {
+                            if let Some((json, _truncated)) = cap_agent_event_for_ipc(&event) {
+                                framed
+                                    .send(DaemonMessage::AgentEvent { event_json: json })
+                                    .await?;
+                                drained_event_count += 1;
+                            }
+                        }
                         break;
                     }
                     _ => break,

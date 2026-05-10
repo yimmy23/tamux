@@ -35,88 +35,102 @@ pub(super) async fn tool_execute_command(args: &Value) -> Result<Value> {
         client_surface: None,
     };
 
+    const MANAGED_COMMAND_TOOL_TIMEOUT: std::time::Duration =
+        std::time::Duration::from_secs(30 * 60);
+
     let mut framed = connect_daemon().await?;
     framed.send(msg).await.context("failed to send to daemon")?;
 
     let mut events: Vec<Value> = Vec::new();
 
-    while let Some(resp) = framed.next().await {
-        let resp = resp.context("error reading from daemon")?;
-        match resp {
-            DaemonMessage::ManagedCommandQueued {
-                execution_id,
-                position,
-                snapshot,
-                ..
-            } => {
-                events.push(serde_json::json!({
-                    "event": "queued",
-                    "execution_id": execution_id,
-                    "position": position,
-                    "snapshot": snapshot,
-                }));
+    let stream_loop = async {
+        while let Some(resp) = framed.next().await {
+            let resp = resp.context("error reading from daemon")?;
+            match resp {
+                DaemonMessage::ManagedCommandQueued {
+                    execution_id,
+                    position,
+                    snapshot,
+                    ..
+                } => {
+                    events.push(serde_json::json!({
+                        "event": "queued",
+                        "execution_id": execution_id,
+                        "position": position,
+                        "snapshot": snapshot,
+                    }));
+                }
+                DaemonMessage::ManagedCommandStarted {
+                    execution_id,
+                    command: cmd,
+                    ..
+                } => {
+                    events.push(serde_json::json!({
+                        "event": "started",
+                        "execution_id": execution_id,
+                        "command": cmd,
+                    }));
+                }
+                DaemonMessage::ManagedCommandFinished {
+                    execution_id,
+                    command: cmd,
+                    exit_code,
+                    duration_ms,
+                    snapshot,
+                    ..
+                } => {
+                    events.push(serde_json::json!({
+                        "event": "finished",
+                        "execution_id": execution_id,
+                        "command": cmd,
+                        "exit_code": exit_code,
+                        "duration_ms": duration_ms,
+                        "snapshot": snapshot,
+                    }));
+                    break;
+                }
+                DaemonMessage::ManagedCommandRejected {
+                    execution_id,
+                    message,
+                    ..
+                } => {
+                    events.push(serde_json::json!({
+                        "event": "rejected",
+                        "execution_id": execution_id,
+                        "message": message,
+                    }));
+                    break;
+                }
+                DaemonMessage::ApprovalRequired { approval, .. } => {
+                    events.push(serde_json::json!({
+                        "event": "approval_required",
+                        "approval_id": approval.approval_id,
+                        "risk_level": approval.risk_level,
+                        "blast_radius": approval.blast_radius,
+                        "reasons": approval.reasons,
+                    }));
+                    break;
+                }
+                DaemonMessage::Error { message } => {
+                    anyhow::bail!("daemon error: {message}");
+                }
+                DaemonMessage::GatewayBootstrap { .. }
+                | DaemonMessage::GatewaySendRequest { .. }
+                | DaemonMessage::GatewayReloadCommand { .. }
+                | DaemonMessage::GatewayShutdownCommand { .. } => {}
+                _ => {}
             }
-            DaemonMessage::ManagedCommandStarted {
-                execution_id,
-                command: cmd,
-                ..
-            } => {
-                events.push(serde_json::json!({
-                    "event": "started",
-                    "execution_id": execution_id,
-                    "command": cmd,
-                }));
-            }
-            DaemonMessage::ManagedCommandFinished {
-                execution_id,
-                command: cmd,
-                exit_code,
-                duration_ms,
-                snapshot,
-                ..
-            } => {
-                events.push(serde_json::json!({
-                    "event": "finished",
-                    "execution_id": execution_id,
-                    "command": cmd,
-                    "exit_code": exit_code,
-                    "duration_ms": duration_ms,
-                    "snapshot": snapshot,
-                }));
-                break;
-            }
-            DaemonMessage::ManagedCommandRejected {
-                execution_id,
-                message,
-                ..
-            } => {
-                events.push(serde_json::json!({
-                    "event": "rejected",
-                    "execution_id": execution_id,
-                    "message": message,
-                }));
-                break;
-            }
-            DaemonMessage::ApprovalRequired { approval, .. } => {
-                events.push(serde_json::json!({
-                    "event": "approval_required",
-                    "approval_id": approval.approval_id,
-                    "risk_level": approval.risk_level,
-                    "blast_radius": approval.blast_radius,
-                    "reasons": approval.reasons,
-                }));
-                break;
-            }
-            DaemonMessage::Error { message } => {
-                anyhow::bail!("daemon error: {message}");
-            }
-            DaemonMessage::GatewayBootstrap { .. }
-            | DaemonMessage::GatewaySendRequest { .. }
-            | DaemonMessage::GatewayReloadCommand { .. }
-            | DaemonMessage::GatewayShutdownCommand { .. } => {}
-            _ => {}
         }
-    }
+        Ok::<(), anyhow::Error>(())
+    };
+    tokio::time::timeout(MANAGED_COMMAND_TOOL_TIMEOUT, stream_loop)
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "managed command stream did not yield a terminal event within {} seconds",
+                MANAGED_COMMAND_TOOL_TIMEOUT.as_secs()
+            )
+        })??;
 
     Ok(serde_json::json!({
         "command": command,

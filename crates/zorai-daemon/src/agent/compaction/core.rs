@@ -340,6 +340,26 @@ pub(crate) fn compaction_payload_matches_scope(
     payload.contains(goal_run_id)
 }
 
+pub(crate) fn ensure_payload_scope_markers(
+    payload: String,
+    scope: Option<&CompactionScopeSnapshot>,
+) -> String {
+    let Some(scope) = scope else { return payload };
+    let Some(goal_run_id) = scope.goal_run_id.as_deref() else {
+        return payload;
+    };
+    if payload.contains(goal_run_id) {
+        return payload;
+    }
+    let mut header = format!("[scope: goal_run_id={goal_run_id}");
+    if let Some(task_id) = scope.task_id.as_deref().filter(|value| !value.is_empty()) {
+        header.push_str(&format!("; task_id={task_id}"));
+    }
+    header.push_str("]\n");
+    header.push_str(&payload);
+    header
+}
+
 pub(crate) fn materialize_compaction_message(message: &AgentMessage) -> AgentMessage {
     let mut materialized = message.clone();
     materialized.content = compaction_runtime_content(message).to_string();

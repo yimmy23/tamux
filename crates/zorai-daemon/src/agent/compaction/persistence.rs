@@ -70,7 +70,7 @@ impl AgentEngine {
         let structural_memory = self.get_thread_structural_memory(thread_id).await;
         let compaction_scope = self.compaction_scope_snapshot(thread_id, task_id).await;
 
-        let (artifact, strategy_used, fallback_notice) = self
+        let artifact_result = self
             .build_compaction_artifact(
                 thread_id,
                 &source_messages,
@@ -82,7 +82,44 @@ impl AgentEngine {
                 structural_memory.as_ref(),
                 compaction_scope.as_ref(),
             )
-            .await?;
+            .await;
+        let (artifact, strategy_used, fallback_notice) = match artifact_result {
+            Ok(value) => value,
+            Err(error) => {
+                if let Some(typed) =
+                    error.downcast_ref::<CompactionLlmFailureWithCapacity>()
+                {
+                    tracing::warn!(
+                        thread_id,
+                        strategy = ?typed.strategy,
+                        provider_id = %typed.provider_id,
+                        model_window_tokens = typed.model_window_tokens,
+                        input_tokens = typed.input_tokens,
+                        cause = %typed.source,
+                        "compaction LLM call failed despite model capacity; not falling back to heuristic"
+                    );
+                    let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                        thread_id: thread_id.to_string(),
+                        kind: "compaction-llm-failure".to_string(),
+                        message: format!(
+                            "{:?} compaction model `{}` failed with capacity available — skipping compaction this turn so the failure is visible. Cause: {}",
+                            typed.strategy, typed.provider_id, typed.source,
+                        ),
+                        details: Some(
+                            serde_json::json!({
+                                "strategy": format!("{:?}", typed.strategy),
+                                "provider_id": typed.provider_id,
+                                "model_window_tokens": typed.model_window_tokens,
+                                "input_tokens": typed.input_tokens,
+                            })
+                            .to_string(),
+                        ),
+                    });
+                    return Ok(false);
+                }
+                return Err(error);
+            }
+        };
         let compaction_trigger_summary = build_compaction_visible_content(
             pre_compaction_total_tokens,
             effective_context_window_tokens,

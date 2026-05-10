@@ -313,6 +313,44 @@ async fn deleting_indexed_message_queues_vector_deletion() -> Result<()> {
 }
 
 #[tokio::test]
+async fn delete_thread_batches_embedding_deletions_for_all_messages() -> Result<()> {
+    let (store, _root) = make_test_store().await?;
+    store.create_thread(&sample_thread()).await?;
+    for id in ["msg-batch-1", "msg-batch-2", "msg-batch-3"] {
+        store
+            .add_message(&sample_message(id, "content for batched deletion"))
+            .await?;
+    }
+
+    let jobs = store
+        .claim_embedding_jobs("text-embedding-3-small", 1536, 10)
+        .await?;
+    assert_eq!(jobs.len(), 3);
+    for job in &jobs {
+        store
+            .complete_embedding_job(job, "text-embedding-3-small", 1536)
+            .await?;
+    }
+
+    store.delete_thread("thread-1").await?;
+
+    let mut deletions = store.claim_embedding_deletions(10).await?;
+    deletions.sort_by(|a, b| a.source_id.cmp(&b.source_id));
+    assert_eq!(deletions.len(), 3);
+    for deletion in &deletions {
+        assert_eq!(deletion.source_kind, "agent_message");
+    }
+    assert_eq!(
+        deletions
+            .iter()
+            .map(|d| d.source_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["msg-batch-1", "msg-batch-2", "msg-batch-3"],
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn updating_message_content_refreshes_embedding_job() -> Result<()> {
     let (store, _root) = make_test_store().await?;
     store.create_thread(&sample_thread()).await?;

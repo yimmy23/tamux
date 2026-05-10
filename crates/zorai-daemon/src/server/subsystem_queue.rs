@@ -23,31 +23,33 @@ pub(super) enum BackgroundSignal {
     Finished,
 }
 
+pub(super) const SUBSYSTEM_QUEUE_CAPACITY: usize = 256;
+
 pub(super) struct BackgroundSubsystemQueues {
-    concierge_work_tx: tokio::sync::mpsc::UnboundedSender<BackgroundSignal>,
-    concierge_work_rx: tokio::sync::mpsc::UnboundedReceiver<BackgroundSignal>,
-    agent_work_tx: tokio::sync::mpsc::UnboundedSender<BackgroundSignal>,
-    agent_work_rx: tokio::sync::mpsc::UnboundedReceiver<BackgroundSignal>,
-    provider_io_tx: tokio::sync::mpsc::UnboundedSender<BackgroundSignal>,
-    provider_io_rx: tokio::sync::mpsc::UnboundedReceiver<BackgroundSignal>,
-    plugin_io_tx: tokio::sync::mpsc::UnboundedSender<BackgroundSignal>,
-    plugin_io_rx: tokio::sync::mpsc::UnboundedReceiver<BackgroundSignal>,
-    config_reconcile_tx: tokio::sync::mpsc::UnboundedSender<BackgroundSignal>,
-    config_reconcile_rx: tokio::sync::mpsc::UnboundedReceiver<BackgroundSignal>,
+    concierge_work_tx: tokio::sync::mpsc::Sender<BackgroundSignal>,
+    concierge_work_rx: tokio::sync::mpsc::Receiver<BackgroundSignal>,
+    agent_work_tx: tokio::sync::mpsc::Sender<BackgroundSignal>,
+    agent_work_rx: tokio::sync::mpsc::Receiver<BackgroundSignal>,
+    provider_io_tx: tokio::sync::mpsc::Sender<BackgroundSignal>,
+    provider_io_rx: tokio::sync::mpsc::Receiver<BackgroundSignal>,
+    plugin_io_tx: tokio::sync::mpsc::Sender<BackgroundSignal>,
+    plugin_io_rx: tokio::sync::mpsc::Receiver<BackgroundSignal>,
+    config_reconcile_tx: tokio::sync::mpsc::Sender<BackgroundSignal>,
+    config_reconcile_rx: tokio::sync::mpsc::Receiver<BackgroundSignal>,
 }
 
 impl BackgroundSubsystemQueues {
     pub(super) fn new() -> Self {
         let (concierge_work_tx, concierge_work_rx) =
-            tokio::sync::mpsc::unbounded_channel::<BackgroundSignal>();
+            tokio::sync::mpsc::channel::<BackgroundSignal>(SUBSYSTEM_QUEUE_CAPACITY);
         let (agent_work_tx, agent_work_rx) =
-            tokio::sync::mpsc::unbounded_channel::<BackgroundSignal>();
+            tokio::sync::mpsc::channel::<BackgroundSignal>(SUBSYSTEM_QUEUE_CAPACITY);
         let (provider_io_tx, provider_io_rx) =
-            tokio::sync::mpsc::unbounded_channel::<BackgroundSignal>();
+            tokio::sync::mpsc::channel::<BackgroundSignal>(SUBSYSTEM_QUEUE_CAPACITY);
         let (plugin_io_tx, plugin_io_rx) =
-            tokio::sync::mpsc::unbounded_channel::<BackgroundSignal>();
+            tokio::sync::mpsc::channel::<BackgroundSignal>(SUBSYSTEM_QUEUE_CAPACITY);
         let (config_reconcile_tx, config_reconcile_rx) =
-            tokio::sync::mpsc::unbounded_channel::<BackgroundSignal>();
+            tokio::sync::mpsc::channel::<BackgroundSignal>(SUBSYSTEM_QUEUE_CAPACITY);
 
         Self {
             concierge_work_tx,
@@ -66,7 +68,7 @@ impl BackgroundSubsystemQueues {
     pub(super) fn sender(
         &self,
         subsystem: BackgroundSubsystem,
-    ) -> tokio::sync::mpsc::UnboundedSender<BackgroundSignal> {
+    ) -> tokio::sync::mpsc::Sender<BackgroundSignal> {
         match subsystem {
             BackgroundSubsystem::ConciergeWork => self.concierge_work_tx.clone(),
             BackgroundSubsystem::AgentWork => self.agent_work_tx.clone(),
@@ -213,10 +215,12 @@ mod subsystem_queue_tests {
         queues
             .sender(BackgroundSubsystem::PluginIo)
             .send(BackgroundSignal::Deliver(DaemonMessage::Pong))
+            .await
             .expect("send plugin delivery");
         queues
             .sender(BackgroundSubsystem::AgentWork)
             .send(BackgroundSignal::Deliver(DaemonMessage::Pong))
+            .await
             .expect("send agent delivery");
 
         assert!(matches!(
@@ -269,6 +273,7 @@ mod subsystem_queue_tests {
         queues
             .sender(BackgroundSubsystem::AgentWork)
             .send(BackgroundSignal::Finished)
+            .await
             .expect("send completion signal");
 
         assert!(matches!(

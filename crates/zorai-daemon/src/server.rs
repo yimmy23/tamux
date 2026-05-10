@@ -34,39 +34,40 @@ pub(crate) enum DispatchOutcome {
     Terminate,
 }
 
-/// Non-blocking handle to the daemon→TUI write side. All daemon code paths
-/// (event broadcast drain in pre_dispatch + dispatch handler responses) push
-/// `DaemonMessage`s into an unbounded channel; a dedicated writer task drains
-/// the channel and performs the actual `sink.send().await` against the
-/// socket.
-///
-/// This breaks the bidirectional deadlock that wedged the daemon for
-/// 5+ minutes per connect: previously, a slow OS socket buffer (TUI read
-/// slow) meant `framed.send().await` inside `pre_dispatch`'s event drain
-/// blocked, which blocked every subsequent client-message read on the same
-/// connection. With ConnectionWriter, sends are channel pushes (instant) —
-/// the read path keeps making progress even while the writer task is
-/// stalled on socket back-pressure.
+pub(crate) const CONNECTION_WRITE_BUFFER: usize = 4096;
+
 #[derive(Clone)]
 pub(crate) struct ConnectionWriter {
-    tx: mpsc::UnboundedSender<DaemonMessage>,
+    tx: mpsc::Sender<DaemonMessage>,
 }
 
 impl ConnectionWriter {
-    pub(crate) fn new(tx: mpsc::UnboundedSender<DaemonMessage>) -> Self {
+    pub(crate) fn new(tx: mpsc::Sender<DaemonMessage>) -> Self {
         Self { tx }
     }
 
-    /// API-shape preserved from `framed.send(msg).await?` so dispatch
-    /// handlers don't need to change their call sites — they keep writing
-    /// `framed.send(...).await?` and the underlying I/O happens off-thread.
+    /// Must be non-blocking: the read loop calls this on the same task that
+    /// reads client messages. A blocking `await` here would deadlock the
+    /// connection if the socket is slow.
     pub(crate) async fn send(&mut self, msg: DaemonMessage) -> std::io::Result<()> {
-        self.tx.send(msg).map_err(|_| {
-            std::io::Error::new(
+        use mpsc::error::TrySendError;
+        match self.tx.try_send(msg) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => {
+                tracing::warn!(
+                    buffer = CONNECTION_WRITE_BUFFER,
+                    "daemon writer queue full — TUI not draining; closing connection"
+                );
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "daemon writer queue full",
+                ))
+            }
+            Err(TrySendError::Closed(_)) => Err(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
                 "daemon writer task closed",
-            )
-        })
+            )),
+        }
     }
 }
 
@@ -314,7 +315,7 @@ where
     let framed = Framed::new(stream, DaemonCodec);
     let (mut sink, mut stream) = framed.split();
 
-    let (write_tx, mut write_rx) = mpsc::unbounded_channel::<DaemonMessage>();
+    let (write_tx, mut write_rx) = mpsc::channel::<DaemonMessage>(CONNECTION_WRITE_BUFFER);
     let writer_task = tokio::spawn(async move {
         while let Some(msg) = write_rx.recv().await {
             let started = std::time::Instant::now();

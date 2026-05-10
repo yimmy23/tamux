@@ -651,7 +651,7 @@ fn heuristic_message_count_alone_still_triggers_compaction() {
 }
 
 #[test]
-fn custom_model_message_count_alone_does_not_trigger_compaction() {
+fn custom_model_message_count_alone_triggers_compaction() {
     let mut config = AgentConfig::default();
     config.compaction.strategy = CompactionStrategy::CustomModel;
     config.max_context_messages = 100;
@@ -667,11 +667,97 @@ fn custom_model_message_count_alone_does_not_trigger_compaction() {
         .map(|idx| AgentMessage::user(format!("m{idx}"), idx as u64 + 1))
         .collect::<Vec<_>>();
 
-    assert_eq!(compaction_candidate(&messages, &config, &provider), None);
+    let candidate = compaction_candidate(&messages, &config, &provider).expect(
+        "CustomModel strategy must compact when message count exceeds max_context_messages",
+    );
+    assert_eq!(candidate.trigger, CompactionTrigger::MessageCount);
 }
 
 #[test]
-fn weles_message_count_alone_does_not_trigger_compaction() {
+fn ensure_payload_scope_markers_injects_goal_run_id_when_missing() {
+    let scope = CompactionScopeSnapshot {
+        thread_id: "thread-1".to_string(),
+        task_id: Some("task-99".to_string()),
+        goal_run_id: Some("goal-abc-123".to_string()),
+        ..Default::default()
+    };
+    let payload = "Discussed the build pipeline and decided to retry step 4.".to_string();
+    let injected = ensure_payload_scope_markers(payload.clone(), Some(&scope));
+
+    assert!(
+        injected.starts_with("[scope: goal_run_id=goal-abc-123; task_id=task-99]\n"),
+        "scope header should be prepended: {injected}"
+    );
+    assert!(
+        injected.ends_with(&payload),
+        "original payload should follow the injected header"
+    );
+    assert!(
+        compaction_payload_matches_scope(&injected, Some(&scope)),
+        "injected payload must satisfy the existing scope-match check"
+    );
+}
+
+#[test]
+fn ensure_payload_scope_markers_is_idempotent_when_marker_already_present() {
+    let scope = CompactionScopeSnapshot {
+        thread_id: "thread-1".to_string(),
+        goal_run_id: Some("goal-already-mentioned".to_string()),
+        ..Default::default()
+    };
+    let payload = "Summary references goal-already-mentioned in the body.".to_string();
+    let result = ensure_payload_scope_markers(payload.clone(), Some(&scope));
+    assert_eq!(
+        result, payload,
+        "no header injected when payload already contains the goal_run_id"
+    );
+}
+
+#[test]
+fn ensure_payload_scope_markers_is_noop_when_no_scope() {
+    let payload = "summary".to_string();
+    assert_eq!(
+        ensure_payload_scope_markers(payload.clone(), None),
+        payload,
+        "no scope → no injection"
+    );
+}
+
+#[test]
+fn compaction_llm_failure_with_capacity_is_downcastable_from_anyhow() {
+    let typed = CompactionLlmFailureWithCapacity {
+        strategy: CompactionStrategy::CustomModel,
+        provider_id: "openrouter".to_string(),
+        model_window_tokens: 1_000_000,
+        input_tokens: 290_000,
+        source: anyhow::anyhow!("simulated network failure"),
+    };
+    let display = typed.to_string();
+    assert!(
+        display.contains("CustomModel"),
+        "display should mention strategy: {display}"
+    );
+    assert!(
+        display.contains("simulated network failure"),
+        "display should expose the underlying cause: {display}"
+    );
+    assert!(
+        display.contains("1000000") || display.contains("1_000_000"),
+        "display should mention model window tokens: {display}"
+    );
+
+    let wrapped: anyhow::Error = anyhow::Error::new(typed);
+    let downcast = wrapped
+        .downcast_ref::<CompactionLlmFailureWithCapacity>()
+        .expect("typed error must be downcastable from anyhow::Error");
+    assert_eq!(downcast.strategy, CompactionStrategy::CustomModel);
+    assert_eq!(downcast.provider_id, "openrouter");
+    assert_eq!(downcast.model_window_tokens, 1_000_000);
+    assert_eq!(downcast.input_tokens, 290_000);
+}
+
+#[test]
+fn weles_message_count_alone_triggers_compaction() {
     let mut config = AgentConfig::default();
     config.compaction.strategy = CompactionStrategy::Weles;
     config.max_context_messages = 100;
@@ -688,7 +774,9 @@ fn weles_message_count_alone_does_not_trigger_compaction() {
         .map(|idx| AgentMessage::user(format!("m{idx}"), idx as u64 + 1))
         .collect::<Vec<_>>();
 
-    assert_eq!(compaction_candidate(&messages, &config, &provider), None);
+    let candidate = compaction_candidate(&messages, &config, &provider)
+        .expect("Weles strategy must compact when message count exceeds max_context_messages");
+    assert_eq!(candidate.trigger, CompactionTrigger::MessageCount);
 }
 
 #[test]

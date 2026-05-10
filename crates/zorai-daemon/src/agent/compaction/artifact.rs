@@ -1,5 +1,31 @@
 use super::*;
 
+#[derive(Debug)]
+pub(crate) struct CompactionLlmFailureWithCapacity {
+    pub(crate) strategy: CompactionStrategy,
+    pub(crate) provider_id: String,
+    pub(crate) model_window_tokens: usize,
+    pub(crate) input_tokens: usize,
+    pub(crate) source: anyhow::Error,
+}
+
+impl std::fmt::Display for CompactionLlmFailureWithCapacity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{:?} compaction model `{}` (window={} tokens) failed for {}-token input; \
+             refusing to fall back to Heuristic since the model had capacity. Cause: {}",
+            self.strategy,
+            self.provider_id,
+            self.model_window_tokens,
+            self.input_tokens,
+            self.source,
+        )
+    }
+}
+
+impl std::error::Error for CompactionLlmFailureWithCapacity {}
+
 impl AgentEngine {
     pub(crate) async fn build_compaction_artifact(
         &self,
@@ -34,86 +60,40 @@ impl AgentEngine {
             CompactionStrategy::Weles => {
                 let (provider_id, provider_config) =
                     self.resolve_weles_compaction_provider(config)?;
-                match self
-                    .run_llm_compaction(
-                        &provider_id,
-                        &provider_config,
-                        messages,
-                        target_tokens,
-                        scope,
-                    )
-                    .await
-                {
-                    Ok(payload)
-                        if !payload.trim().is_empty()
-                            && compaction_payload_matches_scope(&payload, scope) =>
-                    {
-                        payload
-                    }
-                    Ok(_) | Err(_) => {
-                        strategy_used = CompactionStrategy::Heuristic;
-                        let rule_based = self
-                            .build_rule_based_compaction_payload(
-                                thread_id,
-                                messages,
-                                target_tokens,
-                                structural_memory,
-                                scope,
-                            )
-                            .await;
-                        structural_refs = rule_based.structural_refs;
-                        fallback_notice = merge_compaction_fallback_notice(
-                            rule_based.fallback_notice,
-                            Some(
-                                "WELES compaction failed; fell back to rule based compaction."
-                                    .to_string(),
-                            ),
-                        );
-                        rule_based.payload
-                    }
-                }
+                self.compact_with_llm_or_fallback(
+                    CompactionStrategy::Weles,
+                    "WELES",
+                    &provider_id,
+                    &provider_config,
+                    thread_id,
+                    messages,
+                    target_tokens,
+                    structural_memory,
+                    scope,
+                    &mut strategy_used,
+                    &mut fallback_notice,
+                    &mut structural_refs,
+                )
+                .await?
             }
             CompactionStrategy::CustomModel => {
                 let (provider_id, provider_config) =
                     self.resolve_custom_model_compaction_provider(config)?;
-                match self
-                    .run_llm_compaction(
-                        &provider_id,
-                        &provider_config,
-                        messages,
-                        target_tokens,
-                        scope,
-                    )
-                    .await
-                {
-                    Ok(payload)
-                        if !payload.trim().is_empty()
-                            && compaction_payload_matches_scope(&payload, scope) =>
-                    {
-                        payload
-                    }
-                    Ok(_) | Err(_) => {
-                        strategy_used = CompactionStrategy::Heuristic;
-                        let rule_based = self
-                            .build_rule_based_compaction_payload(
-                                thread_id,
-                                messages,
-                                target_tokens,
-                                structural_memory,
-                                scope,
-                            )
-                            .await;
-                        structural_refs = rule_based.structural_refs;
-                        fallback_notice = merge_compaction_fallback_notice(
-                            rule_based.fallback_notice,
-                            Some(
-                                "Custom-model compaction failed; fell back to rule based compaction."
-                                    .to_string(),
-                            ),
-                        );
-                        rule_based.payload
-                    }
-                }
+                self.compact_with_llm_or_fallback(
+                    CompactionStrategy::CustomModel,
+                    "Custom-model",
+                    &provider_id,
+                    &provider_config,
+                    thread_id,
+                    messages,
+                    target_tokens,
+                    structural_memory,
+                    scope,
+                    &mut strategy_used,
+                    &mut fallback_notice,
+                    &mut structural_refs,
+                )
+                .await?
             }
         };
 
@@ -293,6 +273,73 @@ impl AgentEngine {
         payload.truncate(coding_compaction_payload_max_chars(target_tokens));
 
         Ok((payload, structural_refs))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn compact_with_llm_or_fallback(
+        &self,
+        strategy: CompactionStrategy,
+        strategy_label: &'static str,
+        provider_id: &str,
+        provider_config: &ProviderConfig,
+        thread_id: &str,
+        messages: &[AgentMessage],
+        target_tokens: usize,
+        structural_memory: Option<&ThreadStructuralMemory>,
+        scope: Option<&CompactionScopeSnapshot>,
+        strategy_used: &mut CompactionStrategy,
+        fallback_notice: &mut Option<String>,
+        structural_refs: &mut Vec<String>,
+    ) -> Result<String> {
+        let llm_result = self
+            .run_llm_compaction(provider_id, provider_config, messages, target_tokens, scope)
+            .await;
+        let failure_source: anyhow::Error = match llm_result {
+            Ok(payload) if !payload.trim().is_empty() => {
+                return Ok(ensure_payload_scope_markers(payload, scope));
+            }
+            Ok(_) => anyhow::anyhow!("{strategy_label} compaction returned an empty payload"),
+            Err(error) => error,
+        };
+
+        let model_window_tokens = llm_compaction_input_budget(provider_id, provider_config);
+        let input_tokens = estimate_message_tokens(messages);
+        if input_tokens <= model_window_tokens {
+            return Err(anyhow::Error::new(CompactionLlmFailureWithCapacity {
+                strategy,
+                provider_id: provider_id.to_string(),
+                model_window_tokens,
+                input_tokens,
+                source: failure_source,
+            }));
+        }
+
+        tracing::warn!(
+            strategy = ?strategy,
+            provider_id,
+            input_tokens,
+            model_window_tokens,
+            error = %failure_source,
+            "compaction LLM model could not fit input; falling back to heuristic"
+        );
+        *strategy_used = CompactionStrategy::Heuristic;
+        let rule_based = self
+            .build_rule_based_compaction_payload(
+                thread_id,
+                messages,
+                target_tokens,
+                structural_memory,
+                scope,
+            )
+            .await;
+        *structural_refs = rule_based.structural_refs;
+        *fallback_notice = merge_compaction_fallback_notice(
+            rule_based.fallback_notice,
+            Some(format!(
+                "{strategy_label} compaction failed (input {input_tokens} tokens > model window {model_window_tokens}); fell back to rule based compaction."
+            )),
+        );
+        Ok(rule_based.payload)
     }
 
     pub(crate) async fn run_llm_compaction(
