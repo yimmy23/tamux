@@ -930,6 +930,49 @@ async fn agent_scope_id_for_turn_recovers_thread_owner_without_handoff_state() {
 }
 
 #[tokio::test]
+async fn agent_scope_id_for_turn_preserves_unregistered_custom_sub_agent_owner() {
+    // Why this matters: a user-defined custom sub-agent (e.g. "DeepSeekorrr") may not be
+    // resolvable via `resolve_agent_target` if it isn't registered in the sub-agent list
+    // at the moment of resolution (timing, plugin not loaded yet, etc.). The scope must
+    // still derive from the thread's persisted owner — falling back to MAIN_AGENT_ID
+    // would re-introduce the multi-window bug where window 1's Swarog identity leaks
+    // into window 2's custom-owned thread.
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread_unregistered_custom_owner";
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some("DeepSeekorrr".to_string()),
+                title: "Custom owner".to_string(),
+                created_at: 1,
+                updated_at: 1,
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                messages: vec![AgentMessage::user("hello", 1)],
+            },
+        );
+    }
+
+    assert_eq!(
+        engine.agent_scope_id_for_turn(Some(thread_id), None).await,
+        "deepseekorrr",
+        "unregistered custom owner must scope to its own alias, not MAIN_AGENT_ID"
+    );
+}
+
+#[tokio::test]
 async fn handoff_activation_clears_thread_continuation_state_for_new_responder_stream() {
     let root = tempdir().unwrap();
     let manager = SessionManager::new_test(root.path()).await;

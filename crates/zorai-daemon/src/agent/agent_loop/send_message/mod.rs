@@ -260,8 +260,14 @@ impl AgentEngine {
                 .filter(|name| !name.is_empty());
             if let Some(alias) = owner_alias {
                 let sub_agents = self.list_sub_agents().await;
-                return crate::agent::agent_identity::resolve_agent_target(&alias, &sub_agents)
-                    .scope_id;
+                let resolved =
+                    crate::agent::agent_identity::resolve_agent_target(&alias, &sub_agents);
+                if resolved.scope_id != MAIN_AGENT_ID
+                    || crate::agent::agent_identity::is_main_agent_scope(&alias)
+                {
+                    return resolved.scope_id;
+                }
+                return alias.to_ascii_lowercase();
             }
         }
 
