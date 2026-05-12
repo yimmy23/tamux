@@ -47,6 +47,10 @@ This is the complete index of the zorai dataset curation framework. Every guidel
 | Guideline | Covers |
 |-----------|--------|
 | `specialized-training-data-task` | Contrastive learning, knowledge distillation, continual learning, federated learning, anomaly detection |
+| `model-compression-data-task` | Pruning calibration, distillation teacher data (SlimQwen 2026, DistilQwen2.5 2025), quantization calibration, MoE expert preservation |
+| `continual-pretraining-data-task` | CPT domain mixing, replay buffer design, forgetting detection, progressive domain adaptation |
+| `model-merging-data-task` | SLERP/TIES/DARES/soup merging, merge candidate selection, post-merge validation, conflict detection |
+| `efficient-inference-data-task` | Speculative decoding calibration, KV cache optimization, dynamic batching, inference-aware training data |
 | `synthetic-data-generation-task` | LLM/diffusion/SDV generation, realism checks, hallucination audit, synthetic flagging |
 | `time-series-data-task` | Stationarity tests, seasonality detection, walk-forward validation, lag leakage |
 | `graph-data-task` | Node/edge dedup, degree distribution QC, edge-level splitting, negative sampling |
@@ -86,6 +90,22 @@ This is the complete index of the zorai dataset curation framework. Every guidel
 | `data-lifecycle-governance-task` | Birth → Adolescence → Adulthood → Retirement → Death with gate checks |
 | `privacy-preserving-data-task` | DP-SGD with ε accounting, k-anonymity, membership inference attack validation |
 | `sim-to-real-bridge-task` | Multi-axis gap analysis, domain randomization tuning, synthetic failure detection |
+| `data-decision-integration-task` | Decision type→data req, frequency→refresh rate, stakes→certainty, reversibility→retention, accountability→provenance |
+| `data-risk-integration-task` | Risk type→detection, severity→intensity, velocity→latency, correlation→discovery, mitigation→validation |
+| `data-innovation-integration-task` | Innovation stage→data stage, type→experiment design, portfolio→coordination, failure→capture, scaling→sync |
+| `data-performance-integration-task` | Performance dimension→data dimension, target→measurement, variance→explanation, benchmark→construction, improvement→tracking |
+| `data-learning-organization-task` | Learning type→design, capture→knowledge extraction, distribution→mechanisms, retention→preservation, application→tracking |
+| `data-communication-integration-task` | Audience archetypes→format, data→narrative, dashboard→decision, alerting→signal discipline, reporting→cadence |
+| `data-culture-integration-task` | Culture type→diagnosis, literacy→measurement, psychological safety→engineering, incentives→alignment, rituals→institutionalization |
+| `data-talent-integration-task` | Data roles→skills, hiring→data literacy signals, careers→lattices, retention→risk detection, upskilling→orchestration |
+| `data-ethics-integration-task` | Stakeholder→harm taxonomy, consent→architecture, fairness→beyond metrics, redress→mechanisms, ethics gates→pipeline |
+| `data-sustainability-integration-task` | Environmental→footprint, social→supply chain, economic→stress test, intergenerational→stewardship, circular→data economy |
+| `data-ecosystem-integration-task` | Partners→sharing agreements, open-source→dependency health, regulatory→readiness, standards→participation, academia→collaboration |
+| `data-resilience-integration-task` | M&A→integration, leadership→continuity, bankruptcy→preservation, obsolescence→migration, chaos→pipeline engineering |
+| `data-governance-federation-integration-task` | Holding co→minimum standards, JV→partition, franchise→certification, matrix→dual ownership |
+| `data-geopolitics-integration-task` | Sovereignty→regime mapping, cross-border→architectures, trade→agreements, sanctions→routing |
+| `data-trust-integration-task` | Provenance→cryptographic chains, reputation→source scores, attestation→verification, ZK→readiness, decay→models |
+| `data-interoperability-integration-task` | Semantic→ontologies, syntactic→format layers, organizational→governance alignment, temporal→schema evolution |
 
 ### Advanced / Bleeding Edge
 | Guideline | Covers |
@@ -136,6 +156,9 @@ This is the complete index of the zorai dataset curation framework. Every guidel
 | Blu-WERP (Rupesh et al.) | 2025 | Streaming pipeline patterns |
 | TBDFiltering (Busa-Fekete et al.) | 2025 | Tree-based filtering strategy |
 | Ensembled Multimodal Curation (Xu et al.) | 2025 | Multi-signal quality fusion |
+| SlimQwen (Tang et al.) | arXiv:2605.08738, May 2026 | `model-compression-data-task` (MoE pruning+distillation, progressive schedules, MTP distillation) |
+| DistilQwen2.5 (Wang et al.) | ACL 2025 Industry | `model-compression-data-task` (multi-agent teacher data selection, model fusion) |
+| REAP | OpenMOSE 2026 | `model-compression-data-task` (router-weighted expert activation pruning) |
 | DoReMi (Xie et al.) | 2024 | `data-mixture-optimization-task` |
 | TRAK (Park et al.) | 2023 | `data-attribution-task` |
 | Confident Learning (Northcutt et al.) | 2021 | `label-quality-audit` |
@@ -173,3 +196,7 @@ This is the complete index of the zorai dataset curation framework. Every guidel
 | Test model robustness | `robustness-engineering-task` |
 | Deprecate an old dataset | `data-lifecycle-governance-task` |
 | Visualize dataset quality | `data-visualization-task` |
+| Prune or distill a model | `model-compression-data-task` |
+| Continually pre-train a model | `continual-pretraining-data-task` |
+| Merge multiple fine-tuned models | `model-merging-data-task` |
+| Optimize inference efficiency | `efficient-inference-data-task` |
