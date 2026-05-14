@@ -60,6 +60,50 @@ impl TuiModel {
         }
     }
 
+    pub(crate) fn submit_message_feedback(
+        &mut self,
+        index: usize,
+        new_reaction: zorai_protocol::Reaction,
+    ) {
+        let (thread_id, message_id, current) = {
+            let Some(thread) = self.chat.active_thread() else {
+                return;
+            };
+            let Some(message) = thread.messages.get(index) else {
+                return;
+            };
+            let Some(message_id) = message.id.clone().filter(|id| !id.is_empty()) else {
+                self.status_line = "Cannot react to message without a daemon id".to_string();
+                return;
+            };
+            (thread.id.clone(), message_id, message.feedback)
+        };
+
+        // Optimistic toggle: clicking the active button clears; clicking the
+        // opposite switches. Daemon broadcasts the resolved state, which
+        // will overwrite this if it disagrees (it shouldn't).
+        let desired = if current == Some(new_reaction) {
+            None
+        } else {
+            Some(new_reaction)
+        };
+        self.set_message_feedback_local(&thread_id, &message_id, desired);
+        self.send_daemon_command(DaemonCommand::SubmitMessageFeedback {
+            thread_id,
+            message_id,
+            reaction: desired,
+        });
+    }
+
+    pub(crate) fn set_message_feedback_local(
+        &mut self,
+        thread_id: &str,
+        message_id: &str,
+        reaction: Option<zorai_protocol::Reaction>,
+    ) {
+        self.chat.set_message_feedback(thread_id, message_id, reaction);
+    }
+
     pub(crate) fn pin_message_for_compaction(&mut self, index: usize) {
         let (thread_id, message_id) = {
             let Some(thread) = self.chat.active_thread() else {

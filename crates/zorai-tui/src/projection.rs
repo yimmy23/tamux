@@ -182,6 +182,12 @@ pub enum ClientEvent {
     DivergentSessionStarted(serde_json::Value),
     DivergentSession(serde_json::Value),
 
+    MessageFeedbackUpdated {
+        thread_id: String,
+        message_id: String,
+        reaction: Option<zorai_protocol::Reaction>,
+    },
+
     Error(String),
 }
 
@@ -390,6 +396,8 @@ impl DaemonProjection {
                 reasoning,
                 provider_final_result_json,
             })],
+
+            ClientEvent::MessageFeedbackUpdated { .. } => vec![],
 
             ClientEvent::Error(message) => vec![AppAction::Status(format!("Error: {}", message))],
         }

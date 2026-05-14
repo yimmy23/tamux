@@ -457,6 +457,7 @@ async fn hydrate_restores_thread_token_totals_from_persisted_history() {
         structural_refs: Vec::new(),
         pinned_for_compaction: false,
         timestamp: 1_001,
+        feedback: None,
     };
     let mut summary = AgentMessage::user("summary", 1_002);
     summary.input_tokens = 3;

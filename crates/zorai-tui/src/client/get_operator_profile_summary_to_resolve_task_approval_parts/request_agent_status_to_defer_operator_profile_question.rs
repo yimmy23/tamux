@@ -152,6 +152,19 @@ impl DaemonClient {
         })
     }
 
+    pub fn submit_message_feedback(
+        &self,
+        thread_id: String,
+        message_id: String,
+        reaction: Option<zorai_protocol::Reaction>,
+    ) -> Result<()> {
+        self.send(ClientMessage::AgentMessageFeedback {
+            thread_id,
+            message_id,
+            reaction,
+        })
+    }
+
     pub fn spawn_session(
         &self,
         shell: Option<String>,

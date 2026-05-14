@@ -76,6 +76,12 @@ pub(super) enum AgentBridgeCommand {
         thread_id: String,
         message_id: String,
     },
+    MessageFeedback {
+        thread_id: String,
+        message_id: String,
+        #[serde(default)]
+        reaction: Option<String>,
+    },
     AddTask {
         title: String,
         description: String,

@@ -1349,6 +1349,7 @@ fn agent_list_threads_round_trip_preserves_pagination_arguments() {
         limit: Some(20),
         offset: Some(40),
         include_internal: true,
+        agent_filter: None,
     };
 
     let bytes = bincode::serialize(&msg).unwrap();
@@ -1358,6 +1359,7 @@ fn agent_list_threads_round_trip_preserves_pagination_arguments() {
             limit,
             offset,
             include_internal,
+            agent_filter: _,
         } => {
             assert_eq!(limit, Some(20));
             assert_eq!(offset, Some(40));

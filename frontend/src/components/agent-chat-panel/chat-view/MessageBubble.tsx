@@ -74,6 +74,7 @@ export function MessageBubble({
   onPin,
   onUnpin,
   onSpeak,
+  onFeedback,
   isSpeaking = false,
 }: {
   message: AgentMessage;
@@ -84,6 +85,7 @@ export function MessageBubble({
   onPin?: () => void | Promise<void>;
   onUnpin?: () => void | Promise<void>;
   onSpeak?: () => void | Promise<void>;
+  onFeedback?: (reaction: "up" | "down" | null) => void | Promise<void>;
   isSpeaking?: boolean;
 }) {
   const isCompactionArtifact = message.messageKind === "compaction_artifact";
@@ -490,6 +492,22 @@ export function MessageBubble({
             {isUser && onRerun && <ActionBtn label="Rerun" onClick={onRerun} />}
             {isAssistant && onRegenerate && <ActionBtn label="Regen" onClick={onRegenerate} />}
             {isAssistant && onSpeak && <ActionBtn label={isSpeaking ? "Stop" : "Speak"} onClick={() => { void onSpeak(); }} />}
+            {(isAssistant || isTool) && onFeedback && (
+              <>
+                <ActionBtn
+                  label={message.feedback === "up" ? "👍✓" : "👍"}
+                  onClick={() => {
+                    void onFeedback(message.feedback === "up" ? null : "up");
+                  }}
+                />
+                <ActionBtn
+                  label={message.feedback === "down" ? "👎✓" : "👎"}
+                  onClick={() => {
+                    void onFeedback(message.feedback === "down" ? null : "down");
+                  }}
+                />
+              </>
+            )}
             {onDelete && <ActionBtn label="Delete" onClick={onDelete} />}
           </div>
         )}

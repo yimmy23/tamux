@@ -119,6 +119,7 @@ async fn persisted_assistant_messages_reload_upstream_message_metadata() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: 2,
+                        feedback: None,
                     },
                 ],
                 pinned: false,

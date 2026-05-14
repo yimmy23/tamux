@@ -54,6 +54,7 @@ export type ChatViewProps = {
   onDeleteMessage?: (messageId: string) => void;
   onPinMessage?: (messageId: string) => Promise<ZoraiThreadMessagePinResult | null>;
   onUnpinMessage?: (messageId: string) => Promise<ZoraiThreadMessagePinResult | null>;
+  onFeedbackMessage?: (messageId: string, reaction: "up" | "down" | null) => void | Promise<void>;
   onUpdateReasoningEffort: (value: string) => void;
   canStartGoalRun: boolean;
   onStartGoalRun: (text: string) => Promise<boolean>;

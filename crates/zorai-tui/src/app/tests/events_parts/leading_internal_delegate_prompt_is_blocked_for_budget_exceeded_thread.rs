@@ -490,3 +490,60 @@ fn openai_codex_auth_events_update_config_and_modal_state() {
     ));
     assert_eq!(model.status_line, "ChatGPT subscription auth cleared");
 }
+
+#[test]
+fn participant_stop_directive_refreshes_thread_after_deactivate() {
+    // Why this matters: the daemon's deactivate can silently no-op when the
+    // participant map is missing or the agent alias doesn't match, and the
+    // success toast in the TUI used to convince users the participant was
+    // stopped even though the participant list (which is rendered from
+    // ThreadDetailReceived) still shows them as Active. Re-fetching the
+    // thread after the command makes the rendered participant state reflect
+    // the daemon's actual truth, so a failed deactivate cannot keep masking
+    // itself behind a stale UI.
+    let (mut model, mut daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.concierge.auto_cleanup_on_navigate = false;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    while daemon_rx.try_recv().is_ok() {}
+
+    model.submit_prompt("@weles stop".to_string());
+
+    match daemon_rx
+        .try_recv()
+        .expect("expected ThreadParticipantCommand for stop directive")
+    {
+        DaemonCommand::ThreadParticipantCommand {
+            thread_id,
+            target_agent_id,
+            action,
+            ..
+        } => {
+            assert_eq!(thread_id, "thread-1");
+            assert_eq!(target_agent_id, "weles");
+            assert_eq!(action, "deactivate");
+        }
+        other => panic!("expected ThreadParticipantCommand, got {other:?}"),
+    }
+
+    match daemon_rx
+        .try_recv()
+        .expect("expected RequestThread refresh after deactivate")
+    {
+        DaemonCommand::RequestThread { thread_id, .. } => {
+            assert_eq!(
+                thread_id, "thread-1",
+                "refresh must target the same thread the deactivate was issued against"
+            );
+        }
+        other => panic!(
+            "expected RequestThread refresh after participant deactivate, got {other:?}"
+        ),
+    }
+}

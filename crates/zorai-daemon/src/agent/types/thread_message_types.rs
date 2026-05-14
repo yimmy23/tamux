@@ -202,6 +202,8 @@ pub struct AgentMessage {
     #[serde(default)]
     pub pinned_for_compaction: bool,
     pub timestamp: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback: Option<zorai_protocol::Reaction>,
 }
 
 pub fn generate_message_id() -> String {
@@ -302,6 +304,7 @@ impl AgentMessage {
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: now,
+            feedback: None,
         }
     }
 

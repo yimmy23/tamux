@@ -23,6 +23,7 @@ pub(crate) async fn dispatch_part4(
             | ClientMessage::AgentDeleteThread { .. }
             | ClientMessage::AgentPinThreadMessageForCompaction { .. }
             | ClientMessage::AgentUnpinThreadMessageForCompaction { .. }
+            | ClientMessage::AgentMessageFeedback { .. }
             | ClientMessage::AgentAddTask { .. }
             | ClientMessage::AgentCancelTask { .. }
             | ClientMessage::AgentListTasks
@@ -215,6 +216,30 @@ pub(crate) async fn dispatch_part4(
             framed
                 .send(DaemonMessage::AgentThreadMessagePinResult { result_json })
                 .await?;
+        }
+
+        ClientMessage::AgentMessageFeedback {
+            thread_id,
+            message_id,
+            reaction,
+        } => {
+            match agent
+                .apply_message_feedback(&thread_id, &message_id, reaction)
+                .await
+            {
+                Ok(_resolved) => {
+                    // Resolved state is fanned out via AgentEvent::MessageFeedbackUpdated
+                    // so all subscribed clients (including the caller) converge on the
+                    // daemon-resolved value rather than the optimistic desired one.
+                }
+                Err(reason) => {
+                    framed
+                        .send(DaemonMessage::AgentError {
+                            message: format!("message_feedback:{reason}"),
+                        })
+                        .await?;
+                }
+            }
         }
 
         ClientMessage::AgentAddTask {

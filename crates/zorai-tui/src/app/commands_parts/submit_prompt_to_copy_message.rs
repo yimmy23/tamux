@@ -124,6 +124,7 @@ impl TuiModel {
                     if self.restore_prompt_and_show_budget_exceeded_notice(&thread_id, &prompt) {
                         return;
                     }
+                    let refresh_thread_id = thread_id.clone();
                     self.send_daemon_command(DaemonCommand::ThreadParticipantCommand {
                         thread_id,
                         target_agent_id: directive.agent_alias.clone(),
@@ -134,15 +135,19 @@ impl TuiModel {
                     self.main_pane_view = MainPaneView::Conversation;
                     self.focus = FocusArea::Chat;
                     self.input.set_mode(input::InputMode::Insert);
-                    self.status_line = format!("Participant {} stopped", directive.agent_alias);
+                    self.status_line =
+                        format!("Stop request sent for {}", directive.agent_alias);
                     self.show_input_notice(
-                        format!("Participant {participant_name} removed from this thread"),
+                        format!(
+                            "Stop request sent for {participant_name}; refreshing thread to confirm"
+                        ),
                         InputNoticeKind::Success,
                         120,
                         false,
                     );
                     self.clear_active_thread_activity();
                     self.error_active = false;
+                    self.request_latest_thread_page(refresh_thread_id, false);
                     return;
                 }
             }

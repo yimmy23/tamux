@@ -275,6 +275,7 @@ impl ConciergeEngine {
                 structural_refs: Vec::new(),
                 pinned_for_compaction: false,
                 timestamp: super::super::now_millis(),
+                feedback: None,
             });
             thread.updated_at = super::super::now_millis();
         }

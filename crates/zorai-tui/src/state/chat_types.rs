@@ -108,6 +108,7 @@ pub struct AgentMessage {
     pub timestamp: u64,
     pub actions: Vec<MessageAction>,
     pub is_concierge_welcome: bool,
+    pub feedback: Option<zorai_protocol::Reaction>,
 }
 
 #[derive(Debug, Clone)]
@@ -192,6 +193,8 @@ pub enum ChatHitTarget {
     PinMessage(usize),
     UnpinMessage(usize),
     DeleteMessage(usize),
+    ThumbsUp(usize),
+    ThumbsDown(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

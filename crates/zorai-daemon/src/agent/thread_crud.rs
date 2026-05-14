@@ -8,6 +8,21 @@ use serde::{Deserialize, Serialize};
 const SESSION_ABANDON_WINDOW_MS: u64 = 30_000;
 const LAZY_CAPPED_IPC_MESSAGE_WINDOW: usize = 64;
 
+fn reaction_str(reaction: zorai_protocol::Reaction) -> &'static str {
+    match reaction {
+        zorai_protocol::Reaction::Up => "up",
+        zorai_protocol::Reaction::Down => "down",
+    }
+}
+
+fn parse_reaction(value: Option<&str>) -> Option<zorai_protocol::Reaction> {
+    match value? {
+        "up" => Some(zorai_protocol::Reaction::Up),
+        "down" => Some(zorai_protocol::Reaction::Down),
+        _ => None,
+    }
+}
+
 enum ThreadMetadataPatch {
     ClientSurface(Option<zorai_protocol::ClientSurface>),
     LatestSkillDiscoveryState(Option<LatestSkillDiscoveryState>),
@@ -319,6 +334,7 @@ impl AgentEngine {
                 structural_refs: Vec::new(),
                 pinned_for_compaction: false,
                 timestamp: now_millis(),
+                feedback: None,
             });
             thread.updated_at = now_millis();
             true
@@ -564,6 +580,94 @@ impl AgentEngine {
                 None,
             ),
         }
+    }
+
+    /// Apply (or clear) an operator's thumbs-up/down reaction on a single
+    /// assistant or tool message. Returns the resolved state after toggle
+    /// semantics, or `Err` with a short reason code if the operation cannot
+    /// be applied.
+    ///
+    /// Toggle rules: setting the same reaction clears it; setting the
+    /// opposite switches it; `None` always clears.
+    pub(crate) async fn apply_message_feedback(
+        &self,
+        thread_id: &str,
+        message_id: &str,
+        desired: Option<zorai_protocol::Reaction>,
+    ) -> std::result::Result<Option<zorai_protocol::Reaction>, &'static str> {
+        let state = match self
+            .history
+            .message_feedback_state(thread_id, message_id)
+            .await
+        {
+            Ok(Some(state)) => state,
+            Ok(None) => return Err("message_not_found"),
+            Err(error) => {
+                tracing::warn!(error = %error, thread_id, message_id, "message_feedback_state failed");
+                return Err("message_feedback_state_unavailable");
+            }
+        };
+
+        if !matches!(state.role.as_str(), "assistant" | "tool") {
+            return Err("role_not_feedbackable");
+        }
+
+        let prior = parse_reaction(state.reaction.as_deref());
+        let resolved = match (prior, desired) {
+            (Some(p), Some(d)) if p == d => None,
+            (_, Some(d)) => Some(d),
+            (_, None) => None,
+        };
+
+        let resolved_str = resolved.map(reaction_str);
+        match self
+            .history
+            .set_message_feedback(thread_id, message_id, resolved_str)
+            .await
+        {
+            Ok(true) => {}
+            Ok(false) => return Err("message_not_found"),
+            Err(error) => {
+                tracing::warn!(error = %error, thread_id, message_id, "set_message_feedback failed");
+                return Err("set_message_feedback_failed");
+            }
+        }
+
+        let signal = match resolved {
+            Some(zorai_protocol::Reaction::Up) => 1.0_f64,
+            Some(zorai_protocol::Reaction::Down) => -1.0_f64,
+            None => 0.0_f64,
+        };
+        let prior_str = prior.map(reaction_str);
+        let payload = serde_json::json!({
+            "message_id": message_id,
+            "signal": signal,
+            "prior": prior_str,
+            "resolved": resolved_str,
+        });
+        if let Err(error) = self
+            .record_behavioral_event(
+                "user_feedback",
+                crate::agent::behavioral_events::BehavioralEventContext {
+                    thread_id: Some(thread_id),
+                    task_id: None,
+                    goal_run_id: None,
+                    approval_id: None,
+                },
+                payload,
+            )
+            .await
+        {
+            tracing::warn!(error = %error, thread_id, message_id, "record_behavioral_event(user_feedback) failed");
+        }
+
+        let _ = self.event_tx.send(AgentEvent::MessageFeedbackUpdated {
+            thread_id: thread_id.to_string(),
+            message_id: message_id.to_string(),
+            reaction: resolved,
+        });
+
+        Ok(resolved)
     }
 
     async fn ensure_thread_persisted_for_message_pin(&self, thread_id: &str) -> bool {

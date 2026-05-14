@@ -503,6 +503,7 @@ declare global {
         ) => Promise<unknown | null>;
         agentPinThreadMessageForCompaction?: (threadId: string, messageId: string) => Promise<ZoraiThreadMessagePinResult | unknown>;
         agentUnpinThreadMessageForCompaction?: (threadId: string, messageId: string) => Promise<ZoraiThreadMessagePinResult | unknown>;
+        agentMessageFeedback?: (threadId: string, messageId: string, reaction: "up" | "down" | null) => Promise<unknown>;
         openAICodexAuthStatus?: (options?: { refresh?: boolean }) => Promise<ZoraiOpenAICodexAuthStatus>;
         openAICodexAuthLogin?: () => Promise<ZoraiOpenAICodexAuthLogin>;
         openAICodexAuthLogout?: () => Promise<{ ok: boolean }>;

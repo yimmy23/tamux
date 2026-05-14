@@ -221,6 +221,7 @@ fn gateway_auto_send_ignores_historic_send_tools_from_prior_turns() {
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 1,
+            feedback: None,
         },
         AgentMessage {
             id: "assistant-1".to_string(),
@@ -253,6 +254,7 @@ fn gateway_auto_send_ignores_historic_send_tools_from_prior_turns() {
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 2,
+            feedback: None,
         },
         AgentMessage {
             id: "tool-1".to_string(),
@@ -285,6 +287,7 @@ fn gateway_auto_send_ignores_historic_send_tools_from_prior_turns() {
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 3,
+            feedback: None,
         },
         AgentMessage::user("What model are you bro?", 4),
         AgentMessage {
@@ -318,6 +321,7 @@ fn gateway_auto_send_ignores_historic_send_tools_from_prior_turns() {
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 5,
+            feedback: None,
         },
     ];
 
@@ -366,6 +370,7 @@ fn gateway_auto_send_keeps_latest_assistant_message_pending_after_earlier_send_t
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 2,
+            feedback: None,
         },
         AgentMessage {
             id: "tool-1".to_string(),
@@ -401,6 +406,7 @@ fn gateway_auto_send_keeps_latest_assistant_message_pending_after_earlier_send_t
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 3,
+            feedback: None,
         },
         AgentMessage {
             id: "assistant-2".to_string(),
@@ -433,6 +439,7 @@ fn gateway_auto_send_keeps_latest_assistant_message_pending_after_earlier_send_t
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 4,
+            feedback: None,
         },
     ];
 
@@ -481,6 +488,7 @@ fn gateway_auto_send_treats_tool_call_only_assistant_messages_as_latest_activity
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 2,
+            feedback: None,
         },
         AgentMessage {
             id: "assistant-2".to_string(),
@@ -520,6 +528,7 @@ fn gateway_auto_send_treats_tool_call_only_assistant_messages_as_latest_activity
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 3,
+            feedback: None,
         },
     ];
 

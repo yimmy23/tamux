@@ -62,6 +62,7 @@ pub(crate) fn compact_messages_for_request(
                 structural_refs: Vec::new(),
                 pinned_for_compaction: false,
                 timestamp: messages[split_at - 1].timestamp,
+                feedback: None,
             });
         }
     }

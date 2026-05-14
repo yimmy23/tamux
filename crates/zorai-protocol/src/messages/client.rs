@@ -4,8 +4,8 @@ use super::{
     AgentStatisticsWindow, ApprovalDecision, AsyncCommandCapability, ClientSurface, GatewayAck,
     GatewayCursorState, GatewayHealthState, GatewayIncomingEvent, GatewayRegistration,
     GatewayRouteModeState, GatewaySendResult, GatewayThreadBindingState, GoalAgentAssignment,
-    ManagedCommandRequest, SessionId, WorkspaceId, WorkspaceOperator, WorkspaceReviewSubmission,
-    WorkspaceTaskCreate, WorkspaceTaskMove, WorkspaceTaskUpdate,
+    ManagedCommandRequest, Reaction, SessionId, WorkspaceId, WorkspaceOperator,
+    WorkspaceReviewSubmission, WorkspaceTaskCreate, WorkspaceTaskMove, WorkspaceTaskUpdate,
 };
 
 fn default_requires_approval() -> bool {
@@ -252,4 +252,5 @@ pub enum ClientMessage {
         #[serde(default)]
         repo_monitor_exclude_dirs: Vec<String>,
     },
+    AgentMessageFeedback { thread_id: String, message_id: String, #[serde(default)] reaction: Option<Reaction> },
 }

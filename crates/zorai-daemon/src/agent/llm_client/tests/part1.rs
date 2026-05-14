@@ -445,6 +445,7 @@ fn messages_to_api_format_keeps_reused_tool_ids_across_turns() {
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 1,
+            feedback: None,
         },
         AgentMessage {
             id: String::new(),
@@ -477,6 +478,7 @@ fn messages_to_api_format_keeps_reused_tool_ids_across_turns() {
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 2,
+            feedback: None,
         },
         AgentMessage::user("next", 3),
         AgentMessage {
@@ -517,6 +519,7 @@ fn messages_to_api_format_keeps_reused_tool_ids_across_turns() {
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 4,
+            feedback: None,
         },
         AgentMessage {
             id: String::new(),
@@ -549,6 +552,7 @@ fn messages_to_api_format_keeps_reused_tool_ids_across_turns() {
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 5,
+            feedback: None,
         },
     ];
 

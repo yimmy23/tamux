@@ -228,6 +228,7 @@ async fn auto_compaction_forces_connection_close_on_next_llm_request() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: 2,
+                        feedback: None,
                     },
                     crate::agent::types::AgentMessage::user("Need a fresh request boundary", 3),
                 ],

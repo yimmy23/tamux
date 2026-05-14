@@ -1641,24 +1641,34 @@ impl AgentEngine {
             .resolve_thread_participant_target(target_agent_id)
             .await?;
         let now = now_millis();
-        let mut participants = self.thread_participants.write().await;
-        let Some(entry) = participants.get_mut(thread_id) else {
-            return Ok(None);
+        let updated = {
+            let mut participants = self.thread_participants.write().await;
+            match participants.get_mut(thread_id) {
+                Some(entry) => entry
+                    .iter_mut()
+                    .find(|participant| participant.agent_id.eq_ignore_ascii_case(&agent_id))
+                    .map(|participant| {
+                        participant.status = ThreadParticipantStatus::Inactive;
+                        participant.updated_at = now;
+                        participant.deactivated_at = Some(now);
+                        participant.clone()
+                    }),
+                None => None,
+            }
         };
-        let updated = entry
-            .iter_mut()
-            .find(|participant| participant.agent_id.eq_ignore_ascii_case(&agent_id))
-            .map(|participant| {
-                participant.status = ThreadParticipantStatus::Inactive;
-                participant.updated_at = now;
-                participant.deactivated_at = Some(now);
-                participant.clone()
-            });
-        drop(participants);
 
         let cleared_suggestions = self
             .clear_thread_participant_suggestions_for_agent(thread_id, &agent_id)
             .await;
+
+        if updated.is_none() && !cleared_suggestions {
+            tracing::warn!(
+                thread_id = %thread_id,
+                target_agent_id = %target_agent_id,
+                resolved_agent_id = %agent_id,
+                "deactivate_thread_participant: no matching active participant or queued suggestions; deactivate is a no-op"
+            );
+        }
 
         if updated.is_some() || cleared_suggestions {
             self.persist_thread_by_id(thread_id).await;
@@ -1708,6 +1718,15 @@ impl AgentEngine {
         let cleared_suggestions = self
             .clear_thread_participant_suggestions_for_agent(thread_id, &agent_id)
             .await;
+
+        if removed.is_none() && !cleared_suggestions {
+            tracing::warn!(
+                thread_id = %thread_id,
+                target_agent_id = %target_agent_id,
+                resolved_agent_id = %agent_id,
+                "remove_thread_participant: no matching participant or queued suggestions; remove is a no-op"
+            );
+        }
 
         if removed.is_some() || cleared_suggestions {
             self.persist_thread_by_id(thread_id).await;
@@ -1899,6 +1918,7 @@ impl AgentEngine {
                 structural_refs: Vec::new(),
                 pinned_for_compaction: false,
                 timestamp: now,
+                feedback: None,
             });
             thread.updated_at = now;
         }

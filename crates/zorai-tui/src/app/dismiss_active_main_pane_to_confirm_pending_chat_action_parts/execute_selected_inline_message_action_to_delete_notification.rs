@@ -68,6 +68,16 @@ impl TuiModel {
                 self.request_delete_message(index);
                 true
             }
+            chat::ChatHitTarget::ThumbsUp(index) => {
+                self.chat.select_message(Some(index));
+                self.submit_message_feedback(index, zorai_protocol::Reaction::Up);
+                true
+            }
+            chat::ChatHitTarget::ThumbsDown(index) => {
+                self.chat.select_message(Some(index));
+                self.submit_message_feedback(index, zorai_protocol::Reaction::Down);
+                true
+            }
             chat::ChatHitTarget::ToolFilePath { message_index } => {
                 self.chat.select_message(Some(message_index));
                 false

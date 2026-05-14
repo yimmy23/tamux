@@ -500,6 +500,25 @@ impl DaemonClient {
                     })
                     .await;
             }
+            "message_feedback_updated" => {
+                let thread_id = get_string(&event, "thread_id").unwrap_or_default();
+                let message_id = get_string(&event, "message_id").unwrap_or_default();
+                let reaction = event
+                    .get("reaction")
+                    .and_then(Value::as_str)
+                    .and_then(|value| match value {
+                        "up" => Some(zorai_protocol::Reaction::Up),
+                        "down" => Some(zorai_protocol::Reaction::Down),
+                        _ => None,
+                    });
+                let _ = event_tx
+                    .send(ClientEvent::MessageFeedbackUpdated {
+                        thread_id,
+                        message_id,
+                        reaction,
+                    })
+                    .await;
+            }
             "tier_changed" | "tier-changed" => {
                 let data = event.get("data").cloned().unwrap_or_else(|| event.clone());
                 let new_tier = data

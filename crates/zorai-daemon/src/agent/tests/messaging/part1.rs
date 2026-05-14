@@ -1034,6 +1034,7 @@ async fn handoff_activation_clears_thread_continuation_state_for_new_responder_s
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: 2,
+                        feedback: None,
                     },
                     AgentMessage::user("continue", 3),
                 ],
@@ -1195,6 +1196,7 @@ async fn delete_thread_messages_rehydrates_and_clears_invalid_continuation() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: 2,
+                        feedback: None,
                     },
                     AgentMessage::user("continue", 3),
                 ],
@@ -1318,6 +1320,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: 2,
+                        feedback: None,
                     },
                     AgentMessage {
                         id: tool_a_id.clone(),
@@ -1350,6 +1353,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: 3,
+                        feedback: None,
                     },
                     AgentMessage {
                         id: tool_b_id.clone(),
@@ -1382,6 +1386,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: 4,
+                        feedback: None,
                     },
                     AgentMessage {
                         id: "assistant-final".to_string(),
@@ -1416,6 +1421,7 @@ async fn delete_thread_messages_removes_orphaned_tool_results_during_rebuild() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: 5,
+                        feedback: None,
                     },
                 ],
             },
