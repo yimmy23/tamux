@@ -2141,6 +2141,37 @@ impl HistoryStore {
                     step_map.entry(goal_run_id).or_default().push(step);
                 }
 
+                let event_sql = format!(
+                    "SELECT id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json \
+                     FROM goal_run_events \
+                     WHERE deleted_at IS NULL AND goal_run_id IN ({placeholders}) \
+                     ORDER BY goal_run_id ASC, timestamp ASC"
+                );
+                let mut event_stmt = conn.prepare(&event_sql)?;
+                let event_rows = event_stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    let todo_snapshot_json: Option<String> = row.get(7)?;
+                    Ok((
+                        row.get::<_, String>(1)?,
+                        GoalRunEvent {
+                            id: row.get(0)?,
+                            timestamp: row.get::<_, i64>(2)? as u64,
+                            phase: row.get(3)?,
+                            message: row.get(4)?,
+                            details: row.get(5)?,
+                            step_index: row.get::<_, Option<i64>>(6)?.map(|value| value as usize),
+                            todo_snapshot: todo_snapshot_json
+                                .as_deref()
+                                .and_then(|json| serde_json::from_str(json).ok())
+                                .unwrap_or_default(),
+                        },
+                    ))
+                })?;
+                let mut event_map = std::collections::HashMap::<String, Vec<GoalRunEvent>>::new();
+                for row in event_rows {
+                    let (goal_run_id, event) = row?;
+                    event_map.entry(goal_run_id).or_default().push(event);
+                }
+
                 let goal_sql = format!(
                     "SELECT id, title, goal, client_request_id, status, priority, \
                             created_at, updated_at, started_at, completed_at, \
@@ -2222,6 +2253,7 @@ impl HistoryStore {
                 for row in rows {
                     let mut goal_run = row?;
                     goal_run.steps = step_map.remove(&goal_run.id).unwrap_or_default();
+                    goal_run.events = event_map.remove(&goal_run.id).unwrap_or_default();
                     if goal_run.current_step_title.is_none() {
                         goal_run.current_step_title = goal_run
                             .steps
