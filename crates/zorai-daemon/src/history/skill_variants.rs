@@ -307,6 +307,7 @@ impl HistoryStore {
         variant_id: &str,
         next_status: &str,
     ) -> Result<()> {
+        self.caches.skill_variant.invalidate(&variant_id.to_string());
         let variant_id = variant_id.to_string();
         let next_status = next_status.to_string();
         self.conn

@@ -1487,3 +1487,66 @@ fn infer_skill_tags_ignores_incidental_body_mentions() {
 
     assert!(tags.is_empty());
 }
+
+#[tokio::test]
+async fn resolve_skill_variant_does_not_match_sibling_file_in_same_directory() -> Result<()> {
+    // Regression: querying for `brainstorming` used to resolve to a high-fitness
+    // sibling like `brainstorming/visual-companion.md` because the matcher
+    // accepted any record whose relative_path contained the query as a substring.
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+
+    let canonical = root
+        .join("skills")
+        .join("development")
+        .join("superpowers")
+        .join("brainstorming")
+        .join("SKILL.md");
+    let sibling = root
+        .join("skills")
+        .join("development")
+        .join("superpowers")
+        .join("brainstorming")
+        .join("visual-companion.md");
+    fs::create_dir_all(canonical.parent().expect("skill directory"))?;
+    fs::write(
+        &canonical,
+        "---\nname: brainstorming\ndescription: Brainstorm before any creative work.\n---\n# Brainstorming\n",
+    )?;
+    fs::write(
+        &sibling,
+        "---\nname: visual-companion\ndescription: Visual companion to brainstorming.\n---\n# Visual Companion\n",
+    )?;
+
+    let canonical_record = store.register_skill_document(&canonical).await?;
+    let sibling_record = store.register_skill_document(&sibling).await?;
+
+    // Make the sibling the obvious winner on every fitness signal so that
+    // spurious substring matches would absolutely promote it past the canonical.
+    let sibling_id = sibling_record.variant_id.clone();
+    store
+        .conn
+        .call(move |conn| {
+            conn.execute(
+                "UPDATE skill_variants SET use_count = 50, success_count = 49, failure_count = 1, fitness_score = 99.0, updated_at = 9999 WHERE variant_id = ?1",
+                params![sibling_id],
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let resolved = store
+        .resolve_skill_variant("brainstorming", &[])
+        .await?
+        .expect("brainstorming should resolve to the canonical SKILL.md");
+
+    assert_eq!(
+        resolved.variant_id, canonical_record.variant_id,
+        "querying 'brainstorming' must not resolve to a sibling file inside brainstorming/"
+    );
+    assert_eq!(resolved.skill_name, "brainstorming");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}

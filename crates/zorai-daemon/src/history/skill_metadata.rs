@@ -142,7 +142,6 @@ pub(super) fn skill_variant_matches(record: &SkillVariantRecord, normalized: &st
         || relative == normalized
         || relative.ends_with(&format!("/{normalized}.md"))
         || format!("{skill_name}--{variant_name}") == normalized
-        || relative.contains(normalized)
 }
 
 pub(super) fn compute_fitness_trend(history: &[SkillVariantFitnessHistoryRow]) -> i8 {

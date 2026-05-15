@@ -999,9 +999,12 @@ impl HistoryStore {
         self.read_conn
             .call(move |conn| {
                 conn.query_row(
-                    "SELECT id FROM agent_threads
-                     WHERE deleted_at IS NULL
-                     ORDER BY updated_at DESC
+                    "SELECT m.thread_id
+                     FROM agent_messages m
+                     JOIN agent_threads t
+                       ON t.id = m.thread_id AND t.deleted_at IS NULL
+                     WHERE m.deleted_at IS NULL
+                     ORDER BY m.created_at DESC, m.id DESC
                      LIMIT 1",
                     [],
                     |row| row.get::<_, String>(0),
@@ -1393,14 +1396,22 @@ impl HistoryStore {
         let thread_id = thread_id.to_string();
         self.read_conn
             .call(move |conn| {
-                conn.query_row(
-                    "SELECT message_count FROM agent_threads
-                     WHERE id = ?1 AND deleted_at IS NULL",
+                let count: Option<i64> = conn.query_row(
+                    "SELECT CASE
+                         WHEN EXISTS(
+                             SELECT 1 FROM agent_threads
+                             WHERE id = ?1 AND deleted_at IS NULL
+                         )
+                         THEN (
+                             SELECT COUNT(*) FROM agent_messages
+                             WHERE thread_id = ?1 AND deleted_at IS NULL
+                         )
+                         ELSE NULL
+                     END",
                     params![thread_id],
-                    |row| Ok(row.get::<_, i64>(0)?.max(0) as usize),
-                )
-                .optional()
-                .map_err(Into::into)
+                    |row| row.get::<_, Option<i64>>(0),
+                )?;
+                Ok(count.map(|value| value.max(0) as usize))
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))
