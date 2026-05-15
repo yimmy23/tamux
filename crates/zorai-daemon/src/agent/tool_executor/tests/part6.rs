@@ -357,6 +357,7 @@ async fn compaction_trims_participant_playground_threads_without_dropping_latest
         structural_refs: Vec::new(),
         pinned_for_compaction: false,
         timestamp,
+        feedback: None,
     };
     let compaction_artifact_message =
         |content: &str, timestamp: u64| crate::agent::types::AgentMessage {
@@ -390,6 +391,7 @@ async fn compaction_trims_participant_playground_threads_without_dropping_latest
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp,
+            feedback: None,
         };
     let provider_config = {
         let engine = AgentEngine::new_test(manager.clone(), config.clone(), root.path()).await;

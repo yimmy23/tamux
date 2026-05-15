@@ -66,6 +66,7 @@ fn assistant_message(content: &str, timestamp: u64) -> AgentMessage {
         structural_refs: Vec::new(),
         pinned_for_compaction: false,
         timestamp,
+        feedback: None,
     }
 }
 

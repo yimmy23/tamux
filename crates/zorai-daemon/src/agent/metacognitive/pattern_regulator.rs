@@ -157,6 +157,7 @@ impl AgentEngine {
                     structural_refs: Vec::new(),
                     pinned_for_compaction: false,
                     timestamp: now,
+                    feedback: None,
                 });
                 thread.updated_at = now;
             }

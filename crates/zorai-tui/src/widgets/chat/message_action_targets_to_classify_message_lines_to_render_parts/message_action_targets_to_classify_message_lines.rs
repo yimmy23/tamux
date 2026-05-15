@@ -112,6 +112,20 @@ pub(crate) fn message_action_targets(
         }
         _ => {}
     }
+    if matches!(msg.role, MessageRole::Assistant | MessageRole::Tool) {
+        let up_label = if matches!(msg.feedback, Some(zorai_protocol::Reaction::Up)) {
+            "[👍✓]"
+        } else {
+            "[👍]"
+        };
+        let down_label = if matches!(msg.feedback, Some(zorai_protocol::Reaction::Down)) {
+            "[👎✓]"
+        } else {
+            "[👎]"
+        };
+        actions.push((up_label.to_string(), ChatHitTarget::ThumbsUp(msg_index)));
+        actions.push((down_label.to_string(), ChatHitTarget::ThumbsDown(msg_index)));
+    }
     actions.push((
         "[Delete]".to_string(),
         ChatHitTarget::DeleteMessage(msg_index),

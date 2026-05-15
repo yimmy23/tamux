@@ -251,6 +251,7 @@ const bridgeApi = {
     agentGetThread: (threadId, options) => ipcRenderer.invoke('agent-get-thread', threadId, options),
     agentPinThreadMessageForCompaction: (threadId, messageId) => ipcRenderer.invoke('agent-pin-thread-message-for-compaction', threadId, messageId),
     agentUnpinThreadMessageForCompaction: (threadId, messageId) => ipcRenderer.invoke('agent-unpin-thread-message-for-compaction', threadId, messageId),
+    agentMessageFeedback: (threadId, messageId, reaction) => ipcRenderer.invoke('agent-message-feedback', threadId, messageId, reaction),
     agentDeleteThread: (threadId) => ipcRenderer.invoke('agent-delete-thread', threadId),
     agentAddTask: (payload) => ipcRenderer.invoke('agent-add-task', payload),
     agentCancelTask: (taskId) => ipcRenderer.invoke('agent-cancel-task', taskId),

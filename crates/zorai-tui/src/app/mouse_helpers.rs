@@ -564,6 +564,14 @@ impl TuiModel {
                 self.chat.select_message(Some(idx));
                 self.request_delete_message(idx);
             }
+            Some(chat::ChatHitTarget::ThumbsUp(idx)) => {
+                self.chat.select_message(Some(idx));
+                self.submit_message_feedback(idx, zorai_protocol::Reaction::Up);
+            }
+            Some(chat::ChatHitTarget::ThumbsDown(idx)) => {
+                self.chat.select_message(Some(idx));
+                self.submit_message_feedback(idx, zorai_protocol::Reaction::Down);
+            }
             None => {}
         }
     }

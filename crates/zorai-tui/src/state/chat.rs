@@ -1231,6 +1231,32 @@ impl ChatState {
             .unwrap_or(&[])
     }
 
+    pub fn set_message_feedback(
+        &mut self,
+        thread_id: &str,
+        message_id: &str,
+        reaction: Option<zorai_protocol::Reaction>,
+    ) -> bool {
+        let mut updated = false;
+        for thread in &mut self.threads {
+            if thread.id != thread_id {
+                continue;
+            }
+            for message in &mut thread.messages {
+                if message.id.as_deref() == Some(message_id) {
+                    if message.feedback != reaction {
+                        message.feedback = reaction;
+                        updated = true;
+                    }
+                }
+            }
+        }
+        if updated {
+            self.bump_render_revision();
+        }
+        updated
+    }
+
     pub fn resolve_operator_question_answer(&mut self, question_id: &str, answer: String) -> bool {
         let mut updated = false;
         for thread in &mut self.threads {

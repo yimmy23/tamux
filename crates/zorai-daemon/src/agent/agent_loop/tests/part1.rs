@@ -112,6 +112,7 @@ async fn repair_tool_call_sequence_updates_persisted_history() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: 2,
+                        feedback: None,
                     },
                     AgentMessage {
                         id: "tool-result-2013".to_string(),
@@ -144,6 +145,7 @@ async fn repair_tool_call_sequence_updates_persisted_history() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: 3,
+                        feedback: None,
                     },
                     AgentMessage::user("continue", 4),
                 ],

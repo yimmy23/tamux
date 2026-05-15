@@ -166,6 +166,19 @@ function registerAgentIpcHandlers(ipcMain, runtime, options = {}) {
             return { ok: false, thread_id: threadId, message_id: messageId, error: err?.message || String(err) };
         }
     });
+    ipcMain.handle('agent-message-feedback', async (_event, threadId, messageId, reaction) => {
+        try {
+            sendAgentCommand({
+                type: 'message-feedback',
+                thread_id: threadId,
+                message_id: messageId,
+                reaction: reaction === 'up' || reaction === 'down' ? reaction : null,
+            });
+            return { ok: true };
+        } catch (err) {
+            return { ok: false, error: err?.message || String(err) };
+        }
+    });
     ipcMain.handle('agent-delete-thread', async (_event, threadId) => { try { sendAgentCommand({ type: 'delete-thread', thread_id: threadId }); return true; } catch { return false; } });
     ipcMain.handle('agent-add-task', async (_event, payload) => {
         try {

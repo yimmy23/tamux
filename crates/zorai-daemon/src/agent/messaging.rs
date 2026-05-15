@@ -55,6 +55,7 @@ pub(super) fn agent_message_from_db(msg: zorai_protocol::AgentDbMessage) -> Opti
         structural_refs: metadata.structural_refs,
         pinned_for_compaction: metadata.pinned_for_compaction,
         timestamp: msg.created_at as u64,
+        feedback: metadata.feedback,
     })
 }
 
@@ -455,6 +456,7 @@ impl AgentEngine {
                     structural_refs: metadata.structural_refs,
                     pinned_for_compaction: metadata.pinned_for_compaction,
                     timestamp: msg.created_at as u64,
+                    feedback: None,
                 })
             })
             .collect();

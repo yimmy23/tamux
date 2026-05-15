@@ -94,6 +94,8 @@ pub struct AgentMessage {
     pub tool_output_preview_path: Option<String>,
     #[serde(default)]
     pub timestamp: u64,
+    #[serde(default)]
+    pub feedback: Option<zorai_protocol::Reaction>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

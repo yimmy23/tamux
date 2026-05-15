@@ -130,6 +130,24 @@ where
                 })
                 .await?;
         }
+        AgentBridgeCommand::MessageFeedback {
+            thread_id,
+            message_id,
+            reaction,
+        } => {
+            let reaction = reaction.as_deref().and_then(|value| match value {
+                "up" => Some(zorai_protocol::Reaction::Up),
+                "down" => Some(zorai_protocol::Reaction::Down),
+                _ => None,
+            });
+            framed
+                .send(ClientMessage::AgentMessageFeedback {
+                    thread_id,
+                    message_id,
+                    reaction,
+                })
+                .await?;
+        }
         AgentBridgeCommand::AddTask {
             title,
             description,

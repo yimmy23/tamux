@@ -113,6 +113,14 @@ impl TuiModel {
                 }
                 None
             }
+            ClientEvent::MessageFeedbackUpdated {
+                thread_id,
+                message_id,
+                reaction,
+            } => {
+                self.chat.set_message_feedback(&thread_id, &message_id, reaction);
+                None
+            }
             ClientEvent::ContextWindowUpdate {
                 thread_id,
                 active_context_window_start,

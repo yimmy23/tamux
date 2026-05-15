@@ -83,6 +83,11 @@ pub enum ClientEvent {
     ThreadReloadRequired {
         thread_id: String,
     },
+    MessageFeedbackUpdated {
+        thread_id: String,
+        message_id: String,
+        reaction: Option<zorai_protocol::Reaction>,
+    },
     ContextWindowUpdate {
         thread_id: String,
         active_context_window_start: usize,

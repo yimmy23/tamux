@@ -74,6 +74,7 @@ export function ChatView({
   onDeleteMessage,
   onPinMessage,
   onUnpinMessage,
+  onFeedbackMessage,
   onUpdateReasoningEffort,
   canStartGoalRun,
   onStartGoalRun,
@@ -404,6 +405,9 @@ export function ChatView({
               } : undefined}
               onSpeak={message.role === "assistant" ? async () => {
                 await speakMessage(message);
+              } : undefined}
+              onFeedback={onFeedbackMessage ? (reaction) => {
+                void onFeedbackMessage(message.id, reaction);
               } : undefined}
               isSpeaking={speakingMessageId === message.id}
             />

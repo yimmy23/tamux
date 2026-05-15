@@ -253,6 +253,7 @@ impl AgentEngine {
                 structural_refs: Vec::new(),
                 pinned_for_compaction: false,
                 timestamp: now_millis(),
+                feedback: None,
             });
             thread.total_input_tokens += input_tokens;
             thread.total_output_tokens += output_tokens;

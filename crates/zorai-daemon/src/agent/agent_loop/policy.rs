@@ -70,6 +70,7 @@ fn build_runtime_self_assessment(
     short_term_success_rate: f64,
     awareness_stuck: bool,
     repeated_approach: bool,
+    user_feedback_score: Option<f64>,
 ) -> super::metacognitive::self_assessment::Assessment {
     let (steps_completed, steps_total) = goal_context
         .map(|context| (context.steps_completed, context.steps_total))
@@ -110,7 +111,7 @@ fn build_runtime_self_assessment(
             quality: super::metacognitive::self_assessment::QualityMetrics {
                 error_rate: 1.0 - short_term_success_rate,
                 revision_count: task_retry_count,
-                user_feedback_score: None,
+                user_feedback_score,
             },
         },
     )
@@ -217,12 +218,19 @@ async fn build_policy_context_for_tool_result(
         Some(goal_run_id) => goal_run_context_for_policy(engine, goal_run_id).await,
         None => None,
     };
+    let user_feedback_score = engine
+        .history
+        .aggregate_user_feedback_score(thread_id)
+        .await
+        .ok()
+        .flatten();
     let assessment = build_runtime_self_assessment(
         goal_context.as_ref(),
         task.retry_count,
         short_term_success_rate,
         awareness_stuck,
         repeated_approach,
+        user_feedback_score,
     );
     let calibration_offset = engine
         .meta_cognitive_self_model

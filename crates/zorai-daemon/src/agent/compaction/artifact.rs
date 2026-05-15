@@ -156,6 +156,7 @@ impl AgentEngine {
                 structural_refs,
                 pinned_for_compaction: false,
                 timestamp: now_millis(),
+                feedback: None,
             },
             strategy_used,
             fallback_notice,

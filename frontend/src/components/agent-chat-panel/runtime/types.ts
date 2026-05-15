@@ -96,6 +96,7 @@ export type AgentChatPanelRuntimeValue = {
   deleteMessage: (threadId: string, messageId: string) => void;
   pinMessageForCompaction: (threadId: string, messageId: string) => Promise<ZoraiThreadMessagePinResult | null>;
   unpinMessageForCompaction: (threadId: string, messageId: string) => Promise<ZoraiThreadMessagePinResult | null>;
+  submitMessageFeedback: (threadId: string, messageId: string, reaction: "up" | "down" | null) => Promise<void>;
   stopStreaming: (threadId?: string | null) => void;
   handleSend: () => void;
   handleKeyDown: (event: React.KeyboardEvent) => void;

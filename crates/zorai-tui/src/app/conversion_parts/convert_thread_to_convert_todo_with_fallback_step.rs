@@ -172,6 +172,7 @@ pub(crate) fn convert_message(m: crate::wire::AgentMessage) -> chat::AgentMessag
         timestamp: m.timestamp,
         actions: Vec::new(),
         is_concierge_welcome: false,
+        feedback: m.feedback,
     }
 }
 

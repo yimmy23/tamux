@@ -187,6 +187,7 @@ async fn post_compaction_prompt_rebuild_refreshes_memory_summary_and_injection_s
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: 2,
+                        feedback: None,
                     },
                     crate::agent::types::AgentMessage::user("Need a fresh request boundary", 3),
                 ],

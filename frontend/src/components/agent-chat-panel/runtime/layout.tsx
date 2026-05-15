@@ -296,6 +296,7 @@ export function AgentChatPanelChatSurface() {
           }}
           onPinMessage={runtime.activeThreadId ? (messageId) => runtime.pinMessageForCompaction(runtime.activeThreadId as string, messageId) : undefined}
           onUnpinMessage={runtime.activeThreadId ? (messageId) => runtime.unpinMessageForCompaction(runtime.activeThreadId as string, messageId) : undefined}
+          onFeedbackMessage={runtime.activeThreadId ? (messageId, reaction) => runtime.submitMessageFeedback(runtime.activeThreadId as string, messageId, reaction) : undefined}
           onUpdateReasoningEffort={(value) => runtime.updateAgentSetting("reasoning_effort", value as AgentSettings["reasoning_effort"])}
           canStartGoalRun={runtime.canStartGoalRun}
           onStartGoalRun={runtime.startGoalRunFromPrompt}

@@ -491,6 +491,28 @@ export function useAgentChatPanelProviderValue(): {
     const unsubscribe = zorai.onAgentEvent((event: any) => {
       if (event?.type === "task_update") {
         void refreshSpawnedAgentRuns();
+      } else if (event?.type === "message_feedback_updated") {
+        const daemonThreadId: string | undefined = event.thread_id;
+        const messageId: string | undefined = event.message_id;
+        const rawReaction = typeof event.reaction === "string" ? event.reaction : null;
+        const reaction: "up" | "down" | null =
+          rawReaction === "up" || rawReaction === "down" ? rawReaction : null;
+        if (!daemonThreadId || !messageId) return;
+        useAgentStore.setState((state) => {
+          const next: typeof state.messages = { ...state.messages };
+          let changed = false;
+          for (const [threadId, list] of Object.entries(state.messages)) {
+            const matchThread = state.threads.find((entry) => entry.id === threadId);
+            if (matchThread?.daemonThreadId !== daemonThreadId) continue;
+            const updated = list.map((message) =>
+              message.id === messageId ? { ...message, feedback: reaction } : message);
+            if (updated !== list) {
+              next[threadId] = updated;
+              changed = true;
+            }
+          }
+          return changed ? { messages: next } : state;
+        });
       }
     });
 
@@ -904,6 +926,31 @@ export function useAgentChatPanelProviderValue(): {
     } satisfies ZoraiThreadMessagePinResult;
   }, [activeThreadId, agentSettings.agent_backend, setThreadTodos]);
 
+  const submitMessageFeedback = useCallback(async (threadId: string, messageId: string, reaction: "up" | "down" | null) => {
+    const thread = useAgentStore.getState().threads.find((entry) => entry.id === threadId);
+    const daemonThreadId = thread?.daemonThreadId ?? (threadId === activeThreadId ? daemonThreadIdRef.current : null);
+    const zorai = getAgentBridge();
+
+    // Optimistic local update so the UI shows the reaction instantly. The
+    // daemon broadcasts the resolved state back, which will overwrite this
+    // if it disagrees (it should not).
+    useAgentStore.setState((state) => ({
+      messages: {
+        ...state.messages,
+        [threadId]: (state.messages[threadId] ?? []).map((message) =>
+          message.id === messageId ? { ...message, feedback: reaction } : message),
+      },
+    }));
+
+    if (shouldUseDaemonRuntime(agentSettings.agent_backend) && daemonThreadId && zorai?.agentMessageFeedback) {
+      try {
+        await zorai.agentMessageFeedback(daemonThreadId, messageId, reaction);
+      } catch (error) {
+        console.warn("agentMessageFeedback failed", error);
+      }
+    }
+  }, [activeThreadId, agentSettings.agent_backend]);
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text) return;
@@ -1007,6 +1054,7 @@ export function useAgentChatPanelProviderValue(): {
     deleteMessage,
     pinMessageForCompaction,
     unpinMessageForCompaction,
+    submitMessageFeedback,
     stopStreaming,
     handleSend,
     handleKeyDown,
@@ -1057,6 +1105,7 @@ export function useAgentChatPanelProviderValue(): {
     pinnedMessages,
     pinnedOverBudget,
     pinnedUsageChars,
+    submitMessageFeedback,
     scopeController,
     scopePaneId,
     scopedCognitiveEvents,

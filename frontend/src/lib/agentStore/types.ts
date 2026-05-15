@@ -255,6 +255,7 @@ export interface AgentMessage {
   compactionPayload?: string;
   pinnedForCompaction?: boolean;
   isStreaming?: boolean;
+  feedback?: "up" | "down" | null;
 }
 
 export type AgentContentBlock =

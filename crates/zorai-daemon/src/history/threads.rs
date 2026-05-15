@@ -21,6 +21,12 @@ pub(crate) struct ThreadUserPacing {
     pub avg_gap_secs: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MessageFeedbackState {
+    pub role: String,
+    pub reaction: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2558,6 +2564,164 @@ impl HistoryStore {
                 )
                 .optional()
                 .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// Returns the signed mean of recent `user_feedback` behavioral-event
+    /// signals on the thread. The window is the union of the most recent
+    /// 20 events and all events from the last 30 minutes — whichever yields
+    /// more rows, both feed in. Returns `None` if the window is empty.
+    pub(crate) async fn aggregate_user_feedback_score(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<f64>> {
+        const RECENT_EVENT_COUNT: usize = 20;
+        const TIME_WINDOW_MS: i64 = 30 * 60 * 1000;
+        const HARD_FETCH_LIMIT: i64 = 200;
+
+        let thread_id = thread_id.to_string();
+        let cutoff = now_millis_i64().saturating_sub(TIME_WINDOW_MS);
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT payload_json, timestamp
+                     FROM agent_events
+                     WHERE category = 'behavioral'
+                       AND kind = 'user_feedback'
+                       AND pane_id = ?1
+                     ORDER BY timestamp DESC
+                     LIMIT ?2",
+                )?;
+                let rows: Vec<(String, i64)> = stmt
+                    .query_map(params![thread_id, HARD_FETCH_LIMIT], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                    })?
+                    .filter_map(|r| r.ok())
+                    .collect();
+
+                let mut signals: Vec<f64> = Vec::new();
+                for (idx, (payload_json, timestamp)) in rows.iter().enumerate() {
+                    let in_window = idx < RECENT_EVENT_COUNT || *timestamp >= cutoff;
+                    if !in_window {
+                        break;
+                    }
+                    if let Ok(value) =
+                        serde_json::from_str::<serde_json::Value>(payload_json.as_str())
+                    {
+                        // Behavioral payload wraps the recorded payload in a
+                        // `payload` key; signal lives at `$.payload.signal`.
+                        if let Some(signal) = value
+                            .get("payload")
+                            .and_then(|p| p.get("signal"))
+                            .and_then(|s| s.as_f64())
+                        {
+                            signals.push(signal);
+                        }
+                    }
+                }
+                if signals.is_empty() {
+                    Ok(None)
+                } else {
+                    let mean = signals.iter().sum::<f64>() / signals.len() as f64;
+                    Ok(Some(mean.clamp(-1.0, 1.0)))
+                }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn message_feedback_state(
+        &self,
+        thread_id: &str,
+        message_id: &str,
+    ) -> Result<Option<MessageFeedbackState>> {
+        let thread_id = thread_id.to_string();
+        let message_id = message_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT
+                        role,
+                        CASE
+                            WHEN metadata_json IS NOT NULL AND json_valid(metadata_json)
+                            THEN COALESCE(
+                                json_extract(metadata_json, '$.feedback'),
+                                json_extract(metadata_json, '$.feedback.reaction')
+                            )
+                            ELSE NULL
+                        END
+                     FROM agent_messages
+                     WHERE thread_id = ?1
+                       AND id = ?2
+                       AND deleted_at IS NULL",
+                    params![thread_id, message_id],
+                    |row| {
+                        Ok(MessageFeedbackState {
+                            role: row.get::<_, String>(0)?,
+                            reaction: row.get::<_, Option<String>>(1)?,
+                        })
+                    },
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub(crate) async fn set_message_feedback(
+        &self,
+        thread_id: &str,
+        message_id: &str,
+        reaction: Option<&str>,
+    ) -> Result<bool> {
+        let thread_id = thread_id.to_string();
+        let message_id = message_id.to_string();
+        let reaction = reaction.map(ToOwned::to_owned);
+        self.conn
+            .call(move |conn| {
+                let updated = match reaction.as_deref() {
+                    Some(value) => conn.execute(
+                        "UPDATE agent_messages
+                         SET metadata_json = json_set(
+                            CASE
+                                WHEN metadata_json IS NOT NULL AND json_valid(metadata_json)
+                                THEN metadata_json
+                                ELSE '{}'
+                            END,
+                            '$.feedback', ?3
+                         )
+                         WHERE thread_id = ?1
+                           AND id = ?2
+                           AND deleted_at IS NULL",
+                        params![thread_id, message_id, value],
+                    )?,
+                    None => conn.execute(
+                        "UPDATE agent_messages
+                         SET metadata_json = CASE
+                            WHEN metadata_json IS NOT NULL AND json_valid(metadata_json)
+                            THEN json_remove(metadata_json, '$.feedback')
+                            ELSE metadata_json
+                         END
+                         WHERE thread_id = ?1
+                           AND id = ?2
+                           AND deleted_at IS NULL",
+                        params![thread_id, message_id],
+                    )?,
+                };
+
+                if updated > 0 {
+                    conn.execute(
+                        "UPDATE agent_threads
+                         SET updated_at = MAX(updated_at, ?2)
+                         WHERE id = ?1",
+                        params![thread_id, now_millis_i64()],
+                    )?;
+                }
+
+                Ok(updated > 0)
             })
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))

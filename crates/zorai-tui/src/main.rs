@@ -619,6 +619,21 @@ fn start_daemon_bridge(
                                     ),
                                 );
                             }
+                            DaemonCommand::SubmitMessageFeedback {
+                                thread_id,
+                                message_id,
+                                reaction,
+                            } => {
+                                forward_bridge_command_result(
+                                    &daemon_event_tx,
+                                    "submit message feedback",
+                                    client.submit_message_feedback(
+                                        thread_id,
+                                        message_id,
+                                        reaction,
+                                    ),
+                                );
+                            }
                             DaemonCommand::RequestThreadTodos(thread_id) => {
                                 forward_bridge_command_result(
                                     &daemon_event_tx,

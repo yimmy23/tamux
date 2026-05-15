@@ -80,6 +80,7 @@ export type RemoteAgentMessageRecord = {
   compaction_strategy?: "heuristic" | "weles" | "custom_model" | null;
   compaction_payload?: string | null;
   pinned_for_compaction?: boolean | null;
+  feedback?: "up" | "down" | null;
 };
 
 export type RemoteAgentThreadRecord = {
@@ -281,6 +282,7 @@ export function buildHydratedRemoteMessage(
     compactionPayload: typeof message.compaction_payload === "string" ? message.compaction_payload : undefined,
     pinnedForCompaction: Boolean(message.pinned_for_compaction),
     isStreaming: false,
+    feedback: message.feedback === "up" || message.feedback === "down" ? message.feedback : null,
   };
 }
 

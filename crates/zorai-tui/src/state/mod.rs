@@ -57,6 +57,11 @@ pub enum DaemonCommand {
         thread_id: String,
         message_id: String,
     },
+    SubmitMessageFeedback {
+        thread_id: String,
+        message_id: String,
+        reaction: Option<zorai_protocol::Reaction>,
+    },
     RequestThreadTodos(String),
     RequestThreadWorkContext(String),
     RequestGoalRunDetail(String),

@@ -858,6 +858,7 @@ async fn participant_observer_runs_after_thread_owner_assistant_message() {
                     structural_refs: Vec::new(),
                     pinned_for_compaction: false,
                     timestamp: 2,
+                    feedback: None,
                 },
             ],
             pinned: false,
@@ -974,6 +975,7 @@ async fn participant_observer_skips_cycle_when_latest_visible_message_is_partici
                     structural_refs: Vec::new(),
                     pinned_for_compaction: false,
                     timestamp: 2,
+                    feedback: None,
                 },
             ],
             pinned: false,
@@ -1238,6 +1240,7 @@ async fn participant_prompt_excludes_tool_messages() {
                     structural_refs: Vec::new(),
                     pinned_for_compaction: false,
                     timestamp: 2,
+                    feedback: None,
                 },
                 AgentMessage {
                     id: "assistant-message-1".to_string(),
@@ -1270,6 +1273,7 @@ async fn participant_prompt_excludes_tool_messages() {
                     structural_refs: Vec::new(),
                     pinned_for_compaction: false,
                     timestamp: 3,
+                    feedback: None,
                 },
             ],
             pinned: false,
@@ -1349,6 +1353,7 @@ async fn participant_prompt_compacts_older_visible_messages() {
                     structural_refs: Vec::new(),
                     pinned_for_compaction: false,
                     timestamp: 2,
+                    feedback: None,
                 },
                 AgentMessage::user("latest user detail should remain", 3),
             ],
@@ -1434,6 +1439,7 @@ async fn participant_prompt_applies_bounded_snapshot_cap_under_large_context_bud
                 structural_refs: Vec::new(),
                 pinned_for_compaction: false,
                 timestamp,
+                feedback: None,
             });
         }
     }
@@ -1525,6 +1531,7 @@ async fn participant_prompt_requires_continuing_after_latest_assistant_message_u
                     structural_refs: Vec::new(),
                     pinned_for_compaction: false,
                     timestamp: 2,
+                    feedback: None,
                 },
             ],
             pinned: false,

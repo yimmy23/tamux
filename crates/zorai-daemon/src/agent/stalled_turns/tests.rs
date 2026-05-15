@@ -389,6 +389,7 @@ async fn collect_stalled_turn_observations_skips_active_tool_turns() {
                     structural_refs: Vec::new(),
                     pinned_for_compaction: false,
                     timestamp: now.saturating_sub(60_000),
+                    feedback: None,
                 }],
                 pinned: false,
                 upstream_thread_id: None,
@@ -461,6 +462,7 @@ async fn collect_stalled_turn_observations_skips_idle_stream_with_unanswered_too
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: now.saturating_sub(60_000),
+                        feedback: None,
                     },
                 ],
                 pinned: false,
@@ -549,6 +551,7 @@ async fn collect_stalled_turn_observations_detects_promise_without_action() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: now.saturating_sub(60_000),
+                        feedback: None,
                     },
                 ],
                 pinned: false,
@@ -650,6 +653,7 @@ async fn supervise_stalled_turns_retries_with_internal_ping_and_continue() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: now.saturating_sub(60_000),
+                        feedback: None,
                     },
                 ],
                 pinned: false,
@@ -1141,6 +1145,7 @@ async fn supervise_stalled_turns_escalates_after_third_retry_window() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: now.saturating_sub(120_000),
+                        feedback: None,
                     },
                 ],
                 pinned: false,
@@ -1796,6 +1801,7 @@ async fn collect_stalled_turn_observations_treats_reasoning_only_assistant_turn_
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: now.saturating_sub(31_000),
+                        feedback: None,
                     },
                 ],
                 pinned: false,
@@ -1938,6 +1944,7 @@ async fn collect_stalled_turn_observations_detects_primary_thread_empty_after_to
         structural_refs: Vec::new(),
         pinned_for_compaction: false,
         timestamp: now.saturating_sub(120_000),
+        feedback: None,
     };
 
     let empty_assistant_after_tool_result = AgentMessage {
@@ -1971,6 +1978,7 @@ async fn collect_stalled_turn_observations_detects_primary_thread_empty_after_to
         structural_refs: Vec::new(),
         pinned_for_compaction: false,
         timestamp: now.saturating_sub(360_000),
+        feedback: None,
     };
 
     {
@@ -2067,6 +2075,7 @@ async fn collect_stalled_turn_observations_detects_subagent_stuck_on_empty_first
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: now.saturating_sub(empty_message_ago_ms),
+                        feedback: None,
                     },
                 ],
                 pinned: false,
@@ -2621,6 +2630,7 @@ async fn supervise_stalled_turns_recovers_subagent_stuck_on_empty_first_turn() {
                         structural_refs: Vec::new(),
                         pinned_for_compaction: false,
                         timestamp: now.saturating_sub(empty_message_ago_ms),
+                        feedback: None,
                     },
                 ],
                 pinned: false,

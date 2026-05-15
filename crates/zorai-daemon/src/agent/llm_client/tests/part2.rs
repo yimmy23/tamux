@@ -53,6 +53,7 @@ fn messages_to_api_format_normalizes_empty_tool_ids() {
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 42,
+            feedback: None,
         },
         AgentMessage {
             id: String::new(),
@@ -85,6 +86,7 @@ fn messages_to_api_format_normalizes_empty_tool_ids() {
             structural_refs: Vec::new(),
             pinned_for_compaction: false,
             timestamp: 43,
+            feedback: None,
         },
     ];
 

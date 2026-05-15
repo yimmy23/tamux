@@ -352,5 +352,15 @@ pub enum AgentEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         thread_id: Option<String>,
     },
+    /// Operator's reaction (thumbs up/down) on a specific assistant or tool
+    /// message was set, switched, or cleared. Frontends mirror this to update
+    /// per-message UI; the daemon feeds the same signal into the
+    /// metacognitive self-assessment loop.
+    MessageFeedbackUpdated {
+        thread_id: String,
+        message_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reaction: Option<zorai_protocol::Reaction>,
+    },
 }
 

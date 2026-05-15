@@ -205,6 +205,13 @@ impl<'a> SendMessageRunner<'a> {
                     .count() as f64
                     / input.recent_tool_outcomes.len() as f64
             };
+            let user_feedback_score = self
+                .engine
+                .history
+                .aggregate_user_feedback_score(&self.tid)
+                .await
+                .ok()
+                .flatten();
             let assessment = SelfAssessor::default().assess(
                 &crate::agent::metacognitive::self_assessment::AssessmentInput {
                     progress: crate::agent::metacognitive::self_assessment::ProgressMetrics {
@@ -228,7 +235,7 @@ impl<'a> SendMessageRunner<'a> {
                     quality: crate::agent::metacognitive::self_assessment::QualityMetrics {
                         error_rate: 1.0 - recent_success_rate,
                         revision_count: input.task_retry_count,
-                        user_feedback_score: None,
+                        user_feedback_score,
                     },
                 },
             );
@@ -562,6 +569,7 @@ impl<'a> SendMessageRunner<'a> {
                 structural_refs: Vec::new(),
                 pinned_for_compaction: false,
                 timestamp: now_millis(),
+                feedback: None,
             });
             thread.total_input_tokens += input_tokens.unwrap_or(0);
             thread.total_output_tokens += output_tokens.unwrap_or(0);
@@ -611,6 +619,7 @@ impl<'a> SendMessageRunner<'a> {
                 structural_refs: Vec::new(),
                 pinned_for_compaction: false,
                 timestamp: now_millis(),
+                feedback: None,
             });
         }
     }

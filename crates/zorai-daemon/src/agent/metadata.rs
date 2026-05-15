@@ -22,6 +22,7 @@ pub(super) struct ParsedMessageMetadata {
     pub tool_output_preview_path: Option<String>,
     pub structural_refs: Vec<String>,
     pub pinned_for_compaction: bool,
+    pub feedback: Option<zorai_protocol::Reaction>,
 }
 
 pub(super) struct ParsedThreadMetadata {
@@ -220,6 +221,27 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
     let pinned_for_compaction =
         take_bool_either(&mut map_ref, "pinned_for_compaction", "pinnedForCompaction")
             .unwrap_or(false);
+    let feedback = map_ref
+        .as_deref_mut()
+        .and_then(|m| m.remove("feedback"))
+        .and_then(|value| match value {
+            serde_json::Value::String(s) => match s.as_str() {
+                "up" => Some(zorai_protocol::Reaction::Up),
+                "down" => Some(zorai_protocol::Reaction::Down),
+                _ => None,
+            },
+            serde_json::Value::Object(mut obj) => {
+                obj.remove("reaction").and_then(|v| match v {
+                    serde_json::Value::String(s) => match s.as_str() {
+                        "up" => Some(zorai_protocol::Reaction::Up),
+                        "down" => Some(zorai_protocol::Reaction::Down),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+            }
+            _ => None,
+        });
 
     ParsedMessageMetadata {
         content_blocks,
@@ -241,6 +263,7 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
         tool_output_preview_path,
         structural_refs,
         pinned_for_compaction,
+        feedback,
     }
 }
 
@@ -442,6 +465,10 @@ pub(super) fn build_message_metadata_json(message: &AgentMessage) -> Option<Stri
         "structuralRefs": message.structural_refs,
         "pinned_for_compaction": message.pinned_for_compaction,
         "pinnedForCompaction": message.pinned_for_compaction,
+        "feedback": message.feedback.map(|r| match r {
+            zorai_protocol::Reaction::Up => "up",
+            zorai_protocol::Reaction::Down => "down",
+        }),
     }))
     .ok()
 }
