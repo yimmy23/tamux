@@ -456,11 +456,21 @@ impl AgentEngine {
                 .as_deref()
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or(snapshot.title.as_str());
-            self.history
+            match self
+                .history
                 .generate_skill(Some(snapshot.goal.as_str()), Some(skill_title))
                 .await
-                .ok()
-                .map(|(_, path)| path)
+            {
+                Ok((_, path)) => Some(path),
+                Err(error) => {
+                    tracing::warn!(
+                        goal_run_id,
+                        error = %error,
+                        "failed to generate skill from goal reflection",
+                    );
+                    None
+                }
+            }
         } else {
             None
         };
