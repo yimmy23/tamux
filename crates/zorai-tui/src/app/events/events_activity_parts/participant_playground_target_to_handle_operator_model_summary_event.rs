@@ -155,6 +155,7 @@ impl TuiModel {
         {
             return;
         }
+        let viewport_anchor = self.capture_locked_chat_viewport(Some(thread_id.as_str()));
         self.clear_bootstrap_pending_activity_thread(thread_id.as_str());
         self.set_agent_activity_for(Some(thread_id.clone()), "writing");
         if self.should_surface_thread_activity(&thread_id) {
@@ -163,6 +164,7 @@ impl TuiModel {
         }
         self.chat
             .reduce(chat::ChatAction::Delta { thread_id, content });
+        self.restore_locked_chat_viewport(viewport_anchor);
     }
 
     pub(in crate::app) fn handle_reasoning_event(&mut self, thread_id: String, content: String) {
@@ -174,17 +176,16 @@ impl TuiModel {
         {
             return;
         }
+        let viewport_anchor = self.capture_locked_chat_viewport(Some(thread_id.as_str()));
         self.clear_bootstrap_pending_activity_thread(thread_id.as_str());
         self.set_agent_activity_for(Some(thread_id.clone()), "reasoning");
         if self.should_surface_thread_activity(&thread_id) {
             self.anticipatory
                 .reduce(crate::state::AnticipatoryAction::Clear);
         }
-        let active_thread_id = thread_id.clone();
-        self.reduce_chat_for_thread(
-            Some(active_thread_id.as_str()),
-            chat::ChatAction::Reasoning { thread_id, content },
-        );
+        self.chat
+            .reduce(chat::ChatAction::Reasoning { thread_id, content });
+        self.restore_locked_chat_viewport(viewport_anchor);
     }
 
     #[allow(clippy::too_many_arguments)]

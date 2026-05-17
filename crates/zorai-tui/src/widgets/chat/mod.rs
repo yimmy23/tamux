@@ -2,13 +2,11 @@ use ratatui::prelude::*;
 use unicode_width::UnicodeWidthStr;
 
 #[cfg(test)]
-use ratatui::style::Color;
-#[cfg(test)]
-use crate::state::chat::{
-    AgentMessage, ChatHitTarget, ChatState, RetryPhase, TranscriptMode,
-};
+use crate::state::chat::{AgentMessage, ChatHitTarget, ChatState, RetryPhase, TranscriptMode};
 #[cfg(test)]
 use crate::theme::ThemeTokens;
+#[cfg(test)]
+use ratatui::style::Color;
 
 const MESSAGE_PADDING_X: usize = 2;
 const MESSAGE_PADDING_Y: usize = 1;
@@ -36,8 +34,6 @@ pub(crate) use selection_point_from_snapshot_to_render::*;
 mod tests {
     use super::*;
     use crate::state::chat::{AgentThread, ChatAction, MessageRole};
-    
-    
 
     fn chat_with_messages(messages: Vec<AgentMessage>) -> ChatState {
         let mut chat = ChatState::new();
@@ -298,5 +294,87 @@ mod tests {
         assert_eq!(intersecting_message_range(&ranges, 5, 16), 1..4);
         assert_eq!(intersecting_message_range(&ranges, 30, 35), 5..5);
         assert_eq!(intersecting_message_range(&ranges, 12, 12), 0..0);
+    }
+
+    #[test]
+    fn compaction_artifact_metrics_match_rendered_notice_lines() {
+        let msg = AgentMessage {
+            role: MessageRole::System,
+            content: "Pre-compaction context: ~92,000 / 200,000 tokens (threshold 160,000)\nTrigger: token-threshold\nStrategy: rule based".into(),
+            message_kind: "compaction_artifact".into(),
+            compaction_payload: Some("Preserved project facts and pending tasks.".into()),
+            ..Default::default()
+        };
+        let theme = ThemeTokens::default();
+        let width = 72usize;
+        let expanded = std::collections::HashSet::new();
+        let expanded_tools = std::collections::HashSet::new();
+
+        let rendered = crate::widgets::message::message_to_lines(
+            &msg,
+            0,
+            TranscriptMode::Compact,
+            &theme,
+            padded_content_width(width),
+            &expanded,
+            &expanded_tools,
+        )
+        .len();
+        let estimated = estimated_message_content_line_count(
+            &msg,
+            0,
+            TranscriptMode::Compact,
+            &theme,
+            padded_content_width(width),
+            &expanded,
+            &expanded_tools,
+            false,
+        );
+
+        assert_eq!(
+            estimated, rendered,
+            "compaction notice metrics must match rendered rows so windowed rendering does not duplicate button/content rows"
+        );
+    }
+
+    #[test]
+    fn operator_question_metrics_match_rendered_question_lines() {
+        let msg = AgentMessage {
+            role: MessageRole::Assistant,
+            content: "Approve this slice?\nA - proceed\nB - revise".into(),
+            is_operator_question: true,
+            operator_question_id: Some("oq-1".into()),
+            ..Default::default()
+        };
+        let theme = ThemeTokens::default();
+        let width = 72usize;
+        let expanded = std::collections::HashSet::new();
+        let expanded_tools = std::collections::HashSet::new();
+
+        let rendered = crate::widgets::message::message_to_lines(
+            &msg,
+            0,
+            TranscriptMode::Compact,
+            &theme,
+            padded_content_width(width),
+            &expanded,
+            &expanded_tools,
+        )
+        .len();
+        let estimated = estimated_message_content_line_count(
+            &msg,
+            0,
+            TranscriptMode::Compact,
+            &theme,
+            padded_content_width(width),
+            &expanded,
+            &expanded_tools,
+            false,
+        );
+
+        assert_eq!(
+            estimated, rendered,
+            "operator question metrics must match rendered rows so responder headers and option rows are not repeated"
+        );
     }
 }

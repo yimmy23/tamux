@@ -349,6 +349,62 @@ fn operator_question_event_keeps_bottom_follow_when_chat_is_at_latest_message() 
 }
 
 #[test]
+fn soft_wrapped_streaming_delta_preserves_locked_chat_viewport() {
+    let mut model = make_model();
+    model.width = 100;
+    model.height = 40;
+    model.show_sidebar_override = Some(false);
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    for idx in 0..40 {
+        model.chat.reduce(chat::ChatAction::AppendMessage {
+            thread_id: "thread-1".to_string(),
+            message: chat::AgentMessage {
+                role: chat::MessageRole::Assistant,
+                content: format!("message {idx}"),
+                ..Default::default()
+            },
+        });
+    }
+    model.chat.reduce(chat::ChatAction::ScrollChat(8));
+
+    let before = widgets::chat::scrollbar_layout(
+        model.pane_layout().chat,
+        &model.chat,
+        &model.theme,
+        model.tick_counter,
+        model.retry_wait_start_selected,
+    )
+    .expect("chat should produce a scrollbar layout");
+
+    model.handle_delta_event("thread-1".to_string(), " long streamed token".repeat(80));
+
+    let after = widgets::chat::scrollbar_layout(
+        model.pane_layout().chat,
+        &model.chat,
+        &model.theme,
+        model.tick_counter,
+        model.retry_wait_start_selected,
+    )
+    .expect("chat should still produce a scrollbar layout");
+
+    assert!(
+        before.scroll > 0,
+        "test setup should scroll away from the live bottom"
+    );
+    assert_eq!(
+        after.scroll as isize - before.scroll as isize,
+        after.max_scroll as isize - before.max_scroll as isize,
+        "locked viewport should stay anchored even when streamed text adds soft-wrapped rows"
+    );
+}
+
+#[test]
 fn operator_profile_workflow_warning_surfaces_retry_notice() {
     let mut model = make_model();
     model.handle_client_event(ClientEvent::WorkflowNotice {

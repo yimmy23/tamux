@@ -2,9 +2,7 @@ use super::super::render_streaming_markdown_to_message_block_style_to_message_ac
 use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
 use super::super::selection_point_from_snapshot_to_render::*;
 use super::super::*;
-use crate::state::chat::{
-    AgentMessage, ChatState, MessageRole, RetryPhase, TranscriptMode,
-};
+use crate::state::chat::{AgentMessage, ChatState, MessageRole, RetryPhase, TranscriptMode};
 use crate::theme::ThemeTokens;
 use crate::widgets::message::wrap_text;
 use ratatui::style::{Color, Style};
@@ -444,15 +442,19 @@ pub(crate) fn estimated_message_content_line_count(
                 return 1;
             }
 
-            if crate::widgets::message::is_collapsible_system_notice_message(msg) {
-                let mut count = 1usize;
-                if reasoning_expanded {
-                    let detail_width = content_width.saturating_sub(2).max(1);
-                    let detail = crate::widgets::message::collapsible_system_notice_detail(msg)
-                        .unwrap_or_default();
-                    count = count.saturating_add(wrap_text(&detail, detail_width).len().max(1));
-                }
-                return count;
+            if msg.is_operator_question
+                || crate::widgets::message::is_collapsible_system_notice_message(msg)
+            {
+                return crate::widgets::message::message_to_lines(
+                    msg,
+                    msg_index,
+                    mode,
+                    theme,
+                    content_width,
+                    expanded,
+                    expanded_tools,
+                )
+                .len();
             }
 
             if msg.content.is_empty() && image_line_count == 0 && msg.role != MessageRole::Assistant
