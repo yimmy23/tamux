@@ -30,7 +30,9 @@ fn thread_detail_refresh_preserves_finalized_stream_after_stale_user_snapshot() 
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
-    });
+    
+        message_id: None,
+});
 
     state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
         id: "t1".into(),

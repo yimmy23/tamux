@@ -288,7 +288,9 @@ fn stale_done_before_first_stream_does_not_clear_pending_prompt_activity() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
-    });
+    
+        message_id: None,
+});
 
     assert_eq!(
         model.footer_activity_text().as_deref(),
@@ -369,7 +371,9 @@ fn pumping_daemon_events_stops_after_first_active_streaming_delta() {
             generation_ms: None,
             reasoning: None,
             provider_final_result_json: None,
-        })
+        
+            message_id: None,
+})
         .expect("done should enqueue");
 
     let processed = model.pump_daemon_events_budgeted(32);
@@ -456,7 +460,9 @@ fn background_tool_events_do_not_clear_selected_thread_activity() {
         name: "bash_command".to_string(),
         arguments: "{\"command\":\"pwd\"}".to_string(),
         weles_review: None,
-    });
+    
+        message_id: None,
+});
     assert_eq!(model.chat.active_tool_calls().len(), 1);
 
     model.handle_client_event(ClientEvent::ToolCall {
@@ -465,7 +471,9 @@ fn background_tool_events_do_not_clear_selected_thread_activity() {
         name: "bash_command".to_string(),
         arguments: "{\"command\":\"ls\"}".to_string(),
         weles_review: None,
-    });
+    
+        message_id: None,
+});
     model.handle_client_event(ClientEvent::ToolResult {
         thread_id: "thread-other".to_string(),
         call_id: "other-call".to_string(),
@@ -473,7 +481,9 @@ fn background_tool_events_do_not_clear_selected_thread_activity() {
         content: "Cargo.toml".to_string(),
         is_error: false,
         weles_review: None,
-    });
+    
+        message_id: None,
+});
 
     assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
     assert_eq!(model.chat.active_tool_calls().len(), 1);
@@ -541,7 +551,9 @@ fn background_done_finalizes_origin_thread_without_clearing_selected_thread_busy
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
-    });
+    
+        message_id: None,
+});
 
     assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
     assert_eq!(model.footer_activity_text().as_deref(), Some("thinking"));
@@ -899,7 +911,9 @@ fn late_skill_scout_notice_after_done_does_not_restore_footer_activity() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
-    });
+    
+        message_id: None,
+});
 
     assert!(
         model.footer_activity_text().is_none(),

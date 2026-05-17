@@ -6,7 +6,7 @@ import { fetchGoalRuns, type GoalRun } from "@/lib/goalRuns";
 import { useAgentMissionStore } from "@/lib/agentMissionStore";
 import { useWorkspaceStore } from "@/lib/workspaceStore";
 import type { AgentBackend } from "@/lib/agentStore/types";
-import type { AgentThread, AgentTodoItem } from "@/lib/agentStore";
+import type { AgentMessage, AgentThread, AgentTodoItem } from "@/lib/agentStore";
 import type { WelesHealthState } from "@/lib/agentStore/types";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import {
@@ -184,6 +184,30 @@ export function useDaemonAgentEvents({
       return refreshedMessages[refreshedMessages.length - 1];
     };
 
+    // Walks the thread's messages from newest to oldest and rewrites the id of
+    // the first one that matches `predicate` to `daemonId`. Used to reconcile
+    // frontend-local placeholder ids (msg_42) with the daemon's persisted
+    // agent_messages.id when the daemon surfaces it on Done/ToolCall/ToolResult.
+    const replaceMessageIdAtTail = (
+      threadId: string,
+      daemonId: string,
+      predicate: (m: AgentMessage) => boolean,
+    ) => {
+      useAgentStore.setState((state) => {
+        const list = state.messages[threadId];
+        if (!list || list.length === 0) return state;
+        for (let i = list.length - 1; i >= 0; i -= 1) {
+          const candidate = list[i];
+          if (!predicate(candidate)) continue;
+          if (candidate.id === daemonId) return state;
+          const updated = [...list];
+          updated[i] = { ...candidate, id: daemonId };
+          return { messages: { ...state.messages, [threadId]: updated } };
+        }
+        return state;
+      });
+    };
+
     const cleanupGoalRunWorkspace = (goalRunId: string) => {
       const workspaceId = goalRunWorkspacesRef.current[goalRunId];
       if (!workspaceId) return;
@@ -242,6 +266,13 @@ export function useDaemonAgentEvents({
               reasoning: event.reasoning || last.reasoning || undefined,
             });
           }
+          // The daemon now surfaces the persisted assistant `agent_messages.id`
+          // alongside the Done event. We rewrite the local id of the just-finalized
+          // streaming assistant message so per-message actions (👍/👎, pin, delete)
+          // can address the actual DB row instead of the frontend-local counter.
+          if (typeof event.message_id === "string" && event.message_id.length > 0) {
+            replaceMessageIdAtTail(tid, event.message_id, (m) => m.role === "assistant");
+          }
           break;
         }
         case "tool_call": {
@@ -265,6 +296,13 @@ export function useDaemonAgentEvents({
             totalTokens: 0,
             isCompactionSummary: false,
           });
+          if (typeof event.message_id === "string" && event.message_id.length > 0) {
+            replaceMessageIdAtTail(
+              tid,
+              event.message_id,
+              (m) => m.role === "tool" && m.toolCallId === event.call_id,
+            );
+          }
           break;
         }
         case "tool_result": {
@@ -281,6 +319,13 @@ export function useDaemonAgentEvents({
             totalTokens: 0,
             isCompactionSummary: false,
           });
+          if (typeof event.message_id === "string" && event.message_id.length > 0) {
+            replaceMessageIdAtTail(
+              tid,
+              event.message_id,
+              (m) => m.role === "tool" && m.toolCallId === event.call_id,
+            );
+          }
           const agentSettings = useAgentStore.getState().agentSettings;
           addMessage(tid, {
             role: "assistant",

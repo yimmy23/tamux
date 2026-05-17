@@ -47,18 +47,19 @@ impl AgentEngine {
             self.generate_concierge_reply(&tid).await?
         };
 
-        self.add_assistant_message(
-            &tid,
-            &reply,
-            0,
-            0,
-            None,
-            Some("concierge".to_string()),
-            None,
-            None,
-            None,
-        )
-        .await;
+        let persisted_message_id = self
+            .add_assistant_message(
+                &tid,
+                &reply,
+                0,
+                0,
+                None,
+                Some("concierge".to_string()),
+                None,
+                None,
+                None,
+            )
+            .await;
         let _ = self.event_tx.send(AgentEvent::Delta {
             thread_id: tid.clone(),
             content: reply.clone(),
@@ -75,6 +76,7 @@ impl AgentEngine {
             reasoning: None,
             upstream_message: None,
             provider_final_result: None,
+            message_id: persisted_message_id,
         });
         Ok(())
     }

@@ -804,17 +804,19 @@ mod tests {
         let shared_user_root = active_memory_dir_for_scope(root, MAIN_AGENT_ID);
         assert_eq!(
             paths.memory_dir,
-            root.join("personas").join(RADOGOST_AGENT_ID)
+            shared_user_root.join("personas").join(RADOGOST_AGENT_ID)
         );
         assert_eq!(
             paths.memory_path,
-            root.join("personas")
+            shared_user_root
+                .join("personas")
                 .join(RADOGOST_AGENT_ID)
                 .join("MEMORY.md")
         );
         assert_eq!(
             paths.soul_path,
-            root.join("personas")
+            shared_user_root
+                .join("personas")
                 .join(RADOGOST_AGENT_ID)
                 .join("SOUL.md")
         );

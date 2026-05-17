@@ -213,6 +213,7 @@ pub enum ClientEvent {
         name: String,
         arguments: String,
         weles_review: Option<WelesReviewMetaVm>,
+        message_id: Option<String>,
     },
     ToolResult {
         thread_id: String,
@@ -221,6 +222,7 @@ pub enum ClientEvent {
         content: String,
         is_error: bool,
         weles_review: Option<WelesReviewMetaVm>,
+        message_id: Option<String>,
     },
     Done {
         thread_id: String,
@@ -233,6 +235,7 @@ pub enum ClientEvent {
         generation_ms: Option<u64>,
         reasoning: Option<String>,
         provider_final_result_json: Option<String>,
+        message_id: Option<String>,
     },
     WorkflowNotice {
         thread_id: Option<String>,

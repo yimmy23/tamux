@@ -4,19 +4,32 @@ use super::agent_identity::{CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME};
 use super::memory_curation_guidance;
 use super::types::*;
 
-const LOCAL_SKILL_WORKFLOW_PROMPT: &str = "## Local Guidelines and Skills Workflow\n\
-     - Zorai recommends local guidelines before skill discovery for non-trivial work; guidelines orchestrate which skills and checks fit the task type.\n\
-     - When guideline tools are available, call `discover_guidelines` with a brief intent description (one short sentence describing what you're trying to accomplish), then `read_guideline` for the best match before calling `discover_skills`.\n\
-     - Zorai runs local skill discovery before non-trivial work and surfaces the ranked result in the runtime prompt and workflow notices.\n\
-     - Treat daemon discovery results as the source of truth instead of relying on raw `list_skills` output.\n\
+/// Skill-discovery rules that apply identically to every audience (main agent,
+/// Weles governance, Concierge). Keep this as the single source of truth — if
+/// you change wording here, every system-prompt variant gets the update.
+const SHARED_SKILL_DISCOVERY_RULES: &str = "\
      - When you call `discover_skills`, send a brief intent description: one short sentence describing what you're trying to accomplish (e.g., 'modify python wheel builder for alternate compiler flag'), not the full task transcript and not a 2-3 word fragment. Descriptive sentences match better against semantic vectors and richer skill excerpts.\n\
      - If the top match is strong, call `read_skill` for the recommended skill before other substantial tools.\n\
-    - Weak matches still point to the best-fit local workflow. Prefer `read_skill` for that candidate first, and use `justify_skill_skip` only if you intentionally bypass it or no local skill fits.\n\
+     - Weak matches still point to the best-fit local workflow. Prefer `read_skill` for that candidate first, and use `justify_skill_skip` only if you intentionally bypass it or no local skill fits.\n\
      - When you need clarification or the operator must choose among options, call `ask_questions`. Do not ask clarifying questions in plain text when this tool fits.\n\
-     - For `ask_questions`, put the full question and answer text in `content`; buttons must stay compact and ordered via tokens like `A`, `B`, `C`, `D` or `1`, `2`, `3`.\n\
-     - Use `onecontext_search` or `session_search` when historical decisions, prior fixes, or existing implementations matter.\n\
-     - Use `semantic_query` when you need codebase-wide structure or dependency context before editing.\n\
-     - When a tool already performs the operator's requested side effect, avoid a redundant follow-up that only repeats a temp path or generic success. For `text_to_speech`, use it when asked to say something aloud or read text out loud, and only add extra text if playback failed, clarification is needed, or the operator asked for more detail.\n";
+     - For `ask_questions`, put the full question and answer text in `content`; buttons must stay compact and ordered via tokens like `A`, `B`, `C`, `D` or `1`, `2`, `3`.\n";
+
+fn local_skill_workflow_prompt() -> String {
+    let mut prompt = String::from(
+        "## Local Guidelines and Skills Workflow\n\
+         - Zorai recommends local guidelines before skill discovery for non-trivial work; guidelines orchestrate which skills and checks fit the task type.\n\
+         - When guideline tools are available, call `discover_guidelines` with a brief intent description (one short sentence describing what you're trying to accomplish), then `read_guideline` for the best match before calling `discover_skills`.\n\
+         - Zorai runs local skill discovery before non-trivial work and surfaces the ranked result in the runtime prompt and workflow notices.\n\
+         - Treat daemon discovery results as the source of truth instead of relying on raw `list_skills` output.\n",
+    );
+    prompt.push_str(SHARED_SKILL_DISCOVERY_RULES);
+    prompt.push_str(
+        "     - Use `onecontext_search` or `session_search` when historical decisions, prior fixes, or existing implementations matter.\n\
+         - Use `semantic_query` when you need codebase-wide structure or dependency context before editing.\n\
+         - When a tool already performs the operator's requested side effect, avoid a redundant follow-up that only repeats a temp path or generic success. For `text_to_speech`, use it when asked to say something aloud or read text out loud, and only add extra text if playback failed, clarification is needed, or the operator asked for more detail.\n",
+    );
+    prompt
+}
 
 fn build_time_context_prompt() -> String {
     let local_now = chrono::Local::now();
@@ -33,9 +46,8 @@ fn append_prompt_section_if_missing(prompt: &mut String, marker: &str, section: 
     if prompt.contains(marker) {
         return;
     }
-    if !prompt.is_empty() {
-        if prompt.ends_with("\n\n") {
-        } else if prompt.ends_with('\n') {
+    if !prompt.is_empty() && !prompt.ends_with("\n\n") {
+        if prompt.ends_with('\n') {
             prompt.push('\n');
         } else {
             prompt.push_str("\n\n");
@@ -58,6 +70,7 @@ pub(super) fn build_system_prompt(
     episodic_context: Option<&str>,
     continuity_summary: Option<&str>,
     negative_constraints: Option<&str>,
+    client_surface: Option<zorai_protocol::ClientSurface>,
 ) -> String {
     let mut prompt = String::new();
     let skills_root = super::skills_dir(&super::agent_data_dir());
@@ -105,9 +118,8 @@ pub(super) fn build_system_prompt(
         prompt.push_str(" decide whether to apply it.\n");
     }
 
-    prompt.push_str(
-        &format!(
-            "\n\n## Local Guidelines\n\
+    prompt.push_str(&format!(
+        "\n\n## Local Guidelines\n\
              - Guidelines root: {}\n\
              - Guidelines are documentation-only workflow orchestrators. They should be discovered and read before skill discovery when a task is non-trivial.\n\
              - Use `discover_guidelines` with a brief intent description (one short sentence describing what you're trying to accomplish), then `read_guideline` for the best match. Follow its recommended skills, checks, and step order.\n\
@@ -118,20 +130,17 @@ pub(super) fn build_system_prompt(
              - Skills root: {}\n\
              - Generated skills: {}\n\
              - Curated local skills live directly under {} (zorai reference docs for terminals, browser, tasks, goals, memory, safety, etc.).\n\
-             - Before non-trivial work, use `read_memory`, `read_user`, and `read_soul` when you need memory recall, read the relevant guideline first, then follow the daemon-provided skill discovery result for this turn.\n\
-             - If you call `discover_skills` directly, start with a brief intent description (one short sentence describing what you're trying to accomplish) instead of pasting the whole task or sending a 2-3 word fragment.\n\
-             - Strong matches require `read_skill` before other substantial tools.\n\
-             - Weak matches still point to the best-fit local workflow. Prefer `read_skill` for that candidate first, and use `justify_skill_skip` only if you intentionally bypass it or no local skill fits.\n\
-             - When you need clarification or the operator must choose among options, call `ask_questions`. Do not ask clarifying questions in plain text when this tool fits.\n\
-             - For `ask_questions`, put the full question and answer text in `content`; buttons must stay compact and ordered via tokens like `A`, `B`, `C`, `D` or `1`, `2`, `3`.\n\
-             - `list_skills` remains the raw catalog view, not the decision authority for the task.\n\
+             - Before non-trivial work, use `read_memory`, `read_user`, and `read_soul` when you need memory recall, read the relevant guideline first, then follow the daemon-provided skill discovery result for this turn.\n",
+        guidelines_root.display(),
+        skills_root.display(),
+        generated_skills_root.display(),
+        skills_root.display(),
+    ));
+    prompt.push_str(SHARED_SKILL_DISCOVERY_RULES);
+    prompt.push_str(
+        "             - `list_skills` remains the raw catalog view, not the decision authority for the task.\n\
              - The `cheatsheet` skill provides a quick reference for all available MCP tools.\n\
              - Prefer reusing an existing skill over inventing a brand-new workflow.\n",
-            guidelines_root.display(),
-            skills_root.display(),
-            generated_skills_root.display(),
-            skills_root.display(),
-        ),
     );
     let plugin_skills_dir = skills_root.join("plugins");
     if plugin_skills_dir.exists() && plugin_skills_dir.is_dir() {
@@ -251,24 +260,37 @@ pub(super) fn build_system_prompt(
         }
     }
 
-    prompt.push_str(
-        "\n\n## Terminal Session Discipline\n\
-         - Before running actions that truly need an existing terminal, call `list_terminals` to discover current live session IDs and CWD.\n\
-         - Do not force a `session` argument in normal TUI chat or goal-run turns just because a previous frontend session existed. Omit `session` unless you intentionally target a known live terminal or the operator explicitly asked you to reuse one.\n\
-         - When you do target a live terminal, reuse that `session` value across related tool calls so all actions stay in one terminal context.\n\
-            - For long-running terminal work, prefer non-blocking execution: set `wait_for_completion=false` or use `timeout_seconds > 600`, capture the returned `operation_id`, and rely on the background monitor; it will auto-notify this thread with completion status and result. Use `get_operation_status` when you need more details or an explicit status check.\n\
-         - If a command is still running, timed out while still active, or is waiting for interactive completion, treat that terminal as occupied and switch to another terminal/session before continuing other work.\n\
-         - If you need another terminal in the same agent workspace, call `allocate_terminal`, then continue with the returned session ID.\n\
-         - If the operator asks to use another terminal, call `list_terminals` again and switch explicitly.\n",
-    );
+    // Terminal-related guidance only matters when the agent can actually call
+    // terminal tools. TUI clients have those tools stripped at the tool-discovery
+    // layer (see `filter_tools_for_client_surface`), so including this guidance
+    // for them is pure token waste and can mislead the model into looking for
+    // tools it does not have.
+    let agent_has_terminal_tools =
+        !matches!(client_surface, Some(zorai_protocol::ClientSurface::Tui));
+    if agent_has_terminal_tools {
+        prompt.push_str(
+            "\n\n## Terminal Session Discipline\n\
+             - Before running actions that truly need an existing terminal, call `list_terminals` to discover current live session IDs and CWD.\n\
+             - Do not force a `session` argument in normal TUI chat or goal-run turns just because a previous frontend session existed. Omit `session` unless you intentionally target a known live terminal or the operator explicitly asked you to reuse one.\n\
+             - When you do target a live terminal, reuse that `session` value across related tool calls so all actions stay in one terminal context.\n\
+                - For long-running terminal work, prefer non-blocking execution: set `wait_for_completion=false` or use `timeout_seconds > 600`, capture the returned `operation_id`, and rely on the background monitor; it will auto-notify this thread with completion status and result. Use `get_operation_status` when you need more details or an explicit status check.\n\
+             - If a command is still running, timed out while still active, or is waiting for interactive completion, treat that terminal as occupied and switch to another terminal/session before continuing other work.\n\
+             - If you need another terminal in the same agent workspace, call `allocate_terminal`, then continue with the returned session ID.\n\
+             - If the operator asks to use another terminal, call `list_terminals` again and switch explicitly.\n",
+        );
+    }
 
     prompt.push_str(
         "\n\n## Large File Writes\n\
          - Avoid giant JSON file payloads when content is large or heavily escaped.\n\
-         - Prefer multipart-style `create_file` inputs when available.\n\
-         - If you must write through a terminal, prefer a minimal Python writer over brittle shell heredocs.\n\
-         - Before executing generated Python, inspect it for unintended side effects. It should only perform the intended file operation and should not add unrelated process, network, or shell behavior.\n",
+         - Prefer multipart-style `create_file` inputs when available.\n",
     );
+    if agent_has_terminal_tools {
+        prompt.push_str(
+            "         - If you must write through a terminal, prefer a minimal Python writer over brittle shell heredocs.\n\
+             - Before executing generated Python, inspect it for unintended side effects. It should only perform the intended file operation and should not add unrelated process, network, or shell behavior.\n",
+        );
+    }
 
     prompt.push_str(
         "\n\n## Subagent Supervision\n\
@@ -336,7 +358,7 @@ pub(crate) fn build_weles_governance_runtime_prompt(
     append_prompt_section_if_missing(
         &mut prompt,
         "## Local Skills Workflow",
-        LOCAL_SKILL_WORKFLOW_PROMPT,
+        &local_skill_workflow_prompt(),
     );
     prompt
 }
@@ -346,7 +368,7 @@ pub(super) fn build_concierge_runtime_identity_prompt(provider_id: &str, model_i
     append_prompt_section_if_missing(
         &mut prompt,
         "## Local Skills Workflow",
-        LOCAL_SKILL_WORKFLOW_PROMPT,
+        &local_skill_workflow_prompt(),
     );
     prompt
 }
@@ -507,10 +529,6 @@ pub(super) fn build_external_agent_prompt(
         context_parts.push(format!("Recent causal guidance:\n{}\n", causal_guidance));
     }
 
-    if context_parts.is_empty() {
-        return user_message.to_string();
-    }
-
     format!(
         "{}\n[USER MESSAGE]\n{}",
         context_parts.join(""),
@@ -518,12 +536,18 @@ pub(super) fn build_external_agent_prompt(
     )
 }
 
+/// How many skills to surface in the in-prompt index. The full catalog is
+/// reachable via `discover_skills` / `list_skills`; the index is a hint, not
+/// a directory. Six keeps the prompt cheap while still naming the most-likely
+/// matches alphabetically.
+const SKILL_INDEX_MAX_ENTRIES: usize = 6;
+
 pub(super) fn render_skill_index(skills_root: &std::path::Path) -> Option<String> {
     let mut skills = Vec::new();
     collect_skill_stems(skills_root, skills_root, &mut skills);
     skills.sort();
     skills.dedup();
-    skills.truncate(6);
+    skills.truncate(SKILL_INDEX_MAX_ENTRIES);
     if skills.is_empty() {
         return None;
     }
@@ -553,12 +577,24 @@ fn collect_skill_stems(root: &std::path::Path, dir: &std::path::Path, out: &mut 
         let Ok(_) = path.strip_prefix(root) else {
             continue;
         };
-        out.push(
-            path.file_stem()
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("skill");
+        let name = if file_name.eq_ignore_ascii_case("SKILL.md") {
+            path.parent()
+                .and_then(|parent| parent.file_name())
                 .and_then(|value| value.to_str())
-                .unwrap_or("skill")
-                .to_string(),
-        );
+                .filter(|value| !value.is_empty())
+                .unwrap_or(stem)
+        } else {
+            stem
+        };
+        out.push(name.to_string());
     }
 }
 
@@ -633,6 +669,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         assert!(prompt.contains("AGENTS.md"));
@@ -662,6 +699,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            None,
             None,
             None,
             None,
@@ -701,6 +739,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         assert!(prompt.contains("will auto-notify this thread"));
@@ -724,6 +763,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            None,
             None,
             None,
             None,
@@ -755,6 +795,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            None,
             None,
             None,
             None,
@@ -797,6 +838,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         assert!(prompt.contains("Security in zorai is governance over transitions"));
@@ -827,6 +869,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
 
         assert!(prompt.contains("current thread artifact specs directory"));
@@ -838,5 +881,133 @@ mod tests {
         assert!(prompt.contains(
             "continue following up on spawned/background tasks until each one is resolved"
         ));
+    }
+
+    #[tokio::test]
+    async fn system_prompt_omits_terminal_session_discipline_for_tui_client_surface() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let engine =
+            crate::agent::AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let prompt = build_system_prompt(
+            &AgentConfig::default(),
+            "Base prompt",
+            &crate::agent::types::AgentMemory::default(),
+            &crate::agent::task_prompt::memory_paths_for_scope(
+                root.path(),
+                crate::agent::agent_identity::MAIN_AGENT_ID,
+            ),
+            crate::agent::agent_identity::MAIN_AGENT_ID,
+            &engine.list_sub_agents().await,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(zorai_protocol::ClientSurface::Tui),
+        );
+
+        assert!(
+            !prompt.contains("## Terminal Session Discipline"),
+            "TUI client surface has terminal tools stripped — the discipline guidance is misleading and should be omitted"
+        );
+        assert!(
+            !prompt.contains("`list_terminals`"),
+            "no terminal tool references should remain in TUI prompts"
+        );
+        assert!(
+            !prompt.contains("If you must write through a terminal"),
+            "the Large File Writes section should drop its terminal sub-bullets for TUI"
+        );
+    }
+
+    #[tokio::test]
+    async fn system_prompt_keeps_terminal_session_discipline_for_non_tui_surfaces() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let manager = crate::session_manager::SessionManager::new_test(root.path()).await;
+        let engine =
+            crate::agent::AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let prompt = build_system_prompt(
+            &AgentConfig::default(),
+            "Base prompt",
+            &crate::agent::types::AgentMemory::default(),
+            &crate::agent::task_prompt::memory_paths_for_scope(
+                root.path(),
+                crate::agent::agent_identity::MAIN_AGENT_ID,
+            ),
+            crate::agent::agent_identity::MAIN_AGENT_ID,
+            &engine.list_sub_agents().await,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert!(
+            prompt.contains("## Terminal Session Discipline"),
+            "non-TUI / unknown surfaces should still see terminal discipline"
+        );
+        assert!(prompt.contains("`list_terminals`"));
+    }
+
+    #[test]
+    fn render_skill_index_uses_parent_dir_name_for_skill_md_layout() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let brainstorming_dir = root.path().join("brainstorming");
+        std::fs::create_dir_all(&brainstorming_dir).expect("create brainstorming dir");
+        std::fs::write(brainstorming_dir.join("SKILL.md"), "# Brainstorming\n")
+            .expect("write SKILL.md");
+
+        let index = render_skill_index(root.path()).expect("index should render");
+
+        assert!(
+            index.contains("- brainstorming"),
+            "skill index should emit the parent directory name for SKILL.md files, got: {index}"
+        );
+        assert!(
+            !index.contains("- SKILL\n") && index.trim() != "- SKILL",
+            "skill index must not emit the literal 'SKILL' stem, got: {index}"
+        );
+    }
+
+    #[test]
+    fn render_skill_index_keeps_stem_for_flat_md_files() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        std::fs::write(root.path().join("build-pipeline.md"), "# Build pipeline\n")
+            .expect("write skill");
+
+        let index = render_skill_index(root.path()).expect("index should render");
+
+        assert!(
+            index.contains("- build-pipeline"),
+            "skill index should keep stems for flat .md files, got: {index}"
+        );
+    }
+
+    #[test]
+    fn render_skill_index_dedupes_distinct_skill_md_skills_into_separate_entries() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        for name in ["pr-triage", "inbox-triage", "daily-brief"] {
+            let dir = root.path().join(name);
+            std::fs::create_dir_all(&dir).expect("create skill dir");
+            std::fs::write(dir.join("SKILL.md"), format!("# {name}\n")).expect("write SKILL.md");
+        }
+
+        let index = render_skill_index(root.path()).expect("index should render");
+
+        for name in ["pr-triage", "inbox-triage", "daily-brief"] {
+            assert!(
+                index.contains(&format!("- {name}")),
+                "skill index should list each SKILL.md skill distinctly, missing '{name}' in: {index}"
+            );
+        }
     }
 }

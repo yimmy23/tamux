@@ -900,6 +900,7 @@ impl<'a> SendMessageRunner<'a> {
                 None,
                 runtime_continuity.continuity_summary.as_deref(),
                 runtime_continuity.negative_constraints_context.as_deref(),
+                client_surface,
             )
         };
         let runtime_agent_name = task_provider_override

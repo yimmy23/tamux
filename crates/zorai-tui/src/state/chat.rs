@@ -1469,6 +1469,7 @@ impl ChatState {
                 name,
                 args,
                 weles_review,
+                message_id,
             } => {
                 self.pinned_message_top = None;
                 let (content, reasoning) = {
@@ -1500,6 +1501,7 @@ impl ChatState {
                     append_message_to_thread(
                         thread,
                         AgentMessage {
+                            id: message_id,
                             role: MessageRole::Tool,
                             tool_name: Some(name.clone()),
                             tool_call_id: Some(call_id.clone()),
@@ -1533,6 +1535,7 @@ impl ChatState {
                 content,
                 is_error,
                 weles_review,
+                message_id,
             } => {
                 self.pinned_message_top = None;
                 if let Some(activity) = self.thread_activity.get_mut(&thread_id) {
@@ -1563,6 +1566,9 @@ impl ChatState {
                         });
                         msg.weles_review = weles_review;
                         msg.content = content;
+                        if message_id.is_some() {
+                            msg.id = message_id;
+                        }
                     }
                 }
                 self.cleanup_thread_activity(&thread_id);
@@ -1579,6 +1585,7 @@ impl ChatState {
                 generation_ms,
                 reasoning,
                 provider_final_result_json,
+                message_id,
             } => {
                 self.pinned_message_top = None;
                 let (content, mut final_reasoning) = {
@@ -1624,6 +1631,7 @@ impl ChatState {
                 if (!content.is_empty() || !final_reasoning.is_empty()) && !duplicate_reasoning_tail
                 {
                     let msg = AgentMessage {
+                        id: message_id.clone(),
                         role: MessageRole::Assistant,
                         content,
                         reasoning: if final_reasoning.is_empty() {

@@ -672,6 +672,7 @@ impl AgentEngine {
             None,
             None,
             None,
+            None,
         );
         final_prompt.push_str("\n\n");
         final_prompt.push_str(&build_runtime_identity_prompt(

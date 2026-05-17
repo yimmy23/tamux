@@ -57,6 +57,7 @@ fn tool_events_serialize_weles_review_metadata() {
         name: "bash_command".to_string(),
         arguments: "{\"command\":\"rm -rf /tmp/demo\"}".to_string(),
         weles_review: Some(review.clone()),
+        message_id: None,
     };
     let tool_result_event = AgentEvent::ToolResult {
         thread_id: "thread-1".to_string(),
@@ -65,6 +66,7 @@ fn tool_events_serialize_weles_review_metadata() {
         content: "blocked by policy".to_string(),
         is_error: true,
         weles_review: Some(review),
+        message_id: None,
     };
 
     let call_json = serde_json::to_value(&tool_call_event).expect("tool call should serialize");

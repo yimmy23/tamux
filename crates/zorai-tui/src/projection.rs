@@ -112,6 +112,7 @@ pub enum ClientEvent {
         name: String,
         arguments: String,
         weles_review: Option<crate::client::WelesReviewMetaVm>,
+        message_id: Option<String>,
     },
     ToolResult {
         thread_id: String,
@@ -120,6 +121,7 @@ pub enum ClientEvent {
         content: String,
         is_error: bool,
         weles_review: Option<crate::client::WelesReviewMetaVm>,
+        message_id: Option<String>,
     },
     Done {
         thread_id: String,
@@ -132,6 +134,7 @@ pub enum ClientEvent {
         generation_ms: Option<u64>,
         reasoning: Option<String>,
         provider_final_result_json: Option<String>,
+        message_id: Option<String>,
     },
     WorkflowNotice {
         thread_id: Option<String>,
@@ -351,12 +354,14 @@ impl DaemonProjection {
                 name,
                 arguments,
                 weles_review,
+                message_id,
             } => vec![AppAction::Chat(ChatAction::ToolCall {
                 thread_id,
                 call_id,
                 name,
                 args: arguments,
                 weles_review,
+                message_id,
             })],
             ClientEvent::ToolResult {
                 thread_id,
@@ -365,6 +370,7 @@ impl DaemonProjection {
                 content,
                 is_error,
                 weles_review,
+                message_id,
             } => vec![AppAction::Chat(ChatAction::ToolResult {
                 thread_id,
                 call_id,
@@ -372,6 +378,7 @@ impl DaemonProjection {
                 content,
                 is_error,
                 weles_review,
+                message_id,
             })],
             ClientEvent::Done {
                 thread_id,
@@ -384,6 +391,7 @@ impl DaemonProjection {
                 generation_ms,
                 reasoning,
                 provider_final_result_json,
+                message_id,
             } => vec![AppAction::Chat(ChatAction::TurnDone {
                 thread_id,
                 input_tokens,
@@ -395,6 +403,7 @@ impl DaemonProjection {
                 generation_ms,
                 reasoning,
                 provider_final_result_json,
+                message_id,
             })],
 
             ClientEvent::MessageFeedbackUpdated { .. } => vec![],
@@ -454,7 +463,9 @@ mod tests {
             generation_ms: Some(1200),
             reasoning: Some("summary".into()),
             provider_final_result_json: None,
-        });
+        
+            message_id: None,
+});
         assert!(actions
             .iter()
             .any(|a| matches!(a, AppAction::Chat(ChatAction::TurnDone { .. }))));
@@ -484,7 +495,9 @@ mod tests {
             name: "bash".into(),
             arguments: "ls -la".into(),
             weles_review: None,
-        });
+        
+            message_id: None,
+});
         match &actions[0] {
             AppAction::Chat(ChatAction::ToolCall { args, .. }) => {
                 assert_eq!(args, "ls -la");

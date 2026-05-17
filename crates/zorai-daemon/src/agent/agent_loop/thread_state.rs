@@ -187,7 +187,7 @@ impl AgentEngine {
         model: Option<String>,
         api_transport: Option<ApiTransport>,
         response_id: Option<String>,
-    ) {
+    ) -> Option<String> {
         self.add_assistant_message_with_upstream_message(
             thread_id,
             content,
@@ -201,7 +201,7 @@ impl AgentEngine {
             None,
             None,
         )
-        .await;
+        .await
     }
 
     pub(in crate::agent) async fn add_assistant_message_with_upstream_message(
@@ -217,13 +217,14 @@ impl AgentEngine {
         response_id: Option<String>,
         upstream_message: Option<CompletionUpstreamMessage>,
         provider_final_result: Option<CompletionProviderFinalResult>,
-    ) {
+    ) -> Option<String> {
         let (author_agent_id, author_agent_name) =
             self.assistant_author_identity_for_thread(thread_id).await;
         let mut threads = self.threads.write().await;
-        if let Some(thread) = threads.get_mut(thread_id) {
+        let inserted_id = if let Some(thread) = threads.get_mut(thread_id) {
+            let id = generate_message_id();
             thread.messages.push(AgentMessage {
-                id: generate_message_id(),
+                id: id.clone(),
                 role: MessageRole::Assistant,
                 content: content.into(),
                 content_blocks: Vec::new(),
@@ -258,7 +259,10 @@ impl AgentEngine {
             thread.total_input_tokens += input_tokens;
             thread.total_output_tokens += output_tokens;
             thread.updated_at = now_millis();
-        }
+            Some(id)
+        } else {
+            None
+        };
         drop(threads);
         self.persist_thread_by_id(thread_id).await;
         if let Err(error) = self.maybe_sync_thread_to_honcho(thread_id).await {
@@ -267,6 +271,7 @@ impl AgentEngine {
         if let Err(error) = self.analyze_emergent_protocol_for_thread(thread_id).await {
             tracing::debug!(thread_id = %thread_id, error = %error, "emergent protocol analysis failed after assistant message");
         }
+        inserted_id
     }
 
     pub(in crate::agent) async fn emit_turn_error_completion(
@@ -292,6 +297,7 @@ impl AgentEngine {
             reasoning: None,
             upstream_message: None,
             provider_final_result: None,
+            message_id: None,
         });
     }
 

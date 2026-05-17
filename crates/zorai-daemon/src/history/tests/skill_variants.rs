@@ -729,6 +729,63 @@ async fn rebalance_skill_variants_promotes_strong_variant() -> Result<()> {
 }
 
 #[tokio::test]
+async fn rebalance_skill_variants_does_not_promote_small_sample_variant_over_confident_canonical(
+) -> Result<()> {
+    // Statistical-significance guard: a 5/5 variant looks 100% successful but the
+    // canonical with 50/50 settlements at 70% success is far more confidently good.
+    // The Wilson lower bound for n=5 at p=1.0 (~0.566) sits below n=50 at p=0.7
+    // (~0.562) plus the promotion margin, so the variant should stay "active".
+    let (store, root) = make_test_store().await?;
+    store.init_schema().await?;
+    let canonical = root.join("skills/generated/build-pipeline.md");
+    let variant = root.join("skills/generated/build-pipeline--frontend.md");
+    fs::write(&canonical, "# Build pipeline\nRun cargo build.\n")?;
+    fs::write(
+        &variant,
+        "# Frontend build pipeline\nUse react build checks.\n",
+    )?;
+
+    let canonical_record = store.register_skill_document(&canonical).await?;
+    let variant_record = store.register_skill_document(&variant).await?;
+    let cv = canonical_record.variant_id.clone();
+    let vv = variant_record.variant_id.clone();
+    store.conn.call(move |conn| {
+        let now = now_ts() as i64;
+        conn.execute(
+            "UPDATE skill_variants SET use_count = 50, success_count = 35, failure_count = 15, last_used_at = ?2 WHERE variant_id = ?1",
+            params![cv, now],
+        )?;
+        conn.execute(
+            "UPDATE skill_variants SET use_count = 5, success_count = 5, failure_count = 0, last_used_at = ?2 WHERE variant_id = ?1",
+            params![vv, now],
+        )?;
+        Ok(())
+    }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let variants = store.rebalance_skill_variants("build-pipeline").await?;
+    let variant_after = variants
+        .iter()
+        .find(|v| v.variant_id == variant_record.variant_id)
+        .expect("variant should exist");
+    let canonical_after = variants
+        .iter()
+        .find(|v| v.variant_id == canonical_record.variant_id)
+        .expect("canonical should exist");
+
+    assert_eq!(
+        variant_after.status, "active",
+        "small-sample variant must not be promoted past a confidently-good canonical"
+    );
+    assert_eq!(
+        canonical_after.status, "active",
+        "canonical should remain active when no variant promotes"
+    );
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn rebalance_skill_variants_requires_recent_success_streak_for_promotion() -> Result<()> {
     let (store, root) = make_test_store().await?;
     store.init_schema().await?;

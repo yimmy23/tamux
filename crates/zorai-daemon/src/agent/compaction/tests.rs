@@ -2220,12 +2220,12 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
     assert_eq!(thread.messages.len(), 4);
     assert_eq!(thread.messages[0].content, "older one");
     assert_eq!(thread.messages[1].content, "older two");
+    assert_eq!(thread.messages[2].content, "recent one");
     let artifact = compaction_artifact_message(&thread);
     assert_eq!(
-        thread.messages[2].message_kind,
+        thread.messages[3].message_kind,
         AgentMessageKind::CompactionArtifact
     );
-    assert_eq!(thread.messages[3].content, "recent one");
     assert_eq!(artifact.message_kind, AgentMessageKind::CompactionArtifact);
     assert_eq!(
         artifact.compaction_strategy,
@@ -2265,7 +2265,7 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
     );
 
     let compacted = compact_messages_for_request(&thread.messages, &config, &provider);
-    assert_eq!(compacted.len(), 2);
+    assert_eq!(compacted.len(), 1);
     assert_eq!(
         compacted[0].content,
         artifact
@@ -2273,7 +2273,6 @@ async fn heuristic_compaction_artifact_persists_and_request_uses_hidden_payload(
             .clone()
             .expect("artifact should carry hidden payload")
     );
-    assert_eq!(compacted[1].content, "recent one");
 
     let manager = SessionManager::new_test(root.path()).await;
     let rehydrated = AgentEngine::new_test(manager, config, root.path()).await;
@@ -2878,27 +2877,23 @@ async fn conversational_compaction_still_uses_checkpoint_summary_path() {
         thread.messages[1].content,
         "We already covered the budget and timeline updates."
     );
-    let artifact = compaction_artifact_message(&thread);
     assert_eq!(
-        thread.messages[2].message_kind,
-        AgentMessageKind::CompactionArtifact
-    );
-    assert_eq!(
-        thread.messages[3].content,
+        thread.messages[2].content,
         "Continue the summary for the next participant."
     );
+    let artifact = compaction_artifact_message(&thread);
+    assert_eq!(
+        thread.messages[3].message_kind,
+        AgentMessageKind::CompactionArtifact
+    );
     let compacted = compact_messages_for_request(&thread.messages, &config, &provider);
-    assert_eq!(compacted.len(), 2);
+    assert_eq!(compacted.len(), 1);
     assert_eq!(
         compacted[0].content,
         artifact
             .compaction_payload
             .clone()
             .expect("artifact should carry hidden payload")
-    );
-    assert_eq!(
-        compacted[1].content,
-        "Continue the summary for the next participant."
     );
     let payload = artifact
         .compaction_payload
@@ -3016,14 +3011,14 @@ async fn internal_dm_thread_uses_checkpoint_compaction_even_with_structural_stat
         "Review the recent governance exchange."
     );
     assert_eq!(thread.messages[1].content, "Tool result offloaded");
+    assert_eq!(thread.messages[2].content, "Continue the discussion.");
     let artifact = compaction_artifact_message(&thread);
     assert_eq!(
-        thread.messages[2].message_kind,
+        thread.messages[3].message_kind,
         AgentMessageKind::CompactionArtifact
     );
-    assert_eq!(thread.messages[3].content, "Continue the discussion.");
     let compacted = compact_messages_for_request(&thread.messages, &config, &provider);
-    assert_eq!(compacted.len(), 2);
+    assert_eq!(compacted.len(), 1);
     assert_eq!(
         compacted[0].content,
         artifact
@@ -3031,7 +3026,6 @@ async fn internal_dm_thread_uses_checkpoint_compaction_even_with_structural_stat
             .clone()
             .expect("artifact should carry hidden payload")
     );
-    assert_eq!(compacted[1].content, "Continue the discussion.");
     let payload = artifact
         .compaction_payload
         .as_deref()

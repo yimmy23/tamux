@@ -297,6 +297,7 @@ impl ExternalAgentRunner {
             reasoning: None,
             upstream_message: None,
             provider_final_result: None,
+            message_id: None,
         });
 
         tracing::info!(

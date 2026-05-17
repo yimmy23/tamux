@@ -58,7 +58,6 @@ impl HistoryStore {
         let thread_id = thread_id.map(str::to_string);
         let task_id = task_id.map(str::to_string);
         let goal_run_id = goal_run_id.map(str::to_string);
-        let _outcome = outcome.to_string();
         let (pending_len, skill_names) = self.conn.call(move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT usage_id, variant_id FROM skill_variant_usage \
@@ -332,7 +331,6 @@ impl HistoryStore {
         skill_name: &str,
     ) -> Result<Vec<SkillVariantRecord>> {
         let skill_name = skill_name.to_string();
-        let skill_name = skill_name.to_string();
         self.conn.call(move |conn| {
             let mut stmt = conn.prepare(
                 "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
@@ -349,9 +347,9 @@ impl HistoryStore {
                 .iter()
                 .find(|variant| variant.is_canonical())
                 .cloned();
-            let canonical_success_rate = canonical
+            let canonical_wilson_lower = canonical
                 .as_ref()
-                .map(SkillVariantRecord::success_rate)
+                .map(|c| wilson_lower_bound(c.success_count, c.use_count))
                 .unwrap_or(0.0);
             let promoted_variant_id = {
                 let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
@@ -359,10 +357,13 @@ impl HistoryStore {
                 .iter()
                 .filter(|variant| !variant.is_canonical())
                 .filter(|variant| {
+                    let variant_wilson_lower =
+                        wilson_lower_bound(variant.success_count, variant.use_count);
                     variant.use_count >= SKILL_PROMOTION_MIN_USES
                         && variant.success_count >= SKILL_PROMOTION_MIN_SUCCESS_COUNT
                         && variant.success_rate() >= SKILL_PROMOTION_SUCCESS_RATE_THRESHOLD
-                        && variant.success_rate() > canonical_success_rate + SKILL_PROMOTION_MARGIN
+                        && variant_wilson_lower
+                            > canonical_wilson_lower + SKILL_PROMOTION_MARGIN
                         && recent_skill_variant_outcomes_allow_promotion(conn, &variant.variant_id, 3)
                             .unwrap_or(false)
                 })

@@ -258,8 +258,16 @@ impl TuiModel {
                 name,
                 arguments,
                 weles_review,
+                message_id,
             } => {
-                self.handle_tool_call_event(thread_id, call_id, name, arguments, weles_review);
+                self.handle_tool_call_event(
+                    thread_id,
+                    call_id,
+                    name,
+                    arguments,
+                    weles_review,
+                    message_id,
+                );
                 None
             }
             ClientEvent::ToolResult {
@@ -269,6 +277,7 @@ impl TuiModel {
                 content,
                 is_error,
                 weles_review,
+                message_id,
             } => {
                 self.handle_tool_result_event(
                     thread_id,
@@ -277,6 +286,7 @@ impl TuiModel {
                     content,
                     is_error,
                     weles_review,
+                    message_id,
                 );
                 None
             }
@@ -291,6 +301,7 @@ impl TuiModel {
                 generation_ms,
                 reasoning,
                 provider_final_result_json,
+                message_id,
             } => {
                 self.handle_done_event(
                     thread_id,
@@ -303,6 +314,7 @@ impl TuiModel {
                     generation_ms,
                     reasoning,
                     provider_final_result_json,
+                    message_id,
                 );
                 None
             }

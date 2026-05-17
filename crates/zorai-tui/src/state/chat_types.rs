@@ -280,6 +280,11 @@ pub enum ChatAction {
         name: String,
         args: String,
         weles_review: Option<WelesReviewMetaVm>,
+        /// Persisted daemon `agent_messages.id` for the row that will hold this
+        /// tool call, if the daemon has already assigned one. When `Some`, the
+        /// chat reducer rewrites the latest matching tool-call message's id so
+        /// downstream per-message actions (feedback, pin) target the real row.
+        message_id: Option<String>,
     },
     ToolResult {
         thread_id: String,
@@ -288,6 +293,8 @@ pub enum ChatAction {
         content: String,
         is_error: bool,
         weles_review: Option<WelesReviewMetaVm>,
+        /// Persisted daemon `agent_messages.id` for the tool-result row.
+        message_id: Option<String>,
     },
     TurnDone {
         thread_id: String,
@@ -300,6 +307,9 @@ pub enum ChatAction {
         generation_ms: Option<u64>,
         reasoning: Option<String>,
         provider_final_result_json: Option<String>,
+        /// Persisted daemon `agent_messages.id` for the assistant message that
+        /// just finished streaming.
+        message_id: Option<String>,
     },
     SetRetryStatus {
         thread_id: String,

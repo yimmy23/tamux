@@ -187,6 +187,7 @@ impl TuiModel {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::app) fn handle_tool_call_event(
         &mut self,
         thread_id: String,
@@ -194,6 +195,7 @@ impl TuiModel {
         name: String,
         arguments: String,
         weles_review: Option<crate::client::WelesReviewMetaVm>,
+        message_id: Option<String>,
     ) {
         if self.mark_participant_playground_active(&thread_id) {
             return;
@@ -218,10 +220,12 @@ impl TuiModel {
                 name,
                 args: arguments,
                 weles_review,
+                message_id,
             },
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::app) fn handle_tool_result_event(
         &mut self,
         thread_id: String,
@@ -230,6 +234,7 @@ impl TuiModel {
         content: String,
         is_error: bool,
         weles_review: Option<crate::client::WelesReviewMetaVm>,
+        message_id: Option<String>,
     ) {
         if self.mark_participant_playground_active(&thread_id) {
             return;
@@ -261,6 +266,7 @@ impl TuiModel {
                 content,
                 is_error,
                 weles_review,
+                message_id,
             },
         );
         if let Some(path) = maybe_tts_path {
@@ -282,6 +288,7 @@ impl TuiModel {
         generation_ms: Option<u64>,
         reasoning: Option<String>,
         provider_final_result_json: Option<String>,
+        message_id: Option<String>,
     ) {
         if let Some(visible_thread_id) = self.clear_participant_playground_activity(&thread_id) {
             if self.chat.active_thread_id() == Some(visible_thread_id.as_str()) {
@@ -325,6 +332,7 @@ impl TuiModel {
                 generation_ms,
                 reasoning,
                 provider_final_result_json,
+                message_id,
             },
         );
 

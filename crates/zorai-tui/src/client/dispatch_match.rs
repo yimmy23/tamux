@@ -116,6 +116,7 @@ impl DaemonClient {
                         name: get_string(&event, "name").unwrap_or_default(),
                         arguments: get_string_lossy(&event, "arguments"),
                         weles_review: Self::parse_weles_review(&event),
+                        message_id: get_string(&event, "message_id"),
                     })
                     .await;
             }
@@ -135,6 +136,7 @@ impl DaemonClient {
                             .and_then(Value::as_bool)
                             .unwrap_or(false),
                         weles_review: Self::parse_weles_review(&event),
+                        message_id: get_string(&event, "message_id"),
                     })
                     .await;
             }
@@ -163,6 +165,7 @@ impl DaemonClient {
                         provider_final_result_json: event
                             .get("provider_final_result")
                             .and_then(|value| serde_json::to_string(value).ok()),
+                        message_id: get_string(&event, "message_id"),
                     })
                     .await;
             }

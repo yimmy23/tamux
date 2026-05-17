@@ -166,21 +166,6 @@ pub fn reorder_tools_by_heuristics(
     }
 
     tools.sort_by(|a, b| {
-        let score_cmp = match (
-            scores.get(&a.function.name).copied(),
-            scores.get(&b.function.name).copied(),
-        ) {
-            (Some(score_a), Some(score_b)) => score_b
-                .partial_cmp(&score_a)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
-        };
-        if score_cmp != std::cmp::Ordering::Equal {
-            return score_cmp;
-        }
-
         if prioritize_clarification {
             match (
                 a.function
@@ -194,6 +179,21 @@ pub fn reorder_tools_by_heuristics(
                 (false, true) => return std::cmp::Ordering::Greater,
                 _ => {}
             }
+        }
+
+        let score_cmp = match (
+            scores.get(&a.function.name).copied(),
+            scores.get(&b.function.name).copied(),
+        ) {
+            (Some(score_a), Some(score_b)) => score_b
+                .partial_cmp(&score_a)
+                .unwrap_or(std::cmp::Ordering::Equal),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        };
+        if score_cmp != std::cmp::Ordering::Equal {
+            return score_cmp;
         }
 
         match (

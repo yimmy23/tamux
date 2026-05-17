@@ -392,6 +392,7 @@ impl<'a> SendMessageRunner<'a> {
                 name: tc.function.name.clone(),
                 arguments: tc.function.arguments.clone(),
                 weles_review: tc.weles_review.clone(),
+                message_id: None,
             });
 
             if self.handle_tool_filter_denial(tc).await {
@@ -577,6 +578,7 @@ impl<'a> SendMessageRunner<'a> {
     }
 
     async fn persist_denied_tool_result(&mut self, tc: &ToolCall, content: String) {
+        let persisted_message_id = generate_message_id();
         let _ = self.engine.event_tx.send(AgentEvent::ToolResult {
             thread_id: self.tid.clone(),
             call_id: tc.id.clone(),
@@ -584,12 +586,13 @@ impl<'a> SendMessageRunner<'a> {
             content: content.clone(),
             is_error: true,
             weles_review: tc.weles_review.clone(),
+            message_id: Some(persisted_message_id.clone()),
         });
         let mut threads = self.engine.threads.write().await;
         if let Some(thread) = threads.get_mut(&self.tid) {
             self.tool_side_effect_committed = true;
             thread.messages.push(AgentMessage {
-                id: generate_message_id(),
+                id: persisted_message_id,
                 role: MessageRole::Tool,
                 content,
                 content_blocks: Vec::new(),

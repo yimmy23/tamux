@@ -363,6 +363,7 @@ mod tests {
             Some("## Episodic Context\n- Past failure on sync path"),
             Some("## Working Continuity\n- Keep the new approach aligned"),
             Some("## Ruled-Out Approaches (Negative Knowledge)\n- Dead: old sync path"),
+            None,
         );
 
         assert!(prompt.contains("## Episodic Context"));

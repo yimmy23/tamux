@@ -33,6 +33,7 @@ impl<'a> SendMessageRunner<'a> {
             .engine
             .get_thread_memory_injection_state(&self.tid)
             .await;
+        let client_surface = self.engine.get_thread_client_surface(&self.tid).await;
         self.system_prompt = build_system_prompt(
             &self.config,
             &self.base_prompt,
@@ -47,6 +48,7 @@ impl<'a> SendMessageRunner<'a> {
             None,
             self.continuity_summary.as_deref(),
             self.negative_constraints_context.as_deref(),
+            client_surface,
         );
         self.system_prompt.push_str("\n\n");
         self.system_prompt.push_str(&build_runtime_identity_prompt(

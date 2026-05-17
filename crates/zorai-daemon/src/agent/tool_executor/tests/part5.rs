@@ -290,6 +290,79 @@ fn reorder_tools_by_heuristics_keeps_order_stable_when_no_preferred_match_exists
 }
 
 #[test]
+fn reorder_tools_promotes_ask_questions_when_prioritize_clarification_is_set_even_against_scored_tools(
+) {
+    let mut tools = vec![
+        named_tool("highest_score"),
+        named_tool("other_unscored"),
+        named_tool(zorai_protocol::tool_names::ASK_QUESTIONS),
+    ];
+    let store = crate::agent::learning::heuristics::HeuristicStore {
+        tool_heuristics: vec![crate::agent::learning::heuristics::ToolHeuristic {
+            tool_name: "highest_score".to_string(),
+            task_type: "coding".to_string(),
+            effectiveness_score: 0.95,
+            avg_duration_ms: 10,
+            usage_count: 5,
+        }],
+        ..Default::default()
+    };
+
+    super::reorder_tools_by_heuristics(&mut tools, &store, "coding", &[], true);
+
+    assert_eq!(
+        tools.first().map(|tool| tool.function.name.as_str()),
+        Some(zorai_protocol::tool_names::ASK_QUESTIONS),
+        "prioritize_clarification must move ASK_QUESTIONS to the top even when other tools have heuristic scores"
+    );
+}
+
+#[test]
+fn reorder_tools_keeps_score_order_among_non_clarification_tools_when_prioritize_clarification_is_set(
+) {
+    let mut tools = vec![
+        named_tool("second_score"),
+        named_tool(zorai_protocol::tool_names::ASK_QUESTIONS),
+        named_tool("highest_score"),
+    ];
+    let store = crate::agent::learning::heuristics::HeuristicStore {
+        tool_heuristics: vec![
+            crate::agent::learning::heuristics::ToolHeuristic {
+                tool_name: "highest_score".to_string(),
+                task_type: "coding".to_string(),
+                effectiveness_score: 0.95,
+                avg_duration_ms: 10,
+                usage_count: 5,
+            },
+            crate::agent::learning::heuristics::ToolHeuristic {
+                tool_name: "second_score".to_string(),
+                task_type: "coding".to_string(),
+                effectiveness_score: 0.75,
+                avg_duration_ms: 10,
+                usage_count: 5,
+            },
+        ],
+        ..Default::default()
+    };
+
+    super::reorder_tools_by_heuristics(&mut tools, &store, "coding", &[], true);
+
+    let ordered = tools
+        .iter()
+        .map(|tool| tool.function.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ordered,
+        vec![
+            zorai_protocol::tool_names::ASK_QUESTIONS,
+            "highest_score",
+            "second_score",
+        ],
+        "ASK_QUESTIONS leads; remaining tools keep heuristic-score ordering"
+    );
+}
+
+#[test]
 fn list_sessions_tool_requires_workspace_topology() {
     let config = AgentConfig::default();
     let temp_dir = std::env::temp_dir();

@@ -102,7 +102,8 @@ impl<'a> SendMessageRunner<'a> {
                 let fallback_message = unexpected_stream_end_message(&accumulated_content);
                 let final_reasoning = (!accumulated_reasoning.trim().is_empty())
                     .then_some(accumulated_reasoning.clone());
-                self.engine
+                let persisted_message_id = self
+                    .engine
                     .add_assistant_message(
                         &self.tid,
                         &fallback_message,
@@ -138,6 +139,7 @@ impl<'a> SendMessageRunner<'a> {
                     reasoning: final_reasoning,
                     upstream_message: None,
                     provider_final_result: None,
+                    message_id: persisted_message_id,
                 });
                 Ok(LoopDisposition::Break)
             }
@@ -196,7 +198,8 @@ impl<'a> SendMessageRunner<'a> {
             self.retry_status_visible = false;
         }
 
-        self.engine
+        let persisted_message_id = self
+            .engine
             .add_assistant_message_with_upstream_message(
                 &self.tid,
                 &final_content,
@@ -268,6 +271,7 @@ impl<'a> SendMessageRunner<'a> {
             reasoning: final_reasoning,
             upstream_message,
             provider_final_result,
+            message_id: persisted_message_id,
         });
         Ok(())
     }

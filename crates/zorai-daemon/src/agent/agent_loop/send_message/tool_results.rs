@@ -426,6 +426,7 @@ impl<'a> SendMessageRunner<'a> {
         let tool_result_name = result.name.clone();
         let tool_result_id = result.tool_call_id.clone();
         let tool_status = if result.is_error { "error" } else { "done" };
+        let persisted_message_id = generate_message_id();
 
         let _ = self.engine.event_tx.send(AgentEvent::ToolResult {
             thread_id: self.tid.clone(),
@@ -434,6 +435,7 @@ impl<'a> SendMessageRunner<'a> {
             content: tool_result_content.clone(),
             is_error: result.is_error,
             weles_review: result.weles_review.clone(),
+            message_id: Some(persisted_message_id.clone()),
         });
 
         {
@@ -441,7 +443,7 @@ impl<'a> SendMessageRunner<'a> {
             if let Some(thread) = threads.get_mut(&self.tid) {
                 self.tool_side_effect_committed = true;
                 thread.messages.push(AgentMessage {
-                    id: generate_message_id(),
+                    id: persisted_message_id,
                     role: MessageRole::Tool,
                     content: tool_result_content,
                     content_blocks: Vec::new(),
@@ -640,6 +642,7 @@ impl<'a> SendMessageRunner<'a> {
                 reasoning: None,
                 upstream_message: None,
                 provider_final_result: None,
+                message_id: None,
             });
             return Ok(ToolCallDisposition::BreakLoop);
         }
