@@ -556,3 +556,11 @@ fn bash_command_does_not_force_background_for_quick_process_commands() {
         );
     }
 }
+
+#[test]
+fn bash_command_does_not_force_background_when_weles_forces_headless() {
+    assert!(!bash_command_should_force_background(&serde_json::json!({
+        "command": "python3 -c \"from pathlib import Path; Path('/tmp/demo').write_text('hi')\"",
+        "__weles_force_headless": true
+    })));
+}

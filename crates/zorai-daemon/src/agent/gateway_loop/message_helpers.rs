@@ -30,6 +30,10 @@ impl AgentEngine {
             GoalRunStatus::Completed => "Goal completed",
             GoalRunStatus::Failed => "Goal failed",
             GoalRunStatus::Cancelled => "Goal cancelled",
+            GoalRunStatus::Contained => "Goal contained for review",
+            GoalRunStatus::Compensated => "Goal compensated",
+            GoalRunStatus::PartiallyCompensated => "Goal partially compensated",
+            GoalRunStatus::BreakGlass => "Goal completed under break-glass override",
         }
     }
 

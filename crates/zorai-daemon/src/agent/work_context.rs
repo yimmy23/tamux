@@ -53,6 +53,13 @@ fn goal_run_status_to_event_kind(status: GoalRunStatus) -> &'static str {
         GoalRunStatus::Running => "step_started",
         GoalRunStatus::AwaitingApproval => "step_started",
         GoalRunStatus::Paused => "paused",
+        // Break-glass and compensated outcomes are terminal-ish "completed"
+        // for autonomy-level filtering; the audit trail distinguishes them.
+        GoalRunStatus::Compensated | GoalRunStatus::BreakGlass => "completed",
+        // Contained and PartiallyCompensated landed in degraded outcomes —
+        // bucket with "failed" so autonomy filters surface them as needing
+        // operator follow-up.
+        GoalRunStatus::Contained | GoalRunStatus::PartiallyCompensated => "failed",
     }
 }
 

@@ -557,6 +557,23 @@ impl AgentEngine {
         };
 
         self.persist_goal_runs().await;
+        crate::governance::record_transition_audit(
+            &self.history,
+            crate::governance::TransitionKind::FinalDisposition,
+            crate::governance::TransitionAuditIds {
+                goal_run_id: Some(updated.id.clone()),
+                thread_id: updated.thread_id.clone(),
+                ..Default::default()
+            },
+            serde_json::json!({
+                "outcome": "completed",
+                "title": updated.title.clone(),
+                "duration_ms": updated.duration_ms,
+                "generated_skill_path": updated.generated_skill_path.clone(),
+            }),
+            "completed",
+        )
+        .await;
         self.record_generated_skill_work_context(&updated).await;
         if let Some(thread_id) = updated.thread_id.as_deref() {
             self.record_file_work_context(
@@ -742,6 +759,23 @@ impl AgentEngine {
         }
         if let Some(updated) = maybe_updated {
             self.persist_goal_runs().await;
+            crate::governance::record_transition_audit(
+                &self.history,
+                crate::governance::TransitionKind::FinalDisposition,
+                crate::governance::TransitionAuditIds {
+                    goal_run_id: Some(updated.id.clone()),
+                    thread_id: updated.thread_id.clone(),
+                    ..Default::default()
+                },
+                serde_json::json!({
+                    "outcome": "failed",
+                    "phase": phase,
+                    "error": error,
+                    "duration_ms": updated.duration_ms,
+                }),
+                "failed",
+            )
+            .await;
             self.settle_goal_skill_consultations(&updated, "failure")
                 .await;
             self.settle_goal_plan_causal_traces(&updated.id, "failure", Some(error))

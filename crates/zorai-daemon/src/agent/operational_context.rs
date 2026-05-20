@@ -181,6 +181,10 @@ fn goal_run_status_label(status: GoalRunStatus) -> &'static str {
         GoalRunStatus::Completed => "completed",
         GoalRunStatus::Failed => "failed",
         GoalRunStatus::Cancelled => "cancelled",
+        GoalRunStatus::Contained => "contained",
+        GoalRunStatus::Compensated => "compensated",
+        GoalRunStatus::PartiallyCompensated => "partially-compensated",
+        GoalRunStatus::BreakGlass => "break-glass",
     }
 }
 

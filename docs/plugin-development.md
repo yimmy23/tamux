@@ -4,7 +4,6 @@ Zorai plugins are frontend-registered extensions. A plugin can contribute:
 
 - React components
 - command handlers
-- YAML views
 - assistant-callable tools and executors
 - startup and teardown hooks
 
@@ -19,7 +18,7 @@ Zorai now supports two plugin paths.
 This is the model used by the built-in coding-agents plugin.
 
 1. Add plugin source code under [frontend/src/plugins](../frontend/src/plugins).
-2. Import and register it from app startup code such as [frontend/src/CDUIApp.tsx](../frontend/src/CDUIApp.tsx).
+2. Import and call its `registerPlugin` function from the frontend bootstrap (see the existing in-tree plugins' `registerPlugin.ts` for the pattern).
 3. Build and validate with the normal frontend or Electron workflows.
 
 ### 2. Runtime-Installed npm Plugins
@@ -54,7 +53,6 @@ export interface Plugin {
   version: string;
   components?: Record<string, React.ComponentType<any>>;
   commands?: Record<string, CommandAction>;
-  views?: Record<string, unknown>;
   assistantTools?: PluginAssistantToolDefinition[];
   assistantToolExecutors?: Record<string, PluginAssistantToolExecutor>;
   onLoad?: () => void;
@@ -66,7 +64,6 @@ Important behavior:
 
 - component names are registered as `${plugin.id}:${name}`,
 - command ids are registered as `${plugin.id}:${name}`,
-- plugin YAML views are persisted into `views/plugins`,
 - assistant tools are merged into the agent tool list at runtime.
 
 ## package.json Contract For npm Plugins
@@ -223,21 +220,6 @@ Python manifest rules:
 - `env` can be either a string path to an activation script or a boolean.
 - `env: true` tells Zorai to prefer `uv` for `.venv` creation and fall back to `python -m venv`.
 
-## Plugin Views
-
-Plugins can ship YAML view documents through the `views` field.
-
-Runtime behavior:
-
-- each view entry is serialized to YAML,
-- stored under `~/.zorai/views/plugins`,
-- loaded by the CDUI loader after the base stack,
-- assigned an id of the form `plugin:<filename-without-extension>`.
-
-Use plugin views when the feature owns a complete panel, overlay, or embedded surface.
-
-If you only need a small UI fragment inside an existing core view, adding a component and mounting it from existing YAML is often simpler.
-
 ## Assistant Tools In Plugins
 
 Plugins can extend the assistant tool list with OpenAI-style function tools.
@@ -304,16 +286,9 @@ For an npm-distributed plugin package, also validate:
 - `zorai install plugin <path-or-package>` records the plugin in `~/.zorai/plugins/registry.json`,
 - Electron startup loads the script without console errors.
 
-For YAML-backed plugin views, also verify that:
-
-- the persisted YAML appears under `~/.zorai/views/plugins`,
-- the plugin view renders in CDUI mode,
-- every referenced component type resolves.
-
 ## Common Failure Modes
 
 - Plugin registers twice: guard registration with a module-level `registered` flag.
-- YAML view persists but does not render: the component type is not namespaced correctly.
 - Electron feature silently fails in browser preview: the bridge is only available in Electron.
 - Assistant tool loops or repeats: ensure the executor returns a proper tool result and verify the tool name matches the declared schema.
 
@@ -322,8 +297,3 @@ For YAML-backed plugin views, also verify that:
 - Keep plugin ids short and stable because they become part of public component and command names.
 - Prefer explicit bridges over hidden globals for privileged behavior.
 - Avoid coupling plugin code directly to daemon internals unless the feature truly needs a new backend capability.
-- Treat plugin YAML as composition and layout, not as a place to hide business logic.
-
-## Relationship To CDUI YAML Authoring
-
-Plugin views use the same YAML view schema as core views. If you need the document structure, block pattern, or `ViewMount` conventions, see [docs/cdui-yaml-views.md](./cdui-yaml-views.md).

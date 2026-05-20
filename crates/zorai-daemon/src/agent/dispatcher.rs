@@ -653,6 +653,22 @@ impl AgentEngine {
         };
 
         self.persist_goal_runs().await;
+        crate::governance::record_transition_audit(
+            &self.history,
+            crate::governance::TransitionKind::LaneRetry,
+            crate::governance::TransitionAuditIds {
+                goal_run_id: Some(goal_run_id.to_string()),
+                thread_id: updated.thread_id.clone(),
+                ..Default::default()
+            },
+            serde_json::json!({
+                "pause_reason": reason.notification_kind(),
+                "operator_label": reason.operator_label(),
+                "error": error_text,
+            }),
+            "paused_for_retry",
+        )
+        .await;
         self.emit_goal_run_update(&updated, Some(message.clone()));
         if let Some(notification) = notification {
             if let Err(error) = self.upsert_inbox_notification(notification).await {

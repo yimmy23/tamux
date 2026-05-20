@@ -422,22 +422,22 @@ impl SessionManager {
         }
     }
 
-    async fn has_valid_session_grant(
+    async fn find_valid_session_grant(
         &self,
         session_id: SessionId,
         policy_fingerprint: &str,
-    ) -> bool {
+    ) -> Option<SessionApprovalGrant> {
         self.prune_expired_session_grants(session_id).await;
         self.session_approval_grants
             .read()
             .await
             .get(&session_id)
-            .map(|grants| {
+            .and_then(|grants| {
                 grants
                     .iter()
-                    .any(|grant| grant.policy_fingerprint == policy_fingerprint)
+                    .find(|grant| grant.policy_fingerprint == policy_fingerprint)
+                    .cloned()
             })
-            .unwrap_or(false)
     }
 
     async fn store_session_grant(
@@ -468,6 +468,9 @@ impl SessionManager {
         rows: u16,
     ) -> Result<(SessionId, broadcast::Receiver<DaemonMessage>)> {
         let id = Uuid::new_v4();
+        let shell_for_audit = shell.clone();
+        let cwd_for_audit = cwd.clone();
+        let workspace_for_audit = workspace_id.clone();
         let session = PtySession::spawn(
             id,
             shell,
@@ -487,6 +490,25 @@ impl SessionManager {
             .insert(id, Arc::new(Mutex::new(session)));
 
         self.persist_state().await;
+
+        crate::governance::record_transition_audit(
+            &self.history,
+            crate::governance::TransitionKind::LaneAdmission,
+            crate::governance::TransitionAuditIds {
+                run_id: Some(id.to_string()),
+                ..Default::default()
+            },
+            serde_json::json!({
+                "session_id": id.to_string(),
+                "shell": shell_for_audit,
+                "cwd": cwd_for_audit,
+                "workspace_id": workspace_for_audit,
+                "cols": cols,
+                "rows": rows,
+            }),
+            "admitted",
+        )
+        .await;
 
         tracing::info!(%id, "session spawned");
         Ok((id, rx))
@@ -876,10 +898,34 @@ impl SessionManager {
                             .map(|window| requested_at + window)
                     });
 
-                if self
-                    .has_valid_session_grant(id, &verdict.policy_fingerprint)
+                if let Some(grant) = self
+                    .find_valid_session_grant(id, &verdict.policy_fingerprint)
                     .await
                 {
+                    let reuse_verdict = json!({
+                        "reused_approval_id": grant.approval_id,
+                        "grant_expires_at": grant.expires_at,
+                        "policy_fingerprint": verdict.policy_fingerprint,
+                        "checked_at": crate::history::now_ts(),
+                    });
+                    self.history
+                        .insert_governance_evaluation(&GovernanceEvaluationRow {
+                            id: format!("gov_{}", Uuid::new_v4()),
+                            run_id: governance_input.run_id.clone(),
+                            task_id: governance_input.task_id.clone(),
+                            goal_run_id: governance_input.goal_run_id.clone(),
+                            thread_id: governance_input.thread_id.clone(),
+                            transition_kind: transition_kind_str(
+                                &TransitionKind::ApprovalReuseCheck,
+                            )
+                            .to_string(),
+                            input_json: serde_json::to_string(&governance_input)?,
+                            verdict_json: reuse_verdict.to_string(),
+                            policy_fingerprint: verdict.policy_fingerprint.clone(),
+                            created_at: crate::history::now_ts(),
+                        })
+                        .await?;
+
                     let (position, snapshot) = queue_with_snapshot(
                         &self.snapshots,
                         &session,

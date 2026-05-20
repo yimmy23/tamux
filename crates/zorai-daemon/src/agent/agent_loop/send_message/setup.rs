@@ -68,6 +68,12 @@ async fn load_current_task_for_send_message(
     task_id: Option<&str>,
 ) -> Option<AgentTask> {
     let task_id = task_id?;
+    {
+        let tasks = engine.tasks.lock().await;
+        if let Some(task) = tasks.iter().find(|task| task.id == task_id).cloned() {
+            return Some(task);
+        }
+    }
     match engine
         .list_tasks_filtered(&crate::history::AgentTaskListQuery {
             id: Some(task_id.to_string()),
@@ -91,10 +97,7 @@ async fn load_current_task_for_send_message(
         .next()
     {
         Some(task) => Some(task),
-        None => {
-            let tasks = engine.tasks.lock().await;
-            tasks.iter().find(|task| task.id == task_id).cloned()
-        }
+        None => None,
     }
 }
 

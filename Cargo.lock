@@ -9009,6 +9009,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+ "shlex",
  "strip-ansi-escapes",
  "sysinfo",
  "tar",

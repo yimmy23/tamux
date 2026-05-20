@@ -175,6 +175,14 @@ pub(crate) fn tool_waits_for_completion(args: &serde_json::Value) -> bool {
 }
 
 pub(crate) fn bash_command_should_force_background(args: &serde_json::Value) -> bool {
+    if args
+        .get("__weles_force_headless")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return false;
+    }
+
     let wait_for_completion = tool_waits_for_completion(args);
     if !wait_for_completion {
         return false;
@@ -268,11 +276,23 @@ fn shell_command_segment_should_start_in_background(segment: &str) -> bool {
             .iter()
             .skip(1)
             .any(|arg| arg == "-f" || arg == "--follow" || arg.starts_with("--follow=")),
-        "bash" | "sh" | "zsh" | "fish" | "python" | "python3" | "node" | "ruby" | "perl" => {
-            !shell_words(segment)
+        "bash" | "sh" | "zsh" | "fish" | "node" | "ruby" | "perl" => !shell_words(segment)
+            .iter()
+            .skip(1)
+            .any(|arg| matches!(arg.as_str(), "--version" | "-V" | "-v" | "--help" | "-h")),
+        "python" | "python3" => {
+            let words = shell_words(segment);
+            if words
                 .iter()
                 .skip(1)
                 .any(|arg| matches!(arg.as_str(), "--version" | "-V" | "-v" | "--help" | "-h"))
+            {
+                false
+            } else if let Some(code) = python_inline_code_arg(&words) {
+                python_inline_code_should_start_in_background(code)
+            } else {
+                true
+            }
         }
         "npm" | "pnpm" | "yarn" => shell_words(segment).iter().skip(1).any(|arg| {
             matches!(
@@ -292,14 +312,16 @@ fn shell_command_segment_should_start_in_background(segment: &str) -> bool {
 }
 
 fn shell_words(segment: &str) -> Vec<String> {
-    segment
-        .split_whitespace()
-        .map(|word| {
-            word.trim_matches(|ch: char| ch == '(' || ch == ')' || ch == '"' || ch == '\'')
-                .to_string()
-        })
-        .filter(|word| !word.is_empty())
-        .collect()
+    shlex::split(segment).unwrap_or_else(|| {
+        segment
+            .split_whitespace()
+            .map(|word| {
+                word.trim_matches(|ch: char| ch == '(' || ch == ')' || ch == '"' || ch == '\'')
+                    .to_string()
+            })
+            .filter(|word| !word.is_empty())
+            .collect()
+    })
 }
 
 fn first_shell_command_word(segment: &str) -> String {
@@ -356,6 +378,30 @@ fn shell_command_segment_is_known_quick(segment: &str) -> bool {
             | "uptime"
             | "hostname"
     )
+}
+
+fn python_inline_code_arg(words: &[String]) -> Option<&str> {
+    for (index, word) in words.iter().enumerate().skip(1) {
+        if word == "-c" {
+            return words.get(index + 1).map(String::as_str);
+        }
+        if let Some(code) = word.strip_prefix("-c") {
+            if !code.is_empty() {
+                return Some(code);
+            }
+        }
+    }
+    None
+}
+
+fn python_inline_code_should_start_in_background(code: &str) -> bool {
+    let normalized = code.to_ascii_lowercase();
+    normalized.contains("time.sleep")
+        || normalized.contains("sleep(")
+        || normalized.contains("serve_forever")
+        || normalized.contains("while true")
+        || normalized.contains("while 1")
+        || normalized.contains("input(")
 }
 
 pub(crate) fn headless_foreground_detach_after_for_surface(

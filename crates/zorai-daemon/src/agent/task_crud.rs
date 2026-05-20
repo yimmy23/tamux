@@ -1136,6 +1136,22 @@ impl AgentEngine {
                 .await;
         }
         self.persist_goal_runs().await;
+        crate::governance::record_transition_audit(
+            &self.history,
+            crate::governance::TransitionKind::RunAdmission,
+            crate::governance::TransitionAuditIds {
+                goal_run_id: Some(goal_run.id.clone()),
+                thread_id: goal_run.thread_id.clone(),
+                ..Default::default()
+            },
+            serde_json::json!({
+                "goal": goal_run.goal.clone(),
+                "title": goal_run.title.clone(),
+                "priority": format!("{:?}", goal_run.priority),
+            }),
+            "admitted",
+        )
+        .await;
         self.emit_goal_run_update(&goal_run, Some("Goal queued".into()));
         self.record_provenance_event(
             "goal_created",
@@ -1773,6 +1789,78 @@ impl AgentEngine {
                         changed_goal = Some(goal_run.clone());
                     }
                 }
+                "contain" => {
+                    if !goal_run.status.is_terminal() {
+                        let now = now_millis();
+                        goal_run.status = GoalRunStatus::Contained;
+                        goal_run.completed_at = Some(now);
+                        goal_run.updated_at = now;
+                        goal_run.stopped_reason = Some("operator_contain".to_string());
+                        goal_run.awaiting_approval_id = None;
+                        goal_run.active_task_id = None;
+                        goal_run.events.push(make_goal_run_event(
+                            "control",
+                            "goal run contained for operator review",
+                            None,
+                        ));
+                        tasks_to_cancel = declared_goal_task_ids(goal_run);
+                        changed_goal = Some(goal_run.clone());
+                    }
+                }
+                "compensate" => {
+                    if !goal_run.status.is_terminal() {
+                        let now = now_millis();
+                        goal_run.status = GoalRunStatus::Compensated;
+                        goal_run.completed_at = Some(now);
+                        goal_run.updated_at = now;
+                        goal_run.stopped_reason = Some("operator_compensate".to_string());
+                        goal_run.awaiting_approval_id = None;
+                        goal_run.active_task_id = None;
+                        goal_run.events.push(make_goal_run_event(
+                            "control",
+                            "goal run effects compensated",
+                            None,
+                        ));
+                        tasks_to_cancel = declared_goal_task_ids(goal_run);
+                        changed_goal = Some(goal_run.clone());
+                    }
+                }
+                "compensate-partial" => {
+                    if !goal_run.status.is_terminal() {
+                        let now = now_millis();
+                        goal_run.status = GoalRunStatus::PartiallyCompensated;
+                        goal_run.completed_at = Some(now);
+                        goal_run.updated_at = now;
+                        goal_run.stopped_reason =
+                            Some("operator_partial_compensate".to_string());
+                        goal_run.awaiting_approval_id = None;
+                        goal_run.active_task_id = None;
+                        goal_run.events.push(make_goal_run_event(
+                            "control",
+                            "goal run effects partially compensated",
+                            None,
+                        ));
+                        tasks_to_cancel = declared_goal_task_ids(goal_run);
+                        changed_goal = Some(goal_run.clone());
+                    }
+                }
+                "break-glass" => {
+                    if !goal_run.status.is_terminal() {
+                        let now = now_millis();
+                        goal_run.status = GoalRunStatus::BreakGlass;
+                        goal_run.completed_at = Some(now);
+                        goal_run.updated_at = now;
+                        goal_run.stopped_reason = Some("operator_break_glass".to_string());
+                        goal_run.awaiting_approval_id = None;
+                        goal_run.active_task_id = None;
+                        goal_run.events.push(make_goal_run_event(
+                            "control",
+                            "goal run completed under break-glass override",
+                            None,
+                        ));
+                        changed_goal = Some(goal_run.clone());
+                    }
+                }
                 _ => {}
             }
         }
@@ -1844,7 +1932,10 @@ impl AgentEngine {
             }
         }
 
-        if matches!(action, "cancel" | "stop") {
+        if matches!(
+            action,
+            "cancel" | "stop" | "contain" | "compensate" | "compensate-partial"
+        ) {
             if let Some(goal_run) = changed_goal.as_ref() {
                 for task_id in self.goal_related_task_ids(goal_run).await {
                     push_unique_string(&mut tasks_to_cancel, &task_id);
@@ -1858,11 +1949,51 @@ impl AgentEngine {
 
         if let Some(goal_run) = changed_goal {
             self.persist_goal_runs().await;
-            if goal_run.status == GoalRunStatus::Cancelled {
-                self.settle_goal_skill_consultations(&goal_run, "cancelled")
+            // Settle skill consultations and causal traces for any operator
+            // -initiated terminal transition that didn't run through the
+            // normal finalization path (which handles Completed/Failed).
+            let settle_outcome = match goal_run.status {
+                GoalRunStatus::Cancelled => Some("cancelled"),
+                GoalRunStatus::Contained => Some("contained"),
+                GoalRunStatus::Compensated => Some("compensated"),
+                GoalRunStatus::PartiallyCompensated => Some("partially_compensated"),
+                GoalRunStatus::BreakGlass => Some("break_glass"),
+                _ => None,
+            };
+            if let Some(outcome) = settle_outcome {
+                self.settle_goal_skill_consultations(&goal_run, outcome).await;
+                self.settle_goal_plan_causal_traces(&goal_run.id, outcome, None)
                     .await;
-                self.settle_goal_plan_causal_traces(&goal_run.id, "cancelled", None)
-                    .await;
+            }
+            // Record the governance transition for control verbs that flip
+            // goal-run state in policy-significant ways. `resume` is the
+            // canonical ResumeFromBlocked site; `cancel`/`stop` are operator
+            // -initiated FinalDisposition events (the LLM-completed and
+            // failure-path FinalDispositions are recorded inside the planner
+            // finalization functions).
+            let audit_transition = match action {
+                "resume" => Some(crate::governance::TransitionKind::ResumeFromBlocked),
+                "cancel" | "stop" | "contain" | "compensate" | "compensate-partial"
+                | "break-glass" => Some(crate::governance::TransitionKind::FinalDisposition),
+                _ => None,
+            };
+            if let Some(transition) = audit_transition {
+                crate::governance::record_transition_audit(
+                    &self.history,
+                    transition,
+                    crate::governance::TransitionAuditIds {
+                        goal_run_id: Some(goal_run.id.clone()),
+                        thread_id: goal_run.thread_id.clone(),
+                        ..Default::default()
+                    },
+                    serde_json::json!({
+                        "action": action,
+                        "status": goal_run_status_message(&goal_run),
+                        "stopped_reason": goal_run.stopped_reason.clone(),
+                    }),
+                    action,
+                )
+                .await;
             }
             self.emit_goal_run_update(&goal_run, Some(goal_run_status_message(&goal_run).into()));
             return true;

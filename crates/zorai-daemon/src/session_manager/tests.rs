@@ -115,8 +115,14 @@ async fn managed_command_governance_persists_evaluation_and_approval() {
         .history
         .conn
         .call(|conn| {
+            // Pick the most recent row tagged as a managed_command_dispatch
+            // transition. Other transition kinds (e.g. LaneAdmission from the
+            // session spawn earlier in the test) also live in this table now,
+            // so the assertions below must target the dispatch row specifically.
             let mut stmt = conn.prepare(
-                "SELECT input_json FROM governance_evaluations ORDER BY created_at DESC LIMIT 1",
+                "SELECT input_json FROM governance_evaluations \
+                 WHERE transition_kind = 'managed_command_dispatch' \
+                 ORDER BY created_at DESC LIMIT 1",
             )?;
             let input_json: String = stmt.query_row([], |row| row.get(0))?;
             Ok(input_json)
@@ -140,11 +146,12 @@ async fn managed_command_governance_persists_evaluation_and_approval() {
         .history
         .conn
         .call(|conn| {
-            Ok(
-                conn.query_row("SELECT COUNT(*) FROM governance_evaluations", [], |row| {
-                    row.get(0)
-                })?,
-            )
+            Ok(conn.query_row(
+                "SELECT COUNT(*) FROM governance_evaluations \
+                 WHERE transition_kind = 'managed_command_dispatch'",
+                [],
+                |row| row.get(0),
+            )?)
         })
         .await
         .expect("evaluation count query should succeed");

@@ -112,6 +112,10 @@ pub(super) fn goal_run_status_to_str(value: GoalRunStatus) -> &'static str {
         GoalRunStatus::Completed => "completed",
         GoalRunStatus::Failed => "failed",
         GoalRunStatus::Cancelled => "cancelled",
+        GoalRunStatus::Contained => "contained",
+        GoalRunStatus::Compensated => "compensated",
+        GoalRunStatus::PartiallyCompensated => "partially_compensated",
+        GoalRunStatus::BreakGlass => "break_glass",
     }
 }
 
@@ -124,6 +128,10 @@ pub(super) fn parse_goal_run_status(value: &str) -> GoalRunStatus {
         "completed" => GoalRunStatus::Completed,
         "failed" => GoalRunStatus::Failed,
         "cancelled" => GoalRunStatus::Cancelled,
+        "contained" => GoalRunStatus::Contained,
+        "compensated" => GoalRunStatus::Compensated,
+        "partially_compensated" => GoalRunStatus::PartiallyCompensated,
+        "break_glass" => GoalRunStatus::BreakGlass,
         _ => GoalRunStatus::Queued,
     }
 }

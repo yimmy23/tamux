@@ -1223,7 +1223,7 @@ async fn prepare_tool_execution(
         .await
         .session_rhythm
         .typical_start_hour_utc;
-    let (mut runtime_args, mut critique_adjustments) = apply_critique_modifications(
+    let (runtime_args, mut critique_adjustments) = apply_critique_modifications(
         tool_call.function.name.as_str(),
         &args,
         critique_decision.as_deref(),
@@ -1332,7 +1332,7 @@ async fn prepare_tool_execution(
             });
         }
     }
-    let (effective_tool_name, effective_args, rewrite_adjustments) =
+    let (effective_tool_name, mut effective_args, rewrite_adjustments) =
         maybe_rewrite_shell_tool_to_safer_file_mutation(
             tool_call.function.name.as_str(),
             &runtime_args,
@@ -1481,12 +1481,20 @@ async fn prepare_tool_execution(
             pending_approval: None,
         });
     }
+    if trusted_weles_internal_task && effective_tool_name.as_str() == tool_names::BASH_COMMAND {
+        if let serde_json::Value::Object(ref mut map) = effective_args {
+            map.insert(
+                "__weles_force_headless".to_string(),
+                serde_json::Value::Bool(true),
+            );
+        }
+    }
     if matches!(
         governance_decision.class,
         crate::agent::weles_governance::WelesGovernanceClass::RejectBypass
     ) && matches!(security_level, SecurityLevel::Yolo)
     {
-        if let serde_json::Value::Object(ref mut map) = runtime_args {
+        if let serde_json::Value::Object(ref mut map) = effective_args {
             map.insert(
                 "security_level".to_string(),
                 serde_json::Value::String("moderate".to_string()),
@@ -1974,15 +1982,12 @@ async fn dispatch_tool_execution(
             )
             .await;
             if let Ok(ref content) = result {
-                let name = args
-                    .get("skill")
-                    .and_then(|v| v.as_str())
-                    .or_else(|| {
-                        args.get("skills")
-                            .and_then(|v| v.as_array())
-                            .and_then(|arr| arr.first())
-                            .and_then(|v| v.as_str())
-                    });
+                let name = args.get("skill").and_then(|v| v.as_str()).or_else(|| {
+                    args.get("skills")
+                        .and_then(|v| v.as_array())
+                        .and_then(|arr| arr.first())
+                        .and_then(|v| v.as_str())
+                });
                 if let Some(name) = name {
                     let _ = agent
                         .history

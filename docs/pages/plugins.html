@@ -28,7 +28,6 @@
         <div class="card-grid two-up">
           <article class="card"><h3>React components</h3><p>Custom UI panels and embedded components.</p></article>
           <article class="card"><h3>Commands</h3><p>Explicit UI actions and slash-command style behaviors.</p></article>
-          <article class="card"><h3>YAML views</h3><p>Plugin-owned view documents persisted under the plugin views path.</p></article>
           <article class="card"><h3>Assistant tools</h3><p>Function-style tools that the built-in assistant can call at runtime.</p></article>
           <article class="card"><h3>Executors</h3><p>Runtime handlers for plugin tools and plugin-owned actions.</p></article>
           <article class="card"><h3>Lifecycle hooks</h3><p>Startup and teardown logic via <code>onLoad</code> and <code>onUnload</code>.</p></article>
@@ -57,7 +56,6 @@
   version: string;
   components?: Record&lt;string, React.ComponentType&lt;any&gt;&gt;;
   commands?: Record&lt;string, CommandAction&gt;;
-  views?: Record&lt;string, unknown&gt;;
   assistantTools?: PluginAssistantToolDefinition[];
   assistantToolExecutors?: Record&lt;string, PluginAssistantToolExecutor&gt;;
   onLoad?: () =&gt; void;
@@ -86,17 +84,16 @@
       </section>
 
       <section>
-        <h2>Views, commands, and tools</h2>
+        <h2>Components, commands, and tools</h2>
         <table>
           <thead><tr><th>Extension point</th><th>When to use it</th><th>Typical output</th></tr></thead>
           <tbody>
             <tr><td>Components</td><td>You need custom UI</td><td>Custom panels and renderable nodes</td></tr>
             <tr><td>Commands</td><td>You need explicit user-triggered actions</td><td>Buttons, command palette actions, slash-style actions</td></tr>
-            <tr><td>Views</td><td>You own a whole surface</td><td>Plugin YAML views under <code>views/plugins</code></td></tr>
             <tr><td>Assistant tools</td><td>The built-in assistant should call your plugin directly</td><td>Function-tool style schemas + runtime execution</td></tr>
           </tbody>
         </table>
-        <p>A plugin should not add a core view just because it can. Use a plugin when the feature is truly plugin-owned or vertical-specific.</p>
+        <p>Use a plugin when the feature is truly plugin-owned or vertical-specific.</p>
       </section>
 
       <section>

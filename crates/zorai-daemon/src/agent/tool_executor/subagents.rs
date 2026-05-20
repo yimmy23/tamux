@@ -156,6 +156,13 @@ async fn reserve_subagent_thread_id(agent: &AgentEngine) -> String {
 }
 
 async fn find_task_for_spawn(agent: &AgentEngine, task_id: &str) -> Option<AgentTask> {
+    {
+        let tasks = agent.tasks.lock().await;
+        if let Some(task) = tasks.iter().find(|task| task.id == task_id).cloned() {
+            return Some(task);
+        }
+    }
+
     let persisted_task = agent
         .list_tasks_filtered(&AgentTaskListQuery {
             id: Some(task_id.to_string()),
@@ -181,13 +188,7 @@ async fn find_task_for_spawn(agent: &AgentEngine, task_id: &str) -> Option<Agent
         return persisted_task;
     }
 
-    agent
-        .tasks
-        .lock()
-        .await
-        .iter()
-        .find(|task| task.id == task_id)
-        .cloned()
+    None
 }
 
 async fn list_subagent_tasks_for_spawn(agent: &AgentEngine) -> Vec<AgentTask> {

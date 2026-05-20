@@ -2951,3 +2951,142 @@ async fn delete_goal_run_removes_goal_and_related_tasks() {
         "persisted goal task should be deleted even when it is absent from the live queue"
     );
 }
+
+async fn supervised_engine_with_goal(
+    goal_run_id: &str,
+) -> (std::sync::Arc<AgentEngine>, tempfile::TempDir) {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let task_id = "task-outcome";
+    let approval_id = "approval-outcome";
+    engine.goal_runs.lock().await.push_back(sample_supervised_goal_run(
+        goal_run_id,
+        task_id,
+        approval_id,
+    ));
+    sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
+    (engine, root)
+}
+
+#[tokio::test]
+async fn contain_control_action_transitions_goal_run_to_contained_terminal_state() {
+    let goal_run_id = "goal-contain";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    let changed = engine.control_goal_run(goal_run_id, "contain", None).await;
+    assert!(changed, "contain should update goal state");
+    let goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should exist");
+    assert_eq!(goal.status, GoalRunStatus::Contained);
+    assert!(goal.status.is_terminal());
+    assert_eq!(goal.stopped_reason.as_deref(), Some("operator_contain"));
+    assert!(goal.completed_at.is_some());
+    assert!(goal.awaiting_approval_id.is_none());
+    assert!(goal.active_task_id.is_none());
+}
+
+#[tokio::test]
+async fn compensate_control_action_transitions_goal_run_to_compensated_terminal_state() {
+    let goal_run_id = "goal-compensate";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "compensate", None)
+        .await;
+    assert!(changed, "compensate should update goal state");
+    let goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should exist");
+    assert_eq!(goal.status, GoalRunStatus::Compensated);
+    assert!(goal.status.is_terminal());
+    assert_eq!(goal.stopped_reason.as_deref(), Some("operator_compensate"));
+}
+
+#[tokio::test]
+async fn compensate_partial_control_action_transitions_goal_run_to_partially_compensated() {
+    let goal_run_id = "goal-partial";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "compensate-partial", None)
+        .await;
+    assert!(changed, "compensate-partial should update goal state");
+    let goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should exist");
+    assert_eq!(goal.status, GoalRunStatus::PartiallyCompensated);
+    assert!(goal.status.is_terminal());
+    assert_eq!(
+        goal.stopped_reason.as_deref(),
+        Some("operator_partial_compensate")
+    );
+}
+
+#[tokio::test]
+async fn break_glass_control_action_transitions_goal_run_to_break_glass_terminal_state() {
+    let goal_run_id = "goal-break-glass";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "break-glass", None)
+        .await;
+    assert!(changed, "break-glass should update goal state");
+    let goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should exist");
+    assert_eq!(goal.status, GoalRunStatus::BreakGlass);
+    assert!(goal.status.is_terminal());
+    assert_eq!(
+        goal.stopped_reason.as_deref(),
+        Some("operator_break_glass")
+    );
+}
+
+#[tokio::test]
+async fn terminal_outcomes_persist_through_sqlite_round_trip() {
+    // Each new outcome state should round-trip through the SQLite string
+    // serialization so a goal that landed in (say) BreakGlass on the last
+    // process is still BreakGlass after daemon restart.
+    let goal_run_id = "goal-roundtrip";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    let cases = [
+        ("contain", GoalRunStatus::Contained),
+        ("compensate", GoalRunStatus::Compensated),
+        ("compensate-partial", GoalRunStatus::PartiallyCompensated),
+        ("break-glass", GoalRunStatus::BreakGlass),
+    ];
+    for (action, expected) in cases {
+        let run_id = format!("{goal_run_id}-{action}");
+        engine.goal_runs.lock().await.push_back(sample_supervised_goal_run(
+            &run_id,
+            &format!("task-{action}"),
+            &format!("approval-{action}"),
+        ));
+        sample_awaiting_task(
+            &engine,
+            &run_id,
+            &format!("task-{action}"),
+            &format!("approval-{action}"),
+        )
+        .await;
+        assert!(engine.control_goal_run(&run_id, action, None).await);
+        // Clear the live cache so the next read must come from SQLite.
+        engine
+            .goal_runs
+            .lock()
+            .await
+            .retain(|item| item.id != run_id);
+        let persisted = engine
+            .history
+            .get_goal_run(&run_id)
+            .await
+            .expect("persisted goal lookup")
+            .expect("goal should be persisted");
+        assert_eq!(
+            persisted.status, expected,
+            "action {action} should persist as {expected:?}"
+        );
+    }
+}

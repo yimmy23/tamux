@@ -13,6 +13,42 @@ pub enum GoalRunStatus {
     Completed,
     Failed,
     Cancelled,
+    /// Terminal: the run was halted and quarantined for operator review,
+    /// typically after governance returned `HaltAndIsolate` or after repeated
+    /// retries of a risky transition. The work is not failed (no agent
+    /// concluded it) and not cancelled (no operator told it to stop) — it's
+    /// frozen pending separate review.
+    Contained,
+    /// Terminal: the run's effects were rolled back or compensated. Used
+    /// when work that had partial side effects is fully undone (e.g., via a
+    /// snapshot restore) rather than leaving the workspace in a half-applied
+    /// state.
+    Compensated,
+    /// Terminal: some but not all of the run's effects were compensated.
+    /// Records the honest middle ground when full rollback wasn't possible
+    /// but partial recovery was.
+    PartiallyCompensated,
+    /// Terminal: the run executed under an explicit operator override of a
+    /// governance Deny/HaltAndIsolate verdict, with elevated audit scrutiny.
+    /// Distinct from Completed so audits can flag break-glass paths.
+    BreakGlass,
+}
+
+impl GoalRunStatus {
+    /// True if the status represents a terminal outcome — no further
+    /// dispatcher work will happen for the run.
+    pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            GoalRunStatus::Completed
+                | GoalRunStatus::Failed
+                | GoalRunStatus::Cancelled
+                | GoalRunStatus::Contained
+                | GoalRunStatus::Compensated
+                | GoalRunStatus::PartiallyCompensated
+                | GoalRunStatus::BreakGlass
+        )
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]

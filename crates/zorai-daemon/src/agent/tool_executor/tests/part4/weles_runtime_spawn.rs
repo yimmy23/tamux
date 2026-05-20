@@ -21,7 +21,7 @@ pub(crate) async fn spawn_recording_assistant_server_for_tool_executor(
             };
             let recorded_bodies = recorded_bodies.clone();
             tokio::spawn(async move {
-                let mut buffer = vec![0u8; 65536];
+                let mut buffer = vec![0u8; 1024 * 1024];
                 let read = socket
                     .read(&mut buffer)
                     .await
@@ -80,7 +80,7 @@ pub(crate) async fn spawn_stub_assistant_server_for_tool_executor(
             let recorded_bodies = recorded_bodies.clone();
             let response_json = response_json.clone();
             tokio::spawn(async move {
-                let mut buffer = vec![0u8; 65536];
+                let mut buffer = vec![0u8; 1024 * 1024];
                 let read = socket
                     .read(&mut buffer)
                     .await
