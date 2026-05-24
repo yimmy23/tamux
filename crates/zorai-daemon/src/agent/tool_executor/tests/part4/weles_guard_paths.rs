@@ -174,6 +174,161 @@ async fn execute_tool_guarded_call_uses_weles_runtime_structured_allow_metadata(
 }
 
 #[tokio::test]
+async fn execute_tool_weles_blocked_bash_command_returns_pending_approval() {
+    let recorded_bodies = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = spawn_stub_assistant_server_for_tool_executor(
+        recorded_bodies.clone(),
+        serde_json::json!({
+            "verdict": "block",
+            "reasons": ["operator should decide before shell mutation"],
+            "audit_id": "audit-weles-bash-block"
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = crate::agent::types::ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let marker = root.path().join("weles-blocked-bash.txt");
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-weles-blocked-bash-approval".to_string(),
+        ToolFunction {
+            name: "bash_command".to_string(),
+            arguments: serde_json::json!({
+                "command": format!("printf blocked > {}", marker.display()),
+                "sandbox_enabled": true,
+                "allow_network": false,
+                "security_level": "moderate"
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-weles-blocked-bash-approval",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "Weles-blocked bash should pause for approval, not hard fail: {}",
+        result.content
+    );
+    let pending = result
+        .pending_approval
+        .expect("Weles-blocked bash should expose a pending approval");
+    assert!(pending.approval_id.starts_with("weles-governance-"));
+    assert!(pending.command.contains("bash_command"));
+    assert!(pending
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("operator should decide")));
+    assert!(
+        !marker.exists(),
+        "blocked bash command should not execute before approval"
+    );
+    let review = result
+        .weles_review
+        .expect("approval-gated bash should expose Weles metadata");
+    assert_eq!(review.verdict, crate::agent::types::WelesVerdict::Block);
+    assert_eq!(review.audit_id.as_deref(), Some("audit-weles-bash-block"));
+}
+
+#[tokio::test]
+async fn execute_tool_weles_blocked_yolo_bash_command_executes_flag_only() {
+    let recorded_bodies = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = "openai".to_string();
+    config.base_url = spawn_stub_assistant_server_for_tool_executor(
+        recorded_bodies.clone(),
+        serde_json::json!({
+            "verdict": "block",
+            "reasons": ["runtime would block outside yolo"],
+            "audit_id": "audit-weles-bash-yolo"
+        })
+        .to_string(),
+    )
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = crate::agent::types::ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+
+    let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
+    let (event_tx, _) = broadcast::channel(8);
+    let marker = root.path().join("weles-yolo-bash.txt");
+    let tool_call = ToolCall::with_default_weles_review(
+        "tool-weles-yolo-bash".to_string(),
+        ToolFunction {
+            name: "bash_command".to_string(),
+            arguments: serde_json::json!({
+                "command": format!("printf yolo > {}", marker.display()),
+                "sandbox_enabled": true,
+                "allow_network": false,
+                "security_level": "yolo"
+            })
+            .to_string(),
+        },
+    );
+
+    let result = execute_tool(
+        &tool_call,
+        &engine,
+        "thread-weles-yolo-bash",
+        None,
+        &manager,
+        None,
+        &event_tx,
+        root.path(),
+        &engine.http_client,
+        None,
+    )
+    .await;
+
+    assert!(
+        !result.is_error,
+        "yolo bash should execute despite a Weles block verdict: {}",
+        result.content
+    );
+    assert!(result.pending_approval.is_none());
+    assert_eq!(
+        tokio::fs::read_to_string(&marker)
+            .await
+            .expect("yolo command should write marker"),
+        "yolo"
+    );
+    let review = result
+        .weles_review
+        .expect("yolo bash should expose Weles metadata");
+    assert_eq!(review.verdict, crate::agent::types::WelesVerdict::FlagOnly);
+    assert_eq!(review.security_override_mode.as_deref(), Some("yolo"));
+    assert_eq!(review.audit_id.as_deref(), Some("audit-weles-bash-yolo"));
+}
+
+#[tokio::test]
 async fn execute_tool_low_risk_read_file_stays_direct_allow() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;

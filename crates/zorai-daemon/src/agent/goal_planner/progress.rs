@@ -1219,6 +1219,21 @@ impl AgentEngine {
                     step.error = Some(failure.clone());
                 }
                 let insert_at = goal_run.current_step_index.saturating_add(1);
+                // Before truncating dropped future steps, mark any that were
+                // still `Pending` as `Skipped` and record their ids in a goal
+                // run event. The truncate immediately discards the entries
+                // themselves, but the event preserves what the previous plan
+                // intended to do — useful when an operator audits a heavily
+                // replanned goal.
+                let skipped_ids =
+                    mark_dropped_pending_steps_as_skipped(&mut goal_run.steps, insert_at);
+                if !skipped_ids.is_empty() {
+                    goal_run.events.push(make_goal_run_event(
+                        "replan_skipped_steps",
+                        "previously-planned steps dropped during replan",
+                        Some(skipped_ids.join(",")),
+                    ));
+                }
                 goal_run.steps.truncate(insert_at);
                 for (offset, step) in revised.steps.into_iter().enumerate() {
                     goal_run.steps.push(GoalRunStep {
@@ -1366,5 +1381,110 @@ impl AgentEngine {
         self.fail_goal_run(goal_run_id, &failure, "execution", task.thread_id.clone())
             .await;
         Ok(())
+    }
+}
+
+/// Mark any `Pending` step at or after `insert_at` as `Skipped`, stamping
+/// `completed_at` with the current timestamp. Returns the ids of the skipped
+/// steps so the caller can record them in a replan event. Steps that have
+/// already transitioned past `Pending` (InProgress/Completed/Failed/Skipped)
+/// are left alone — they represent work the prior plan actually did.
+fn mark_dropped_pending_steps_as_skipped(
+    steps: &mut [GoalRunStep],
+    insert_at: usize,
+) -> Vec<String> {
+    let now = now_millis();
+    let mut skipped_ids = Vec::new();
+    for step in steps.iter_mut().skip(insert_at) {
+        if step.status == GoalRunStepStatus::Pending {
+            step.status = GoalRunStepStatus::Skipped;
+            step.completed_at = Some(now);
+            skipped_ids.push(step.id.clone());
+        }
+    }
+    skipped_ids
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::types::GoalRunStepKind;
+
+    fn sample_step(id: &str, status: GoalRunStepStatus) -> GoalRunStep {
+        GoalRunStep {
+            id: id.to_string(),
+            position: 0,
+            title: id.to_string(),
+            instructions: String::new(),
+            kind: GoalRunStepKind::Reason,
+            success_criteria: String::new(),
+            session_id: None,
+            status,
+            task_id: None,
+            summary: None,
+            error: None,
+            started_at: None,
+            completed_at: None,
+        }
+    }
+
+    #[test]
+    fn pending_future_steps_are_marked_skipped_and_returned() {
+        let mut steps = vec![
+            sample_step("s0", GoalRunStepStatus::Completed),
+            sample_step("s1", GoalRunStepStatus::Failed),
+            sample_step("s2", GoalRunStepStatus::Pending),
+            sample_step("s3", GoalRunStepStatus::Pending),
+            sample_step("s4", GoalRunStepStatus::Pending),
+        ];
+        // insert_at = current_step_index + 1 = 2, so steps[2..] are the
+        // dropped future steps.
+        let dropped = mark_dropped_pending_steps_as_skipped(&mut steps, 2);
+        assert_eq!(dropped, vec!["s2", "s3", "s4"]);
+        assert_eq!(steps[0].status, GoalRunStepStatus::Completed);
+        assert_eq!(steps[1].status, GoalRunStepStatus::Failed);
+        for step in &steps[2..] {
+            assert_eq!(step.status, GoalRunStepStatus::Skipped);
+            assert!(
+                step.completed_at.is_some(),
+                "completed_at should be stamped"
+            );
+        }
+    }
+
+    #[test]
+    fn already_terminal_future_steps_are_not_overwritten_as_skipped() {
+        // If a step somehow already transitioned past Pending in the dropped
+        // region (e.g. it ran ahead before the replan triggered), the helper
+        // must NOT rewrite that history — keep it as-is.
+        let mut steps = vec![
+            sample_step("s0", GoalRunStepStatus::Completed),
+            sample_step("s1", GoalRunStepStatus::Pending),
+            sample_step("s2", GoalRunStepStatus::Failed),
+            sample_step("s3", GoalRunStepStatus::InProgress),
+            sample_step("s4", GoalRunStepStatus::Pending),
+        ];
+        let dropped = mark_dropped_pending_steps_as_skipped(&mut steps, 1);
+        assert_eq!(dropped, vec!["s1", "s4"]);
+        assert_eq!(steps[2].status, GoalRunStepStatus::Failed);
+        assert_eq!(steps[3].status, GoalRunStepStatus::InProgress);
+    }
+
+    #[test]
+    fn returns_empty_when_no_future_steps_are_pending() {
+        let mut steps = vec![
+            sample_step("s0", GoalRunStepStatus::Completed),
+            sample_step("s1", GoalRunStepStatus::InProgress),
+        ];
+        let dropped = mark_dropped_pending_steps_as_skipped(&mut steps, 1);
+        assert!(dropped.is_empty());
+    }
+
+    #[test]
+    fn insert_at_past_end_is_a_noop() {
+        let mut steps = vec![sample_step("s0", GoalRunStepStatus::Pending)];
+        let dropped = mark_dropped_pending_steps_as_skipped(&mut steps, 5);
+        assert!(dropped.is_empty());
+        assert_eq!(steps[0].status, GoalRunStepStatus::Pending);
     }
 }

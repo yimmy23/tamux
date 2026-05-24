@@ -51,6 +51,10 @@
             <tr><td><code>completed</code></td><td>Steps finished and the final reflection was recorded.</td></tr>
             <tr><td><code>failed</code></td><td>The run exhausted replanning or failed irrecoverably.</td></tr>
             <tr><td><code>cancelled</code></td><td>The operator cancelled the run.</td></tr>
+            <tr><td><code>contained</code></td><td>Halted and quarantined for operator review &mdash; typically after governance returned <code>halt_and_isolate</code> or after repeated retries of a risky transition.</td></tr>
+            <tr><td><code>compensated</code></td><td>The run&rsquo;s effects were rolled back or compensated &mdash; e.g.&nbsp;via a snapshot restore.</td></tr>
+            <tr><td><code>partially_compensated</code></td><td>Some but not all of the run&rsquo;s effects were compensated &mdash; honest middle ground when full rollback wasn&rsquo;t possible.</td></tr>
+            <tr><td><code>break_glass</code></td><td>Completed under an explicit operator override of a governance <code>deny</code> or <code>halt_and_isolate</code> verdict, with elevated audit scrutiny.</td></tr>
           </tbody>
         </table>
         <p>Step-level status is tracked separately with <code>pending</code>, <code>in_progress</code>, <code>completed</code>, <code>failed</code>, and <code>skipped</code>.</p>

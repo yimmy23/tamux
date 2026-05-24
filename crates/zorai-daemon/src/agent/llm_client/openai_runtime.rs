@@ -561,8 +561,29 @@ pub(crate) fn sanitize_api_messages(messages: &[ApiMessage]) -> Vec<ApiMessage> 
 fn api_content_has_non_empty_payload(content: &ApiContent) -> bool {
     match content {
         ApiContent::Text(text) => !text.trim().is_empty(),
-        ApiContent::Blocks(blocks) => !blocks.is_empty(),
+        ApiContent::Blocks(blocks) => blocks.iter().any(api_block_has_non_empty_payload),
     }
+}
+
+fn api_block_has_non_empty_payload(block: &serde_json::Value) -> bool {
+    block.as_str().is_some_and(|text| !text.trim().is_empty())
+        || block
+            .get("text")
+            .and_then(|value| value.as_str())
+            .is_some_and(|text| !text.trim().is_empty())
+        || block
+            .get("image_url")
+            .and_then(|value| value.as_str())
+            .is_some_and(|url| !url.trim().is_empty())
+        || block
+            .get("input_audio")
+            .and_then(|value| {
+                value
+                    .get("data")
+                    .or_else(|| value.get("url"))
+                    .and_then(|payload| payload.as_str())
+            })
+            .is_some_and(|payload| !payload.trim().is_empty())
 }
 
 pub(crate) fn build_anthropic_messages(messages: &[ApiMessage]) -> Vec<serde_json::Value> {

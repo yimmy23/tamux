@@ -75,7 +75,13 @@ pub(crate) fn default_reasoning_effort() -> String {
     "high".into()
 }
 pub(crate) fn default_max_tool_loops() -> u32 {
-    0
+    // Generous but finite safety floor. Operators with long workflows can
+    // raise this; goal-runner durable tasks override to 0 (unbounded) at the
+    // call site in `agent_loop::send_message::setup`. Previously this returned
+    // `0` (unbounded by default), which contradicted the architecture page's
+    // "bounded loop of model and tool calls" claim — every non-goal turn ran
+    // without an iteration cap unless the operator opted in.
+    64
 }
 pub(crate) fn default_pty_channel_capacity() -> usize {
     1024
@@ -693,4 +699,29 @@ pub struct AnticipatoryItem {
     pub preferred_attention_surface: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_max_tool_loops_is_a_finite_safety_floor() {
+        // Production default must be > 0 so non-goal turns get a real bound.
+        // Goal-runner durable tasks override to 0 (unbounded) at the call site
+        // in agent_loop::send_message::setup, so this default only governs
+        // non-goal threads.
+        let cap = default_max_tool_loops();
+        assert!(
+            cap > 0,
+            "default_max_tool_loops must be > 0 so non-goal turns are bounded by default"
+        );
+        // Sanity ceiling: catch a future change that accidentally pushes the
+        // default into the thousands (which would functionally re-enable
+        // unbounded behavior).
+        assert!(
+            cap <= 1024,
+            "default_max_tool_loops should remain a *floor*, not approach unbounded; got {cap}"
+        );
+    }
 }

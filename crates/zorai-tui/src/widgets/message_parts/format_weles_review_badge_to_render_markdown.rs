@@ -6,7 +6,6 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use zorai_protocol::tool_names;
 
-
 pub(crate) fn format_weles_review_badge(
     review: &crate::state::chat::WelesReviewMetaVm,
     theme: &ThemeTokens,
@@ -171,6 +170,12 @@ pub(crate) fn tool_icon_for(name: &str, arguments: Option<&str>) -> ToolIcon {
             label: "audio",
         };
     }
+    if is_image_tool(&normalized_name) {
+        return ToolIcon {
+            marker: "🖼",
+            label: "image",
+        };
+    }
     if is_system_tool(&normalized_name) {
         return ToolIcon {
             marker: "⚙",
@@ -332,6 +337,10 @@ pub(crate) fn is_communication_tool(normalized_name: &str) -> bool {
 
 pub(crate) fn is_audio_tool(normalized_name: &str) -> bool {
     tool_names::AUDIO_TOOLS.contains(&normalized_name)
+}
+
+pub(crate) fn is_image_tool(normalized_name: &str) -> bool {
+    tool_names::IMAGE_TOOLS.contains(&normalized_name)
 }
 
 pub(crate) fn is_system_tool(normalized_name: &str) -> bool {

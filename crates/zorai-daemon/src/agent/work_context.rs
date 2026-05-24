@@ -63,6 +63,13 @@ fn goal_run_status_to_event_kind(status: GoalRunStatus) -> &'static str {
     }
 }
 
+/// Default operator-response window before an awaiting-approval task is
+/// considered stale enough to escalate to the external (L3) tier. Matches
+/// `EscalationCriteria::user_response_timeout_secs` (300s) — so the timeout
+/// watcher in the heartbeat sees the same deadline the metacognitive
+/// escalation criteria assumes when computing L2→L3 transitions.
+pub(super) const APPROVAL_RESPONSE_TIMEOUT_MS: u64 = 300_000;
+
 fn mark_task_waiting_for_approval(
     task: &mut AgentTask,
     thread_id: &str,
@@ -75,6 +82,11 @@ fn mark_task_waiting_for_approval(
         task.session_id = pending_approval.session_id.clone();
     }
     task.awaiting_approval_id = Some(pending_approval.approval_id.clone());
+    // Stamp the deadline the operator has to respond before the daemon
+    // escalates this approval to the external (L3) tier. The heartbeat
+    // timeout watcher compares this against `now_millis()` and fires a
+    // critical inbox notification for any task past its deadline.
+    task.approval_expires_at = Some(now_millis().saturating_add(APPROVAL_RESPONSE_TIMEOUT_MS));
     task.blocked_reason = Some(reason.clone());
     task.error = None;
     task.last_error = None;

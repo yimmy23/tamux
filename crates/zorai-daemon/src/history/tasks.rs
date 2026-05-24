@@ -1487,6 +1487,48 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    /// Returns the `(task_id, thread_id, approval_id, approval_expires_at)` of
+    /// every task whose operator-approval deadline has passed. Used by the
+    /// heartbeat L2-timeout watcher to dispatch external (L3) escalation
+    /// notifications without loading the full row set.
+    ///
+    /// We intentionally return only the minimum fields the dispatcher needs
+    /// rather than the full `AgentTask` — the heartbeat runs every tick, and
+    /// hydrating the full row would be wasteful for what is usually an empty
+    /// or small result.
+    pub(crate) async fn list_tasks_past_approval_deadline(
+        &self,
+        now_ms: u64,
+    ) -> Result<Vec<(String, Option<String>, String, u64)>> {
+        let now = now_ms as i64;
+        self.read_conn
+            .call(move |conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT id, thread_id, awaiting_approval_id, approval_expires_at
+                     FROM agent_tasks
+                     WHERE deleted_at IS NULL
+                       AND status = 'awaiting_approval'
+                       AND awaiting_approval_id IS NOT NULL
+                       AND TRIM(awaiting_approval_id) <> ''
+                       AND approval_expires_at IS NOT NULL
+                       AND approval_expires_at < ?1
+                     ORDER BY approval_expires_at ASC",
+                )?;
+                let rows = stmt
+                    .query_map(params![now], |row| {
+                        let id: String = row.get(0)?;
+                        let thread_id: Option<String> = row.get(1)?;
+                        let approval_id: String = row.get(2)?;
+                        let expires_at: i64 = row.get(3)?;
+                        Ok((id, thread_id, approval_id, expires_at.max(0) as u64))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub(crate) async fn has_awaiting_approval_task_for_thread(
         &self,
         thread_id: &str,

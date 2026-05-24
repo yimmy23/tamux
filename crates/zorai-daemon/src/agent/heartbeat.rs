@@ -191,6 +191,23 @@ impl AgentEngine {
             }
         }
 
+        // L2-response-timeout watcher → external (L3) escalation. Sweep every
+        // tick: the operation is a single SQLite SELECT with an ORDER BY +
+        // bounded predicate, and the L3 dispatcher is idempotent via
+        // deterministic notification IDs, so re-running on each tick costs
+        // little and guarantees no stuck-approval slips past the deadline by
+        // more than one heartbeat interval. Errors are logged and swallowed —
+        // missing one tick's escalation notice must not kill the heartbeat.
+        if let Err(error) = self
+            .dispatch_stale_approval_escalations_to_external()
+            .await
+        {
+            tracing::warn!(
+                %error,
+                "failed to dispatch stale-approval external escalations during heartbeat",
+            );
+        }
+
         {
             let running = self.running_goal_trajectory_targets().await;
 

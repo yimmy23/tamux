@@ -30,6 +30,7 @@ mod semantic_documents;
 mod skill_variants;
 mod sqlite_audit;
 mod statistics;
+mod tasks;
 mod temporal_foresight;
 mod tombstones_gateway;
 #[cfg(feature = "lancedb-vector")]

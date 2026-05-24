@@ -1037,6 +1037,55 @@ pub(crate) fn annotate_review_with_critique(
     }
 }
 
+fn is_shell_execution_tool(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        tool_names::BASH_COMMAND
+            | tool_names::RUN_TERMINAL_COMMAND
+            | tool_names::EXECUTE_MANAGED_COMMAND
+    )
+}
+
+fn pending_approval_for_weles_shell_block(
+    tool_name: &str,
+    args: &serde_json::Value,
+    review: &crate::agent::types::WelesReviewMeta,
+    security_level: SecurityLevel,
+) -> crate::agent::types::ToolPendingApproval {
+    let command = args
+        .get("command")
+        .and_then(|value| value.as_str())
+        .map(|value| crate::agent::summarize_text(value, 200))
+        .unwrap_or_else(|| crate::agent::summarize_text(&args.to_string(), 200));
+    let risk_level = match security_level {
+        SecurityLevel::Highest => "high",
+        SecurityLevel::Yolo => "yolo",
+        SecurityLevel::Lowest => "low",
+        SecurityLevel::Moderate => "medium",
+    };
+    let mut reasons = review.reasons.clone();
+    if !reasons
+        .iter()
+        .any(|reason| reason == "WELES requested operator decision before shell execution")
+    {
+        reasons.push("WELES requested operator decision before shell execution".to_string());
+    }
+
+    crate::agent::types::ToolPendingApproval {
+        approval_id: format!("weles-governance-{}", uuid::Uuid::new_v4()),
+        execution_id: format!("weles-governance-exec-{}", uuid::Uuid::new_v4()),
+        command: format!("{tool_name} {command}"),
+        rationale: "WELES governance returned a block verdict for a shell command; operator approval is required before execution.".to_string(),
+        risk_level: risk_level.to_string(),
+        blast_radius: "shell command execution".to_string(),
+        reasons,
+        session_id: args
+            .get("session")
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned),
+    }
+}
+
 struct PreparedToolExecution {
     pub(crate) tool_name: String,
     pub(crate) args: serde_json::Value,
@@ -1470,6 +1519,25 @@ async fn prepare_tool_execution(
             &critique_adjustments,
             critique_report_summary.as_deref(),
         );
+        if is_shell_execution_tool(effective_tool_name.as_str()) {
+            let pending_approval = pending_approval_for_weles_shell_block(
+                effective_tool_name.as_str(),
+                &effective_args,
+                &review,
+                security_level,
+            );
+            return Err(ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                name: tool_call.function.name.clone(),
+                content: format!(
+                    "WELES governance requires operator approval before shell execution. Approval ID: {}",
+                    pending_approval.approval_id
+                ),
+                is_error: false,
+                weles_review: Some(review),
+                pending_approval: Some(pending_approval),
+            });
+        }
         return Err(ToolResult {
             tool_call_id: tool_call.id.clone(),
             name: tool_call.function.name.clone(),
