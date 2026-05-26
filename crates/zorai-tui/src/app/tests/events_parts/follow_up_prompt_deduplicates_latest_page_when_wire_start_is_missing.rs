@@ -196,6 +196,8 @@ fn participant_playground_activity_surfaces_only_for_active_parent_thread() {
         name: "bash_command".to_string(),
         arguments: "{\"command\":\"pwd\"}".to_string(),
         weles_review: None,
+
+        message_id: None,
     });
     assert_eq!(
         model.footer_activity_text().as_deref(),
@@ -267,6 +269,8 @@ fn participant_playground_done_refreshes_active_visible_thread_and_surfaces_repl
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
+
+        message_id: None,
     });
 
     match next_thread_request(&mut daemon_rx) {
@@ -352,6 +356,8 @@ fn queued_prompt_flushes_after_last_tool_result_before_turn_done() {
         name: "bash_command".to_string(),
         arguments: "{\"command\":\"pwd\"}".to_string(),
         weles_review: None,
+
+        message_id: None,
     });
 
     model.submit_prompt("stay on the migration task".to_string());
@@ -365,6 +371,8 @@ fn queued_prompt_flushes_after_last_tool_result_before_turn_done() {
         content: "/repo".to_string(),
         is_error: false,
         weles_review: None,
+
+        message_id: None,
     });
 
     match daemon_rx.try_recv() {
@@ -419,6 +427,8 @@ fn prompt_during_text_stream_without_running_tools_waits_for_done() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: Some("result_json".to_string()),
+
+        message_id: None,
     });
 
     match daemon_rx.try_recv() {

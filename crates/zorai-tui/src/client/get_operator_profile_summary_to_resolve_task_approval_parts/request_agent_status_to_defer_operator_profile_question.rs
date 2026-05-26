@@ -187,11 +187,13 @@ impl DaemonClient {
         goal_run_id: String,
         action: String,
         step_index: Option<usize>,
+        payload_json: Option<String>,
     ) -> Result<()> {
         self.send(ClientMessage::AgentControlGoalRun {
             goal_run_id,
             action,
             step_index,
+            payload_json,
         })
     }
 

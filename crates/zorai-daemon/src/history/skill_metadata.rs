@@ -386,6 +386,24 @@ pub(super) fn rebalance_skill_variant_status<'a>(
     }
 }
 
+/// Wilson score lower bound at 95% confidence for binomial success rate.
+/// Returns 0.0 when there are no trials. Small samples are penalized toward
+/// the noise floor so a 5/5 variant cannot displace a 50/50 canonical on raw
+/// rate alone.
+pub(super) fn wilson_lower_bound(success_count: u32, use_count: u32) -> f64 {
+    if use_count == 0 {
+        return 0.0;
+    }
+    let n = use_count as f64;
+    let p = (success_count as f64 / n).clamp(0.0, 1.0);
+    const Z: f64 = 1.96;
+    const Z_SQ: f64 = Z * Z;
+    let denom = 1.0 + Z_SQ / n;
+    let center = p + Z_SQ / (2.0 * n);
+    let margin = Z * ((p * (1.0 - p) / n) + (Z_SQ / (4.0 * n * n))).sqrt();
+    ((center - margin) / denom).max(0.0)
+}
+
 pub(super) fn skill_context_overlap(record: &SkillVariantRecord, context_tags: &[String]) -> usize {
     if context_tags.is_empty() {
         return 0;

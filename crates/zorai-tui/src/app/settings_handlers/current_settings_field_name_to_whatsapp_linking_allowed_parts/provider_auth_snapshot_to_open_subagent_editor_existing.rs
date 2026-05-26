@@ -1,7 +1,5 @@
 use super::*;
-use zorai_shared::providers::{
-    PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI,
-};
+use zorai_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI};
 impl TuiModel {
     pub(crate) fn provider_auth_snapshot(&self, provider_id: &str) -> (String, String, String) {
         let mut base_url = providers::find_by_id(provider_id)

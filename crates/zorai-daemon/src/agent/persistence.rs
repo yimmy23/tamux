@@ -34,10 +34,7 @@ pub(super) fn sanitize_task_for_external_view(task: &mut AgentTask) {
 /// 2. Issues ONE batched `get_consolidation_states_batch` call.
 /// 3. Applies the deserialized payloads back per task and acquires the
 ///    trusted_weles_tasks lock once for the whole batch.
-async fn restore_weles_runtime_contexts_batch(
-    engine: &AgentEngine,
-    tasks: &mut [AgentTask],
-) {
+async fn restore_weles_runtime_contexts_batch(engine: &AgentEngine, tasks: &mut [AgentTask]) {
     struct PendingRestore {
         idx: usize,
         key: String,
@@ -54,9 +51,7 @@ async fn restore_weles_runtime_contexts_batch(
         let Some(prompt) = task.override_system_prompt.as_deref() else {
             continue;
         };
-        if crate::agent::weles_governance::parse_weles_internal_override_payload(prompt)
-            .is_some()
-        {
+        if crate::agent::weles_governance::parse_weles_internal_override_payload(prompt).is_some() {
             continue;
         }
         let scope = if prompt.contains("Your current internal scope is vitality.") {
@@ -94,9 +89,7 @@ async fn restore_weles_runtime_contexts_batch(
         if raw_context.trim().is_empty() {
             continue;
         }
-        let Ok(inspection_context) =
-            serde_json::from_str::<serde_json::Value>(raw_context)
-        else {
+        let Ok(inspection_context) = serde_json::from_str::<serde_json::Value>(raw_context) else {
             tracing::warn!(
                 task_id = %tasks[restore.idx].id,
                 "failed to parse persisted WELES runtime context"
@@ -185,7 +178,6 @@ async fn canonicalize_aline_startup_repo_root(repo_root: &str) -> Option<String>
 }
 
 impl AgentEngine {
-
     /// Load persisted state (threads, tasks, heartbeat, memory, config).
     pub async fn hydrate(self: &Arc<Self>) -> Result<()> {
         self.hydrate_with_participant_observer_restore(true).await
@@ -508,10 +500,8 @@ impl AgentEngine {
                                 for task in tasks.iter_mut() {
                                     sanitize_task_for_external_view(task);
                                 }
-                                let mut tasks_vec: Vec<AgentTask> =
-                                    tasks.into_iter().collect();
-                                restore_weles_runtime_contexts_batch(self, &mut tasks_vec)
-                                    .await;
+                                let mut tasks_vec: Vec<AgentTask> = tasks.into_iter().collect();
+                                restore_weles_runtime_contexts_batch(self, &mut tasks_vec).await;
                                 for task in tasks_vec.iter_mut() {
                                     if task.status == TaskStatus::InProgress {
                                         task.status = TaskStatus::Queued;

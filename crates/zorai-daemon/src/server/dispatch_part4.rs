@@ -13,8 +13,7 @@ pub(crate) async fn dispatch_part4(
     background_daemon_pending: &mut BackgroundPendingCounts,
     client_agent_threads: &mut HashSet<String>,
     agent_event_rx: &mut Option<tokio::sync::broadcast::Receiver<crate::agent::types::AgentEvent>>,
-) -> Result<bool>
-{
+) -> Result<bool> {
     if !matches!(
         msg,
         ClientMessage::AgentRecordAttention { .. }
@@ -458,9 +457,10 @@ pub(crate) async fn dispatch_part4(
             goal_run_id,
             action,
             step_index,
+            payload_json,
         } => {
             let ok = agent
-                .control_goal_run(&goal_run_id, &action, step_index)
+                .control_goal_run(&goal_run_id, &action, step_index, payload_json.as_deref())
                 .await;
             framed
                 .send(DaemonMessage::AgentGoalRunControlled { goal_run_id, ok })

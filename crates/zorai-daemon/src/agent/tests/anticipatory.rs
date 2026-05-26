@@ -82,6 +82,7 @@ fn sample_goal_run(id: &str, thread_id: Option<&str>) -> GoalRun {
         current_step_kind: None,
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 3,
         plan_summary: None,
@@ -1430,6 +1431,12 @@ async fn resolved_intent_predictions_raise_future_prediction_confidence() {
     let mut task = sample_task("task-confidence", Some("thread-confidence"), None);
     task.title = "Need approval".to_string();
     task.status = TaskStatus::AwaitingApproval;
+    task.awaiting_approval_id = Some("approval-confidence".to_string());
+    engine
+        .history
+        .upsert_agent_task(&task)
+        .await
+        .expect("persist task");
     engine.tasks.lock().await.push_back(task);
 
     for (id, was_correct, created_at_ms) in [
@@ -1489,6 +1496,12 @@ async fn intent_prediction_persists_and_resolves_when_operator_action_matches() 
     let mut task = sample_task("task-approval-persist", Some("thread-intent-persist"), None);
     task.title = "Need approval".to_string();
     task.status = TaskStatus::AwaitingApproval;
+    task.awaiting_approval_id = Some("approval-intent-persist".to_string());
+    engine
+        .history
+        .upsert_agent_task(&task)
+        .await
+        .expect("persist task");
     engine.tasks.lock().await.push_back(task);
     engine
         .record_operator_attention("conversation:chat", Some("thread-intent-persist"), None)
@@ -1620,6 +1633,12 @@ async fn intent_prediction_updates_active_prediction_instead_of_duplicating_when
     let mut task = sample_task("task-intent-update", Some("thread-intent-update"), None);
     task.title = "Need approval".to_string();
     task.status = TaskStatus::AwaitingApproval;
+    task.awaiting_approval_id = Some("approval-intent-update".to_string());
+    engine
+        .history
+        .upsert_agent_task(&task)
+        .await
+        .expect("persist task");
     engine.tasks.lock().await.push_back(task);
 
     engine.run_anticipatory_tick().await;
@@ -2237,7 +2256,11 @@ async fn system_outcome_foresight_skips_build_risk_when_repo_monitor_disabled() 
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
     engine
-        .record_operator_attention("conversation:chat", Some("thread-build-risk-disabled"), None)
+        .record_operator_attention(
+            "conversation:chat",
+            Some("thread-build-risk-disabled"),
+            None,
+        )
         .await
         .unwrap();
     engine.thread_work_contexts.write().await.insert(
@@ -3622,6 +3645,8 @@ async fn speculative_queue_execution_persists_result_and_retrieval_marks_usage()
         .output()
         .expect("git commit should succeed");
 
+    enable_repo_monitor_for_workspace_root(&engine, &repo_root).await;
+
     engine
         .record_operator_attention("conversation:chat", Some("thread-spec-run"), None)
         .await
@@ -3744,6 +3769,8 @@ async fn speculative_queue_records_speculative_provenance_for_prepare_and_use() 
         .args(["commit", "-m", "init"])
         .output()
         .expect("git commit should succeed");
+
+    enable_repo_monitor_for_workspace_root(&engine, &repo_root).await;
 
     engine
         .record_operator_attention(

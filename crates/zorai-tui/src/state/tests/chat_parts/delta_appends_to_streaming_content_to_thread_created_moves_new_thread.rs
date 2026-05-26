@@ -50,6 +50,8 @@ fn turn_done_finalizes_streaming_into_message() {
         generation_ms: Some(1200),
         reasoning: None,
         provider_final_result_json: Some("result_json".to_string()),
+
+        message_id: None,
     });
     assert_eq!(state.streaming_content(), "");
     let thread = state.active_thread().unwrap();

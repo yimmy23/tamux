@@ -108,9 +108,7 @@ pub(super) async fn daemon_roundtrip(msg: ClientMessage) -> Result<DaemonMessage
     if guard.is_none() {
         *guard = Some(connect_daemon().await?);
     }
-    let framed = guard
-        .as_mut()
-        .expect("connection just placed in pool slot");
+    let framed = guard.as_mut().expect("connection just placed in pool slot");
     match daemon_roundtrip_framed(framed, msg).await {
         Ok(resp) => Ok(resp),
         Err(err) => {

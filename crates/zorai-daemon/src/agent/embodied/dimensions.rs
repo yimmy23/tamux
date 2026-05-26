@@ -87,7 +87,6 @@ pub fn compute_weight(tool_name: &str) -> f64 {
 mod tests {
     use super::*;
 
-
     #[test]
     fn difficulty_zero_when_no_errors_no_retries() {
         assert_eq!(compute_difficulty(0.0, 0), 0.0);
@@ -106,7 +105,6 @@ mod tests {
             "expected ~0.46, got {result}"
         );
     }
-
 
     #[test]
     fn familiarity_zero_when_novel() {
@@ -128,7 +126,6 @@ mod tests {
         assert_eq!(compute_familiarity(10), 1.0);
     }
 
-
     #[test]
     fn trajectory_max_when_all_progress() {
         assert_eq!(compute_trajectory_score(5, 0), 1.0);
@@ -149,7 +146,6 @@ mod tests {
         assert_eq!(compute_trajectory_score(3, 3), 0.0);
     }
 
-
     #[test]
     fn temperature_zero_when_no_messages() {
         assert_eq!(compute_temperature(0, 999), 0.0);
@@ -166,7 +162,6 @@ mod tests {
         let result = compute_temperature(1, 600);
         assert!(result < 0.3, "expected low temp, got {result}");
     }
-
 
     #[test]
     fn weight_heavy_for_execute_command() {

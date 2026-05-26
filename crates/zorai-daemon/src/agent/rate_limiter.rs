@@ -136,7 +136,6 @@ pub fn build_default_limiter() -> RateLimiter {
 mod tests {
     use super::*;
 
-
     #[test]
     fn new_bucket_starts_full() {
         let bucket = TokenBucket::new(10, 1.0, 0);
@@ -177,7 +176,6 @@ mod tests {
         bucket.try_acquire(1000);
         assert_eq!(bucket.tokens_available(), 4);
     }
-
 
     #[test]
     fn default_limiter_allows_normal_usage() {

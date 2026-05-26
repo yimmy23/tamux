@@ -1,5 +1,5 @@
-use super::*;
 use super::super::{build_model, unbounded_channel};
+use super::*;
 use std::sync::mpsc;
 #[test]
 fn concierge_mouse_click_executes_visible_action() {

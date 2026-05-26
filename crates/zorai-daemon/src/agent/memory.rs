@@ -857,7 +857,6 @@ fn normalize_fact_text(value: &str) -> String {
         .join(" ")
 }
 
-
 impl super::engine::AgentEngine {
     /// Supersede a memory fact with tombstone-before-update ordering per D-06.
     ///

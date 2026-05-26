@@ -394,8 +394,7 @@ impl ModalState {
                     self.command_palette_explicit_selection = true;
                 }
             }
-            ModalAction::Execute => {
-            }
+            ModalAction::Execute => {}
             ModalAction::FuzzyFilter => {
                 self.refilter();
             }

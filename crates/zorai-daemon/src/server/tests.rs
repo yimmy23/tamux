@@ -6,9 +6,7 @@ use super::{
     is_expected_disconnect_error, persist_gateway_health_update, StartupReadiness,
 };
 use crate::agent::types::AgentConfig;
-use crate::agent::types::{
-    AgentEvent, AgentMessage, AgentThread,
-};
+use crate::agent::types::{AgentEvent, AgentMessage, AgentThread};
 use crate::agent::AgentEngine;
 use crate::agent::{StreamCancellationEntry, StreamProgressKind};
 use crate::history::HistoryStore;

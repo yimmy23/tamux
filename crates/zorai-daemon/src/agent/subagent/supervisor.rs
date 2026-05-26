@@ -5,7 +5,6 @@ use crate::agent::types::{
     InterventionAction, InterventionLevel, StuckReason, SubagentHealthState, SupervisorConfig,
 };
 
-
 /// A lightweight snapshot of a sub-agent's runtime metrics, used by the
 /// supervisor to decide whether intervention is needed.
 #[derive(Debug, Clone)]
@@ -30,7 +29,6 @@ pub struct SubagentSnapshot {
     pub max_duration_secs: Option<u64>,
 }
 
-
 /// Describes what the supervisor decided after evaluating a sub-agent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SupervisorAction {
@@ -46,7 +44,6 @@ pub struct SupervisorAction {
     pub evidence: String,
 }
 
-
 /// Analyse a single sub-agent's health and return an intervention action if
 /// one is warranted.  Returns `None` when the agent is healthy **or** when
 /// the intervention level is `Passive` and the issue is `NoProgress`.
@@ -57,12 +54,8 @@ pub fn check_health(
 ) -> Option<SupervisorAction> {
     let (reason, evidence) = detect_stuck_reason(snapshot, config, now)?;
 
-    let intervention = select_intervention(
-        reason,
-        config.intervention_level,
-        0,
-        config.max_retries,
-    );
+    let intervention =
+        select_intervention(reason, config.intervention_level, 0, config.max_retries);
 
     let intervention = intervention?;
 
@@ -168,7 +161,6 @@ pub fn select_intervention(
     }
 }
 
-
 /// Detect a repeating cycle in the recent tool names list.
 ///
 /// Delegates to the shared [`detect_tool_call_loop_evidence`] utility in
@@ -178,7 +170,6 @@ pub fn select_intervention(
 fn detect_tool_call_loop(names: &[String]) -> Option<String> {
     detect_tool_call_loop_evidence(names, 4)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -203,7 +194,6 @@ mod tests {
         SupervisorConfig::default()
     }
 
-
     #[test]
     fn healthy_agent_no_action() {
         let snap = healthy_snapshot();
@@ -214,7 +204,6 @@ mod tests {
             "healthy agent should not produce an action"
         );
     }
-
 
     #[test]
     fn no_progress_detected_when_no_tool_calls() {
@@ -246,7 +235,6 @@ mod tests {
         assert!(detect_stuck_reason(&snap, &cfg, now).is_none());
     }
 
-
     #[test]
     fn error_loop_detected_with_3_consecutive() {
         let mut snap = healthy_snapshot();
@@ -273,7 +261,6 @@ mod tests {
         let cfg = default_config();
         assert!(detect_stuck_reason(&snap, &cfg, 1010).is_none());
     }
-
 
     #[test]
     fn tool_call_loop_detected_with_abab_pattern() {
@@ -302,7 +289,6 @@ mod tests {
         assert!(detect_stuck_reason(&snap, &cfg, 1010).is_none());
     }
 
-
     #[test]
     fn resource_exhaustion_at_91_percent() {
         let mut snap = healthy_snapshot();
@@ -320,7 +306,6 @@ mod tests {
         let cfg = default_config();
         assert!(detect_stuck_reason(&snap, &cfg, 1010).is_none());
     }
-
 
     #[test]
     fn timeout_detected() {
@@ -345,7 +330,6 @@ mod tests {
             assert_ne!(reason, StuckReason::Timeout);
         }
     }
-
 
     #[test]
     fn passive_no_progress_returns_none() {
@@ -416,7 +400,6 @@ mod tests {
         let action = select_intervention(StuckReason::Timeout, InterventionLevel::Normal, 0, 2);
         assert_eq!(action, Some(InterventionAction::EscalateToUser));
     }
-
 
     #[test]
     fn check_health_returns_correct_action_for_error_loop() {

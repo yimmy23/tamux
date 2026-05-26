@@ -62,7 +62,6 @@ impl HealthMonitor {
     pub fn check(&mut self, indicators: &HealthIndicators, now: u64) -> HealthReport {
         let previous_state = self.current_state;
 
-
         if is_crashed(indicators) {
             self.transition_to(HealthState::Crashed, now);
             return self.report(previous_state, indicators);
@@ -129,7 +128,6 @@ impl HealthMonitor {
         self.healthy_ticks = 0;
     }
 
-
     fn transition_to(&mut self, new_state: HealthState, now: u64) {
         if self.current_state != new_state {
             self.current_state = new_state;
@@ -150,7 +148,6 @@ impl HealthMonitor {
         }
     }
 }
-
 
 fn is_crashed(ind: &HealthIndicators) -> bool {
     ind.error_rate > CRASH_ERROR_RATE || ind.consecutive_errors >= CRASH_CONSECUTIVE_ERRORS
@@ -179,7 +176,6 @@ fn is_stuck_indicators(ind: &HealthIndicators, now: u64) -> bool {
 
     false
 }
-
 
 /// Produce actionable, human-readable suggestions based on the current state
 /// and the measured indicators.

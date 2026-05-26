@@ -23,7 +23,8 @@ impl AgentEngine {
         match (task.task_type.clone(), action) {
             (WorkspaceTaskType::Goal, "pause") => {
                 if let Some(goal_run_id) = task.goal_run_id.as_deref() {
-                    self.control_goal_run(goal_run_id, "pause", None).await;
+                    self.control_goal_run(goal_run_id, "pause", None, None)
+                        .await;
                 }
             }
             (WorkspaceTaskType::Thread, "pause") => {
@@ -34,7 +35,8 @@ impl AgentEngine {
             }
             (WorkspaceTaskType::Goal, "stop") => {
                 if let Some(goal_run_id) = task.goal_run_id.as_deref() {
-                    self.control_goal_run(goal_run_id, "cancel", None).await;
+                    self.control_goal_run(goal_run_id, "cancel", None, None)
+                        .await;
                 }
                 self.mark_workspace_task_stopped(&mut task).await?;
             }

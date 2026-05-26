@@ -53,8 +53,23 @@ fn goal_run_status_to_event_kind(status: GoalRunStatus) -> &'static str {
         GoalRunStatus::Running => "step_started",
         GoalRunStatus::AwaitingApproval => "step_started",
         GoalRunStatus::Paused => "paused",
+        GoalRunStatus::Blocked => "paused",
+        // Break-glass and compensated outcomes are terminal-ish "completed"
+        // for autonomy-level filtering; the audit trail distinguishes them.
+        GoalRunStatus::Compensated | GoalRunStatus::BreakGlass => "completed",
+        // Contained and PartiallyCompensated landed in degraded outcomes —
+        // bucket with "failed" so autonomy filters surface them as needing
+        // operator follow-up.
+        GoalRunStatus::Contained | GoalRunStatus::PartiallyCompensated => "failed",
     }
 }
+
+/// Default operator-response window before an awaiting-approval task is
+/// considered stale enough to escalate to the external (L3) tier. Matches
+/// `EscalationCriteria::user_response_timeout_secs` (300s) — so the timeout
+/// watcher in the heartbeat sees the same deadline the metacognitive
+/// escalation criteria assumes when computing L2→L3 transitions.
+pub(super) const APPROVAL_RESPONSE_TIMEOUT_MS: u64 = 300_000;
 
 fn mark_task_waiting_for_approval(
     task: &mut AgentTask,
@@ -68,6 +83,11 @@ fn mark_task_waiting_for_approval(
         task.session_id = pending_approval.session_id.clone();
     }
     task.awaiting_approval_id = Some(pending_approval.approval_id.clone());
+    // Stamp the deadline the operator has to respond before the daemon
+    // escalates this approval to the external (L3) tier. The heartbeat
+    // timeout watcher compares this against `now_millis()` and fires a
+    // critical inbox notification for any task past its deadline.
+    task.approval_expires_at = Some(now_millis().saturating_add(APPROVAL_RESPONSE_TIMEOUT_MS));
     task.blocked_reason = Some(reason.clone());
     task.error = None;
     task.last_error = None;
@@ -594,7 +614,9 @@ impl AgentEngine {
     pub(super) async fn refresh_thread_repo_context_with_changes(
         &self,
         thread_id: &str,
-        cached_changes: Option<&std::collections::HashMap<String, Vec<zorai_protocol::GitChangeEntry>>>,
+        cached_changes: Option<
+            &std::collections::HashMap<String, Vec<zorai_protocol::GitChangeEntry>>,
+        >,
     ) {
         let Some((repo_root, goal_run_id, session_id, step_index)) =
             self.resolve_thread_repo_root(thread_id).await
@@ -610,12 +632,11 @@ impl AgentEngine {
             self.remove_repo_watcher(thread_id).await;
         }
         let repo_root_path = PathBuf::from(&repo_root);
-        let all_changes: Vec<zorai_protocol::GitChangeEntry> = match cached_changes
-            .and_then(|cache| cache.get(&repo_root))
-        {
-            Some(cached) => cached.clone(),
-            None => crate::git::list_git_changes(&repo_root),
-        };
+        let all_changes: Vec<zorai_protocol::GitChangeEntry> =
+            match cached_changes.and_then(|cache| cache.get(&repo_root)) {
+                Some(cached) => cached.clone(),
+                None => crate::git::list_git_changes(&repo_root),
+            };
         let now = now_millis();
         let make_entry = |entry: zorai_protocol::GitChangeEntry| WorkContextEntry {
             path: entry.path,
@@ -812,13 +833,24 @@ impl AgentEngine {
     ) -> Option<GoalRun> {
         let goal_run_id = match self.history.agent_task_goal_context(task_id).await {
             Ok(Some(context)) => context.goal_run_id,
-            Ok(None) => None,
-            Err(error) => {
-                tracing::warn!(
-                    task_id,
-                    %error,
-                    "failed to query task goal context for todo snapshot"
-                );
+            other => {
+                if let Err(error) = &other {
+                    tracing::warn!(
+                        task_id,
+                        %error,
+                        "failed to query task goal context for todo snapshot"
+                    );
+                }
+                // Fall back to the live in-memory tasks for the
+                // history-empty case as well, not only on error. The
+                // task queue is the source of truth for tasks that
+                // haven't been flushed to SQLite yet — for example, in
+                // the brief window between an in-memory mutation and
+                // the next persist cycle, or in tests that exercise
+                // the live queue directly. Without this in-memory
+                // fallback, an `update_todo` issued before the first
+                // persist would never produce a goal-run event even
+                // though the goal context is fully known.
                 self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
                     id: Some(task_id.to_string()),
                     status: None,

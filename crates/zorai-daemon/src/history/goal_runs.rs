@@ -108,6 +108,7 @@ fn map_goal_run_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GoalRun> {
         current_step_owner_profile: deserialize_goal_runtime_owner_profile(
             current_step_owner_profile_json,
         ),
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: row.get::<_, i64>(16)? as u32,
         max_replans: row.get::<_, i64>(17)? as u32,
         plan_summary: row.get(18)?,
@@ -246,12 +247,12 @@ fn upsert_goal_run_in_tx(
                 ],
             )?;
 
+    transaction.execute(
+        "UPDATE goal_run_steps SET deleted_at = ?2 WHERE goal_run_id = ?1 AND deleted_at IS NULL",
+        params![&goal_run.id, now_ts() as i64],
+    )?;
+    for step in &goal_run.steps {
         transaction.execute(
-            "UPDATE goal_run_steps SET deleted_at = ?2 WHERE goal_run_id = ?1 AND deleted_at IS NULL",
-            params![&goal_run.id, now_ts() as i64],
-        )?;
-        for step in &goal_run.steps {
-            transaction.execute(
                 "INSERT OR REPLACE INTO goal_run_steps \
                  (id, goal_run_id, ordinal, title, instructions, kind, success_criteria, session_id, status, task_id, summary, error, started_at, completed_at, deleted_at) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL)",
@@ -272,15 +273,15 @@ fn upsert_goal_run_in_tx(
                     step.completed_at.map(|value| value as i64),
                 ],
             )?;
-        }
+    }
 
+    transaction.execute(
+        "UPDATE goal_run_events SET deleted_at = ?2 WHERE goal_run_id = ?1 AND deleted_at IS NULL",
+        params![&goal_run.id, now_ts() as i64],
+    )?;
+    for event in &goal_run.events {
+        let todo_snapshot_json = serde_json::to_string(&event.todo_snapshot).call_err()?;
         transaction.execute(
-            "UPDATE goal_run_events SET deleted_at = ?2 WHERE goal_run_id = ?1 AND deleted_at IS NULL",
-            params![&goal_run.id, now_ts() as i64],
-        )?;
-        for event in &goal_run.events {
-            let todo_snapshot_json = serde_json::to_string(&event.todo_snapshot).call_err()?;
-            transaction.execute(
                 "INSERT OR REPLACE INTO goal_run_events (id, goal_run_id, timestamp, phase, message, details, step_index, todo_snapshot_json, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)",
                 params![
                     &event.id,
@@ -293,7 +294,7 @@ fn upsert_goal_run_in_tx(
                     todo_snapshot_json,
                 ],
             )?;
-        }
+    }
     Ok(())
 }
 
@@ -1735,6 +1736,7 @@ impl HistoryStore {
                         runtime_assignment_list: Vec::new(),
                         planner_owner_profile: None,
                         current_step_owner_profile: None,
+                        step_owner_overrides: std::collections::BTreeMap::new(),
                         replan_count: 0,
                         max_replans: 0,
                         plan_summary: lean.plan_summary,
@@ -1924,6 +1926,7 @@ impl HistoryStore {
                 current_step_owner_profile: deserialize_goal_runtime_owner_profile(
                     current_step_owner_profile_json,
                 ),
+                step_owner_overrides: std::collections::BTreeMap::new(),
                 replan_count: row.get::<_, i64>(16)? as u32,
                 max_replans: row.get::<_, i64>(17)? as u32,
                 plan_summary: row.get(18)?,
@@ -1996,11 +1999,7 @@ impl HistoryStore {
         thread_id: &str,
     ) -> Result<Option<GoalRun>> {
         let thread_id_owned = thread_id.to_string();
-        if let Some(cached) = self
-            .caches
-            .latest_goal_run_for_thread
-            .get(&thread_id_owned)
-        {
+        if let Some(cached) = self.caches.latest_goal_run_for_thread.get(&thread_id_owned) {
             return Ok(cached);
         }
         let thread_id_for_query = thread_id_owned.clone();
@@ -2213,6 +2212,7 @@ impl HistoryStore {
                         runtime_assignment_list: Vec::new(),
                         planner_owner_profile: None,
                         current_step_owner_profile: None,
+                        step_owner_overrides: std::collections::BTreeMap::new(),
                         replan_count: row.get::<_, i64>(15)?.max(0) as u32,
                         max_replans: row.get::<_, i64>(16)?.max(0) as u32,
                         plan_summary: row.get(17)?,

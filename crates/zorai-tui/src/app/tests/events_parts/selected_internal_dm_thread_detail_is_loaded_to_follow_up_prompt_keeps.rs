@@ -99,6 +99,8 @@ fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
         name: "message_agent".to_string(),
         arguments: "{}".to_string(),
         weles_review: None,
+
+        message_id: None,
     });
     assert!(
         model.chat.active_tool_calls().is_empty(),
@@ -110,6 +112,8 @@ fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
         name: "bash_command".to_string(),
         arguments: "{\"command\":\"pwd\"}".to_string(),
         weles_review: None,
+
+        message_id: None,
     });
     assert_eq!(model.chat.active_tool_calls().len(), 1);
 
@@ -131,6 +135,8 @@ fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: Some("result_json".to_string()),
+
+        message_id: None,
     });
 
     assert!(
@@ -165,6 +171,8 @@ fn inactive_thread_events_do_not_replace_selected_thread_activity_badge() {
         name: "bash_command".to_string(),
         arguments: "{\"command\":\"pwd\"}".to_string(),
         weles_review: None,
+
+        message_id: None,
     });
 
     assert_eq!(model.chat.active_thread_id(), Some("thread-user"));

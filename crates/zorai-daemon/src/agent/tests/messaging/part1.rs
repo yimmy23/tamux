@@ -393,14 +393,35 @@ fn tool_execution_hot_path_boxes_large_futures() {
 
 #[test]
 fn participant_compaction_ignores_owner_pins() {
-    let compaction_source =
+    // Compaction was extracted into a submodule (`compaction/`) — the
+    // owner-pin handling now lives in `compaction/request.rs` rather
+    // than the original flat `compaction.rs`. Walk the whole submodule
+    // tree so this guard rail keeps verifying intent regardless of file
+    // splits.
+    let compaction_dir = repo_root().join("crates/zorai-daemon/src/agent/compaction");
+    let mut combined_source = String::new();
+    for entry in fs::read_dir(&compaction_dir).expect("read compaction dir") {
+        let entry = entry.expect("read compaction dir entry");
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+            continue;
+        }
+        let text = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+        combined_source.push_str(&text);
+        combined_source.push('\n');
+    }
+    // Also include the top-level `compaction.rs` (module declarations).
+    if let Ok(text) =
         fs::read_to_string(repo_root().join("crates/zorai-daemon/src/agent/compaction.rs"))
-            .expect("read compaction.rs");
+    {
+        combined_source.push_str(&text);
+    }
 
     assert!(
-        compaction_source.contains("owner_only_pins")
-            || compaction_source.contains("ignore_owner_pins")
-            || compaction_source.contains("participant_pins"),
+        combined_source.contains("owner_only_pins")
+            || combined_source.contains("ignore_owner_pins")
+            || combined_source.contains("participant_pins"),
         "participant request paths should explicitly suppress owner pins during compaction"
     );
 }

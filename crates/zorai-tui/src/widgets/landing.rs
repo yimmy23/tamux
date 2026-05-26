@@ -4,7 +4,6 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::theme::ThemeTokens;
 
-
 const SVAROG_FRESCO_STATIC: &[&str] = &[
     "                                          .......                       ",
     "                 ...                     ....#....           ..         ",

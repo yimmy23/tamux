@@ -109,6 +109,8 @@ fn new_subagent_conversation_done_clears_footer_activity_after_thread_creation()
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
+
+        message_id: None,
     });
 
     assert!(

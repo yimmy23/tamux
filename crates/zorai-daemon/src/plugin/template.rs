@@ -121,11 +121,11 @@ fn render_request_sync(
                 detail: format!("body serialization: {e}"),
             })?,
         };
-        let rendered = registry.render_template(&body_template, context).map_err(|e| {
-            PluginApiError::TemplateError {
+        let rendered = registry
+            .render_template(&body_template, context)
+            .map_err(|e| PluginApiError::TemplateError {
                 detail: format!("body template: {e}"),
-            }
-        })?;
+            })?;
         Some(rendered)
     } else {
         None
@@ -161,7 +161,6 @@ pub fn render_response(
         }
     }
 }
-
 
 /// `{{urlencode value}}` -- percent-encode a string value.
 fn helper_urlencode(
@@ -453,7 +452,9 @@ mod tests {
         };
         let endpoint = EndpointDef {
             method: "PUT".to_string(),
-            path: "https://api.endpoints.huggingface.cloud/v2/endpoint/{{params.ns}}/{{params.name}}".to_string(),
+            path:
+                "https://api.endpoints.huggingface.cloud/v2/endpoint/{{params.ns}}/{{params.name}}"
+                    .to_string(),
             params: None,
             headers: None,
             body: Some(serde_json::Value::String("{{{params.patch}}}".to_string())),

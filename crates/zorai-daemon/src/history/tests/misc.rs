@@ -1,6 +1,5 @@
 use super::*;
 
-
 async fn wait_for_search_hits(
     store: &HistoryStore,
     query: &str,
@@ -373,7 +372,6 @@ async fn search_does_not_index_capability_documents_without_vector_embeddings() 
     Ok(())
 }
 
-
 #[tokio::test]
 async fn list_recent_successful_traces_with_watermark() -> Result<()> {
     let (store, root) = make_test_store().await?;
@@ -508,7 +506,6 @@ async fn get_successful_execution_trace_by_id_filters_by_id_and_outcome_in_sql()
     fs::remove_dir_all(root)?;
     Ok(())
 }
-
 
 #[tokio::test]
 async fn update_skill_variant_status_changes_status_and_updated_at() -> Result<()> {

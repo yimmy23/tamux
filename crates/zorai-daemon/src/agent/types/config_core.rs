@@ -4,7 +4,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use zorai_protocol::SecurityLevel;
 
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentBackend {

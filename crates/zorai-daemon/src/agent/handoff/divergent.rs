@@ -13,7 +13,6 @@ mod helpers;
 
 use helpers::{format_mediator_prompt, format_tensions, generate_framing_prompts, now_millis};
 
-
 /// Status of a divergent session as it moves through its lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -25,7 +24,6 @@ pub enum DivergentStatus {
     Failed,
 }
 
-
 /// A single perspective/lens used to frame the problem for a subagent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Framing {
@@ -36,7 +34,6 @@ pub struct Framing {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contribution_id: Option<String>,
 }
-
 
 /// A divergent session that manages parallel framings of a problem.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,7 +100,6 @@ impl DivergentSession {
         Ok(())
     }
 }
-
 
 use crate::agent::engine::AgentEngine;
 

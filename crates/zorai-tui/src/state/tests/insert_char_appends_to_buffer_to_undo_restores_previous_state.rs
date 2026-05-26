@@ -166,7 +166,6 @@ fn clear_line_empties_buffer() {
     assert_eq!(state.cursor_pos(), 0);
 }
 
-
 #[test]
 fn cursor_left_right() {
     let mut state = InputState::new();
@@ -334,7 +333,6 @@ fn move_cursor_to_pos() {
     state.reduce(InputAction::MoveCursorToPos(100));
     assert_eq!(state.cursor_pos(), 5);
 }
-
 
 #[test]
 fn undo_restores_previous_state() {

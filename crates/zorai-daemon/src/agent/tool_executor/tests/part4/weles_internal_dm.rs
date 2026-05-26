@@ -76,7 +76,19 @@ async fn execute_tool_routes_weles_runtime_review_over_internal_dm_thread() {
     )
     .await;
 
-    assert!(result.is_error, "reviewed command should stay blocked");
+    // Shell tools route a `Block` verdict through the pending-approval
+    // flow rather than a hard `is_error: true`: the result carries a
+    // `pending_approval` so the operator can override. The shape we
+    // verify is "blocked pending approval", not "hard error".
+    assert!(
+        !result.is_error,
+        "shell block surfaces as pending approval, not hard error: {}",
+        result.content
+    );
+    assert!(
+        result.pending_approval.is_some(),
+        "shell block should attach a pending approval handle for the operator"
+    );
     let review = result
         .weles_review
         .expect("guarded result should include WELES review metadata");
@@ -330,6 +342,11 @@ async fn execute_dispatched_weles_task_uses_internal_dm_thread() {
             .and_then(|value| value.as_array())
             .is_some_and(|tools| tools.iter().any(|tool| {
                 tool.get("name").and_then(|value| value.as_str()) == Some("bash_command")
+                    || tool
+                        .get("function")
+                        .and_then(|value| value.get("name"))
+                        .and_then(|value| value.as_str())
+                        == Some("bash_command")
             })),
         "task-scoped WELES internal DM should expose bash tooling: {latest_body}"
     );

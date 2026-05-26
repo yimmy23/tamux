@@ -14,8 +14,7 @@ pub(crate) async fn dispatch_whatsapp_link(
     whatsapp_link_subscriber_guard: &mut WhatsAppLinkSubscriberGuard,
     whatsapp_link_rx: &mut Option<broadcast::Receiver<WhatsAppLinkRuntimeEvent>>,
     whatsapp_link_snapshot_replayed: &mut bool,
-) -> Result<bool>
-{
+) -> Result<bool> {
     if !matches!(
         msg,
         ClientMessage::AgentWhatsAppLinkStart

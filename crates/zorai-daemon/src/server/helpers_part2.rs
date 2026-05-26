@@ -459,14 +459,13 @@ pub(crate) fn cap_agent_db_thread_detail_for_ipc(
             2 + (count - 1)
         }
     };
-    let budget = zorai_protocol::MAX_IPC_FRAME_SIZE_BYTES
-        .saturating_sub(thread_json.len() + 4096);
+    let budget = zorai_protocol::MAX_IPC_FRAME_SIZE_BYTES.saturating_sub(thread_json.len() + 4096);
 
     let mut keep_count = 0usize;
     let mut total_len = 0usize;
     for json in per_message_json.iter().rev() {
-        let next_len = total_len + json.len() + array_overhead(keep_count + 1)
-            - array_overhead(keep_count);
+        let next_len =
+            total_len + json.len() + array_overhead(keep_count + 1) - array_overhead(keep_count);
         if next_len > budget {
             break;
         }

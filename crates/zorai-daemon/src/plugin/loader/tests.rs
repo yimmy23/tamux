@@ -275,7 +275,7 @@ fn validate_repo_gitlab_manifest_loads() {
 
     let (manifest, _) = validate_manifest(&raw, &validator).expect("gitlab manifest should load");
     assert_eq!(manifest.name, "gitlab");
-    assert_eq!(manifest.version, "1.0.0");
+    assert_eq!(manifest.version, "1.1.0");
     assert!(
         manifest.api.is_some(),
         "gitlab plugin should declare api section"
@@ -299,7 +299,7 @@ fn validate_repo_linear_manifest_loads() {
 
     let (manifest, _) = validate_manifest(&raw, &validator).expect("linear manifest should load");
     assert_eq!(manifest.name, "linear");
-    assert_eq!(manifest.version, "1.0.0");
+    assert_eq!(manifest.version, "1.1.0");
     assert!(
         manifest.api.is_some(),
         "linear plugin should declare api section"
@@ -323,7 +323,7 @@ fn validate_repo_jira_manifest_loads() {
 
     let (manifest, _) = validate_manifest(&raw, &validator).expect("jira manifest should load");
     assert_eq!(manifest.name, "jira");
-    assert_eq!(manifest.version, "1.0.0");
+    assert_eq!(manifest.version, "1.1.0");
     assert!(
         manifest.api.is_some(),
         "jira plugin should declare api section"
@@ -378,7 +378,7 @@ fn gmail_manifest_validates_through_plugin_loader() {
         validate_manifest(&raw, &validator).expect("gmail manifest should pass validation");
 
     assert_eq!(manifest.name, "gmail");
-    assert_eq!(manifest.version, "1.1.0");
+    assert_eq!(manifest.version, "1.2.0");
     assert_eq!(manifest.schema_version, 1);
 
     let auth = manifest
@@ -389,7 +389,7 @@ fn gmail_manifest_validates_through_plugin_loader() {
     assert!(auth.pkce);
     assert!(auth.authorization_url.is_some());
     assert!(auth.token_url.is_some());
-    assert_eq!(auth.scopes.as_ref().unwrap().len(), 2);
+    assert_eq!(auth.scopes.as_ref().unwrap().len(), 3);
 
     let api = manifest
         .api
@@ -431,7 +431,7 @@ fn calendar_manifest_validates_through_plugin_loader() {
         validate_manifest(&raw, &validator).expect("calendar manifest should pass validation");
 
     assert_eq!(manifest.name, "calendar");
-    assert_eq!(manifest.version, "1.1.0");
+    assert_eq!(manifest.version, "1.2.0");
     assert_eq!(manifest.schema_version, 1);
 
     let auth = manifest
@@ -536,7 +536,7 @@ fn github_manifest_validates_through_plugin_loader() {
         validate_manifest(&raw, &validator).expect("github manifest should pass validation");
 
     assert_eq!(manifest.name, "github");
-    assert_eq!(manifest.version, "1.0.0");
+    assert_eq!(manifest.version, "1.1.0");
     assert_eq!(manifest.schema_version, 1);
     assert!(
         manifest.auth.is_none(),

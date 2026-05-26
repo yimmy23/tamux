@@ -343,12 +343,9 @@ impl TuiModel {
                         // separate ContextWindowUpdate event.
                         self.chat.reduce(chat::ChatAction::ContextWindowUpdated {
                             thread_id: thread_id.to_string(),
-                            active_context_window_start: snapshot
-                                .post_compaction_window_start,
-                            active_context_window_end: snapshot
-                                .post_compaction_window_end,
-                            active_context_window_tokens: snapshot
-                                .post_compaction_total_tokens,
+                            active_context_window_start: snapshot.post_compaction_window_start,
+                            active_context_window_end: snapshot.post_compaction_window_end,
+                            active_context_window_tokens: snapshot.post_compaction_total_tokens,
                         });
                     }
                     let span_start = self
@@ -362,12 +359,7 @@ impl TuiModel {
                     let message_limit = total_message_count
                         .saturating_sub(span_start)
                         .max(post_compaction_tail_len);
-                    self.request_thread_page(
-                        thread_id.to_string(),
-                        message_limit,
-                        0,
-                        false,
-                    );
+                    self.request_thread_page(thread_id.to_string(), message_limit, 0, false);
                 }
             }
         }

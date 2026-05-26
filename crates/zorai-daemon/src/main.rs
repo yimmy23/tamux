@@ -35,8 +35,18 @@ fn daemon_log_filter_from_values(zorai_log: Option<&str>) -> EnvFilter {
 }
 
 fn valid_env_filter_spec(value: &str) -> Option<String> {
-    EnvFilter::try_new(value).ok()?;
-    Some(value.to_string())
+    // Whitespace in a log-filter spec is always wrong: a well-formed spec is
+    // comma-separated directives where each directive is `level` or
+    // `target=level` with no spaces. `EnvFilter::try_new` is unfortunately
+    // lenient here — it will happily accept "not a valid filter" by
+    // treating it as a target pattern, which silently subverts the
+    // fall-back-to-info contract this function is supposed to enforce.
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.contains(char::is_whitespace) {
+        return None;
+    }
+    EnvFilter::try_new(trimmed).ok()?;
+    Some(trimmed.to_string())
 }
 
 fn daemon_log_filter_from_env() -> EnvFilter {

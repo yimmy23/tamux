@@ -1,7 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum GoalRunStatus {
@@ -10,9 +9,51 @@ pub enum GoalRunStatus {
     Running,
     AwaitingApproval,
     Paused,
+    /// Non-terminal: governance closed a transition gate (e.g. policy
+    /// denial, missing provenance, target-scope mismatch) and the run
+    /// cannot advance until the underlying condition changes. Distinct
+    /// from `Paused` (operator-initiated) and `AwaitingApproval` (specific
+    /// approval gate pending). Exits via `TransitionKind::ResumeFromBlocked`.
+    Blocked,
     Completed,
     Failed,
     Cancelled,
+    /// Terminal: the run was halted and quarantined for operator review,
+    /// typically after governance returned `HaltAndIsolate` or after repeated
+    /// retries of a risky transition. The work is not failed (no agent
+    /// concluded it) and not cancelled (no operator told it to stop) — it's
+    /// frozen pending separate review.
+    Contained,
+    /// Terminal: the run's effects were rolled back or compensated. Used
+    /// when work that had partial side effects is fully undone (e.g., via a
+    /// snapshot restore) rather than leaving the workspace in a half-applied
+    /// state.
+    Compensated,
+    /// Terminal: some but not all of the run's effects were compensated.
+    /// Records the honest middle ground when full rollback wasn't possible
+    /// but partial recovery was.
+    PartiallyCompensated,
+    /// Terminal: the run executed under an explicit operator override of a
+    /// governance Deny/HaltAndIsolate verdict, with elevated audit scrutiny.
+    /// Distinct from Completed so audits can flag break-glass paths.
+    BreakGlass,
+}
+
+impl GoalRunStatus {
+    /// True if the status represents a terminal outcome — no further
+    /// dispatcher work will happen for the run.
+    pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            GoalRunStatus::Completed
+                | GoalRunStatus::Failed
+                | GoalRunStatus::Cancelled
+                | GoalRunStatus::Contained
+                | GoalRunStatus::Compensated
+                | GoalRunStatus::PartiallyCompensated
+                | GoalRunStatus::BreakGlass
+        )
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -159,6 +200,11 @@ pub struct GoalRun {
     pub planner_owner_profile: Option<GoalRuntimeOwnerProfile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_step_owner_profile: Option<GoalRuntimeOwnerProfile>,
+    /// Operator-staged owner-profile overrides for upcoming steps.
+    /// Consulted at step transition time and consumed when applied to
+    /// `current_step_owner_profile`. Keyed by step index.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub step_owner_overrides: std::collections::BTreeMap<usize, GoalRuntimeOwnerProfile>,
     pub replan_count: u32,
     pub max_replans: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -222,4 +268,3 @@ pub struct GoalRun {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authorship_tag: Option<super::super::authorship::AuthorshipTag>,
 }
-

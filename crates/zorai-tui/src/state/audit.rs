@@ -4,7 +4,6 @@ use std::collections::HashSet;
 
 const MAX_AUDIT_ENTRIES: usize = 500;
 
-
 #[derive(Debug, Clone)]
 pub struct AuditEntryVm {
     pub id: String,
@@ -29,7 +28,6 @@ pub struct EscalationVm {
     pub audit_id: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimeRange {
     LastHour,
@@ -51,7 +49,6 @@ fn default_type_filter() -> HashSet<String> {
         .collect()
 }
 
-
 #[derive(Debug, Clone)]
 pub enum AuditAction {
     EntryReceived(AuditEntryVm),
@@ -65,7 +62,6 @@ pub enum AuditAction {
     ScrollDown,
     ClearAll,
 }
-
 
 pub struct AuditState {
     entries: Vec<AuditEntryVm>,
@@ -141,7 +137,6 @@ impl AuditState {
         }
     }
 
-
     pub fn entries(&self) -> &[AuditEntryVm] {
         &self.entries
     }
@@ -180,7 +175,6 @@ impl AuditState {
         filtered.get(self.selected_index).map(|e| e.id.as_str())
     }
 
-
     fn passes_time_filter(&self, timestamp: u64) -> bool {
         match self.time_filter {
             TimeRange::AllTime => true,
@@ -212,7 +206,6 @@ fn current_epoch_secs() -> u64 {
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
-
 
 #[cfg(test)]
 mod tests {

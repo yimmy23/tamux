@@ -68,6 +68,12 @@ async fn load_current_task_for_send_message(
     task_id: Option<&str>,
 ) -> Option<AgentTask> {
     let task_id = task_id?;
+    {
+        let tasks = engine.tasks.lock().await;
+        if let Some(task) = tasks.iter().find(|task| task.id == task_id).cloned() {
+            return Some(task);
+        }
+    }
     match engine
         .list_tasks_filtered(&crate::history::AgentTaskListQuery {
             id: Some(task_id.to_string()),
@@ -91,10 +97,7 @@ async fn load_current_task_for_send_message(
         .next()
     {
         Some(task) => Some(task),
-        None => {
-            let tasks = engine.tasks.lock().await;
-            tasks.iter().find(|task| task.id == task_id).cloned()
-        }
+        None => None,
     }
 }
 
@@ -900,6 +903,7 @@ impl<'a> SendMessageRunner<'a> {
                 None,
                 runtime_continuity.continuity_summary.as_deref(),
                 runtime_continuity.negative_constraints_context.as_deref(),
+                client_surface,
             )
         };
         let runtime_agent_name = task_provider_override
@@ -2540,6 +2544,7 @@ mod tests {
             runtime_assignment_list: Vec::new(),
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: 2,
             plan_summary: None,
@@ -2778,6 +2783,7 @@ mod tests {
             runtime_assignment_list: Vec::new(),
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: 2,
             plan_summary: None,

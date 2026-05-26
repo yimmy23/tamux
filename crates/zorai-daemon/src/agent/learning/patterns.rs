@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-
 /// Classification of an observed pattern.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PatternType {
@@ -28,7 +27,6 @@ pub struct ToolPattern {
     pub last_seen_at: u64,
     pub created_at: u64,
 }
-
 
 /// In-memory, serializable store of mined patterns.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -197,7 +195,6 @@ impl PatternStore {
     }
 }
 
-
 /// Derive a confidence score from occurrence count and success rate.
 ///
 /// `confidence = min(1.0, sqrt(occurrences / 10)) * success_rate`
@@ -205,7 +202,6 @@ pub fn compute_confidence(occurrences: u32, success_rate: f64) -> f64 {
     let base = ((occurrences as f64) / 10.0).sqrt().min(1.0);
     base * success_rate
 }
-
 
 #[cfg(test)]
 mod tests {

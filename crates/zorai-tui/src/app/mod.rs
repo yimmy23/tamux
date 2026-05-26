@@ -9,11 +9,9 @@ use crate::providers;
 use crate::state::*;
 use crate::theme::ThemeTokens;
 use crate::widgets;
-use crossterm::event::{
-    KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
-};
 #[cfg(test)]
 use crossterm::event::ModifierKeyCode;
+use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Clear};
 use std::process::Child;

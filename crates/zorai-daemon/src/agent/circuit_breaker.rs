@@ -126,7 +126,6 @@ impl CircuitBreaker {
         self.total_trips
     }
 
-
     fn trip(&mut self, now: u64) {
         self.total_trips += 1;
         self.transition(CircuitState::Open, now);

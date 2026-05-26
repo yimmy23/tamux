@@ -7,7 +7,6 @@
 
 use serde::{Deserialize, Serialize};
 
-
 /// Graduated escalation levels from autonomous self-correction up to external
 /// notification.  Ordered so that `L0 < L1 < L2 < L3`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -76,7 +75,6 @@ pub struct EscalationDecision {
     pub message: Option<String>,
 }
 
-
 impl Default for EscalationCriteria {
     fn default() -> Self {
         Self {
@@ -86,7 +84,6 @@ impl Default for EscalationCriteria {
         }
     }
 }
-
 
 impl EscalationState {
     /// Create a new state starting at `SelfCorrection` (L0).
@@ -161,22 +158,18 @@ impl EscalationState {
                     }
                 }
             }
-            EscalationLevel::User => {
-                EscalationDecision {
-                    should_escalate: true,
-                    target_level: EscalationLevel::External,
-                    reason: "User escalation timed out or was unsuccessful".into(),
-                    message: Some("Escalating to external notification.".into()),
-                }
-            }
-            EscalationLevel::External => {
-                EscalationDecision {
-                    should_escalate: false,
-                    target_level: EscalationLevel::External,
-                    reason: "Already at maximum escalation level".into(),
-                    message: None,
-                }
-            }
+            EscalationLevel::User => EscalationDecision {
+                should_escalate: true,
+                target_level: EscalationLevel::External,
+                reason: "User escalation timed out or was unsuccessful".into(),
+                message: Some("Escalating to external notification.".into()),
+            },
+            EscalationLevel::External => EscalationDecision {
+                should_escalate: false,
+                target_level: EscalationLevel::External,
+                reason: "Already at maximum escalation level".into(),
+                message: None,
+            },
         }
     }
 
@@ -254,7 +247,6 @@ impl EscalationState {
     }
 }
 
-
 /// Build a human-readable escalation message appropriate for `level`.
 pub fn build_escalation_message(
     level: EscalationLevel,
@@ -289,7 +281,6 @@ pub fn build_escalation_message(
         }
     }
 }
-
 
 /// Data produced by `escalation_audit_data` for the AgentEngine to persist and broadcast.
 #[derive(Debug, Clone)]
@@ -367,7 +358,6 @@ pub fn escalation_audit_data(
         raw_data_json,
     }
 }
-
 
 #[cfg(test)]
 #[path = "tests/escalation.rs"]

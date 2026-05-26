@@ -701,4 +701,3 @@ pub(crate) async fn parse_openai_responses_sse(
 
     Ok(())
 }
-

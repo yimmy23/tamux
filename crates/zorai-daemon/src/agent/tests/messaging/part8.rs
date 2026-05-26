@@ -2211,6 +2211,11 @@ async fn hydrate_runs_participant_observers_for_restored_main_agent_tail() {
     let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
     let thread_id = "thread_hydrate_runs_participant_observers";
 
+    // Use a current timestamp so `should_restore_participant_observers_after_hydrate`'s
+    // restore window check (`updated_at + window_hours >= now_millis()`) passes;
+    // an epoch-relative `updated_at: 2` would be far outside the default 24h window
+    // and the restore would short-circuit before running observers.
+    let now = now_millis();
     engine.threads.write().await.insert(
         thread_id.to_string(),
         AgentThread {
@@ -2218,7 +2223,7 @@ async fn hydrate_runs_participant_observers_for_restored_main_agent_tail() {
             agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
             title: "Hydrate participant observer restore".to_string(),
             messages: vec![
-                AgentMessage::user("hello", 1),
+                AgentMessage::user("hello", now - 1_000),
                 AgentMessage {
                     id: generate_message_id(),
                     role: MessageRole::Assistant,
@@ -2249,7 +2254,7 @@ async fn hydrate_runs_participant_observers_for_restored_main_agent_tail() {
                     tool_output_preview_path: None,
                     structural_refs: Vec::new(),
                     pinned_for_compaction: false,
-                    timestamp: 2,
+                    timestamp: now,
                     feedback: None,
                 },
             ],
@@ -2261,8 +2266,8 @@ async fn hydrate_runs_participant_observers_for_restored_main_agent_tail() {
             upstream_assistant_id: None,
             total_input_tokens: 0,
             total_output_tokens: 0,
-            created_at: 1,
-            updated_at: 2,
+            created_at: now - 1_000,
+            updated_at: now,
         },
     );
     engine
@@ -2397,6 +2402,10 @@ async fn hydrate_returns_before_background_participant_observer_restore_finishes
     let engine = AgentEngine::new_test(manager, config.clone(), root.path()).await;
     let thread_id = "thread_hydrate_background_participant_observers";
 
+    // Current timestamp so the restore-window gate in
+    // `should_restore_participant_observers_after_hydrate` doesn't drop
+    // this thread as too old (default window is 24h).
+    let now = now_millis();
     engine.threads.write().await.insert(
         thread_id.to_string(),
         AgentThread {
@@ -2404,7 +2413,7 @@ async fn hydrate_returns_before_background_participant_observer_restore_finishes
             agent_name: Some(crate::agent::agent_identity::MAIN_AGENT_NAME.to_string()),
             title: "Hydrate background participant observer restore".to_string(),
             messages: vec![
-                AgentMessage::user("hello", 1),
+                AgentMessage::user("hello", now - 1_000),
                 AgentMessage {
                     id: generate_message_id(),
                     role: MessageRole::Assistant,
@@ -2435,7 +2444,7 @@ async fn hydrate_returns_before_background_participant_observer_restore_finishes
                     tool_output_preview_path: None,
                     structural_refs: Vec::new(),
                     pinned_for_compaction: false,
-                    timestamp: 2,
+                    timestamp: now,
                     feedback: None,
                 },
             ],
@@ -2447,8 +2456,8 @@ async fn hydrate_returns_before_background_participant_observer_restore_finishes
             upstream_assistant_id: None,
             total_input_tokens: 0,
             total_output_tokens: 0,
-            created_at: 1,
-            updated_at: 2,
+            created_at: now - 1_000,
+            updated_at: now,
         },
     );
     engine

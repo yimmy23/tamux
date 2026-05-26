@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use super::context_item::*;
 use crate::agent::summarize_text;
 
-
 /// An archived context item with compressed content and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArchiveEntry {
@@ -50,7 +49,6 @@ impl Default for RetentionPolicy {
         }
     }
 }
-
 
 /// In-memory manager that prepares entries for archival and evaluates
 /// retention rules.  Actual persistence is delegated to `HistoryStore`
@@ -136,7 +134,6 @@ impl ArchiveManager {
     }
 }
 
-
 /// Compress content for archival storage.
 ///
 /// If the content is already shorter than `max_chars` it is returned as-is
@@ -185,7 +182,6 @@ fn build_extractive_summary(content: &str) -> String {
         summary
     }
 }
-
 
 #[cfg(test)]
 mod tests {

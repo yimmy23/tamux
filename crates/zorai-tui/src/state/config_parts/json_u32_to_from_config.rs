@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone, Default)]
 pub struct FetchedModelPricing {
     pub prompt: Option<String>,
@@ -176,7 +175,6 @@ impl HonchoEditorState {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub enum ConfigAction {
     ConfigReceived(AgentConfigSnapshot),
@@ -187,7 +185,6 @@ pub enum ConfigAction {
     SetReasoningEffort(String),
     ToggleTool(String),
 }
-
 
 pub struct ConfigState {
     pub provider: String,

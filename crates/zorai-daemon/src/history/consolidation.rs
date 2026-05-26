@@ -123,7 +123,6 @@ impl HistoryStore {
         }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-
     pub async fn get_consolidation_state(&self, key: &str) -> Result<Option<String>> {
         let key = key.to_string();
         self.read_conn
@@ -282,7 +281,6 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         super::page_skill_variants(variants, cursor, limit)
     }
-
 
     pub async fn list_recent_successful_traces(
         &self,

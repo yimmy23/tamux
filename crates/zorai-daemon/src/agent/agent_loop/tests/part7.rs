@@ -2,6 +2,83 @@ use super::*;
 use zorai_shared::providers::PROVIDER_ID_OPENAI;
 
 #[tokio::test]
+async fn degraded_weles_shell_block_emits_operator_approval_request() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_scripted_tool_call_server(vec![(
+        "bash_command".to_string(),
+        serde_json::json!({
+            "command": "git clone https://example.com/repo.git /tmp/repo",
+            "allow_network": true,
+            "sandbox_enabled": false,
+            "security_level": "lowest"
+        })
+        .to_string(),
+    )])
+    .await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.extra.insert(
+        "weles_review_available".to_string(),
+        serde_json::Value::Bool(false),
+    );
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let mut events = engine.event_tx.subscribe();
+    let thread_id = "thread-degraded-weles-approval";
+
+    let outcome = engine
+        .send_message_inner(
+            Some(thread_id),
+            "clone the repo",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("send message should complete");
+
+    assert!(
+        outcome.interrupted_for_approval,
+        "shell fallback should interrupt the loop for operator approval"
+    );
+
+    let mut approval_id = None;
+    while let Ok(event) = events.try_recv() {
+        let value = serde_json::to_value(&event).expect("agent event should serialize");
+        if value.get("type").and_then(|value| value.as_str()) == Some("approval_required") {
+            approval_id = value
+                .get("approval_id")
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned);
+            break;
+        }
+    }
+
+    let approval_id =
+        approval_id.expect("degraded WELES shell block should emit approval_required event");
+    assert!(
+        engine
+            .pending_approval_commands
+            .read()
+            .await
+            .contains_key(&approval_id),
+        "approval should be registered so the operator can resolve it"
+    );
+}
+
+#[tokio::test]
 async fn metacognitive_sunk_cost_block_injects_reflection_and_skips_tool_execution() {
     let root = tempdir().unwrap();
     let readable_path = root.path().join("blocked.txt");
@@ -161,14 +238,23 @@ async fn metacognitive_confirmation_warning_is_advisory_before_tool_runs() {
     let threads = engine.threads.read().await;
     let thread = threads.get(thread_id).expect("thread should exist");
 
+    // Two acceptable forms: the singular "warning before tool execution"
+    // prefix produced for a lone intervention, OR the "grouped advisory
+    // notices" prefix produced when `append_metacognitive_system_message`
+    // compacts back-to-back warnings into a single system message. Both
+    // satisfy the intent that an advisory landed before the warned tool
+    // runs.
     let first_system_idx = thread
         .messages
         .iter()
         .position(|message| {
             message.role == MessageRole::System
-                && message
+                && (message
                     .content
                     .contains("Meta-cognitive intervention: warning before tool execution.")
+                    || message
+                        .content
+                        .contains("Meta-cognitive intervention: grouped advisory notices."))
         })
         .expect("expected metacognitive warning system message");
     let first_search_idx = thread

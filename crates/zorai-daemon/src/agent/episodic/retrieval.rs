@@ -11,7 +11,6 @@ use crate::agent::engine::AgentEngine;
 use anyhow::Result;
 use rusqlite::params;
 
-
 /// Escape and format a raw user query into an FTS5 OR query.
 ///
 /// Strips FTS5 special characters, splits on whitespace, joins with OR.
@@ -43,7 +42,6 @@ pub fn compute_recency_weight(episode_created_at: u64, now_ms: u64) -> f64 {
     let weight = (-0.05 * age_days).exp();
     weight.clamp(0.01, 1.0)
 }
-
 
 /// Format a slice of episodes into a human-readable episodic context section
 /// suitable for injection into a system prompt or goal planning context.
@@ -114,7 +112,6 @@ fn format_age(created_at: u64) -> String {
         "just now".to_string()
     }
 }
-
 
 fn row_to_episode_with_rank(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Episode, f64)> {
     let episode_type_str: String = row.get(5)?;
@@ -197,7 +194,6 @@ fn str_to_episode_outcome(s: &str) -> EpisodeOutcome {
         _ => EpisodeOutcome::Abandoned,
     }
 }
-
 
 impl AgentEngine {
     /// Retrieve relevant episodes using FTS5 BM25 ranking with recency re-weighting.

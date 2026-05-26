@@ -128,8 +128,8 @@ pub(super) fn task_run_prompt(task: &WorkspaceTask) -> String {
         })
         .unwrap_or_default();
     format!(
-        "Workspace task: {}\n\nWorkspace task id: {}\n\nDescription:\n{}{}{}\n\nWhen the task is complete, call workspace_submit_completion with task_id={} and a concise summary of what you delivered.",
-        task.title, task.id, task.description, dod, failed_review, task.id
+        "Workspace task: {}\n\nWorkspace id: {}\nWorkspace task id: {}\n\nDescription:\n{}{}{}\n\nWhen the task is complete, call workspace_submit_completion with task_id={} and a concise summary of what you delivered.",
+        task.title, task.workspace_id, task.id, task.description, dod, failed_review, task.id
     )
 }
 

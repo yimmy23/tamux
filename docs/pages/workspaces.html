@@ -69,7 +69,7 @@ In Review
 
       <section>
         <h2>Run and review</h2>
-        <p>Task creation reserves a <code>thread_id</code> or <code>goal_id</code> immediately, but the target is not executed until the task is run, dragged into <code>In Progress</code>, or picked up by the workspace operator.</p>
+        <p>Task creation reserves a <code>thread_id</code> or <code>goal_run_id</code> immediately, but the target is not executed until the task is run, dragged into <code>In Progress</code>, or picked up by the workspace operator.</p>
         <ul class="check-list">
           <li>Assignees receive the title, description, definition of done, workspace id, task id, and completion instructions.</li>
           <li>Agent reviewers receive a review-specific target, not another run of the original task.</li>
@@ -88,8 +88,8 @@ In Review
 
       <section>
         <h2>Persistence</h2>
-        <p>Workspace state lives in SQLite and is mirrored into the Zorai install directory:</p>
-        <pre><code>&lt;zorai install dir&gt;/workspaces/workspace-&lt;id&gt;/
+        <p>Workspace state lives in SQLite and is mirrored into the Zorai data directory:</p>
+        <pre><code>&lt;zorai data dir&gt;/workspaces/workspace-&lt;id&gt;/
   workspace.json
   task-&lt;id&gt;/
     failed-review.md</code></pre>

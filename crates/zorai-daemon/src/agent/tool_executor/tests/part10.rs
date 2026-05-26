@@ -1,7 +1,4 @@
-use super::super::{
-    execute_tool,
-    get_available_tools,
-};
+use super::super::{execute_tool, get_available_tools};
 use crate::agent::{
     types::{AgentConfig, ToolCall, ToolFunction},
     AgentEngine,

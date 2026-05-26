@@ -595,6 +595,7 @@ pub async fn send_goal_control_with_step(
         goal_run_id: goal_run_id.clone(),
         action: daemon_action.to_string(),
         step_index,
+        payload_json: None,
     })
     .await?
     {

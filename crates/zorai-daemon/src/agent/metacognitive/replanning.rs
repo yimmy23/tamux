@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::types::StuckReason;
 
-
 /// High-level strategy the metacognitive loop can select when a step is stuck
 /// or performance is degraded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,7 +46,6 @@ pub struct ReplanDecision {
     pub confidence: f64,
     pub fallback: Option<ReplanStrategy>,
 }
-
 
 /// Analyse the current [`ReplanContext`] and select the most appropriate
 /// [`ReplanStrategy`], together with a fallback.
@@ -213,7 +211,6 @@ pub fn select_replan_strategy(ctx: &ReplanContext) -> ReplanDecision {
     }
 }
 
-
 /// Build a human-readable prompt describing the replan decision, suitable for
 /// injection into the agent's context window.
 pub fn build_replan_prompt(decision: &ReplanDecision, step_title: &str) -> String {
@@ -265,7 +262,6 @@ pub fn build_replan_prompt(decision: &ReplanDecision, step_title: &str) -> Strin
     )
 }
 
-
 /// Simple heuristic to infer a domain of expertise from a step title.
 fn infer_expertise(step_title: &str) -> String {
     let lower = step_title.to_lowercase();
@@ -299,7 +295,6 @@ fn most_used_tool(recent: &[String]) -> String {
         .map(|(name, _)| name.to_string())
         .unwrap_or_else(|| "unknown".into())
 }
-
 
 #[cfg(test)]
 #[path = "replanning/tests.rs"]

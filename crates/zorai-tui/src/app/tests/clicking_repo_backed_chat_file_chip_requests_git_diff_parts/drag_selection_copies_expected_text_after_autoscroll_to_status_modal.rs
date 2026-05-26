@@ -1,5 +1,5 @@
-use super::*;
 use super::super::{build_model, rendered_chat_area};
+use super::*;
 #[test]
 fn drag_selection_copies_expected_text_after_autoscroll() {
     let mut model = build_model();

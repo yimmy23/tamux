@@ -234,8 +234,7 @@ impl AgentEngine {
 
     pub(in crate::agent) async fn persist_tasks(&self) {
         let mut tasks = self.tasks.lock().await;
-        let mut sanitized: Vec<crate::agent::types::AgentTask> =
-            Vec::with_capacity(tasks.len());
+        let mut sanitized: Vec<crate::agent::types::AgentTask> = Vec::with_capacity(tasks.len());
         for task in tasks.iter_mut() {
             persist_weles_runtime_context(self, task).await;
             sanitized.push(sanitize_task_for_persistence(task));

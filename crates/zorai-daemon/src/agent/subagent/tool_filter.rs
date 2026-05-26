@@ -163,7 +163,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn allow_all_permits_everything() {
         let filter = ToolFilter::allow_all();
@@ -228,7 +227,6 @@ mod tests {
         assert!(filter.is_ok());
     }
 
-
     #[test]
     fn whitelist_allows_listed_tools() {
         let filter = ToolFilter::new(
@@ -255,7 +253,6 @@ mod tests {
         assert!(!filter.is_allowed(zorai_protocol::tool_names::SEARCH_FILES));
     }
 
-
     #[test]
     fn blacklist_blocks_listed_tools() {
         let filter = ToolFilter::new(
@@ -280,7 +277,6 @@ mod tests {
         assert!(filter.is_allowed(zorai_protocol::tool_names::READ_FILE));
         assert!(filter.is_allowed(zorai_protocol::tool_names::SEARCH_FILES));
     }
-
 
     #[test]
     fn combined_whitelist_and_blacklist() {
@@ -310,7 +306,6 @@ mod tests {
         assert!(!filter.is_allowed(zorai_protocol::tool_names::BASH_COMMAND));
         assert!(!filter.is_allowed(zorai_protocol::tool_names::WRITE_FILE));
     }
-
 
     #[test]
     fn filtered_tools_returns_only_allowed() {
@@ -367,7 +362,6 @@ mod tests {
         assert!(filter.is_allowed("deny_me"));
         assert!(!filter.is_allowed(zorai_protocol::tool_names::WORKSPACE_CREATE_TASK));
     }
-
 
     #[test]
     fn deny_reason_none_for_allowed_tool() {

@@ -565,9 +565,15 @@ async fn fetch_models_request_without_declared_capability_still_returns_operatio
 }
 
 #[tokio::test]
-async fn unsupported_provider_fetch_models_returns_empty_response_instead_of_error() {
+async fn unsupported_provider_fetch_models_returns_builtin_catalog_instead_of_error() {
     let mut conn = spawn_test_connection().await;
 
+    // Featherless declares `supports_model_fetch: false`; the daemon must
+    // not surface a fetch-models RPC as a hard error (which would block the
+    // settings UI from showing any model picker). Current behavior returns
+    // the built-in catalog so the operator gets a usable list to pick from
+    // — see `helpers.rs::fetch_models` short-circuit at the
+    // `!def.supports_model_fetch` branch.
     conn.framed
         .send(ClientMessage::AgentFetchModels {
             provider_id: "featherless".to_string(),
@@ -597,14 +603,14 @@ async fn unsupported_provider_fetch_models_returns_empty_response_instead_of_err
             let models: Vec<serde_json::Value> =
                 serde_json::from_str(&models_json).expect("parse models response");
             assert!(
-                models.is_empty(),
-                "unsupported providers should return no models"
+                !models.is_empty(),
+                "unsupported providers should fall back to the built-in catalog rather than empty"
             );
         }
         DaemonMessage::AgentError { message } => {
             panic!("unsupported providers should not surface an agent error: {message}");
         }
-        other => panic!("expected empty models response, got {other:?}"),
+        other => panic!("expected built-in models response, got {other:?}"),
     }
 
     conn.shutdown().await;

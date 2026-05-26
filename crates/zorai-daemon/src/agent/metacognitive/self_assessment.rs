@@ -2,7 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-
 /// How close the agent is to completing its goal and at what pace.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProgressMetrics {
@@ -47,7 +46,6 @@ pub struct AssessmentInput {
     pub quality: QualityMetrics,
 }
 
-
 /// The result of a self-assessment pass.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Assessment {
@@ -63,7 +61,6 @@ pub struct Assessment {
     /// Actionable suggestions.
     pub recommendations: Vec<String>,
 }
-
 
 /// Configurable assessor that evaluates agent state against thresholds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,7 +93,6 @@ impl SelfAssessor {
         let e = &input.efficiency;
         let q = &input.quality;
 
-
         let making_progress =
             p.goal_distance_pct > 10.0 && p.momentum >= 0.0 && p.steps_completed > 0;
 
@@ -111,7 +107,6 @@ impl SelfAssessor {
         let should_terminate = p.goal_distance_pct >= 95.0
             || (p.steps_completed >= p.steps_total && p.steps_total > 0);
 
-
         let progress_signal = if p.steps_total > 0 {
             p.goal_distance_pct / 100.0
         } else {
@@ -124,7 +119,6 @@ impl SelfAssessor {
 
         let confidence = (0.4 * progress_signal + 0.3 * efficiency_signal + 0.3 * quality_signal)
             .clamp(0.0, 1.0);
-
 
         let mut reasons: Vec<&str> = Vec::new();
         if making_progress {
@@ -147,7 +141,6 @@ impl SelfAssessor {
             reasons.push("goal is nearly or fully complete — termination appropriate");
         }
         let reasoning = reasons.join("; ");
-
 
         let mut recommendations: Vec<String> = Vec::new();
 
@@ -197,7 +190,6 @@ impl SelfAssessor {
     }
 }
 
-
 /// Compute momentum (acceleration) from a series of step-completion timestamps.
 ///
 /// Returns positive if steps are completing faster (accelerating), negative if
@@ -222,7 +214,6 @@ pub fn compute_momentum(recent_step_times: &[u64]) -> f64 {
 
     -avg_delta
 }
-
 
 #[cfg(test)]
 mod tests {

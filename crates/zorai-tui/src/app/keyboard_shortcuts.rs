@@ -1,8 +1,6 @@
 use super::*;
 use crate::widgets;
-use crossterm::event::{
-    KeyCode, KeyModifiers,
-};
+use crossterm::event::{KeyCode, KeyModifiers};
 impl TuiModel {
     pub(crate) fn open_command_palette(&mut self, seed_query: Option<String>) {
         self.modal

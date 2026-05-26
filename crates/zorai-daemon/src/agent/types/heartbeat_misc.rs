@@ -36,7 +36,6 @@ fn default_zero() -> u64 {
     0
 }
 
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum HeartbeatCheckType {
@@ -149,7 +148,6 @@ fn default_unreplied_threshold_hours() -> u64 {
     1
 }
 
-
 /// Which action types to include in the audit feed. Per D-05.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditScopeConfig {
@@ -261,7 +259,6 @@ pub fn interval_mins_to_cron(mins: u64) -> String {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum NotificationSeverity {
@@ -271,14 +268,12 @@ pub enum NotificationSeverity {
     Error,
 }
 
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AgentMemory {
     pub soul: String,
     pub memory: String,
     pub user_profile: String,
 }
-
 
 /// Compute tokens-per-second and generation duration from timing data.
 /// Compute generation_ms and tokens-per-second from the elapsed duration and
@@ -296,7 +291,6 @@ pub fn compute_generation_stats(
     };
     (generation_ms, tps)
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompletionServerToolUsage {

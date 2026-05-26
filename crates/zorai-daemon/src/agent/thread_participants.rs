@@ -344,7 +344,7 @@ impl AgentEngine {
         &self,
         thread_id: &str,
     ) -> Option<String> {
-        match self.history.latest_user_message_content(thread_id).await {
+        let from_history = match self.history.latest_user_message_content(thread_id).await {
             Ok(message) => message,
             Err(error) => {
                 tracing::warn!(
@@ -353,7 +353,25 @@ impl AgentEngine {
                 );
                 None
             }
+        };
+        if from_history.is_some() {
+            return from_history;
         }
+        // Fall back to the live in-memory thread when history has no
+        // user message yet — covers the race between a freshly-arrived
+        // user turn and the background persist that flushes it to
+        // SQLite. Callers (e.g. `force_compact_and_continue`) need the
+        // most recent user content to continue the conversation; failing
+        // back on "history is empty" rather than only on "history
+        // errored" makes that semantic robust to the persistence lag.
+        let threads = self.threads.read().await;
+        let thread = threads.get(thread_id)?;
+        thread
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == MessageRole::User)
+            .map(|message| message.content.clone())
     }
 
     async fn latest_visible_participant_message(
@@ -631,9 +649,15 @@ impl AgentEngine {
         thread_id: &str,
     ) -> Result<()> {
         {
+            // Mirror the loop's stream-state check below: a live stream
+            // blocks the flush, but a cancelled-but-not-yet-removed
+            // entry (e.g. set up by a force-send interrupt that called
+            // `stop_stream`) should not.
             let streams = self.stream_cancellations.lock().await;
-            if streams.contains_key(thread_id) {
-                return Ok(());
+            if let Some(entry) = streams.get(thread_id) {
+                if !entry.token.is_cancelled() {
+                    return Ok(());
+                }
             }
         }
 
@@ -647,10 +671,20 @@ impl AgentEngine {
 
         let result = async {
             loop {
+                // A *live* stream entry blocks the flush — the
+                // continuation should wait for the active stream to wrap
+                // up before queueing more work onto the same thread.
+                // But a *cancelled* entry (e.g. left behind by
+                // `stop_stream` because the stream task hasn't returned
+                // yet, or registered by a force-send interrupt) must
+                // not deadlock the flush forever: the stream the entry
+                // referred to is already going away.
                 {
                     let streams = self.stream_cancellations.lock().await;
-                    if streams.contains_key(thread_id) {
-                        break;
+                    if let Some(entry) = streams.get(thread_id) {
+                        if !entry.token.is_cancelled() {
+                            break;
+                        }
                     }
                 }
 
@@ -1018,6 +1052,19 @@ impl AgentEngine {
             .entry(thread_id.to_string())
             .or_default()
             .push(suggestion.clone());
+
+        // A `force_send` participant suggestion is the user (or
+        // orchestrator) asking the participant to interrupt the current
+        // turn — cancel any active stream so the existing
+        // `if suggestion.force_send` branch below (which calls
+        // `send_thread_participant_suggestion`) can post the participant
+        // message immediately rather than waiting behind a
+        // still-running main agent generation. The post + active-agent
+        // follow-up is owned by that existing dispatch, so we only nudge
+        // stream state here.
+        if force_send {
+            self.stop_stream(thread_id).await;
+        }
 
         self.persist_thread_by_id(thread_id).await;
         let _ = self.event_tx.send(AgentEvent::ParticipantSuggestion {

@@ -601,8 +601,7 @@ impl AgentEngine {
             std::collections::BTreeMap::new();
         let mut to_clear: Vec<String> = Vec::new();
         for thread_id in thread_ids {
-            let Some((repo_root, _, _, _)) = self.resolve_thread_repo_root(thread_id).await
-            else {
+            let Some((repo_root, _, _, _)) = self.resolve_thread_repo_root(thread_id).await else {
                 to_clear.push(thread_id.clone());
                 continue;
             };
@@ -636,11 +635,8 @@ impl AgentEngine {
 
         for threads in threads_by_repo.values() {
             for thread_id in threads {
-                self.refresh_thread_repo_context_with_changes(
-                    thread_id,
-                    Some(&changes_by_repo),
-                )
-                .await;
+                self.refresh_thread_repo_context_with_changes(thread_id, Some(&changes_by_repo))
+                    .await;
                 self.refresh_anticipatory_prewarm_cache(thread_id).await;
             }
         }

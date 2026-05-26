@@ -1,7 +1,7 @@
-use super::*;
 use super::super::{build_model, rendered_chat_area};
+use super::*;
+use base64::Engine as _;
 use ratatui::backend::TestBackend;
-    use base64::Engine as _;
 #[test]
 fn goal_view_scroll_up_moves_off_bottom_after_mouse_overscroll() {
     fn render_task_view(model: &mut TuiModel) -> Vec<String> {

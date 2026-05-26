@@ -16,7 +16,6 @@ fn healthy_snapshot() -> DetectionSnapshot {
     }
 }
 
-
 #[test]
 fn healthy_snapshot_returns_none() {
     let detector = StuckDetector::default();
@@ -24,7 +23,6 @@ fn healthy_snapshot_returns_none() {
     let result = detector.analyze(&snap, 1010);
     assert!(result.is_none(), "healthy snapshot should return None");
 }
-
 
 #[test]
 fn timeout_detected_when_exceeding_max_duration() {
@@ -44,7 +42,6 @@ fn timeout_detected_when_exceeding_max_duration() {
     assert!(analysis.evidence.contains("300"));
     assert!(analysis.evidence.contains("200"));
 }
-
 
 #[test]
 fn no_progress_detected_when_idle_exceeds_threshold() {
@@ -78,7 +75,6 @@ fn no_progress_detected_with_no_last_progress() {
     assert_eq!(analysis.reason, StuckReason::NoProgress);
 }
 
-
 #[test]
 fn error_loop_detected_with_3_consecutive_errors() {
     let detector = StuckDetector::default();
@@ -90,7 +86,6 @@ fn error_loop_detected_with_3_consecutive_errors() {
     assert_eq!(analysis.reason, StuckReason::ErrorLoop);
     assert!(analysis.evidence.contains("3 consecutive errors"));
 }
-
 
 #[test]
 fn error_loop_not_detected_with_2_consecutive_errors() {
@@ -106,7 +101,6 @@ fn error_loop_not_detected_with_2_consecutive_errors() {
     );
 }
 
-
 #[test]
 fn tool_loop_detected_with_abab_pattern() {
     let detector = StuckDetector::default();
@@ -120,7 +114,6 @@ fn tool_loop_detected_with_abab_pattern() {
     assert!(analysis.evidence.contains("write"));
 }
 
-
 #[test]
 fn tool_loop_detected_with_aaaa_pattern() {
     let detector = StuckDetector::default();
@@ -132,7 +125,6 @@ fn tool_loop_detected_with_aaaa_pattern() {
     assert!(analysis.evidence.contains("read"));
 }
 
-
 #[test]
 fn resource_exhaustion_detected_at_91_percent() {
     let detector = StuckDetector::default();
@@ -143,7 +135,6 @@ fn resource_exhaustion_detected_at_91_percent() {
     assert_eq!(analysis.reason, StuckReason::ResourceExhaustion);
     assert!(analysis.evidence.contains("91%"));
 }
-
 
 #[test]
 fn resource_exhaustion_not_detected_at_89_percent() {
@@ -157,7 +148,6 @@ fn resource_exhaustion_not_detected_at_89_percent() {
         "89% should not trigger resource exhaustion"
     );
 }
-
 
 #[test]
 fn multiple_issues_highest_confidence_wins() {
@@ -176,7 +166,6 @@ fn multiple_issues_highest_confidence_wins() {
     assert!(analysis.confidence > 0.9);
 }
 
-
 #[test]
 fn default_thresholds_are_reasonable() {
     let detector = StuckDetector::default();
@@ -185,7 +174,6 @@ fn default_thresholds_are_reasonable() {
     assert_eq!(detector.tool_loop_min_length, 4);
     assert_eq!(detector.resource_exhaustion_pct, 90);
 }
-
 
 #[test]
 fn custom_thresholds_work() {
@@ -223,7 +211,6 @@ fn custom_thresholds_work() {
     let analysis3 = detector.analyze(&snap3, now).unwrap();
     assert_eq!(analysis3.reason, StuckReason::NoProgress);
 }
-
 
 #[test]
 fn intervention_selection_maps_correctly() {
@@ -268,7 +255,6 @@ fn intervention_selection_maps_correctly() {
     );
 }
 
-
 #[test]
 fn entity_type_preserved_in_analysis() {
     let detector = StuckDetector::default();
@@ -286,7 +272,6 @@ fn entity_type_preserved_in_analysis() {
     assert_eq!(analysis.entity_type, "goal_run");
     assert_eq!(analysis.entity_id, "goal-42");
 }
-
 
 #[test]
 fn evidence_strings_are_descriptive() {
@@ -350,7 +335,6 @@ fn evidence_strings_are_descriptive() {
     );
 }
 
-
 #[test]
 fn tool_loop_not_detected_with_short_sequence() {
     let detector = StuckDetector::default();
@@ -359,7 +343,6 @@ fn tool_loop_not_detected_with_short_sequence() {
     let result = detector.analyze(&snap, 1010);
     assert!(result.is_none(), "3 entries should not trigger tool loop");
 }
-
 
 #[test]
 fn timeout_not_triggered_without_max_duration() {
@@ -381,7 +364,6 @@ fn timeout_not_triggered_without_max_duration() {
         "no max_duration_secs should mean no timeout"
     );
 }
-
 
 #[test]
 fn confidence_values_in_valid_range() {
@@ -411,7 +393,6 @@ fn confidence_values_in_valid_range() {
         analysis2.confidence
     );
 }
-
 
 #[test]
 fn resource_exhaustion_not_at_exactly_threshold() {

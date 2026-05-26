@@ -1,8 +1,5 @@
 use super::*;
-use zorai_shared::providers::{
-    AudioToolKind, PROVIDER_ID_CUSTOM,
-    PROVIDER_ID_OPENROUTER,
-};
+use zorai_shared::providers::{AudioToolKind, PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENROUTER};
 impl TuiModel {
     pub(crate) fn current_settings_field_name(&self) -> &str {
         if self.settings.active_tab() == crate::state::SettingsTab::Concierge {

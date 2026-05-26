@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-
 /// Accumulated statistics for a single tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolStats {
@@ -31,7 +30,6 @@ impl ToolStats {
     }
 }
 
-
 /// Statistics for a specific sequence of tools used together.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompositionStats {
@@ -41,7 +39,6 @@ pub struct CompositionStats {
     pub avg_steps_to_success: f64,
     pub last_used_at: u64,
 }
-
 
 /// Tracks per-tool call outcomes and multi-tool composition success rates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,7 +135,6 @@ impl EffectivenessTracker {
         }
     }
 
-
     /// Success rate for a given tool (0.0–1.0), or `None` if unknown.
     pub fn tool_success_rate(&self, tool_name: &str) -> Option<f64> {
         self.tools.get(tool_name).map(|s| {
@@ -171,7 +167,6 @@ impl EffectivenessTracker {
             }
         })
     }
-
 
     /// Tools with the highest success rate. Only tools with at least 5 calls
     /// are considered. Returns up to `top_n` entries as `(tool_name, rate)`.
@@ -211,7 +206,6 @@ impl EffectivenessTracker {
         ranked
     }
 
-
     /// Completion rate for a known tool-sequence, or `None` if unrecorded.
     pub fn composition_completion_rate(&self, sequence: &[String]) -> Option<f64> {
         self.compositions
@@ -225,7 +219,6 @@ impl EffectivenessTracker {
                 }
             })
     }
-
 
     /// Build a human-readable effectiveness report.
     pub fn build_effectiveness_report(&self) -> String {
@@ -307,7 +300,6 @@ impl EffectivenessTracker {
         lines.join("\n")
     }
 }
-
 
 #[cfg(test)]
 #[path = "effectiveness/tests.rs"]

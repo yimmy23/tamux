@@ -6,7 +6,6 @@ use super::archive::ArchiveEntry;
 #[allow(unused_imports)]
 use super::context_item::ContextItem;
 
-
 /// Parameters for a context restoration request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RestorationRequest {
@@ -58,7 +57,6 @@ pub struct RestorationResult {
     /// The query that was used (echoed back for callers).
     pub query_used: Option<String>,
 }
-
 
 /// Rank archive entries by relevance and select items that fit within the
 /// `max_items` and `max_tokens` budget specified in the request.
@@ -150,7 +148,6 @@ pub fn build_restoration_context(results: &RestorationResult) -> String {
 pub fn format_restoration_prompt(query: &str) -> String {
     format!("Search archived context for: {query}")
 }
-
 
 /// Extract tags from the metadata JSON value, if it is an object containing a
 /// `"tags"` array of strings.

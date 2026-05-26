@@ -48,7 +48,6 @@ fn normalize_thread_agent_name(agent_name: &mut Option<String>) {
     }
 }
 
-
 pub struct ChatState {
     threads: Vec<AgentThread>,
     history_page_size: usize,
@@ -268,13 +267,15 @@ fn message_snapshot_matches(existing: &AgentMessage, incoming: &AgentMessage) ->
 fn dedupe_operator_question_messages(messages: &mut Vec<AgentMessage>) -> usize {
     let before = messages.len();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    messages.retain(|message| match message
-        .operator_question_id
-        .as_deref()
-        .filter(|value| !value.is_empty())
-    {
-        Some(id) => seen.insert(id.to_string()),
-        None => true,
+    messages.retain(|message| {
+        match message
+            .operator_question_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            Some(id) => seen.insert(id.to_string()),
+            None => true,
+        }
     });
     before - messages.len()
 }
@@ -1469,6 +1470,7 @@ impl ChatState {
                 name,
                 args,
                 weles_review,
+                message_id,
             } => {
                 self.pinned_message_top = None;
                 let (content, reasoning) = {
@@ -1500,6 +1502,7 @@ impl ChatState {
                     append_message_to_thread(
                         thread,
                         AgentMessage {
+                            id: message_id,
                             role: MessageRole::Tool,
                             tool_name: Some(name.clone()),
                             tool_call_id: Some(call_id.clone()),
@@ -1533,6 +1536,7 @@ impl ChatState {
                 content,
                 is_error,
                 weles_review,
+                message_id,
             } => {
                 self.pinned_message_top = None;
                 if let Some(activity) = self.thread_activity.get_mut(&thread_id) {
@@ -1563,6 +1567,9 @@ impl ChatState {
                         });
                         msg.weles_review = weles_review;
                         msg.content = content;
+                        if message_id.is_some() {
+                            msg.id = message_id;
+                        }
                     }
                 }
                 self.cleanup_thread_activity(&thread_id);
@@ -1579,6 +1586,7 @@ impl ChatState {
                 generation_ms,
                 reasoning,
                 provider_final_result_json,
+                message_id,
             } => {
                 self.pinned_message_top = None;
                 let (content, mut final_reasoning) = {
@@ -1624,6 +1632,7 @@ impl ChatState {
                 if (!content.is_empty() || !final_reasoning.is_empty()) && !duplicate_reasoning_tail
                 {
                     let msg = AgentMessage {
+                        id: message_id.clone(),
                         role: MessageRole::Assistant,
                         content,
                         reasoning: if final_reasoning.is_empty() {
@@ -1859,8 +1868,7 @@ impl ChatState {
                         if incoming.active_context_window_tokens.is_some() {
                             existing.active_context_window_start =
                                 incoming.active_context_window_start;
-                            existing.active_context_window_end =
-                                incoming.active_context_window_end;
+                            existing.active_context_window_end = incoming.active_context_window_end;
                             existing.active_context_window_tokens =
                                 incoming.active_context_window_tokens;
                         }
@@ -2294,7 +2302,6 @@ impl Default for ChatState {
         Self::new()
     }
 }
-
 
 #[cfg(test)]
 #[path = "tests/chat.rs"]

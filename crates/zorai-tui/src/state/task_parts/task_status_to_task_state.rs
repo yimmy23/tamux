@@ -39,9 +39,14 @@ pub enum GoalRunStatus {
     Running,
     AwaitingApproval,
     Paused,
+    Blocked,
     Completed,
     Failed,
     Cancelled,
+    Contained,
+    Compensated,
+    PartiallyCompensated,
+    BreakGlass,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -304,7 +309,6 @@ pub struct FilePreview {
     pub is_text: bool,
 }
 
-
 #[derive(Debug, Clone)]
 pub enum TaskAction {
     TaskListReceived(Vec<AgentTask>),
@@ -340,7 +344,6 @@ pub enum TaskAction {
     HeartbeatDigestReceived(HeartbeatDigestVm),
 }
 
-
 pub struct TaskState {
     pub(crate) tasks: Vec<AgentTask>,
     pub(crate) tasks_revision: u64,
@@ -357,6 +360,5 @@ pub struct TaskState {
     pub(crate) file_previews: std::collections::HashMap<String, FilePreview>,
     pub(crate) heartbeat_items: Vec<HeartbeatItem>,
     pub(crate) last_digest: Option<HeartbeatDigestVm>,
-    pub(crate) goal_thread_ids_cache:
-        std::cell::RefCell<Option<(u64, Vec<String>)>>,
+    pub(crate) goal_thread_ids_cache: std::cell::RefCell<Option<(u64, Vec<String>)>>,
 }

@@ -87,6 +87,8 @@ fn done_event_stores_provider_final_result_on_final_message() {
         provider_final_result_json: Some(
             r#"{"provider":"open_ai_responses","id":"resp_tui_done"}"#.to_string(),
         ),
+
+        message_id: None,
     });
 
     let thread = model.chat.active_thread().expect("thread should exist");

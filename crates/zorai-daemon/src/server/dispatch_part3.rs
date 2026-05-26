@@ -12,8 +12,7 @@ pub(crate) async fn dispatch_part3(
     framed: &mut ConnectionWriter,
     manager: &Arc<SessionManager>,
     client_agent_threads: &mut HashSet<String>,
-) -> Result<bool>
-{
+) -> Result<bool> {
     if !matches!(
         msg,
         ClientMessage::ListAgentMessages { .. }
@@ -251,7 +250,8 @@ pub(crate) async fn dispatch_part3(
             pane_id,
             limit,
         } => {
-            let events_result = if category.as_deref() == Some(crate::notifications::NOTIFICATION_CATEGORY)
+            let events_result = if category.as_deref()
+                == Some(crate::notifications::NOTIFICATION_CATEGORY)
                 && pane_id.is_none()
             {
                 manager
@@ -551,8 +551,7 @@ pub(crate) async fn dispatch_part3(
                 .await?;
         }
 
-        ClientMessage::SubscribeNotifications => {
-        }
+        ClientMessage::SubscribeNotifications => {}
 
         ClientMessage::ScrubSensitive { text } => {
             let scrubbed = crate::scrub::scrub_sensitive(&text);

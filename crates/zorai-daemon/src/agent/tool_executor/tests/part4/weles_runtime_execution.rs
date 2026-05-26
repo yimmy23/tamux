@@ -270,7 +270,18 @@ async fn execute_tool_suspicious_shell_python_uses_weles_runtime_structured_bloc
     )
     .await;
 
-    assert!(result.is_error);
+    // Shell tools route a Block verdict through the pending-approval
+    // flow, not a hard error — the test still verifies the side effect
+    // (marker not created) that proves the command didn't execute.
+    assert!(
+        !result.is_error,
+        "shell block surfaces as pending approval, not hard error: {}",
+        result.content
+    );
+    assert!(
+        result.pending_approval.is_some(),
+        "shell block should attach a pending approval handle"
+    );
     assert!(
         !marker.exists(),
         "runtime block should prevent bypass execution"

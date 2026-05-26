@@ -224,6 +224,7 @@ fn tool_icon_classifies_action_families() {
         (tool_names::SEND_SLACK_MESSAGE, "comm"),
         (tool_names::NOTIFY_USER, "comm"),
         (tool_names::SPEECH_TO_TEXT, "audio"),
+        (tool_names::ANALYZE_IMAGE, "image"),
         (tool_names::GET_SYSTEM_INFO, "system"),
         (tool_names::GET_COST_SUMMARY, "system"),
         (tool_names::GET_GIT_STATUS, "git"),
@@ -255,6 +256,7 @@ fn tool_icon_classifies_action_families() {
 
     assert_eq!(tool_icon_for(tool_names::GET_GIT_STATUS, None).marker, "⑂");
     assert_eq!(tool_icon_for(tool_names::UPDATE_TODO, None).marker, "☑");
+    assert_eq!(tool_icon_for(tool_names::ANALYZE_IMAGE, None).marker, "🖼");
 }
 
 #[test]

@@ -26,6 +26,7 @@ fn sample_goal_run_for_structured_fallback(goal_run_id: &str) -> GoalRun {
         current_step_kind: None,
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 1,
         plan_summary: None,

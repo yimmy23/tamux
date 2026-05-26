@@ -29,4 +29,3 @@ pub(crate) fn tool_def(
         },
     }
 }
-

@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
-
 /// Configuration for sub-agent supervision — how often to check, when to
 /// consider a sub-agent stuck, and what intervention level to apply.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,7 +107,6 @@ pub enum ContextOverflowAction {
     /// Return an error and stop execution.
     Error,
 }
-
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

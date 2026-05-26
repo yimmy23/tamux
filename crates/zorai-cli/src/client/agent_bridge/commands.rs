@@ -225,12 +225,14 @@ where
             goal_run_id,
             action,
             step_index,
+            payload_json,
         } => {
             framed
                 .send(ClientMessage::AgentControlGoalRun {
                     goal_run_id,
                     action,
                     step_index,
+                    payload_json,
                 })
                 .await?;
         }

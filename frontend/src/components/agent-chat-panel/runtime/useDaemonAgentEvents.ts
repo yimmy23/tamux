@@ -4,9 +4,10 @@ import { shouldUseDaemonRuntime, getAgentBridge } from "@/lib/agentDaemonConfig"
 import { fetchAllThreadTodos, fetchThreadTodos } from "@/lib/agentTodos";
 import { fetchGoalRuns, type GoalRun } from "@/lib/goalRuns";
 import { useAgentMissionStore } from "@/lib/agentMissionStore";
+import type { RiskLevel } from "@/lib/agent-mission-store/types";
 import { useWorkspaceStore } from "@/lib/workspaceStore";
 import type { AgentBackend } from "@/lib/agentStore/types";
-import type { AgentThread, AgentTodoItem } from "@/lib/agentStore";
+import type { AgentMessage, AgentThread, AgentTodoItem } from "@/lib/agentStore";
 import type { WelesHealthState } from "@/lib/agentStore/types";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import {
@@ -58,6 +59,10 @@ const THREADLESS_STREAM_EVENT_TYPES = new Set([
   "tool_result",
   "error",
 ]);
+
+function normalizeApprovalRiskLevel(value: unknown): RiskLevel {
+  return value === "high" || value === "critical" ? value : "medium";
+}
 
 export function isThreadlessDaemonStreamEvent(event: any): boolean {
   return THREADLESS_STREAM_EVENT_TYPES.has(String(event?.type ?? ""))
@@ -184,6 +189,30 @@ export function useDaemonAgentEvents({
       return refreshedMessages[refreshedMessages.length - 1];
     };
 
+    // Walks the thread's messages from newest to oldest and rewrites the id of
+    // the first one that matches `predicate` to `daemonId`. Used to reconcile
+    // frontend-local placeholder ids (msg_42) with the daemon's persisted
+    // agent_messages.id when the daemon surfaces it on Done/ToolCall/ToolResult.
+    const replaceMessageIdAtTail = (
+      threadId: string,
+      daemonId: string,
+      predicate: (m: AgentMessage) => boolean,
+    ) => {
+      useAgentStore.setState((state) => {
+        const list = state.messages[threadId];
+        if (!list || list.length === 0) return state;
+        for (let i = list.length - 1; i >= 0; i -= 1) {
+          const candidate = list[i];
+          if (!predicate(candidate)) continue;
+          if (candidate.id === daemonId) return state;
+          const updated = [...list];
+          updated[i] = { ...candidate, id: daemonId };
+          return { messages: { ...state.messages, [threadId]: updated } };
+        }
+        return state;
+      });
+    };
+
     const cleanupGoalRunWorkspace = (goalRunId: string) => {
       const workspaceId = goalRunWorkspacesRef.current[goalRunId];
       if (!workspaceId) return;
@@ -242,6 +271,13 @@ export function useDaemonAgentEvents({
               reasoning: event.reasoning || last.reasoning || undefined,
             });
           }
+          // The daemon now surfaces the persisted assistant `agent_messages.id`
+          // alongside the Done event. We rewrite the local id of the just-finalized
+          // streaming assistant message so per-message actions (👍/👎, pin, delete)
+          // can address the actual DB row instead of the frontend-local counter.
+          if (typeof event.message_id === "string" && event.message_id.length > 0) {
+            replaceMessageIdAtTail(tid, event.message_id, (m) => m.role === "assistant");
+          }
           break;
         }
         case "tool_call": {
@@ -265,6 +301,13 @@ export function useDaemonAgentEvents({
             totalTokens: 0,
             isCompactionSummary: false,
           });
+          if (typeof event.message_id === "string" && event.message_id.length > 0) {
+            replaceMessageIdAtTail(
+              tid,
+              event.message_id,
+              (m) => m.role === "tool" && m.toolCallId === event.call_id,
+            );
+          }
           break;
         }
         case "tool_result": {
@@ -281,6 +324,13 @@ export function useDaemonAgentEvents({
             totalTokens: 0,
             isCompactionSummary: false,
           });
+          if (typeof event.message_id === "string" && event.message_id.length > 0) {
+            replaceMessageIdAtTail(
+              tid,
+              event.message_id,
+              (m) => m.role === "tool" && m.toolCallId === event.call_id,
+            );
+          }
           const agentSettings = useAgentStore.getState().agentSettings;
           addMessage(tid, {
             role: "assistant",
@@ -292,6 +342,35 @@ export function useDaemonAgentEvents({
             totalTokens: 0,
             isCompactionSummary: false,
             isStreaming: true,
+          });
+          break;
+        }
+        case "approval_required": {
+          const approvalId = typeof event.approval_id === "string" ? event.approval_id : "";
+          if (!approvalId) break;
+          const reasons = Array.isArray(event.reasons)
+            ? event.reasons.map((reason: unknown) => String(reason))
+            : [];
+          useAgentMissionStore.getState().upsertDaemonApproval({
+            id: approvalId,
+            paneId: activePaneId ?? activeThreadId ?? "",
+            workspaceId: activeWorkspace?.id ?? null,
+            surfaceId: null,
+            sessionId: typeof event.thread_id === "string" ? event.thread_id : null,
+            command: String(event.command ?? approvalId),
+            reasons: reasons.length > 0 ? reasons : ["Managed command requires approval"],
+            riskLevel: normalizeApprovalRiskLevel(event.risk_level),
+            blastRadius: String(event.blast_radius ?? "tool execution"),
+          });
+          addNotification({
+            title: "Approval required",
+            body: String(event.command ?? approvalId),
+            subtitle: String(event.rationale ?? "Tool execution paused for operator approval"),
+            icon: "shield",
+            source: "system",
+            workspaceId: activeWorkspace?.id ?? null,
+            paneId: activePaneId ?? null,
+            panelId: activePaneId ?? null,
           });
           break;
         }

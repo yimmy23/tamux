@@ -311,7 +311,11 @@ pub fn render_for_workspace(
             .enumerate()
             .flat_map(|(index, cell)| {
                 let label = if loading_tab.as_ref() == Some(&cell.tab) {
-                    format!("{} {}", cell.label, thread_picker_spinner_frame(tick_counter))
+                    format!(
+                        "{} {}",
+                        cell.label,
+                        thread_picker_spinner_frame(tick_counter)
+                    )
                 } else {
                     cell.label.clone()
                 };

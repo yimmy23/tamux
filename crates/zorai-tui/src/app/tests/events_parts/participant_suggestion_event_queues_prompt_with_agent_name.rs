@@ -400,6 +400,8 @@ fn done_event_on_active_thread_requests_auto_response_for_live_main_reply() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
+
+        message_id: None,
     });
 
     let mut saw_auto_response = false;
@@ -470,6 +472,8 @@ fn participant_suggestion_does_not_auto_flush_as_user_message_after_done() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
+
+        message_id: None,
     });
 
     assert!(

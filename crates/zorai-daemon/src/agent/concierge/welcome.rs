@@ -156,9 +156,7 @@ impl ConciergeEngine {
                         let interval_due = last_emit_at
                             .map(|prev| now.duration_since(prev) >= partial_emit_interval)
                             .unwrap_or(true);
-                        let grew_enough = full_content
-                            .len()
-                            .saturating_sub(last_emitted_len)
+                        let grew_enough = full_content.len().saturating_sub(last_emitted_len)
                             >= partial_emit_min_growth;
                         if interval_due
                             && (is_first_emit || grew_enough)
@@ -573,8 +571,13 @@ fn goal_run_status_label(status: GoalRunStatus) -> &'static str {
         GoalRunStatus::Running => "running",
         GoalRunStatus::AwaitingApproval => "awaiting approval",
         GoalRunStatus::Paused => "paused",
+        GoalRunStatus::Blocked => "blocked",
         GoalRunStatus::Completed => "completed",
         GoalRunStatus::Failed => "failed",
         GoalRunStatus::Cancelled => "cancelled",
+        GoalRunStatus::Contained => "contained",
+        GoalRunStatus::Compensated => "compensated",
+        GoalRunStatus::PartiallyCompensated => "partially compensated",
+        GoalRunStatus::BreakGlass => "break-glass",
     }
 }

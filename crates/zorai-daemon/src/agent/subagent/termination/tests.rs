@@ -1,6 +1,5 @@
 use super::*;
 
-
 fn metrics(
     elapsed_secs: u64,
     total: u32,
@@ -16,7 +15,6 @@ fn metrics(
         total_errors: total_err,
     }
 }
-
 
 #[test]
 fn parse_timeout() {
@@ -41,7 +39,6 @@ fn parse_tool_call_count() {
     let ev = TerminationEvaluator::parse("tool_call_count(50)").unwrap();
     assert_eq!(ev.condition(), &TerminationCondition::ToolCallCount(50));
 }
-
 
 #[test]
 fn timeout_fires_when_elapsed() {
@@ -88,7 +85,6 @@ fn tool_call_count_fires() {
     assert!(stop);
 }
 
-
 #[test]
 fn or_fires_on_left() {
     let ev = TerminationEvaluator::parse("timeout(300) OR error_count(3)").unwrap();
@@ -112,7 +108,6 @@ fn or_does_not_fire_when_neither() {
     assert!(!stop);
 }
 
-
 #[test]
 fn and_fires_when_both() {
     let ev = TerminationEvaluator::parse("timeout(60) AND tool_call_count(5)").unwrap();
@@ -126,7 +121,6 @@ fn and_does_not_fire_when_only_one() {
     let (stop, _) = ev.should_terminate(&metrics(60, 4, 3, 0, 0));
     assert!(!stop);
 }
-
 
 #[test]
 fn not_inverts_false_to_true() {
@@ -142,7 +136,6 @@ fn not_inverts_true_to_false() {
     let (stop, _) = ev.should_terminate(&metrics(300, 0, 0, 0, 0));
     assert!(!stop);
 }
-
 
 #[test]
 fn nested_and_or() {
@@ -168,7 +161,6 @@ fn double_not() {
     let (stop, _) = ev.should_terminate(&metrics(59, 0, 0, 0, 0));
     assert!(!stop);
 }
-
 
 #[test]
 fn error_empty_string() {
@@ -219,7 +211,6 @@ fn error_trailing_tokens() {
     let msg = result.unwrap_err().to_string();
     assert!(msg.contains("trailing"));
 }
-
 
 #[test]
 fn zero_timeout_fires_immediately() {

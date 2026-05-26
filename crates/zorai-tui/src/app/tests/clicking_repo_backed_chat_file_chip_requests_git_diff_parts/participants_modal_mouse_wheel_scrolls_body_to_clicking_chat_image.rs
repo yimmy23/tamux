@@ -1,7 +1,7 @@
-use super::*;
 use super::super::{build_model, unauthenticated_entry, unbounded_channel};
+use super::*;
+use base64::Engine as _;
 use std::sync::mpsc;
-    use base64::Engine as _;
 #[test]
 fn participants_modal_mouse_wheel_scrolls_body() {
     let mut model = build_model();

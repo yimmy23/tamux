@@ -91,7 +91,6 @@ async fn read_http_request_body(socket: &mut tokio::net::TcpStream) -> std::io::
     Ok(String::from_utf8_lossy(&buffer[headers_end..headers_end + available]).to_string())
 }
 
-
 #[test]
 fn quiet_hours_within_midnight_wrap_window() {
     assert!(check_quiet_window(23, Some(22), Some(6), false));
@@ -188,7 +187,6 @@ async fn heartbeat_running_goal_targets_use_persisted_running_goals_after_live_q
     );
 }
 
-
 #[test]
 fn resolve_cron_prefers_explicit_cron() {
     let config = AgentConfig {
@@ -229,7 +227,6 @@ fn resolve_cron_explicit_overrides_interval() {
     assert_eq!(resolve_cron_from_config(&config), "30 2 * * *");
 }
 
-
 #[test]
 fn broadcast_when_actionable_true_and_items_present() {
     let items = vec![HeartbeatDigestItem {
@@ -262,7 +259,6 @@ fn no_broadcast_when_not_actionable_and_no_items() {
     assert!(!should_broadcast(false, &[]));
 }
 
-
 #[test]
 fn persistence_status_completed_when_synthesis_present() {
     assert_eq!(
@@ -275,7 +271,6 @@ fn persistence_status_completed_when_synthesis_present() {
 fn persistence_status_failed_when_synthesis_none() {
     assert_eq!(heartbeat_persistence_status(None), "synthesis_failed");
 }
-
 
 #[test]
 fn custom_item_due_when_never_run() {
@@ -309,7 +304,6 @@ fn custom_item_not_due_with_global_interval() {
     let last = now - (20 * 60 * 1000);
     assert!(!is_custom_item_due(now, Some(last), 0, 30));
 }
-
 
 #[test]
 fn all_checks_enabled_by_default() {
@@ -354,7 +348,6 @@ fn no_checks_when_all_disabled() {
     let checks = enabled_checks(&config);
     assert!(checks.is_empty());
 }
-
 
 #[test]
 fn parse_digest_items_from_valid_response() {
@@ -843,7 +836,6 @@ async fn structured_heartbeat_keeps_consolidation_carryover_quiet_by_default() {
     );
 }
 
-
 #[test]
 fn peak_activity_hour_in_peak_hours_list() {
     let smoothed: HashMap<u8, f64> = HashMap::new();
@@ -863,7 +855,6 @@ fn peak_activity_hour_below_threshold_and_not_in_list() {
     smoothed.insert(3, 1.0);
     assert!(!is_peak_activity_hour(3, &[9, 10], &smoothed, 2.0));
 }
-
 
 #[test]
 fn should_run_check_weight_one_always_runs() {
@@ -891,7 +882,6 @@ fn should_run_check_weight_zero_never_runs() {
     assert!(!should_run_check(0.0, 1));
     assert!(!should_run_check(0.0, 100));
 }
-
 
 #[test]
 fn compute_check_priority_zero_dismissals_returns_one() {

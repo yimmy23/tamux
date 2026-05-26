@@ -111,8 +111,7 @@ impl TaskState {
             }
         }
         let computed = self.compute_all_goal_thread_ids();
-        *self.goal_thread_ids_cache.borrow_mut() =
-            Some((self.tasks_revision, computed.clone()));
+        *self.goal_thread_ids_cache.borrow_mut() = Some((self.tasks_revision, computed.clone()));
         computed
     }
 
@@ -262,8 +261,7 @@ impl TaskState {
     ) -> std::collections::HashMap<usize, Vec<TodoItem>> {
         let mut index: std::collections::HashMap<usize, Vec<TodoItem>> =
             std::collections::HashMap::new();
-        let mut seen_live: std::collections::HashSet<usize> =
-            std::collections::HashSet::new();
+        let mut seen_live: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
         let Some(run) = self.goal_run_by_id(goal_run_id) else {
             return index;

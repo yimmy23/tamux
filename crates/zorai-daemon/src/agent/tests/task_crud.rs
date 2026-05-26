@@ -286,6 +286,7 @@ fn sample_supervised_goal_run(goal_run_id: &str, task_id: &str, approval_id: &st
         current_step_kind: Some(GoalRunStepKind::Command),
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 2,
         plan_summary: Some("plan".to_string()),
@@ -759,7 +760,9 @@ async fn resume_does_not_clear_supervised_awaiting_approval_gate() {
         ));
     sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
 
-    let changed = engine.control_goal_run(goal_run_id, "resume", None).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "resume", None, None)
+        .await;
     assert!(
         !changed,
         "resume should not mutate awaiting-approval supervised runs"
@@ -805,7 +808,7 @@ async fn explicit_acknowledgment_unblocks_goal_and_current_step_task() {
     sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
 
     let changed = engine
-        .control_goal_run(goal_run_id, "acknowledge", None)
+        .control_goal_run(goal_run_id, "acknowledge", None, None)
         .await;
     assert!(changed, "acknowledge should clear supervised gate");
 
@@ -853,7 +856,7 @@ async fn explicit_acknowledgment_unblocks_persisted_current_step_task_after_live
     engine.tasks.lock().await.clear();
 
     let changed = engine
-        .control_goal_run(goal_run_id, "acknowledge", None)
+        .control_goal_run(goal_run_id, "acknowledge", None, None)
         .await;
     assert!(changed, "acknowledge should clear supervised gate");
 
@@ -1294,7 +1297,9 @@ async fn cancelling_goal_run_settles_unresolved_goal_plan_trace() {
         .await
         .expect("insert goal plan causal trace");
 
-    let changed = engine.control_goal_run(goal_run_id, "cancel", None).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "cancel", None, None)
+        .await;
     assert!(changed, "cancel should update goal state");
 
     let records = engine
@@ -1334,7 +1339,9 @@ async fn stopping_goal_run_records_operator_stop_resume_decision() {
         ));
     sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
 
-    let changed = engine.control_goal_run(goal_run_id, "stop", None).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "stop", None, None)
+        .await;
     assert!(changed, "stop should update goal state");
 
     let goal = engine
@@ -1406,7 +1413,9 @@ async fn stopping_goal_run_cancels_all_related_goal_tasks_and_streams() {
     let (_child_generation, child_token, _child_retry) =
         engine.begin_stream_cancellation(child_thread_id).await;
 
-    let changed = engine.control_goal_run(goal_run_id, "stop", None).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "stop", None, None)
+        .await;
     assert!(changed, "stop should update goal state");
 
     let active = engine
@@ -2950,4 +2959,409 @@ async fn delete_goal_run_removes_goal_and_related_tasks() {
             .is_empty(),
         "persisted goal task should be deleted even when it is absent from the live queue"
     );
+}
+
+async fn supervised_engine_with_goal(
+    goal_run_id: &str,
+) -> (std::sync::Arc<AgentEngine>, tempfile::TempDir) {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let task_id = "task-outcome";
+    let approval_id = "approval-outcome";
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .push_back(sample_supervised_goal_run(
+            goal_run_id,
+            task_id,
+            approval_id,
+        ));
+    sample_awaiting_task(&engine, goal_run_id, task_id, approval_id).await;
+    (engine, root)
+}
+
+#[tokio::test]
+async fn contain_control_action_transitions_goal_run_to_contained_terminal_state() {
+    let goal_run_id = "goal-contain";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "contain", None, None)
+        .await;
+    assert!(changed, "contain should update goal state");
+    let goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should exist");
+    assert_eq!(goal.status, GoalRunStatus::Contained);
+    assert!(goal.status.is_terminal());
+    assert_eq!(goal.stopped_reason.as_deref(), Some("operator_contain"));
+    assert!(goal.completed_at.is_some());
+    assert!(goal.awaiting_approval_id.is_none());
+    assert!(goal.active_task_id.is_none());
+}
+
+#[tokio::test]
+async fn compensate_control_action_transitions_goal_run_to_compensated_terminal_state() {
+    let goal_run_id = "goal-compensate";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "compensate", None, None)
+        .await;
+    assert!(changed, "compensate should update goal state");
+    let goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should exist");
+    assert_eq!(goal.status, GoalRunStatus::Compensated);
+    assert!(goal.status.is_terminal());
+    assert_eq!(goal.stopped_reason.as_deref(), Some("operator_compensate"));
+}
+
+#[tokio::test]
+async fn compensate_partial_control_action_transitions_goal_run_to_partially_compensated() {
+    let goal_run_id = "goal-partial";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "compensate-partial", None, None)
+        .await;
+    assert!(changed, "compensate-partial should update goal state");
+    let goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should exist");
+    assert_eq!(goal.status, GoalRunStatus::PartiallyCompensated);
+    assert!(goal.status.is_terminal());
+    assert_eq!(
+        goal.stopped_reason.as_deref(),
+        Some("operator_partial_compensate")
+    );
+}
+
+#[tokio::test]
+async fn break_glass_control_action_transitions_goal_run_to_break_glass_terminal_state() {
+    let goal_run_id = "goal-break-glass";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "break-glass", None, None)
+        .await;
+    assert!(changed, "break-glass should update goal state");
+    let goal = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal should exist");
+    assert_eq!(goal.status, GoalRunStatus::BreakGlass);
+    assert!(goal.status.is_terminal());
+    assert_eq!(goal.stopped_reason.as_deref(), Some("operator_break_glass"));
+}
+
+#[tokio::test]
+async fn terminal_outcomes_persist_through_sqlite_round_trip() {
+    // Each new outcome state should round-trip through the SQLite string
+    // serialization so a goal that landed in (say) BreakGlass on the last
+    // process is still BreakGlass after daemon restart.
+    let goal_run_id = "goal-roundtrip";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    let cases = [
+        ("contain", GoalRunStatus::Contained),
+        ("compensate", GoalRunStatus::Compensated),
+        ("compensate-partial", GoalRunStatus::PartiallyCompensated),
+        ("break-glass", GoalRunStatus::BreakGlass),
+    ];
+    for (action, expected) in cases {
+        let run_id = format!("{goal_run_id}-{action}");
+        engine
+            .goal_runs
+            .lock()
+            .await
+            .push_back(sample_supervised_goal_run(
+                &run_id,
+                &format!("task-{action}"),
+                &format!("approval-{action}"),
+            ));
+        sample_awaiting_task(
+            &engine,
+            &run_id,
+            &format!("task-{action}"),
+            &format!("approval-{action}"),
+        )
+        .await;
+        assert!(engine.control_goal_run(&run_id, action, None, None).await);
+        // Clear the live cache so the next read must come from SQLite.
+        engine
+            .goal_runs
+            .lock()
+            .await
+            .retain(|item| item.id != run_id);
+        let persisted = engine
+            .history
+            .get_goal_run(&run_id)
+            .await
+            .expect("persisted goal lookup")
+            .expect("goal should be persisted");
+        assert_eq!(
+            persisted.status, expected,
+            "action {action} should persist as {expected:?}"
+        );
+    }
+}
+
+fn sample_role_edit_goal_run(goal_run_id: &str) -> GoalRun {
+    // Two-step plan with current_step_index=0 so the suite can exercise the
+    // current-step branch (index 0) and the future-step branch (index 1).
+    let mut run = sample_supervised_goal_run(goal_run_id, "task-step-0", "approval-0");
+    run.status = GoalRunStatus::Running;
+    run.awaiting_approval_id = None;
+    run.current_step_index = 0;
+    run.steps.push(GoalRunStep {
+        id: "step-2".to_string(),
+        position: 1,
+        title: "step-2".to_string(),
+        instructions: "step two work".to_string(),
+        kind: GoalRunStepKind::Command,
+        success_criteria: "step-2 satisfied".to_string(),
+        session_id: None,
+        status: GoalRunStepStatus::Pending,
+        task_id: None,
+        summary: None,
+        error: None,
+        started_at: None,
+        completed_at: None,
+    });
+    run.current_step_owner_profile = Some(sample_owner_profile(
+        "active",
+        "openai",
+        "gpt-5",
+        Some("high"),
+    ));
+    run
+}
+
+#[tokio::test]
+async fn update_role_replaces_current_step_owner_profile_for_active_step() {
+    let goal_run_id = "goal-update-role-current";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        goal_runs.clear();
+        goal_runs.push_back(sample_role_edit_goal_run(goal_run_id));
+    }
+
+    let replacement = sample_owner_profile("ops", "anthropic", "claude-sonnet-4-6", None);
+    let payload = serde_json::to_string(&replacement).expect("serialize payload");
+    let changed = engine
+        .control_goal_run(goal_run_id, "update-role", Some(0), Some(&payload))
+        .await;
+    assert!(changed, "current-step update should mutate state");
+
+    let goal = engine.get_goal_run(goal_run_id).await.expect("goal exists");
+    assert_eq!(goal.current_step_owner_profile.as_ref(), Some(&replacement));
+    assert!(
+        goal.step_owner_overrides.is_empty(),
+        "current-step path should not leave an override pending"
+    );
+    assert!(
+        goal.events.iter().any(|event| {
+            event.phase == "control" && event.message == "owner profile updated for active step"
+        }),
+        "expected an audit event for active-step role update"
+    );
+}
+
+#[tokio::test]
+async fn update_role_stages_override_for_future_step_without_touching_active_profile() {
+    let goal_run_id = "goal-update-role-future";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        goal_runs.clear();
+        goal_runs.push_back(sample_role_edit_goal_run(goal_run_id));
+    }
+    let before = engine
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("goal exists")
+        .current_step_owner_profile
+        .clone();
+
+    let future_profile = sample_owner_profile("future", "openai", "gpt-5.4", Some("medium"));
+    let payload = serde_json::to_string(&future_profile).expect("serialize payload");
+    let changed = engine
+        .control_goal_run(goal_run_id, "update-role", Some(1), Some(&payload))
+        .await;
+    assert!(changed, "future-step update should mutate state");
+
+    let goal = engine.get_goal_run(goal_run_id).await.expect("goal exists");
+    assert_eq!(
+        goal.current_step_owner_profile, before,
+        "future-step edits must not touch the active step's owner profile"
+    );
+    assert_eq!(
+        goal.step_owner_overrides.get(&1),
+        Some(&future_profile),
+        "future override should be staged for the targeted step"
+    );
+    assert!(goal.events.iter().any(|event| {
+        event.phase == "control" && event.message == "owner profile override staged for future step"
+    }));
+}
+
+#[tokio::test]
+async fn update_role_rejects_past_step_index_and_missing_payload() {
+    let goal_run_id = "goal-update-role-rejected";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        goal_runs.clear();
+        let mut run = sample_role_edit_goal_run(goal_run_id);
+        run.current_step_index = 1;
+        // step-0 status reflects already-completed past step
+        run.steps[0].status = GoalRunStepStatus::Completed;
+        run.steps[0].completed_at = Some(now_millis());
+        goal_runs.push_back(run);
+    }
+
+    let payload = serde_json::to_string(&sample_owner_profile("x", "openai", "gpt-5", None))
+        .expect("serialize payload");
+
+    let no_payload = engine
+        .control_goal_run(goal_run_id, "update-role", Some(1), None)
+        .await;
+    assert!(!no_payload, "missing payload should be a no-op");
+
+    let past = engine
+        .control_goal_run(goal_run_id, "update-role", Some(0), Some(&payload))
+        .await;
+    assert!(!past, "past step should be a no-op");
+
+    let out_of_range = engine
+        .control_goal_run(goal_run_id, "update-role", Some(99), Some(&payload))
+        .await;
+    assert!(!out_of_range, "step beyond plan length should be a no-op");
+
+    let goal = engine.get_goal_run(goal_run_id).await.expect("goal exists");
+    assert!(goal.step_owner_overrides.is_empty());
+}
+
+#[tokio::test]
+async fn block_action_moves_running_goal_run_into_blocked_state() {
+    let goal_run_id = "goal-block-running";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        goal_runs.clear();
+        let mut run = sample_supervised_goal_run(goal_run_id, "task-step-0", "approval-0");
+        run.status = GoalRunStatus::Running;
+        run.awaiting_approval_id = None;
+        goal_runs.push_back(run);
+    }
+    let changed = engine.control_goal_run(goal_run_id, "block", None, None).await;
+    assert!(changed, "block should mutate state");
+    let goal = engine.get_goal_run(goal_run_id).await.expect("goal exists");
+    assert_eq!(goal.status, GoalRunStatus::Blocked);
+    assert!(
+        goal.events.iter().any(|event| {
+            event.phase == "control" && event.message == "goal run blocked by governance gate"
+        }),
+        "expected block audit event"
+    );
+}
+
+#[tokio::test]
+async fn resume_action_exits_blocked_state_back_to_running() {
+    let goal_run_id = "goal-resume-blocked";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        goal_runs.clear();
+        let mut run = sample_supervised_goal_run(goal_run_id, "task-step-0", "approval-0");
+        run.status = GoalRunStatus::Blocked;
+        run.awaiting_approval_id = None;
+        goal_runs.push_back(run);
+    }
+    let changed = engine
+        .control_goal_run(goal_run_id, "resume", None, None)
+        .await;
+    assert!(changed, "resume should unblock");
+    let goal = engine.get_goal_run(goal_run_id).await.expect("goal exists");
+    assert_eq!(goal.status, GoalRunStatus::Running);
+    assert!(
+        goal.events.iter().any(|event| {
+            event.phase == "control" && event.message == "goal run unblocked"
+        }),
+        "expected unblocked audit event distinct from regular resume"
+    );
+}
+
+#[tokio::test]
+async fn block_action_is_noop_on_terminal_goal_run() {
+    let goal_run_id = "goal-block-terminal";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        goal_runs.clear();
+        let mut run = sample_supervised_goal_run(goal_run_id, "task-step-0", "approval-0");
+        run.status = GoalRunStatus::Completed;
+        run.completed_at = Some(now_millis());
+        goal_runs.push_back(run);
+    }
+    let changed = engine.control_goal_run(goal_run_id, "block", None, None).await;
+    assert!(!changed, "block must not mutate terminal runs");
+    let goal = engine.get_goal_run(goal_run_id).await.expect("goal exists");
+    assert_eq!(goal.status, GoalRunStatus::Completed);
+}
+
+#[tokio::test]
+async fn blocked_status_is_not_terminal() {
+    // Sanity check: Blocked is reversible by design.
+    assert!(!GoalRunStatus::Blocked.is_terminal());
+}
+
+#[tokio::test]
+async fn blocked_status_roundtrips_through_sqlite() {
+    let goal_run_id = "goal-blocked-roundtrip";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        goal_runs.clear();
+        let mut run = sample_supervised_goal_run(goal_run_id, "task-step-0", "approval-0");
+        run.status = GoalRunStatus::Running;
+        run.awaiting_approval_id = None;
+        goal_runs.push_back(run);
+    }
+    assert!(engine.control_goal_run(goal_run_id, "block", None, None).await);
+    // Clear the live cache so the next read must come from SQLite.
+    engine
+        .goal_runs
+        .lock()
+        .await
+        .retain(|item| item.id != goal_run_id);
+    let persisted = engine
+        .history
+        .get_goal_run(goal_run_id)
+        .await
+        .expect("history lookup")
+        .expect("persisted goal");
+    assert_eq!(persisted.status, GoalRunStatus::Blocked);
+}
+
+#[tokio::test]
+async fn update_role_rejected_after_terminal_status() {
+    let goal_run_id = "goal-update-role-terminal";
+    let (engine, _root) = supervised_engine_with_goal(goal_run_id).await;
+    {
+        let mut goal_runs = engine.goal_runs.lock().await;
+        goal_runs.clear();
+        let mut run = sample_role_edit_goal_run(goal_run_id);
+        run.status = GoalRunStatus::Completed;
+        run.completed_at = Some(now_millis());
+        goal_runs.push_back(run);
+    }
+    let payload = serde_json::to_string(&sample_owner_profile("late", "openai", "gpt-5", None))
+        .expect("serialize payload");
+    let changed = engine
+        .control_goal_run(goal_run_id, "update-role", Some(1), Some(&payload))
+        .await;
+    assert!(!changed, "terminal goal should not accept role edits");
 }

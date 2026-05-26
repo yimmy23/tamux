@@ -1,5 +1,5 @@
-use super::*;
 use super::super::unbounded_channel;
+use super::*;
 use std::sync::mpsc;
 #[test]
 fn in_review_open_action_opens_queued_review_task_thread() {

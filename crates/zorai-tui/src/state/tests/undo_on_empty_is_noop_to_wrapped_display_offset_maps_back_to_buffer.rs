@@ -212,7 +212,6 @@ fn tilde_resolution_handles_forward_and_backslash_separators() {
     assert_eq!(backslash, documents);
 }
 
-
 #[test]
 fn cursor_movement_with_multibyte_chars() {
     let mut state = InputState::new();
@@ -269,7 +268,6 @@ fn line_col_conversion_roundtrip() {
 
     assert_eq!(state.line_col_to_offset_public(5, 0), 12);
 }
-
 
 #[test]
 fn single_line_paste_inserts_normally() {

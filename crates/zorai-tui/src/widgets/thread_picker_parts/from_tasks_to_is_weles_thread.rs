@@ -140,10 +140,16 @@ pub(super) fn status_from_goal_run(status: Option<GoalRunStatus>) -> ThreadPicke
             | GoalRunStatus::Running
             | GoalRunStatus::AwaitingApproval,
         ) => ThreadPickerStatus::Running,
-        Some(GoalRunStatus::Paused) => ThreadPickerStatus::Paused,
-        Some(GoalRunStatus::Completed | GoalRunStatus::Failed | GoalRunStatus::Cancelled) => {
-            ThreadPickerStatus::Stopped
-        }
+        Some(GoalRunStatus::Paused | GoalRunStatus::Blocked) => ThreadPickerStatus::Paused,
+        Some(
+            GoalRunStatus::Completed
+            | GoalRunStatus::Failed
+            | GoalRunStatus::Cancelled
+            | GoalRunStatus::Contained
+            | GoalRunStatus::Compensated
+            | GoalRunStatus::PartiallyCompensated
+            | GoalRunStatus::BreakGlass,
+        ) => ThreadPickerStatus::Stopped,
         None => ThreadPickerStatus::Idle,
     }
 }

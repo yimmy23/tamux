@@ -19,6 +19,12 @@ pub enum AgentEvent {
         arguments: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         weles_review: Option<WelesReviewMeta>,
+        /// Persisted `agent_messages.id` of the tool-call row, when known.
+        /// Frontends use this to attach per-message actions (e.g. 👍/👎
+        /// feedback) to the row the daemon actually stored, instead of a
+        /// client-local placeholder id.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
     },
     ToolResult {
         thread_id: String,
@@ -28,6 +34,18 @@ pub enum AgentEvent {
         is_error: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         weles_review: Option<WelesReviewMeta>,
+        /// Persisted `agent_messages.id` of the tool-result row, when known.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+    },
+    ApprovalRequired {
+        thread_id: String,
+        approval_id: String,
+        command: String,
+        rationale: Option<String>,
+        reasons: Vec<String>,
+        risk_level: String,
+        blast_radius: String,
     },
     Done {
         thread_id: String,
@@ -46,6 +64,11 @@ pub enum AgentEvent {
         upstream_message: Option<CompletionUpstreamMessage>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         provider_final_result: Option<CompletionProviderFinalResult>,
+        /// Persisted `agent_messages.id` of the assistant message that just
+        /// finished streaming. None when finalization happens before the
+        /// daemon has assigned a row (e.g. fatal error mid-stream).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
     },
     Error {
         thread_id: String,
@@ -363,4 +386,3 @@ pub enum AgentEvent {
         reaction: Option<zorai_protocol::Reaction>,
     },
 }
-

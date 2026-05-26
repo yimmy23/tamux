@@ -304,6 +304,7 @@ fn queued_prompts_modal_send_now_stops_stream_and_sends_selected_prompt() {
         "bash_command".to_string(),
         "{\"command\":\"pwd\"}".to_string(),
         None,
+        None,
     );
     model
         .queued_prompts

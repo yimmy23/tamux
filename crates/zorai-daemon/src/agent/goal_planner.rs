@@ -666,12 +666,7 @@ impl AgentEngine {
         } else if step.kind == GoalRunStepKind::Divergent {
             let thread_id = snapshot.thread_id.clone().unwrap_or_default();
             match self
-                .start_divergent_session(
-                    &step.instructions,
-                    None,
-                    &thread_id,
-                    Some(&snapshot.id),
-                )
+                .start_divergent_session(&step.instructions, None, &thread_id, Some(&snapshot.id))
                 .await
             {
                 Ok(session_id) => {

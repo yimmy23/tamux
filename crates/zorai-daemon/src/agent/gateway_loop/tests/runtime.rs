@@ -7021,6 +7021,7 @@ async fn gateway_status_command_reports_goal_run_state_for_thread() {
         current_step_kind: Some(GoalRunStepKind::Command),
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 2,
         plan_summary: Some("Remote status plan".to_string()),

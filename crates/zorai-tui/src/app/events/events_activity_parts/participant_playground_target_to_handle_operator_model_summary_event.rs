@@ -155,6 +155,7 @@ impl TuiModel {
         {
             return;
         }
+        let viewport_anchor = self.capture_locked_chat_viewport(Some(thread_id.as_str()));
         self.clear_bootstrap_pending_activity_thread(thread_id.as_str());
         self.set_agent_activity_for(Some(thread_id.clone()), "writing");
         if self.should_surface_thread_activity(&thread_id) {
@@ -163,6 +164,7 @@ impl TuiModel {
         }
         self.chat
             .reduce(chat::ChatAction::Delta { thread_id, content });
+        self.restore_locked_chat_viewport(viewport_anchor);
     }
 
     pub(in crate::app) fn handle_reasoning_event(&mut self, thread_id: String, content: String) {
@@ -174,19 +176,19 @@ impl TuiModel {
         {
             return;
         }
+        let viewport_anchor = self.capture_locked_chat_viewport(Some(thread_id.as_str()));
         self.clear_bootstrap_pending_activity_thread(thread_id.as_str());
         self.set_agent_activity_for(Some(thread_id.clone()), "reasoning");
         if self.should_surface_thread_activity(&thread_id) {
             self.anticipatory
                 .reduce(crate::state::AnticipatoryAction::Clear);
         }
-        let active_thread_id = thread_id.clone();
-        self.reduce_chat_for_thread(
-            Some(active_thread_id.as_str()),
-            chat::ChatAction::Reasoning { thread_id, content },
-        );
+        self.chat
+            .reduce(chat::ChatAction::Reasoning { thread_id, content });
+        self.restore_locked_chat_viewport(viewport_anchor);
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::app) fn handle_tool_call_event(
         &mut self,
         thread_id: String,
@@ -194,6 +196,7 @@ impl TuiModel {
         name: String,
         arguments: String,
         weles_review: Option<crate::client::WelesReviewMetaVm>,
+        message_id: Option<String>,
     ) {
         if self.mark_participant_playground_active(&thread_id) {
             return;
@@ -218,10 +221,12 @@ impl TuiModel {
                 name,
                 args: arguments,
                 weles_review,
+                message_id,
             },
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::app) fn handle_tool_result_event(
         &mut self,
         thread_id: String,
@@ -230,6 +235,7 @@ impl TuiModel {
         content: String,
         is_error: bool,
         weles_review: Option<crate::client::WelesReviewMetaVm>,
+        message_id: Option<String>,
     ) {
         if self.mark_participant_playground_active(&thread_id) {
             return;
@@ -261,6 +267,7 @@ impl TuiModel {
                 content,
                 is_error,
                 weles_review,
+                message_id,
             },
         );
         if let Some(path) = maybe_tts_path {
@@ -282,6 +289,7 @@ impl TuiModel {
         generation_ms: Option<u64>,
         reasoning: Option<String>,
         provider_final_result_json: Option<String>,
+        message_id: Option<String>,
     ) {
         if let Some(visible_thread_id) = self.clear_participant_playground_activity(&thread_id) {
             if self.chat.active_thread_id() == Some(visible_thread_id.as_str()) {
@@ -325,6 +333,7 @@ impl TuiModel {
                 generation_ms,
                 reasoning,
                 provider_final_result_json,
+                message_id,
             },
         );
 

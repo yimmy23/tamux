@@ -118,7 +118,6 @@ pub enum RetryStrategy {
     DurableRateLimited,
 }
 
-
 #[derive(Debug, Clone, Serialize)]
 pub struct ApiMessage {
     pub role: String,
@@ -153,7 +152,6 @@ pub struct ApiToolCallFunction {
     pub name: String,
     pub arguments: String,
 }
-
 
 pub struct CompletionStream {
     pub(crate) rx: mpsc::Receiver<Result<CompletionChunk>>,

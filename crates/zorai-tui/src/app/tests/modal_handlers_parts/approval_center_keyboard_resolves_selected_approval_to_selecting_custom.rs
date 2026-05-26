@@ -142,7 +142,8 @@ fn goal_approval_stop_choice_rejects_and_stops_goal() {
         DaemonCommand::ControlGoalRun {
             goal_run_id,
             action,
-            step_index: None
+            step_index: None,
+            ..
         } if goal_run_id == "goal-1" && action == "stop"
     ));
     assert_eq!(model.modal.top(), None);

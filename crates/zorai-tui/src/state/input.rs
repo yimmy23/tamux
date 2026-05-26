@@ -3,7 +3,6 @@
 use ratatui_textarea::TextArea;
 use unicode_width::UnicodeWidthChar;
 
-
 mod display;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

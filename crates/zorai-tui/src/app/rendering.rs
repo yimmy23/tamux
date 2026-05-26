@@ -1063,8 +1063,7 @@ impl TuiModel {
     ) -> Option<u64> {
         let primary_window_u32 = primary_window_tokens.min(u32::MAX as u64) as u32;
         let candidate = match self.config.compaction_strategy.as_str() {
-            "weles" => self
-                .current_header_weles_compaction_window_tokens(primary_window_u32),
+            "weles" => self.current_header_weles_compaction_window_tokens(primary_window_u32),
             "custom_model" => self.config.compaction_custom_context_window_tokens.max(1),
             _ => return None,
         } as u64;

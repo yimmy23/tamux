@@ -1,5 +1,5 @@
-use super::*;
 use super::super::unbounded_channel;
+use super::*;
 use std::sync::mpsc;
 #[test]
 fn clicking_repo_backed_chat_file_chip_requests_git_diff() {

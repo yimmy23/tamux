@@ -187,6 +187,7 @@ async fn maybe_run_consolidation_if_idle_blocks_when_goal_run_is_awaiting_approv
         current_step_kind: None,
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 3,
         plan_summary: None,

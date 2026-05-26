@@ -116,6 +116,7 @@ impl DaemonClient {
                         name: get_string(&event, "name").unwrap_or_default(),
                         arguments: get_string_lossy(&event, "arguments"),
                         weles_review: Self::parse_weles_review(&event),
+                        message_id: get_string(&event, "message_id"),
                     })
                     .await;
             }
@@ -135,6 +136,35 @@ impl DaemonClient {
                             .and_then(Value::as_bool)
                             .unwrap_or(false),
                         weles_review: Self::parse_weles_review(&event),
+                        message_id: get_string(&event, "message_id"),
+                    })
+                    .await;
+            }
+            "approval_required" => {
+                let reasons = event
+                    .get("reasons")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .map(|item| {
+                                item.as_str()
+                                    .map(ToOwned::to_owned)
+                                    .unwrap_or_else(|| item.to_string())
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let _ = event_tx
+                    .send(ClientEvent::ApprovalRequired {
+                        approval_id: get_string(&event, "approval_id").unwrap_or_default(),
+                        command: get_string_lossy(&event, "command"),
+                        rationale: get_string(&event, "rationale"),
+                        reasons,
+                        risk_level: get_string(&event, "risk_level")
+                            .unwrap_or_else(|| "medium".to_string()),
+                        blast_radius: get_string(&event, "blast_radius")
+                            .unwrap_or_else(|| "tool execution".to_string()),
                     })
                     .await;
             }
@@ -163,6 +193,7 @@ impl DaemonClient {
                         provider_final_result_json: event
                             .get("provider_final_result")
                             .and_then(|value| serde_json::to_string(value).ok()),
+                        message_id: get_string(&event, "message_id"),
                     })
                     .await;
             }

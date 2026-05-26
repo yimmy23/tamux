@@ -485,6 +485,8 @@ fn shifted_latest_page_collapses_adjacent_local_assistant_final_echo() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
+
+        message_id: None,
     });
 
     state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
@@ -561,6 +563,8 @@ fn tail_reload_without_wire_start_collapses_local_assistant_final_echo() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
+
+        message_id: None,
     });
 
     state.reduce(ChatAction::ThreadDetailReceived(AgentThread {

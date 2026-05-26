@@ -307,25 +307,35 @@ impl ConciergeEngine {
             return None;
         }
 
-        let has_user_message_after_welcome = match history
+        let history_says_active = match history
             .has_non_heartbeat_user_message_after(latest_welcome.timestamp)
             .await
         {
-            Ok(has_message) => has_message,
+            Ok(value) => value,
             Err(error) => {
                 tracing::warn!(
                     "failed to query user activity after concierge welcome from history: {error}"
                 );
-                let threads_guard = threads.read().await;
-                threads_guard
-                    .values()
-                    .filter(|thread| !is_heartbeat_thread(thread))
-                    .flat_map(|thread| thread.messages.iter())
-                    .any(|msg| {
-                        msg.role == MessageRole::User && msg.timestamp > latest_welcome.timestamp
-                    })
+                false
             }
         };
+        // Consult the live in-memory threads as well as history. The live
+        // queue is the source of truth for messages that arrived this
+        // session; history catches up via background persistence and may
+        // lag. Without this OR-with-memory check a fresh user message
+        // that hasn't been flushed yet gets ignored and we'd reuse a
+        // stale welcome despite obvious user activity.
+        let memory_says_active = {
+            let threads_guard = threads.read().await;
+            threads_guard
+                .values()
+                .filter(|thread| !is_heartbeat_thread(thread))
+                .flat_map(|thread| thread.messages.iter())
+                .any(|msg| {
+                    msg.role == MessageRole::User && msg.timestamp > latest_welcome.timestamp
+                })
+        };
+        let has_user_message_after_welcome = history_says_active || memory_says_active;
         if has_user_message_after_welcome {
             return None;
         }

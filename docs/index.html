@@ -60,7 +60,7 @@
         <div class="card-grid feature-grid">
           <article class="card">
             <h3>Daemon as source of truth</h3>
-            <p>The daemon owns sessions, threads, workspace tasks, approvals, goal runs, transcripts, memory, and operational state. Clients are views into that state.</p>
+            <p>The daemon owns threads, workspace tasks, approvals, goal runs, transcripts, and memory in durable storage. Live PTY sessions and the managed command queue are owned for the daemon&rsquo;s lifetime; on restart, session metadata is recovered while live processes and in-flight commands are not. Clients are views into that state.</p>
           </article>
           <article class="card">
             <h3>Workspace task boards</h3>
@@ -84,7 +84,7 @@
           </article>
           <article class="card">
             <h3>Runtime plugin system</h3>
-            <p>Plugins add components, commands, YAML views, assistant tools, and executors for domain-specific workflows.</p>
+            <p>Plugins add components, commands, assistant tools, and executors for domain-specific workflows.</p>
           </article>
           <article class="card">
             <h3>Multiple operator surfaces</h3>

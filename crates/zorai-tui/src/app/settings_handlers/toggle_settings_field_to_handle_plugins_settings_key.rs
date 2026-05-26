@@ -282,7 +282,6 @@ impl TuiModel {
         }
     }
 
-
     pub(crate) fn handle_plugins_settings_key(&mut self, code: KeyCode) -> bool {
         if self.plugin_settings.list_mode {
             match code {

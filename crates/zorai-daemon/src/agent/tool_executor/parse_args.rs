@@ -185,4 +185,3 @@ pub(crate) fn get_file_content_arg(args: &serde_json::Value) -> Result<String> {
     }
     anyhow::bail!("missing file content argument (expected one of: content, contents, text, data, body, content_base64)")
 }
-

@@ -1,7 +1,6 @@
 use super::super::*;
 use super::{
-    normalize_compliance_mode, normalize_provider_auth_source,
-    normalize_provider_transport,
+    normalize_compliance_mode, normalize_provider_auth_source, normalize_provider_transport,
 };
 
 impl TuiModel {

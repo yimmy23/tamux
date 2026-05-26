@@ -1,5 +1,5 @@
-use super::*;
 use super::super::{build_model, unbounded_channel};
+use super::*;
 use std::sync::mpsc;
 #[test]
 fn clicking_selected_message_copy_action_copies_that_message() {

@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GoalSidebarTab {
     Steps,
@@ -8,7 +7,6 @@ pub enum GoalSidebarTab {
     Tasks,
     Files,
 }
-
 
 pub struct GoalSidebarState {
     active_tab: GoalSidebarTab,

@@ -1,8 +1,5 @@
 use super::super::*;
-use super::super::{
-    execute_tool,
-    get_available_tools,
-};
+use super::super::{execute_tool, get_available_tools};
 use super::current_dir_test_lock;
 use super::part7::*;
 use crate::agent::{

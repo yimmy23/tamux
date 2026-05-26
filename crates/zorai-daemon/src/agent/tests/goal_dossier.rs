@@ -54,7 +54,9 @@ async fn goal_projection_writes_files_on_create_and_refresh() {
     );
 
     assert!(
-        engine.control_goal_run(&goal_run.id, "pause", None).await,
+        engine
+            .control_goal_run(&goal_run.id, "pause", None, None)
+            .await,
         "pausing the goal should succeed"
     );
 

@@ -1232,6 +1232,18 @@ mod tests {
 
     #[tokio::test]
     async fn apply_distilled_candidate_trims_user_file_to_entry_limit() -> anyhow::Result<()> {
+        // USER.md updates flow through a process-global sync-state mutex
+        // (`UserProfileSyncState`). A prior test in the same process can
+        // leave that state in `Reconciling` or `Dirty`, which causes
+        // `handle_user_memory_append_with_reconcile` to stage the
+        // distilled note instead of writing it through — the assertion
+        // below would then see the file unchanged. Acquire the test
+        // guard and reset to `Clean` so this test is robust to ordering.
+        let _user_sync_guard =
+            crate::agent::operator_profile::user_sync::acquire_user_sync_test_guard();
+        crate::agent::operator_profile::user_sync::set_user_sync_state_for_test(
+            crate::agent::operator_profile::user_sync::UserProfileSyncState::Clean,
+        );
         let root = std::env::temp_dir().join(format!("zorai-distill-test-{}", Uuid::new_v4()));
         let history = HistoryStore::new_test_store(&root).await?;
         ensure_memory_files(&root).await?;
@@ -1588,6 +1600,15 @@ mod tests {
     #[tokio::test]
     async fn run_distillation_pass_auto_applies_and_queues_review_with_progress_persistence(
     ) -> anyhow::Result<()> {
+        // Same process-global user-sync-state caveat as
+        // `apply_distilled_candidate_trims_user_file_to_entry_limit` — a
+        // prior test can leave the state non-Clean and cause USER.md
+        // updates to stage instead of writing through.
+        let _user_sync_guard =
+            crate::agent::operator_profile::user_sync::acquire_user_sync_test_guard();
+        crate::agent::operator_profile::user_sync::set_user_sync_state_for_test(
+            crate::agent::operator_profile::user_sync::UserProfileSyncState::Clean,
+        );
         let root = std::env::temp_dir().join(format!("zorai-distill-test-{}", Uuid::new_v4()));
         let history = HistoryStore::new_test_store(&root).await?;
         ensure_memory_files(&root).await?;

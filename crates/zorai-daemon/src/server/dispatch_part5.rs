@@ -8,8 +8,7 @@ pub(crate) async fn dispatch_part5(
     msg: &ClientMessage,
     agent: &Arc<AgentEngine>,
     framed: &mut ConnectionWriter,
-) -> Result<bool>
-{
+) -> Result<bool> {
     if !matches!(
         msg,
         ClientMessage::AgentListHealthLog { .. }

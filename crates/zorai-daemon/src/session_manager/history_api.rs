@@ -250,6 +250,21 @@ impl SessionManager {
     }
 
     pub async fn restore_snapshot(&self, snapshot_id: &str) -> Result<(bool, String)> {
-        self.snapshots.restore(snapshot_id).await
+        let result = self.snapshots.restore(snapshot_id).await;
+        let outcome = crate::governance::snapshot_restore_outcome(&result);
+        crate::governance::record_transition_audit(
+            &self.history,
+            crate::governance::TransitionKind::CompensationEntry,
+            crate::governance::TransitionAuditIds {
+                run_id: Some(snapshot_id.to_string()),
+                ..Default::default()
+            },
+            serde_json::json!({
+                "snapshot_id": snapshot_id,
+            }),
+            &outcome,
+        )
+        .await;
+        result
     }
 }

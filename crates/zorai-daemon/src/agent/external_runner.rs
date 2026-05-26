@@ -42,7 +42,6 @@ pub fn is_stream_cancelled(error: &anyhow::Error) -> bool {
     error.downcast_ref::<StreamCancelledError>().is_some()
 }
 
-
 pub struct ExternalAgentRunner {
     agent_type: String,
     executable: Option<String>,
@@ -297,6 +296,7 @@ impl ExternalAgentRunner {
             reasoning: None,
             upstream_message: None,
             provider_final_result: None,
+            message_id: None,
         });
 
         tracing::info!(

@@ -1,7 +1,5 @@
 use super::*;
 
-
-
 pub(crate) const TUI_TICK_RATE_MS: u64 = 50;
 /// Debounce on `maybe_refresh_spawned_sidebar_tasks`. Tick-based, so the
 /// real cadence depends on whether the loop is in fast (50 ms) or idle

@@ -1,5 +1,5 @@
-use super::*;
 use super::super::build_model;
+use super::*;
 use ratatui::backend::TestBackend;
 #[test]
 fn goal_composer_mission_control_preflight_renders_stable_sections() {

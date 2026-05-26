@@ -54,6 +54,8 @@ fn late_tool_result_after_done_does_not_restore_footer_activity() {
         name: "generate_image".to_string(),
         arguments: "{\"prompt\":\"test\"}".to_string(),
         weles_review: None,
+
+        message_id: None,
     });
     assert_eq!(
         model.footer_activity_text().as_deref(),
@@ -71,6 +73,8 @@ fn late_tool_result_after_done_does_not_restore_footer_activity() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
+
+        message_id: None,
     });
     assert!(
         model.footer_activity_text().is_none(),
@@ -84,6 +88,8 @@ fn late_tool_result_after_done_does_not_restore_footer_activity() {
         content: "{\"path\":\"/tmp/image.png\"}".to_string(),
         is_error: false,
         weles_review: None,
+
+        message_id: None,
     });
 
     assert!(
@@ -119,6 +125,8 @@ fn text_to_speech_tool_result_autoplays_audio_in_chat_threads() {
             .to_string(),
             is_error: false,
             weles_review: None,
+
+            message_id: None,
         });
 
         assert_eq!(model.status_line, "Playing synthesized speech...");

@@ -159,4 +159,3 @@ pub(crate) async fn execute_setup_web_browsing(
         ),
     }
 }
-

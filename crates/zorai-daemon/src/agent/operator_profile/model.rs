@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 
-
 /// A stored profile field value with provenance metadata.
 #[derive(Debug, Clone)]
 pub struct ProfileFieldValue {
@@ -18,7 +17,6 @@ pub struct ProfileFieldValue {
     /// Unix-epoch millisecond timestamp of the last update.
     pub updated_at: u64,
 }
-
 
 /// Input widget hint for profile questions.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +48,6 @@ pub struct ProfileFieldSpec {
     /// Whether this field must be answered before the session is considered complete.
     pub required: bool,
 }
-
 
 /// Full snapshot of operator profile fields indexed by field key.
 #[derive(Debug, Clone, Default)]

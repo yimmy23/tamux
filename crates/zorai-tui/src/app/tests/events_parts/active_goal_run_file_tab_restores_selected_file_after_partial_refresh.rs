@@ -440,6 +440,8 @@ fn inactive_thread_reload_required_does_not_interrupt_selected_thread() {
         name: "bash_command".to_string(),
         arguments: "{\"command\":\"pwd\"}".to_string(),
         weles_review: None,
+
+        message_id: None,
     });
 
     model.handle_client_event(ClientEvent::ThreadReloadRequired {

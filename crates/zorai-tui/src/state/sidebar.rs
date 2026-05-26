@@ -2,7 +2,6 @@
 
 use std::collections::HashSet;
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarTab {
     Files,
@@ -22,7 +21,6 @@ pub enum SidebarItemTarget {
     },
 }
 
-
 #[derive(Debug, Clone)]
 pub enum SidebarAction {
     SwitchTab(SidebarTab),
@@ -30,7 +28,6 @@ pub enum SidebarAction {
     ToggleExpand(String),
     Scroll(i32),
 }
-
 
 pub struct SidebarState {
     active_tab: SidebarTab,
@@ -160,7 +157,6 @@ impl Default for SidebarState {
         Self::new()
     }
 }
-
 
 #[cfg(test)]
 mod tests {

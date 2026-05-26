@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use super::interview::InterviewSession;
 use super::model::ProfileFieldSpec;
 
-
 /// Bounded in-memory map of active interview sessions.
 ///
 /// This is the runtime state stored on `AgentEngine`. It is **not** a
@@ -63,7 +62,6 @@ impl InterviewStore {
     }
 }
 
-
 /// Canonical ordered list of profile questions used for every interview.
 ///
 /// Required fields appear first and are presented before optional ones by
@@ -115,7 +113,6 @@ pub fn default_field_specs() -> Vec<ProfileFieldSpec> {
         },
     ]
 }
-
 
 #[cfg(test)]
 mod tests {

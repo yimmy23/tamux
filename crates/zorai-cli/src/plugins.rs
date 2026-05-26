@@ -15,7 +15,6 @@ pub use helpers::{plugin_commands, remove_plugin_files};
 const PLUGINS_DIR: &str = "plugins";
 const REGISTRY_FILE: &str = "registry.json";
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledPluginRecord {
     pub package_name: String,
@@ -543,7 +542,6 @@ pub fn install_plugin_v2(spec: &str) -> Result<Vec<(String, String)>> {
         }
     }
 }
-
 
 #[cfg(test)]
 #[path = "tests/plugins.rs"]

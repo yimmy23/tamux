@@ -86,7 +86,13 @@ pub enum ClientMessage {
         #[serde(default)]
         event_limit: Option<usize>,
     },
-    AgentControlGoalRun { goal_run_id: String, action: String, step_index: Option<usize> },
+    AgentControlGoalRun {
+        goal_run_id: String,
+        action: String,
+        step_index: Option<usize>,
+        #[serde(default)]
+        payload_json: Option<String>,
+    },
     AgentDeleteGoalRun { goal_run_id: String },
     AgentListTodos,
     AgentGetTodos { thread_id: String },

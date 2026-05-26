@@ -272,6 +272,7 @@ async fn policy_halt_aborts_before_guarded_tool_execution_and_persists_failure_t
             runtime_assignment_list: Vec::new(),
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: 2,
             plan_summary: None,

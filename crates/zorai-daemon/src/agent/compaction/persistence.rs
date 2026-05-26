@@ -133,7 +133,12 @@ impl AgentEngine {
                 None => 0u64,
             }
         };
-        let (post_compaction_window_start, post_compaction_window_end, post_compaction_total_tokens, total_message_count) = {
+        let (
+            post_compaction_window_start,
+            post_compaction_window_end,
+            post_compaction_total_tokens,
+            total_message_count,
+        ) = {
             let threads = self.threads.read().await;
             match threads.get(thread_id) {
                 Some(thread) => {
@@ -146,7 +151,12 @@ impl AgentEngine {
                         thread.messages.len(),
                     )
                 }
-                None => (current_split_at, total_message_count, 0u64, total_message_count),
+                None => (
+                    current_split_at,
+                    total_message_count,
+                    0u64,
+                    total_message_count,
+                ),
             }
         };
         let compaction_notice_details = serde_json::json!({
@@ -406,9 +416,17 @@ impl AgentEngine {
             .active_agent_id_for_thread(thread_id)
             .await
             .unwrap_or_else(|| MAIN_AGENT_ID.to_string());
+        // Find the task that owns this thread so its `override_provider` /
+        // `override_model` flow into the continuation. Without this the
+        // task-owned builtin-persona scenario (e.g. a Dazhbog task whose
+        // overrides are the only configured provider/model for that
+        // persona) fails to compact: the participant-observer resolver
+        // sees the persona has no `config.builtin_sub_agents.dazhbog`
+        // setup and short-circuits with `builtin_persona_setup_error`.
+        let owning_task_id = self.task_id_owning_thread(thread_id).await;
         let continuation = DeferredVisibleThreadContinuation {
             agent_id,
-            task_id: None,
+            task_id: owning_task_id,
             preferred_session_hint: None,
             llm_user_content: latest_user_content,
             queued_at_ms: 0,

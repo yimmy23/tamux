@@ -44,7 +44,6 @@ fn context_summary_truncation_in_summary() {
     assert!(preview.ends_with('\u{2026}'));
 }
 
-
 #[test]
 fn multiple_checkpoints_for_same_goal_run() {
     let gr = sample_goal_run();
@@ -76,7 +75,6 @@ fn multiple_checkpoints_for_same_goal_run() {
     assert_ne!(cp_pre.id, cp_post.id);
     assert_eq!(cp_pre.goal_run_id, "goal_1");
 }
-
 
 #[test]
 fn pre_step_vs_post_step_vs_manual_types() {
@@ -127,7 +125,6 @@ fn pre_step_vs_post_step_vs_manual_types() {
     assert_eq!(post_json, "post_step");
     assert_eq!(manual_json, "manual");
 }
-
 
 #[test]
 fn tasks_snapshot_preserved() {
@@ -211,7 +208,6 @@ fn memory_updates_preserved() {
     let restored = checkpoint_load(&json).unwrap();
     assert_eq!(restored.memory_updates, vec!["learned X", "noted Y"]);
 }
-
 
 #[test]
 fn save_with_no_optional_fields() {

@@ -351,7 +351,8 @@ pub const COMMUNICATION_TOOLS: &[&str] = &[
     SEND_WHATSAPP_MESSAGE,
 ];
 
-pub const AUDIO_TOOLS: &[&str] = &[SPEECH_TO_TEXT, TEXT_TO_SPEECH, ANALYZE_IMAGE];
+pub const AUDIO_TOOLS: &[&str] = &[SPEECH_TO_TEXT, TEXT_TO_SPEECH];
+pub const IMAGE_TOOLS: &[&str] = &[ANALYZE_IMAGE, GENERATE_IMAGE];
 pub const SYSTEM_TOOLS: &[&str] = &[
     GET_SYSTEM_INFO,
     LIST_PROCESSES,

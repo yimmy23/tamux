@@ -1,8 +1,6 @@
 use super::super::chat_with_messages;
 use super::super::*;
-use crate::state::chat::{
-    AgentMessage, ChatState, MessageRole,
-};
+use crate::state::chat::{AgentMessage, ChatState, MessageRole};
 use crate::theme::ThemeTokens;
 use ratatui::layout::Rect;
 #[test]

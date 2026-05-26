@@ -36,6 +36,7 @@ sha2 = "0.10"
 sysinfo = "0.30"
 tree-sitter = "0.22"
 tree-sitter-bash = "0.21"
+shlex = "1.3"
 walkdir = "2"
 base64 = "0.22"
 reqwest = { workspace = true }

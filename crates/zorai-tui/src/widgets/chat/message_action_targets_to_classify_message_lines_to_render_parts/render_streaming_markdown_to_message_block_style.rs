@@ -1,9 +1,7 @@
 use super::super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::*;
 use super::super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
 use super::super::*;
-use crate::state::chat::{
-    AgentMessage, ChatState, MessageRole,
-};
+use crate::state::chat::{AgentMessage, ChatState, MessageRole};
 use crate::theme::ThemeTokens;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};

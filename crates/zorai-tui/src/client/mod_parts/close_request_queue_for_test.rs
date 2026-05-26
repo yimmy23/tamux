@@ -1,4 +1,3 @@
-
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Mutex;
@@ -10,10 +9,8 @@ use zorai_protocol::ClientMessage;
 
 use crate::wire::{
     AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
-    GoalRun, HeartbeatItem, ThreadParticipantSuggestion,
-    ThreadWorkContext,
+    GoalRun, HeartbeatItem, ThreadParticipantSuggestion, ThreadWorkContext,
 };
-
 
 #[derive(Debug, Clone)]
 pub struct WelesReviewMetaVm {
@@ -213,6 +210,7 @@ pub enum ClientEvent {
         name: String,
         arguments: String,
         weles_review: Option<WelesReviewMetaVm>,
+        message_id: Option<String>,
     },
     ToolResult {
         thread_id: String,
@@ -221,6 +219,7 @@ pub enum ClientEvent {
         content: String,
         is_error: bool,
         weles_review: Option<WelesReviewMetaVm>,
+        message_id: Option<String>,
     },
     Done {
         thread_id: String,
@@ -233,6 +232,7 @@ pub enum ClientEvent {
         generation_ms: Option<u64>,
         reasoning: Option<String>,
         provider_final_result_json: Option<String>,
+        message_id: Option<String>,
     },
     WorkflowNotice {
         thread_id: Option<String>,

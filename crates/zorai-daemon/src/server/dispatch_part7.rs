@@ -12,8 +12,7 @@ pub(crate) async fn dispatch_part7(
     background_daemon_pending: &mut BackgroundPendingCounts,
     last_concierge_welcome_fingerprint: &mut Option<String>,
     agent_event_rx: &mut Option<tokio::sync::broadcast::Receiver<crate::agent::types::AgentEvent>>,
-) -> Result<bool>
-{
+) -> Result<bool> {
     if !matches!(
         msg,
         ClientMessage::AgentValidateProvider { .. }

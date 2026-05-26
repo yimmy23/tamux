@@ -313,9 +313,9 @@ pub(crate) use super::super::llm_client::{ApiContent, ApiMessage, CompletionChun
 pub(crate) use super::super::task_prompt::now_millis;
 pub(crate) use super::super::task_scheduler::selection::make_task_log_entry;
 pub(crate) use super::super::types::CompletionProviderFinalResult;
+#[cfg(test)]
+pub(crate) use super::super::types::TaskStatus;
 pub(crate) use super::super::types::{
     AgentContentBlock, AgentMessage, AgentMessageKind, AgentTask, ApiTransport, ApiType,
     ExternalRuntimeConflictPolicy, MessageRole, TaskLogLevel, ThreadExecutionProfile,
 };
-#[cfg(test)]
-pub(crate) use super::super::types::TaskStatus;

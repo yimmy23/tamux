@@ -27,6 +27,8 @@ fn done_event_persists_final_reasoning_into_chat_message() {
         generation_ms: None,
         reasoning: Some("Final reasoning summary".to_string()),
         provider_final_result_json: Some("result_json".to_string()),
+
+        message_id: None,
     });
 
     let thread = model.chat.active_thread().expect("thread should exist");
@@ -79,6 +81,8 @@ fn done_event_does_not_force_authoritative_refresh_for_participant_threads() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: Some("result_json".to_string()),
+
+        message_id: None,
     });
 
     assert!(
@@ -187,6 +191,8 @@ fn stale_retry_status_after_done_does_not_restore_retrying_placeholder() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: Some("result_json".to_string()),
+
+        message_id: None,
     });
 
     assert!(
@@ -249,6 +255,8 @@ fn header_uses_rarog_daemon_runtime_metadata_after_first_reply() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: Some(r#"{"reasoning":{"effort":"low"}}"#.to_string()),
+
+        message_id: None,
     });
 
     let profile = model.current_header_agent_profile();

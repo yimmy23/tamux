@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-
 /// A single tool-call step within an execution trace.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepTrace {
@@ -133,7 +132,6 @@ pub enum TraceOutcome {
     Cancelled,
 }
 
-
 /// Accumulates [`StepTrace`]s during an execution and produces a final
 /// [`ExecutionTrace`] via [`TraceCollector::finalize`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,7 +238,6 @@ impl TraceCollector {
     }
 }
 
-
 /// Return the first 16 hex characters of the SHA-256 digest of `args`.
 pub fn hash_arguments(args: &str) -> String {
     let mut hasher = Sha256::new();
@@ -278,7 +275,6 @@ pub fn compute_quality_score(trace: &ExecutionTrace) -> f64 {
     let raw = success_rate * 0.7 + efficiency * 0.3;
     raw.clamp(0.0, 1.0)
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -2529,22 +2529,18 @@ async fn restore_thread_from_db_preserves_custom_sub_agent_name_instead_of_canon
     let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
     let thread_id = "thread-restore-preserves-custom-name";
 
-    engine
-        .threads
-        .write()
-        .await
-        .insert(
-            thread_id.to_string(),
-            make_thread(
-                thread_id,
-                Some("DeepSeekorrr"),
-                "Custom sub-agent thread",
-                false,
-                1,
-                2,
-                vec![AgentMessage::user("hi", 1)],
-            ),
-        );
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        make_thread(
+            thread_id,
+            Some("DeepSeekorrr"),
+            "Custom sub-agent thread",
+            false,
+            1,
+            2,
+            vec![AgentMessage::user("hi", 1)],
+        ),
+    );
     engine
         .set_thread_handoff_state(
             thread_id,

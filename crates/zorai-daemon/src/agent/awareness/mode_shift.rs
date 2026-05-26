@@ -53,13 +53,11 @@ pub fn evaluate_mode_shift_with_index(
                 suggested_strategy: strategy.to_string(),
             }
         }
-        Some(reason) => {
-            ModeShiftDecision {
-                should_shift: false,
-                reason: format!("Suppressed: {reason} (counter-who did not confirm)"),
-                suggested_strategy: String::new(),
-            }
-        }
+        Some(reason) => ModeShiftDecision {
+            should_shift: false,
+            reason: format!("Suppressed: {reason} (counter-who did not confirm)"),
+            suggested_strategy: String::new(),
+        },
         None => ModeShiftDecision {
             should_shift: false,
             reason: "No diminishing returns detected".to_string(),

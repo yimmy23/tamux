@@ -94,7 +94,6 @@ pub fn select_strategy(
     }
 }
 
-
 /// Truncate `text` so its estimated token count is at most `max_tokens`.
 fn truncate_to_tokens(text: &str, max_tokens: u32) -> String {
     let current = ContextItem::estimate_tokens(text);
@@ -257,7 +256,6 @@ fn compress_semantic(items: &[ContextItem]) -> String {
 
     output_parts.join("\n\n")
 }
-
 
 #[cfg(test)]
 #[path = "compression/tests.rs"]

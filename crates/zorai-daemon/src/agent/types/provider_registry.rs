@@ -422,7 +422,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: XIAOMI_MIMO_TOKEN_PLAN_MODELS,
-        supports_model_fetch: false,
+        supports_model_fetch: true,
         anthropic_base_url: None,
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: ApiTransport::ChatCompletions,

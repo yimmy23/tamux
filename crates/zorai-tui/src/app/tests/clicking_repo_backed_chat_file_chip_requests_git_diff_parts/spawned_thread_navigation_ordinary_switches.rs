@@ -1,5 +1,5 @@
-use super::*;
 use super::super::build_model;
+use super::*;
 fn spawned_thread_navigation_task(
     id: &str,
     title: &str,

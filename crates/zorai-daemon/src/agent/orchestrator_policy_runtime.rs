@@ -371,14 +371,35 @@ impl AgentEngine {
             causal_trace_id: None,
             thread_id: Some(thread_id.to_string()),
         });
+        // When an escalation transitions into the external (L3) tier, emit a
+        // critical inbox notification so the operator sees it through the
+        // notifications surface and not only via the escalation event. Today
+        // this handler hardcodes `to_level = User`, so the branch is
+        // dormant; the wiring exists so any future producer that sets
+        // `to_level = External` (e.g. an L2-response-timeout watcher) gets the
+        // notification dispatch automatically.
+        let dispatch_external =
+            audit.to_label == escalation::EscalationLevel::External.as_label().to_string();
         let _ = self.event_tx.send(AgentEvent::EscalationUpdate {
             thread_id: thread_id.to_string(),
-            from_level: audit.from_label,
-            to_level: audit.to_label,
-            reason: audit.reason,
+            from_level: audit.from_label.clone(),
+            to_level: audit.to_label.clone(),
+            reason: audit.reason.clone(),
             attempts: audit.attempts,
-            audit_id: Some(audit.audit_id),
+            audit_id: Some(audit.audit_id.clone()),
         });
+        if dispatch_external {
+            if let Err(error) = self
+                .dispatch_external_escalation_notification(thread_id, &audit)
+                .await
+            {
+                tracing::warn!(
+                    thread_id,
+                    error = %error,
+                    "failed to dispatch external escalation notification",
+                );
+            }
+        }
         Ok(PolicyLoopAction::InterruptForApproval)
     }
 

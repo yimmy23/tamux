@@ -815,12 +815,24 @@ async fn status_diagnostics_snapshot_includes_ranked_intent_prediction_confidenc
         )
         .await;
     task.status = TaskStatus::AwaitingApproval;
+    // `enqueue_task` routes the 11th param into `parent_thread_id` and
+    // leaves `thread_id = None`. Set `thread_id` so the predictor's
+    // persisted-history query hits the primary column.
+    task.thread_id = Some("thread-intent-diag".to_string());
+    // `refresh_task_queue_state` (called from every `list_tasks_filtered`,
+    // including the one inside `run_anticipatory_tick`) treats
+    // `AwaitingApproval` with no `awaiting_approval_id` as a stale state
+    // and reverts the task to `Queued`. Set an approval id so the test
+    // fixture matches the production invariant — an AwaitingApproval task
+    // always carries the id of the approval it's blocked on.
+    task.awaiting_approval_id = Some(format!("approval-{}", task.id));
     {
         let mut tasks = engine.tasks.lock().await;
         if let Some(existing) = tasks.iter_mut().find(|existing| existing.id == task.id) {
             *existing = task.clone();
         }
     }
+    engine.persist_tasks().await;
     engine
         .record_operator_attention("conversation:chat", Some("thread-intent-diag"), None)
         .await
@@ -2170,6 +2182,29 @@ async fn status_diagnostics_snapshot_includes_system_outcome_foresight_details()
     let mut config = AgentConfig::default();
     config.anticipatory.enabled = true;
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    // The `predict_system_outcome` path now gates on
+    // `repo_monitor_enabled_for_repo`, which requires a workspace settings
+    // row covering this repo path with a non-empty `include_dirs`. Without
+    // it the foresight short-circuits to None before ever consulting the
+    // health log, so the snapshot's `system_outcome_foresight` would
+    // remain null and the test could not exercise the build/test risk
+    // branch at all.
+    let workspace_settings = zorai_protocol::WorkspaceSettings {
+        workspace_id: "workspace-build-risk-diagnostics".to_string(),
+        workspace_root: Some(repo_root.to_string_lossy().to_string()),
+        operator: zorai_protocol::WorkspaceOperator::Svarog,
+        repo_monitor_enabled: true,
+        repo_monitor_include_dirs: vec!["src".to_string()],
+        repo_monitor_exclude_dirs: Vec::new(),
+        created_at: now_millis(),
+        updated_at: now_millis(),
+    };
+    engine
+        .history
+        .upsert_workspace_settings(&workspace_settings)
+        .await
+        .expect("register workspace settings for repo monitor gate");
 
     engine
         .record_operator_attention(

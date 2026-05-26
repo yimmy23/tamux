@@ -1,4 +1,3 @@
-
 use crate::state::config::ConfigAction;
 use crate::state::config::ConfigState;
 use serde_json::json;

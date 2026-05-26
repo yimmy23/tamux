@@ -1,7 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
-
 /// Configuration for idle-time memory consolidation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsolidationConfig {
@@ -65,7 +64,6 @@ impl Default for ConsolidationConfig {
     }
 }
 
-
 /// Maturity stage of a skill variant as it progresses through discovery.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -102,7 +100,6 @@ impl SkillMaturityStatus {
         }
     }
 }
-
 
 /// Thresholds for deciding whether an execution trace qualifies as a skill candidate.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,7 +221,6 @@ impl Default for SkillRecommendationConfig {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RoutingMode {
@@ -283,7 +279,6 @@ impl Default for RoutingConfig {
         }
     }
 }
-
 
 /// Success thresholds for promoting a skill variant through maturity stages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
