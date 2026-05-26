@@ -237,7 +237,6 @@ impl ToolGraph {
 pub fn build_default_graph() -> ToolGraph {
     let mut graph = ToolGraph::default();
 
-
     graph.add_node(ToolNode {
         name: zorai_protocol::tool_names::BASH_COMMAND.into(),
         capabilities: vec!["shell_execution".into(), "process_management".into()],
@@ -300,7 +299,6 @@ pub fn build_default_graph() -> ToolGraph {
         limitations: vec!["read_only".into()],
         category: "agent_management".into(),
     });
-
 
     graph.add_edge(ToolEdge {
         from: zorai_protocol::tool_names::BASH_COMMAND.into(),

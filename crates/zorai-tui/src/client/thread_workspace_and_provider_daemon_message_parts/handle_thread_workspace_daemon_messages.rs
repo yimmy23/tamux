@@ -1,9 +1,8 @@
 use crate::client::ThreadDetailChunkBuffer;
 use crate::client::{ClientEvent, DaemonClient};
 use crate::wire::{
-    AgentConfigSnapshot, AgentTask, AgentThread, CheckpointSummary, FetchedModel,
-    GoalRun, HeartbeatItem, RestoreOutcome,
-    ThreadWorkContext,
+    AgentConfigSnapshot, AgentTask, AgentThread, CheckpointSummary, FetchedModel, GoalRun,
+    HeartbeatItem, RestoreOutcome, ThreadWorkContext,
 };
 use serde_json::Value;
 use tokio::sync::mpsc;

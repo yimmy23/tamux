@@ -11,8 +11,7 @@ pub(crate) async fn dispatch_part9(
     background_daemon_queues: &mut BackgroundSubsystemQueues,
     background_daemon_pending: &mut BackgroundPendingCounts,
     plugin_manager: &Arc<crate::plugin::PluginManager>,
-) -> Result<bool>
-{
+) -> Result<bool> {
     if !matches!(
         msg,
         ClientMessage::SkillPublish { .. }

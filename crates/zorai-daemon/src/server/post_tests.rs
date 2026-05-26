@@ -217,7 +217,6 @@ pub async fn run() -> Result<()> {
     result
 }
 
-
 #[cfg(unix)]
 async fn run_unix(
     listener: tokio::net::UnixListener,
@@ -512,7 +511,6 @@ mod shutdown_signal_tests {
     }
 }
 
-
 #[cfg(windows)]
 async fn run_windows(
     listener: tokio::net::TcpListener,
@@ -573,4 +571,3 @@ async fn accept_loop_tcp(
         }
     }
 }
-

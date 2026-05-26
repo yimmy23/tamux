@@ -1,15 +1,11 @@
 use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
-use crate::state::settings::{
-    SettingsState, SettingsTab,
-};
+use crate::state::settings::{SettingsState, SettingsTab};
 use crate::state::subagents::SubAgentsState;
 use crate::theme::ThemeTokens;
-use crate::widgets::settings::render_tab_content;
-use crate::widgets::settings::{
-    render_features_tab, render_provider_tab,
-};
 use crate::widgets::settings::render_gateway_tab;
+use crate::widgets::settings::render_tab_content;
+use crate::widgets::settings::{render_features_tab, render_provider_tab};
 use zorai_shared::providers::*;
 #[test]
 fn auth_tab_shows_provider_test_result_inline() {

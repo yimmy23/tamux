@@ -133,11 +133,6 @@ pub(crate) fn build_skill_drafting_prompt(
     )
 }
 
-
-
-
-
-
 use super::engine::AgentEngine;
 use super::types::AgentConfig;
 
@@ -601,7 +596,6 @@ impl AgentEngine {
         }
     }
 }
-
 
 #[cfg(test)]
 #[path = "tests/skill_discovery.rs"]

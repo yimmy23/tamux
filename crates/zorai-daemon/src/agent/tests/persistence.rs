@@ -158,6 +158,7 @@ async fn hydrate_loads_only_active_goal_runs_into_live_queue() {
         current_step_kind: None,
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 1,
         plan_summary: None,
@@ -566,6 +567,7 @@ async fn hydrate_does_not_wait_for_goal_run_projection_persistence() {
         current_step_kind: Some(GoalRunStepKind::Reason),
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 1,
         plan_summary: Some("One-step plan".to_string()),
@@ -670,6 +672,31 @@ async fn hydrate_restores_repo_watchers_without_duplicate_root_watchers() {
     let repo_two = root.path().join("repo-two");
     std::fs::create_dir_all(&repo_one).expect("create repo one");
     std::fs::create_dir_all(&repo_two).expect("create repo two");
+
+    // `restore_repo_watchers` only invokes `ensure_repo_watcher` if
+    // `repo_monitor_enabled_for_repo` returns true. That gate consults
+    // `workspace_settings` rows; without a registered workspace covering
+    // these repo paths the hydrate spawns no watchers, and the
+    // 5-second polling loop below times out waiting for membership.
+    for (workspace_id, repo) in [
+        ("workspace-repo-one", &repo_one),
+        ("workspace-repo-two", &repo_two),
+    ] {
+        engine
+            .history
+            .upsert_workspace_settings(&zorai_protocol::WorkspaceSettings {
+                workspace_id: workspace_id.to_string(),
+                workspace_root: Some(repo.to_string_lossy().to_string()),
+                operator: zorai_protocol::WorkspaceOperator::Svarog,
+                repo_monitor_enabled: true,
+                repo_monitor_include_dirs: vec![".".to_string()],
+                repo_monitor_exclude_dirs: Vec::new(),
+                created_at: 0,
+                updated_at: 0,
+            })
+            .await
+            .expect("register workspace settings for hydrate test");
+    }
 
     let contexts = HashMap::from([
         (

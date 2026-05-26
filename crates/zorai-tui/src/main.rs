@@ -900,8 +900,14 @@ fn start_daemon_bridge(
                                 goal_run_id,
                                 action,
                                 step_index,
+                                payload_json,
                             } => {
-                                let _ = client.control_goal_run(goal_run_id, action, step_index);
+                                let _ = client.control_goal_run(
+                                    goal_run_id,
+                                    action,
+                                    step_index,
+                                    payload_json,
+                                );
                             }
                             DaemonCommand::DeleteGoalRun { goal_run_id } => {
                                 let _ = client.delete_goal_run(goal_run_id);

@@ -1,8 +1,6 @@
 use super::*;
 use crate::widgets;
-use crossterm::event::{
-    KeyCode, KeyModifiers, ModifierKeyCode,
-};
+use crossterm::event::{KeyCode, KeyModifiers, ModifierKeyCode};
 impl TuiModel {
     pub(crate) fn execute_selected_inline_message_action(&mut self) -> bool {
         let Some(message_index) = self.chat.selected_message() else {
@@ -400,6 +398,7 @@ impl TuiModel {
             goal_run_id: context.goal_run_id,
             action: "stop".to_string(),
             step_index: None,
+            payload_json: None,
         });
         self.close_goal_approval_decision_modals();
         self.status_line = "Goal approval rejected. Stopping goal run...".to_string();

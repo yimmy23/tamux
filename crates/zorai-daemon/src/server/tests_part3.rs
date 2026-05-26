@@ -108,6 +108,7 @@ async fn seed_goal_plan_review_approval_fixture(
             current_step_kind: Some(crate::agent::types::GoalRunStepKind::Research),
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: 2,
             plan_summary: Some("plan".to_string()),

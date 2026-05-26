@@ -14,8 +14,7 @@ pub(crate) async fn dispatch_part2(
         zorai_protocol::SessionId,
         tokio::sync::broadcast::Receiver<DaemonMessage>,
     )>,
-) -> Result<DispatchOutcome>
-{
+) -> Result<DispatchOutcome> {
     if !matches!(
         msg,
         ClientMessage::KillSession { .. }

@@ -99,9 +99,9 @@ fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
         name: "message_agent".to_string(),
         arguments: "{}".to_string(),
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     assert!(
         model.chat.active_tool_calls().is_empty(),
         "internal tool calls should not enter the visible running-tool tracker"
@@ -112,9 +112,9 @@ fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
         name: "bash_command".to_string(),
         arguments: "{\"command\":\"pwd\"}".to_string(),
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     assert_eq!(model.chat.active_tool_calls().len(), 1);
 
     model.handle_client_event(ClientEvent::ThreadCreated {
@@ -135,9 +135,9 @@ fn internal_dm_tool_activity_does_not_block_normal_thread_completion() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: Some("result_json".to_string()),
-    
+
         message_id: None,
-});
+    });
 
     assert!(
         model.chat.active_tool_calls().is_empty(),
@@ -171,9 +171,9 @@ fn inactive_thread_events_do_not_replace_selected_thread_activity_badge() {
         name: "bash_command".to_string(),
         arguments: "{\"command\":\"pwd\"}".to_string(),
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
 
     assert_eq!(model.chat.active_thread_id(), Some("thread-user"));
     assert!(model.footer_activity_text().is_none());

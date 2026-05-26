@@ -376,13 +376,17 @@ impl AgentEngine {
             .responder_stack
             .iter()
             .rev()
-            .find(|frame| frame.agent_id.eq_ignore_ascii_case(&normalized.active_agent_id))
+            .find(|frame| {
+                frame
+                    .agent_id
+                    .eq_ignore_ascii_case(&normalized.active_agent_id)
+            })
             .and_then(|frame| {
                 let trimmed = frame.agent_name.trim();
                 (!trimmed.is_empty()).then(|| trimmed.to_string())
             });
-        let fallback_name =
-            stack_name.unwrap_or_else(|| canonical_agent_name(&normalized.active_agent_id).to_string());
+        let fallback_name = stack_name
+            .unwrap_or_else(|| canonical_agent_name(&normalized.active_agent_id).to_string());
         let thread_agent_name = visible_thread_owner_agent_name_for_handoff_state(
             thread_id,
             &normalized,
@@ -404,6 +408,19 @@ impl AgentEngine {
             .await
             .get(thread_id)
             .map(|state| state.active_agent_id.clone())
+    }
+
+    /// Find the in-memory task whose `thread_id` matches the given thread.
+    /// Used by `force_compact_and_continue` to thread the task's
+    /// `override_provider` / `override_model` into the compaction
+    /// continuation — without it the builtin-persona-via-task-override
+    /// scenario fails the persona setup gate.
+    pub(in crate::agent) async fn task_id_owning_thread(&self, thread_id: &str) -> Option<String> {
+        let tasks = self.tasks.lock().await;
+        tasks
+            .iter()
+            .find(|task| task.thread_id.as_deref() == Some(thread_id))
+            .map(|task| task.id.clone())
     }
 
     async fn ensure_linked_handoff_thread(

@@ -1,8 +1,6 @@
 use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
-use crate::state::settings::{
-    SettingsAction, SettingsState, SettingsTab,
-};
+use crate::state::settings::{SettingsAction, SettingsState, SettingsTab};
 use crate::state::subagents::SubAgentsState;
 use crate::theme::ThemeTokens;
 use crate::widgets::settings::render_tab_content;

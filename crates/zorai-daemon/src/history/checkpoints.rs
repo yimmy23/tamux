@@ -119,7 +119,6 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-
     pub async fn insert_health_log(
         &self,
         id: &str,

@@ -326,9 +326,9 @@ fn header_usage_summary_preserves_daemon_context_tokens_when_loading_history() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
-    
+
         message_id: None,
-});
+    });
     model.handle_client_event(ClientEvent::ContextWindowUpdate {
         thread_id: "thread-turn-usage".to_string(),
         active_context_window_start: 0,

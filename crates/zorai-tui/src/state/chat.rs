@@ -48,7 +48,6 @@ fn normalize_thread_agent_name(agent_name: &mut Option<String>) {
     }
 }
 
-
 pub struct ChatState {
     threads: Vec<AgentThread>,
     history_page_size: usize,
@@ -268,13 +267,15 @@ fn message_snapshot_matches(existing: &AgentMessage, incoming: &AgentMessage) ->
 fn dedupe_operator_question_messages(messages: &mut Vec<AgentMessage>) -> usize {
     let before = messages.len();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    messages.retain(|message| match message
-        .operator_question_id
-        .as_deref()
-        .filter(|value| !value.is_empty())
-    {
-        Some(id) => seen.insert(id.to_string()),
-        None => true,
+    messages.retain(|message| {
+        match message
+            .operator_question_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            Some(id) => seen.insert(id.to_string()),
+            None => true,
+        }
     });
     before - messages.len()
 }
@@ -1867,8 +1868,7 @@ impl ChatState {
                         if incoming.active_context_window_tokens.is_some() {
                             existing.active_context_window_start =
                                 incoming.active_context_window_start;
-                            existing.active_context_window_end =
-                                incoming.active_context_window_end;
+                            existing.active_context_window_end = incoming.active_context_window_end;
                             existing.active_context_window_tokens =
                                 incoming.active_context_window_tokens;
                         }
@@ -2302,7 +2302,6 @@ impl Default for ChatState {
         Self::new()
     }
 }
-
 
 #[cfg(test)]
 #[path = "tests/chat.rs"]

@@ -449,7 +449,6 @@ pub(crate) fn default_provider_circuit_reason() -> String {
     "circuit breaker open".to_string()
 }
 
-
 /// How much context the concierge gathers for its welcome greeting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -566,7 +565,6 @@ impl Default for ToolsConfig {
         }
     }
 }
-
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

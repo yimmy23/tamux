@@ -1,12 +1,6 @@
-use super::super::{
-    execute_fetch_url_with_runner,
-    execute_search_files_with_runner,
-};
+use super::super::{execute_fetch_url_with_runner, execute_search_files_with_runner};
 use super::part1::successful_exit_status;
-use crate::agent::{
-    types::AgentConfig,
-    AgentEngine,
-};
+use crate::agent::{types::AgentConfig, AgentEngine};
 use crate::session_manager::SessionManager;
 use std::sync::{Arc, Mutex};
 use tempfile::tempdir;

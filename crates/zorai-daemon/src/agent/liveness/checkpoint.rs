@@ -117,7 +117,6 @@ pub fn checkpoint_prune(checkpoints: &mut Vec<CheckpointData>, keep_last_n: usiz
     *checkpoints = checkpoints.split_off(start);
 }
 
-
 #[cfg(test)]
 #[path = "tests/checkpoint/mod.rs"]
 mod tests;

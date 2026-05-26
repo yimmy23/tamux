@@ -1083,6 +1083,7 @@ impl AgentEngine {
             runtime_assignment_list: launch_assignment_snapshot,
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: adaptation_mode.max_goal_replans(2),
             plan_summary: None,
@@ -1224,9 +1225,7 @@ impl AgentEngine {
         let offset = offset.unwrap_or(0);
         let limit = limit.unwrap_or(i64::MAX as usize);
         let projected = match self.history.list_goal_runs_page(limit, offset).await {
-            Ok((goal_runs, total)) if total > 0 => {
-                self.project_goal_runs_batched(goal_runs).await
-            }
+            Ok((goal_runs, total)) if total > 0 => self.project_goal_runs_batched(goal_runs).await,
             Ok(_) => {
                 let goal_runs = self.goal_runs.lock().await;
                 let items: Vec<GoalRun> = goal_runs.iter().cloned().collect();
@@ -1412,10 +1411,7 @@ impl AgentEngine {
     /// the AgentListGoalRuns dispatch handler used to do — under load that
     /// blocked the connection's outer loop for hundreds of milliseconds and
     /// starved every other client message in the cascade.
-    pub(super) async fn project_goal_runs_batched(
-        &self,
-        goal_runs: Vec<GoalRun>,
-    ) -> Vec<GoalRun> {
+    pub(super) async fn project_goal_runs_batched(&self, goal_runs: Vec<GoalRun>) -> Vec<GoalRun> {
         if goal_runs.is_empty() {
             return Vec::new();
         }
@@ -1619,6 +1615,7 @@ impl AgentEngine {
         goal_run_id: &str,
         action: &str,
         step_index: Option<usize>,
+        payload_json: Option<&str>,
     ) -> bool {
         let persisted_goal_run = self.get_goal_run(goal_run_id).await;
         let mut changed_goal: Option<GoalRun> = None;
@@ -1657,16 +1654,48 @@ impl AgentEngine {
                     }
                 }
                 "resume" => {
-                    if goal_run.status == GoalRunStatus::Paused {
+                    if matches!(
+                        goal_run.status,
+                        GoalRunStatus::Paused | GoalRunStatus::Blocked
+                    ) {
+                        let prior = goal_run.status;
                         goal_run.status = if goal_run.steps.is_empty() {
                             GoalRunStatus::Queued
                         } else {
                             GoalRunStatus::Running
                         };
                         goal_run.updated_at = now_millis();
+                        let message = if prior == GoalRunStatus::Blocked {
+                            "goal run unblocked"
+                        } else {
+                            "goal run resumed"
+                        };
                         goal_run.events.push(make_goal_run_event(
                             "control",
-                            "goal run resumed",
+                            message,
+                            None,
+                        ));
+                        changed_goal = Some(goal_run.clone());
+                    }
+                }
+                "block" => {
+                    // Governance-induced stall. Distinct from "pause"
+                    // (operator) and "acknowledge" (resolves an approval).
+                    // Reversible via "resume" — exits through
+                    // TransitionKind::ResumeFromBlocked.
+                    if matches!(
+                        goal_run.status,
+                        GoalRunStatus::Queued
+                            | GoalRunStatus::Planning
+                            | GoalRunStatus::Running
+                            | GoalRunStatus::AwaitingApproval
+                            | GoalRunStatus::Paused
+                    ) {
+                        goal_run.status = GoalRunStatus::Blocked;
+                        goal_run.updated_at = now_millis();
+                        goal_run.events.push(make_goal_run_event(
+                            "control",
+                            "goal run blocked by governance gate",
                             None,
                         ));
                         changed_goal = Some(goal_run.clone());
@@ -1831,8 +1860,7 @@ impl AgentEngine {
                         goal_run.status = GoalRunStatus::PartiallyCompensated;
                         goal_run.completed_at = Some(now);
                         goal_run.updated_at = now;
-                        goal_run.stopped_reason =
-                            Some("operator_partial_compensate".to_string());
+                        goal_run.stopped_reason = Some("operator_partial_compensate".to_string());
                         goal_run.awaiting_approval_id = None;
                         goal_run.active_task_id = None;
                         goal_run.events.push(make_goal_run_event(
@@ -1859,6 +1887,55 @@ impl AgentEngine {
                             None,
                         ));
                         changed_goal = Some(goal_run.clone());
+                    }
+                }
+                "update-role" | "update_role" => {
+                    if goal_run.status.is_terminal() {
+                        // No-op on terminal runs.
+                    } else if let (Some(target_step), Some(payload_str)) =
+                        (step_index, payload_json)
+                    {
+                        let parsed: Result<crate::agent::GoalRuntimeOwnerProfile, _> =
+                            serde_json::from_str(payload_str);
+                        if let Ok(new_profile) = parsed {
+                            let total_steps = goal_run.steps.len();
+                            let current_idx = goal_run.current_step_index;
+                            if target_step == current_idx
+                                && (total_steps == 0 || target_step < total_steps)
+                            {
+                                goal_run.current_step_owner_profile = Some(new_profile.clone());
+                                goal_run.step_owner_overrides.remove(&target_step);
+                                goal_run.updated_at = now_millis();
+                                goal_run.events.push(make_goal_run_event(
+                                    "control",
+                                    "owner profile updated for active step",
+                                    Some(format!(
+                                        "step {} -> {} / {}",
+                                        target_step, new_profile.provider, new_profile.model
+                                    )),
+                                ));
+                                changed_goal = Some(goal_run.clone());
+                            } else if target_step > current_idx
+                                && (total_steps == 0 || target_step < total_steps)
+                            {
+                                goal_run
+                                    .step_owner_overrides
+                                    .insert(target_step, new_profile.clone());
+                                goal_run.updated_at = now_millis();
+                                goal_run.events.push(make_goal_run_event(
+                                    "control",
+                                    "owner profile override staged for future step",
+                                    Some(format!(
+                                        "step {} -> {} / {}",
+                                        target_step, new_profile.provider, new_profile.model
+                                    )),
+                                ));
+                                changed_goal = Some(goal_run.clone());
+                            }
+                            // target_step < current_idx is a no-op: past
+                            // steps are immutable for the purpose of role
+                            // assignment.
+                        }
                     }
                 }
                 _ => {}
@@ -1961,7 +2038,8 @@ impl AgentEngine {
                 _ => None,
             };
             if let Some(outcome) = settle_outcome {
-                self.settle_goal_skill_consultations(&goal_run, outcome).await;
+                self.settle_goal_skill_consultations(&goal_run, outcome)
+                    .await;
                 self.settle_goal_plan_causal_traces(&goal_run.id, outcome, None)
                     .await;
             }

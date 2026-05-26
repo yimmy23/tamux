@@ -610,9 +610,7 @@ fn spawn_lancedb_indexer_runtime(
                     return;
                 }
             };
-            tracing::info!(
-                "lancedb indexer runtime started on dedicated OS thread"
-            );
+            tracing::info!("lancedb indexer runtime started on dedicated OS thread");
             runtime.block_on(async move {
                 let embedding_engine = engine.clone();
                 let semantic_engine = engine.clone();

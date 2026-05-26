@@ -29,7 +29,6 @@ fn seq(items: &[&str]) -> Vec<String> {
     items.iter().map(|s| s.to_string()).collect()
 }
 
-
 #[test]
 fn skill_drafting_prompt_uses_agentskills_schema_and_zorai_context_tags() {
     let prompt = build_skill_drafting_prompt(
@@ -103,7 +102,6 @@ fn skill_discovery_complexity_returns_false_no_replan_no_quality() {
     assert!(!meets_complexity_threshold(10, 0, None, "success", &cfg));
 }
 
-
 #[test]
 fn skill_discovery_jaccard_identical_sets() {
     let a = seq(&["A", "B", "C"]);
@@ -132,7 +130,6 @@ fn skill_discovery_jaccard_empty_sets() {
     assert!((jaccard_similarity(&a, &b) - 1.0).abs() < f64::EPSILON);
 }
 
-
 #[test]
 fn skill_discovery_novel_when_no_patterns_match() {
     let candidate = seq(&["X", "Y", "Z"]);
@@ -148,7 +145,6 @@ fn skill_discovery_not_novel_when_pattern_similar() {
     let patterns = vec![&pattern];
     assert!(!is_novel_sequence(&candidate, "coding", &patterns, 0.7));
 }
-
 
 #[test]
 fn skill_discovery_extract_tool_sequence_valid_json() {
@@ -168,7 +164,6 @@ fn skill_discovery_extract_tool_sequence_invalid_json() {
     let result = extract_tool_sequence_from_json(Some("not json"));
     assert!(result.is_empty());
 }
-
 
 #[test]
 fn skill_discovery_mental_test_parses_valid_json() {

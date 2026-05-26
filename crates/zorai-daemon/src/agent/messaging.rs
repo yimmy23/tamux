@@ -888,7 +888,6 @@ impl AgentEngine {
         Some(thread)
     }
 
-
     /// Run a complete agent turn in a thread.
     pub async fn send_message(&self, thread_id: Option<&str>, content: &str) -> Result<String> {
         Ok(Box::pin(self.send_message_inner(

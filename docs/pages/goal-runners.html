@@ -48,6 +48,7 @@
             <tr><td><code>running</code></td><td>Execution is active or waiting on child execution progress.</td></tr>
             <tr><td><code>awaiting_approval</code></td><td>A child execution entry hit an approval boundary.</td></tr>
             <tr><td><code>paused</code></td><td>Orchestration is paused by the operator.</td></tr>
+            <tr><td><code>blocked</code></td><td>Non-terminal: a governance gate is closed and the run cannot advance until the underlying condition changes. Exits via the <code>ResumeFromBlocked</code> transition.</td></tr>
             <tr><td><code>completed</code></td><td>Steps finished and the final reflection was recorded.</td></tr>
             <tr><td><code>failed</code></td><td>The run exhausted replanning or failed irrecoverably.</td></tr>
             <tr><td><code>cancelled</code></td><td>The operator cancelled the run.</td></tr>

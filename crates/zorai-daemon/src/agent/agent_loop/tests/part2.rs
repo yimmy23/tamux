@@ -381,6 +381,7 @@ async fn send_message_request_includes_runtime_continuity_and_negative_knowledge
             runtime_assignment_list: Vec::new(),
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: 2,
             plan_summary: None,

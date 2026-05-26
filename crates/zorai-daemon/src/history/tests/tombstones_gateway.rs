@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[tokio::test]
 async fn memory_tombstone_insert_and_list_round_trips() -> Result<()> {
     let (store, root) = make_test_store().await?;

@@ -105,6 +105,7 @@ fn sample_goal_run(goal_run_id: &str) -> GoalRun {
         current_step_kind: Some(GoalRunStepKind::Command),
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 2,
         plan_summary: Some("plan".to_string()),
@@ -1467,6 +1468,7 @@ fn sample_goal_run_with_kind(
         current_step_kind: Some(kind.clone()),
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 2,
         plan_summary: Some("plan".to_string()),
@@ -4351,6 +4353,14 @@ async fn final_review_completion_accepts_pass_verdict_from_thread_summary() {
             .expect("stored final review task should exist");
         *stored = completed_review.clone();
     }
+    // Flush the Completed status to history. `complete_goal_run`'s
+    // `active_goal_tasks` consults `list_tasks_filtered`, which reads
+    // SQLite as the source of truth and only adds in-memory tasks when
+    // the id is *missing* from the history result. Without this flush the
+    // task remains `Queued` in history, gets picked up as an active
+    // child, and completion takes the `resume_existing_goal_final_review`
+    // early-return path instead of marking the goal `Completed`.
+    engine.persist_tasks().await;
 
     {
         let mut threads = engine.threads.write().await;
@@ -4364,6 +4374,12 @@ async fn final_review_completion_accepts_pass_verdict_from_thread_summary() {
         message.role = MessageRole::Assistant;
         thread.messages.push(message);
     }
+    // The thread-summary fallback in `handle_goal_run_final_review_completion`
+    // resolves the latest assistant message via `history.latest_assistant_message`
+    // — i.e., it reads from SQLite, not the in-memory thread. Without this
+    // flush the freshly-pushed assistant message never lands in the DB and
+    // the verdict-parse step falls through to a default-failure path.
+    engine.persist_threads().await;
 
     engine
         .handle_goal_run_final_review_completion(goal_run_id, &completed_review)
@@ -4480,6 +4496,10 @@ async fn final_review_pass_ignores_unbound_review_todos_at_completion() {
             .expect("stored final review task should exist");
         *stored = completed_review.clone();
     }
+    // `active_goal_tasks` reads SQLite, not the in-memory queue; flush
+    // the Completed status so it isn't picked up as an active child and
+    // doesn't divert `complete_goal_run` into the resume-review branch.
+    engine.persist_tasks().await;
 
     engine
         .handle_goal_run_final_review_completion(goal_run_id, &completed_review)

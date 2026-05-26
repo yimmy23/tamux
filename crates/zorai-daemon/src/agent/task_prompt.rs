@@ -300,7 +300,6 @@ pub(super) async fn resolve_preferred_session_id(
         .map(|session| session.id)
 }
 
-
 pub(crate) fn agent_data_dir() -> std::path::PathBuf {
     zorai_protocol::zorai_root_dir().join("agent")
 }
@@ -710,6 +709,7 @@ mod tests {
             current_step_kind: Some(GoalRunStepKind::Command),
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: 2,
             plan_summary: Some("Implement, verify, and package the release.".to_string()),

@@ -463,9 +463,9 @@ mod tests {
             generation_ms: Some(1200),
             reasoning: Some("summary".into()),
             provider_final_result_json: None,
-        
+
             message_id: None,
-});
+        });
         assert!(actions
             .iter()
             .any(|a| matches!(a, AppAction::Chat(ChatAction::TurnDone { .. }))));
@@ -495,9 +495,9 @@ mod tests {
             name: "bash".into(),
             arguments: "ls -la".into(),
             weles_review: None,
-        
+
             message_id: None,
-});
+        });
         match &actions[0] {
             AppAction::Chat(ChatAction::ToolCall { args, .. }) => {
                 assert_eq!(args, "ls -la");

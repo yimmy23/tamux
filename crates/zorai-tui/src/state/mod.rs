@@ -22,14 +22,12 @@ pub mod task;
 pub mod tier;
 pub mod workspace;
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FocusArea {
     Chat,
     Sidebar,
     Input,
 }
-
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -191,6 +189,7 @@ pub enum DaemonCommand {
         goal_run_id: String,
         action: String,
         step_index: Option<usize>,
+        payload_json: Option<String>,
     },
     DeleteGoalRun {
         goal_run_id: String,
@@ -357,7 +356,6 @@ pub enum DaemonCommand {
     UpsertNotification(zorai_protocol::InboxNotification),
 }
 
-
 #[allow(unused_imports)]
 pub use anticipatory::{AnticipatoryAction, AnticipatoryState};
 #[allow(unused_imports)]
@@ -396,7 +394,6 @@ pub use task::{TaskAction, TaskState};
 #[allow(unused_imports)]
 pub use tier::TierState;
 
-
 #[allow(dead_code)]
 #[derive(Debug)]
 pub enum AppAction {
@@ -417,7 +414,6 @@ pub enum AppAction {
     Disconnected,
     Quit,
 }
-
 
 #[allow(unused_imports)]
 pub use AppAction as Action;

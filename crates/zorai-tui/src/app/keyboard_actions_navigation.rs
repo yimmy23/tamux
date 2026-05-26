@@ -1,7 +1,5 @@
 use super::*;
-use crossterm::event::{
-    KeyCode, KeyModifiers,
-};
+use crossterm::event::{KeyCode, KeyModifiers};
 impl TuiModel {
     pub(super) fn handle_navigation_key_action(
         &mut self,

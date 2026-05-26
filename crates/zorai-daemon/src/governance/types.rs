@@ -1045,11 +1045,7 @@ impl GovernanceVerdict {
     /// the constraints that *would* be required for an approval — there is no
     /// approval that can rescue this transition, so the operator shouldn't be
     /// prompted for one.
-    pub fn deny(
-        policy_fingerprint: String,
-        risk_class: RiskClass,
-        rationale: Vec<String>,
-    ) -> Self {
+    pub fn deny(policy_fingerprint: String, risk_class: RiskClass, rationale: Vec<String>) -> Self {
         Self {
             verdict_class: VerdictClass::Deny,
             risk_class,

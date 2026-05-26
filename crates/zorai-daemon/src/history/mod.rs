@@ -94,7 +94,10 @@ pub(crate) struct ReadPool {
 
 impl ReadPool {
     pub(crate) fn new(conns: Vec<tokio_rusqlite::Connection>) -> Self {
-        debug_assert!(!conns.is_empty(), "ReadPool requires at least one connection");
+        debug_assert!(
+            !conns.is_empty(),
+            "ReadPool requires at least one connection"
+        );
         let entries = conns
             .into_iter()
             .map(|conn| PoolEntry {
@@ -186,8 +189,7 @@ impl ReadPool {
 pub(crate) struct HistoryCaches {
     /// `thread_metadata_json(thread_id) -> Option<String>`. Invalidated by
     /// any thread upsert/delete touching the same id.
-    thread_metadata_json:
-        cache::TtlCache<String, Option<String>>,
+    thread_metadata_json: cache::TtlCache<String, Option<String>>,
     /// `get_skill_variant(variant_id) -> Option<SkillVariantRecord>`.
     /// Invalidated by upsert/update/delete on the variant.
     skill_variant: cache::TtlCache<String, Option<SkillVariantRecord>>,
@@ -204,15 +206,9 @@ impl HistoryCaches {
     fn new() -> Self {
         use std::time::Duration;
         Self {
-            thread_metadata_json: cache::TtlCache::new(
-                Duration::from_secs(2),
-                256,
-            ),
+            thread_metadata_json: cache::TtlCache::new(Duration::from_secs(2), 256),
             skill_variant: cache::TtlCache::new(Duration::from_secs(5), 128),
-            latest_goal_run_for_thread: cache::TtlCache::new(
-                Duration::from_secs(2),
-                256,
-            ),
+            latest_goal_run_for_thread: cache::TtlCache::new(Duration::from_secs(2), 256),
         }
     }
 }

@@ -734,16 +734,28 @@ impl AgentEngine {
             }
         }
 
-        let current_step_owner_profile = {
-            let goal_runs = self.goal_runs.lock().await;
-            goal_runs
-                .iter()
-                .find(|item| item.id == goal_run_id)
-                .and_then(|goal_run| goal_run.current_step_owner_profile.clone())
+        // Consume an operator-staged override for this step if one exists.
+        // Overrides take precedence over both the previously sticky
+        // `current_step_owner_profile` (so a runtime edit actually applies)
+        // and the assignment-derived default.
+        let (override_profile, sticky_profile) = {
+            let mut goal_runs = self.goal_runs.lock().await;
+            let goal_run = goal_runs.iter_mut().find(|item| item.id == goal_run_id);
+            match goal_run {
+                Some(run) => {
+                    let idx = run.current_step_index;
+                    let consumed = run.step_owner_overrides.remove(&idx);
+                    (consumed, run.current_step_owner_profile.clone())
+                }
+                None => (None, None),
+            }
         };
-        let current_step_owner_profile = match current_step_owner_profile {
+        let current_step_owner_profile = match override_profile {
             Some(profile) => profile,
-            None => self.current_step_owner_profile_for_task(task).await,
+            None => match sticky_profile {
+                Some(profile) => profile,
+                None => self.current_step_owner_profile_for_task(task).await,
+            },
         };
         let mut maybe_updated = None;
         {

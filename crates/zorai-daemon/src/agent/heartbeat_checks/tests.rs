@@ -35,6 +35,7 @@ fn make_goal_run(id: &str, title: &str, status: GoalRunStatus, updated_at: u64) 
         current_step_kind: None,
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 2,
         plan_summary: None,
@@ -227,6 +228,7 @@ async fn make_test_engine(
         divergent_sessions: RwLock::new(HashMap::new()),
         debate_sessions: RwLock::new(HashMap::new()),
         cost_trackers: Mutex::new(HashMap::new()),
+        goal_run_health_monitors: RwLock::new(HashMap::new()),
     })
 }
 

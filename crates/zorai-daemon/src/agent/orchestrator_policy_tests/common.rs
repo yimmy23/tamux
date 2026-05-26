@@ -213,6 +213,7 @@ pub(super) fn goal_run_fixture(thread_id: &str) -> GoalRun {
         current_step_kind: Some(GoalRunStepKind::Research),
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 2,
         plan_summary: Some("Initial plan".to_string()),

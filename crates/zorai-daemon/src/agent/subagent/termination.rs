@@ -20,7 +20,6 @@
 
 use anyhow::{bail, Context, Result};
 
-
 /// A parsed termination condition tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminationCondition {
@@ -91,7 +90,6 @@ impl TerminationEvaluator {
         &self.condition
     }
 }
-
 
 fn evaluate(cond: &TerminationCondition, m: &TerminationMetrics) -> (bool, Option<String>) {
     match cond {
@@ -191,7 +189,6 @@ fn evaluate(cond: &TerminationCondition, m: &TerminationMetrics) -> (bool, Optio
     }
 }
 
-
 fn tokenize(input: &str) -> Result<Vec<String>> {
     let mut tokens = Vec::new();
     let mut chars = input.chars().peekable();
@@ -221,7 +218,6 @@ fn tokenize(input: &str) -> Result<Vec<String>> {
 
     Ok(tokens)
 }
-
 
 /// or_expr = and_expr ("OR" and_expr)*
 fn parse_or_expr(tokens: &[String], pos: &mut usize) -> Result<TerminationCondition> {
@@ -331,7 +327,6 @@ fn parse_atom(tokens: &[String], pos: &mut usize) -> Result<TerminationCondition
         }
     }
 }
-
 
 #[cfg(test)]
 #[path = "termination/tests.rs"]

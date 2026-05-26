@@ -53,6 +53,7 @@ fn goal_run_status_to_event_kind(status: GoalRunStatus) -> &'static str {
         GoalRunStatus::Running => "step_started",
         GoalRunStatus::AwaitingApproval => "step_started",
         GoalRunStatus::Paused => "paused",
+        GoalRunStatus::Blocked => "paused",
         // Break-glass and compensated outcomes are terminal-ish "completed"
         // for autonomy-level filtering; the audit trail distinguishes them.
         GoalRunStatus::Compensated | GoalRunStatus::BreakGlass => "completed",
@@ -613,7 +614,9 @@ impl AgentEngine {
     pub(super) async fn refresh_thread_repo_context_with_changes(
         &self,
         thread_id: &str,
-        cached_changes: Option<&std::collections::HashMap<String, Vec<zorai_protocol::GitChangeEntry>>>,
+        cached_changes: Option<
+            &std::collections::HashMap<String, Vec<zorai_protocol::GitChangeEntry>>,
+        >,
     ) {
         let Some((repo_root, goal_run_id, session_id, step_index)) =
             self.resolve_thread_repo_root(thread_id).await
@@ -629,12 +632,11 @@ impl AgentEngine {
             self.remove_repo_watcher(thread_id).await;
         }
         let repo_root_path = PathBuf::from(&repo_root);
-        let all_changes: Vec<zorai_protocol::GitChangeEntry> = match cached_changes
-            .and_then(|cache| cache.get(&repo_root))
-        {
-            Some(cached) => cached.clone(),
-            None => crate::git::list_git_changes(&repo_root),
-        };
+        let all_changes: Vec<zorai_protocol::GitChangeEntry> =
+            match cached_changes.and_then(|cache| cache.get(&repo_root)) {
+                Some(cached) => cached.clone(),
+                None => crate::git::list_git_changes(&repo_root),
+            };
         let now = now_millis();
         let make_entry = |entry: zorai_protocol::GitChangeEntry| WorkContextEntry {
             path: entry.path,
@@ -831,13 +833,24 @@ impl AgentEngine {
     ) -> Option<GoalRun> {
         let goal_run_id = match self.history.agent_task_goal_context(task_id).await {
             Ok(Some(context)) => context.goal_run_id,
-            Ok(None) => None,
-            Err(error) => {
-                tracing::warn!(
-                    task_id,
-                    %error,
-                    "failed to query task goal context for todo snapshot"
-                );
+            other => {
+                if let Err(error) = &other {
+                    tracing::warn!(
+                        task_id,
+                        %error,
+                        "failed to query task goal context for todo snapshot"
+                    );
+                }
+                // Fall back to the live in-memory tasks for the
+                // history-empty case as well, not only on error. The
+                // task queue is the source of truth for tasks that
+                // haven't been flushed to SQLite yet — for example, in
+                // the brief window between an in-memory mutation and
+                // the next persist cycle, or in tests that exercise
+                // the live queue directly. Without this in-memory
+                // fallback, an `update_todo` issued before the first
+                // persist would never produce a goal-run event even
+                // though the goal context is fully known.
                 self.list_tasks_filtered(&crate::history::AgentTaskListQuery {
                     id: Some(task_id.to_string()),
                     status: None,

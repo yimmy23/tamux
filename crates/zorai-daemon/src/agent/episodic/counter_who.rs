@@ -10,7 +10,6 @@ use anyhow::Result;
 use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
 
-
 /// Compute a stable hash for a tool+args combination.
 /// Returns the first 16 hex characters of SHA-256("{tool_name}:{args_summary}").
 pub fn compute_approach_hash(tool_name: &str, args_summary: &str) -> String {
@@ -152,7 +151,6 @@ pub fn format_counter_who_context(state: &CounterWhoState) -> String {
 
     out
 }
-
 
 impl AgentEngine {
     /// Update counter-who state after a tool call completes (CWHO-01).
@@ -336,7 +334,6 @@ impl AgentEngine {
         Ok(())
     }
 }
-
 
 #[cfg(test)]
 #[path = "counter_who/tests.rs"]

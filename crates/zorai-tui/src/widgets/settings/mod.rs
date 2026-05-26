@@ -1,7 +1,5 @@
 use ratatui::prelude::*;
 
-
-
 #[path = "advanced_single_line_edit_layout_to_subagent_row_action_offsets.rs"]
 mod advanced_single_line_edit_layout_to_subagent_row_action_offsets;
 #[path = "render_about_tab.rs"]
@@ -33,7 +31,7 @@ mod wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render;
 mod tests {
     use super::*;
     use crate::state::config::ConfigState;
-    
+
     use crate::state::settings::SettingsState;
 
     #[path = "advanced_tab_shows_repo_monitor_checkbox.rs"]

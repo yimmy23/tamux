@@ -13,7 +13,6 @@ pub(crate) use pure::{DEFAULT_HALF_LIFE_HOURS, DEFAULT_IDLE_THRESHOLD_MS};
 const DISTILLATION_LAST_RUN_KEY_PREFIX: &str = "distillation_last_run_ms";
 const FORGE_LAST_RUN_KEY_PREFIX: &str = "forge_last_run_ms";
 
-
 impl AgentEngine {
     /// Run a consolidation tick if idle conditions are met. Per D-03, this is called
     /// from within run_structured_heartbeat_adaptive() as a sub-phase.
@@ -759,7 +758,6 @@ impl AgentEngine {
         }
     }
 }
-
 
 #[cfg(test)]
 #[path = "tests/consolidation.rs"]

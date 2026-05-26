@@ -26,12 +26,10 @@ pub(super) struct CompactionTokenSnapshot {
 
 pub(super) fn compaction_token_snapshot(details: Option<&str>) -> Option<CompactionTokenSnapshot> {
     let parsed = parse_workflow_notice_details(details)?;
-    let post_compaction_total_tokens =
-        parsed.get("post_compaction_total_tokens")?.as_u64()?;
+    let post_compaction_total_tokens = parsed.get("post_compaction_total_tokens")?.as_u64()?;
     let post_compaction_window_start =
         parsed.get("post_compaction_window_start")?.as_u64()? as usize;
-    let post_compaction_window_end =
-        parsed.get("post_compaction_window_end")?.as_u64()? as usize;
+    let post_compaction_window_end = parsed.get("post_compaction_window_end")?.as_u64()? as usize;
     Some(CompactionTokenSnapshot {
         post_compaction_total_tokens,
         post_compaction_window_start,

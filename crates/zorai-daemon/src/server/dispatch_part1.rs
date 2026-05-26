@@ -16,8 +16,7 @@ pub(crate) async fn dispatch_part1(
     )>,
     gateway_connection_state: &mut GatewayConnectionState,
     gateway_ipc_rx: &mut Option<tokio::sync::mpsc::UnboundedReceiver<DaemonMessage>>,
-) -> Result<DispatchOutcome>
-{
+) -> Result<DispatchOutcome> {
     if !matches!(
         msg,
         ClientMessage::Ping

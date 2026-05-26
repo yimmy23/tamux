@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RiskLevel {
     Low,
@@ -57,7 +56,6 @@ impl RiskLevel {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct PendingApproval {
     pub approval_id: String,
@@ -93,7 +91,6 @@ pub enum ApprovalFilter {
     SavedRules,
 }
 
-
 #[derive(Debug, Clone)]
 pub enum ApprovalAction {
     ApprovalRequired(PendingApproval),
@@ -108,7 +105,6 @@ pub enum ApprovalAction {
     RemoveRule(String),
     ClearResolved(String),
 }
-
 
 pub struct ApprovalState {
     pending_approvals: Vec<PendingApproval>,
@@ -307,11 +303,9 @@ impl Default for ApprovalState {
     }
 }
 
-
 #[cfg(test)]
 #[path = "approval_tests_parts"]
 mod tests {
-    
 
     mod approval_required_adds_to_pending_to_from_str_lossy_defaults_to_medium;
 }

@@ -210,7 +210,6 @@ fn circuit_breaker_event_deserializes_legacy_shape_without_reason() {
     }
 }
 
-
 #[test]
 fn consolidation_config_defaults() {
     let cfg = ConsolidationConfig::default();
@@ -297,7 +296,6 @@ fn consolidation_result_defaults_are_zero() {
     assert_eq!(result.facts_refined, 0);
     assert!(result.skipped_reason.is_none());
 }
-
 
 #[test]
 fn skill_maturity_status_from_str_roundtrip() {
@@ -956,6 +954,7 @@ fn goal_dossier_serializes_into_goal_run_state() {
         runtime_assignment_list: Vec::new(),
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 3,
         plan_summary: Some("Design a compact dossier layer".to_string()),

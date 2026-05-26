@@ -299,6 +299,7 @@ fn goal_view_action_menu_can_pause_running_goal_without_step_selection() {
             goal_run_id,
             action,
             step_index: None,
+            payload_json: None,
         } if goal_run_id == "goal-1" && action == "pause"
     ));
 }

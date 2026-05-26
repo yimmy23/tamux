@@ -382,7 +382,8 @@ fn halt_and_isolate_verdict_returned_when_high_risk_transition_is_thrashing() {
 }
 
 #[test]
-fn allow_only_with_compensation_plan_returned_for_destructive_when_recovery_explicitly_infeasible() {
+fn allow_only_with_compensation_plan_returned_for_destructive_when_recovery_explicitly_infeasible()
+{
     let request = make_request("rm /tmp/work/notes.md", false, true);
     let mut input = governance_input_for_managed_command(
         "exec_compensate",
@@ -399,7 +400,10 @@ fn allow_only_with_compensation_plan_returned_for_destructive_when_recovery_expl
         hints: vec!["filesystem mutation has no rollback path".to_string()],
     };
     let verdict = evaluate_governance(&input);
-    assert_eq!(verdict.verdict_class, VerdictClass::AllowOnlyWithCompensationPlan);
+    assert_eq!(
+        verdict.verdict_class,
+        VerdictClass::AllowOnlyWithCompensationPlan
+    );
     let requirement = verdict
         .compensation_requirement
         .expect("compensation requirement should be attached");
@@ -528,12 +532,10 @@ fn thrashing_lane_attaches_manual_resume_required_constraint() {
     assert_ne!(verdict.verdict_class, VerdictClass::HaltAndIsolate);
     let constraints = effective_constraints(&verdict);
     assert!(
-        constraints
-            .iter()
-            .any(|c| matches!(
-                c.kind,
-                super::ConstraintKind::ManualResumeRequiredAfterCompletion
-            )),
+        constraints.iter().any(|c| matches!(
+            c.kind,
+            super::ConstraintKind::ManualResumeRequiredAfterCompletion
+        )),
         "thrashing lane should attach ManualResumeRequiredAfterCompletion"
     );
 }
@@ -633,5 +635,8 @@ fn destructive_with_rollback_feasibility_does_not_demand_compensation_plan() {
         hints: vec!["analyzed".to_string()],
     };
     let verdict = evaluate_governance(&input);
-    assert_ne!(verdict.verdict_class, VerdictClass::AllowOnlyWithCompensationPlan);
+    assert_ne!(
+        verdict.verdict_class,
+        VerdictClass::AllowOnlyWithCompensationPlan
+    );
 }

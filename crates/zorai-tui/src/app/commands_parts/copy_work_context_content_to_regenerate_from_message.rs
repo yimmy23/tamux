@@ -101,7 +101,8 @@ impl TuiModel {
         message_id: &str,
         reaction: Option<zorai_protocol::Reaction>,
     ) {
-        self.chat.set_message_feedback(thread_id, message_id, reaction);
+        self.chat
+            .set_message_feedback(thread_id, message_id, reaction);
     }
 
     pub(crate) fn pin_message_for_compaction(&mut self, index: usize) {

@@ -65,7 +65,6 @@ pub fn daemon_message_fits_ipc(item: &DaemonMessage) -> bool {
     validate_daemon_message_size(item).is_ok()
 }
 
-
 impl Decoder for ZoraiCodec {
     type Item = DaemonMessage;
     type Error = std::io::Error;
@@ -99,7 +98,6 @@ impl Decoder for ZoraiCodec {
     }
 }
 
-
 impl Encoder<ClientMessage> for ZoraiCodec {
     type Error = std::io::Error;
 
@@ -113,7 +111,6 @@ impl Encoder<ClientMessage> for ZoraiCodec {
         Ok(())
     }
 }
-
 
 /// Codec used on the **daemon** side: decodes `ClientMessage`, encodes
 /// `DaemonMessage`.

@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::types::TaskPriority;
 
-
 /// Complexity tier for a task — determines default token allocation.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -60,7 +59,6 @@ pub struct ResourcePressure {
     /// `true` when either utilisation metric exceeds 80 %.
     pub is_under_pressure: bool,
 }
-
 
 /// Pool that tracks concurrent sub-agent slots and token budgets.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,7 +178,6 @@ impl ResourcePool {
         }
     }
 
-
     /// Perform the actual allocation, clamping tokens to what is available.
     fn do_allocate(
         &mut self,
@@ -216,7 +213,6 @@ impl ResourcePool {
             .map(|(i, _)| i)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -81,8 +81,7 @@ impl TuiModel {
                 "snapshot_max_size_mb",
                 &self.config.snapshot_max_size_mb.to_string(),
             ),
-            "snapshot_stats" => {
-            }
+            "snapshot_stats" => {}
             "agent_name" => {
                 let current = self
                     .config

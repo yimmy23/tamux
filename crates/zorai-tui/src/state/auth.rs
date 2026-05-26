@@ -140,8 +140,7 @@ impl AuthState {
                 self.login_buffer.clear();
                 self.login_cursor = 0;
             }
-            AuthAction::Logout(_) => {
-            }
+            AuthAction::Logout(_) => {}
         }
     }
 }

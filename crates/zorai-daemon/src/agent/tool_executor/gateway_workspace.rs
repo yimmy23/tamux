@@ -353,7 +353,6 @@ pub(in crate::agent) async fn execute_gateway_message(
     }
 }
 
-
 pub(crate) async fn execute_workspace_tool(
     tool_name: &str,
     args: &serde_json::Value,

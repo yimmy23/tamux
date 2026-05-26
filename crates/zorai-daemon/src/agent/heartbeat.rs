@@ -198,13 +198,27 @@ impl AgentEngine {
         // little and guarantees no stuck-approval slips past the deadline by
         // more than one heartbeat interval. Errors are logged and swallowed —
         // missing one tick's escalation notice must not kill the heartbeat.
-        if let Err(error) = self
-            .dispatch_stale_approval_escalations_to_external()
-            .await
-        {
+        if let Err(error) = self.dispatch_stale_approval_escalations_to_external().await {
             tracing::warn!(
                 %error,
                 "failed to dispatch stale-approval external escalations during heartbeat",
+            );
+        }
+
+        // Per-goal-run health aggregation layer (the doc-described "health
+        // monitor periodically evaluates the runtime"). Rolls up the
+        // per-task SubagentRuntimeStats into a per-goal-run HealthIndicators
+        // and runs each goal run's persistent HealthMonitor — its
+        // hysteresis state machine prevents a single noisy tick from
+        // flipping the run's state. Persisted rows complement the per-task
+        // health log already written by gateway_loop/run_loop.rs:432;
+        // entity_type discriminates ("goal_run" vs "task"). Errors are
+        // logged and swallowed so a health-log write failure can't kill
+        // the heartbeat.
+        if let Err(error) = self.dispatch_goal_run_health_aggregation().await {
+            tracing::warn!(
+                %error,
+                "failed to dispatch per-goal-run health aggregation during heartbeat",
             );
         }
 
@@ -463,13 +477,7 @@ impl AgentEngine {
 
                 let items = parse_digest_items(&response);
 
-                (
-                    Some(response),
-                    actionable,
-                    digest,
-                    items,
-                    0u64,
-                )
+                (Some(response), actionable, digest, items, 0u64)
             }
             Err(e) => {
                 tracing::error!("heartbeat LLM synthesis failed: {e}");

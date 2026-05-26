@@ -153,8 +153,7 @@ fn delete_stale_embedding_chunks(
         .take(active_chunk_ids.len())
         .collect::<Vec<_>>()
         .join(", ");
-    let mut sql_params: Vec<&dyn rusqlite::ToSql> =
-        Vec::with_capacity(2 + active_chunk_ids.len());
+    let mut sql_params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(2 + active_chunk_ids.len());
     sql_params.push(&source_kind);
     sql_params.push(&source_id);
     for id in active_chunk_ids {
@@ -455,8 +454,7 @@ pub(super) fn queue_embedding_deletions_on_connection(
         .map(|i| format!("(?1, ?{}, ?{}, NULL, 0, NULL)", 2 + i, 2 + source_ids.len()))
         .collect::<Vec<_>>()
         .join(", ");
-    let mut insert_params: Vec<&dyn rusqlite::ToSql> =
-        Vec::with_capacity(2 + source_ids.len());
+    let mut insert_params: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(2 + source_ids.len());
     insert_params.push(&source_kind);
     for id in source_ids {
         insert_params.push(id);
@@ -500,7 +498,9 @@ impl HistoryStore {
                 Ok(value) => return Ok(value),
                 Err(error) if is_retryable_embedding_writer_lock(&error) => {
                     let elapsed = started.elapsed();
-                    if elapsed >= std::time::Duration::from_secs(EMBEDDING_WRITER_LOCK_RETRY_WINDOW_SECS) {
+                    if elapsed
+                        >= std::time::Duration::from_secs(EMBEDDING_WRITER_LOCK_RETRY_WINDOW_SECS)
+                    {
                         return Err(anyhow::anyhow!("{error}"));
                     }
                     attempt += 1;
@@ -601,8 +601,8 @@ impl HistoryStore {
                 transaction.commit()?;
                 Ok(jobs)
             })
-            })
-            .await
+        })
+        .await
     }
 
     pub(crate) async fn complete_embedding_job(
@@ -673,8 +673,8 @@ impl HistoryStore {
                 )?;
                 Ok(())
             })
-            })
-            .await
+        })
+        .await
     }
 
     pub(crate) async fn complete_embedding_jobs(
@@ -726,8 +726,8 @@ impl HistoryStore {
                 transaction.commit()?;
                 Ok(())
             })
-            })
-            .await
+        })
+        .await
     }
 
     pub(crate) async fn fail_embedding_jobs(
@@ -751,20 +751,14 @@ impl HistoryStore {
                         "UPDATE embedding_jobs
                          SET claimed_at = ?4, last_error = ?5
                          WHERE source_kind = ?1 AND source_id = ?2 AND chunk_id = ?3",
-                        params![
-                            job.source_kind,
-                            job.source_id,
-                            job.chunk_id,
-                            now,
-                            error,
-                        ],
+                        params![job.source_kind, job.source_id, job.chunk_id, now, error,],
                     )?;
                 }
                 transaction.commit()?;
                 Ok(())
             })
-            })
-            .await
+        })
+        .await
     }
 
     pub(crate) async fn claim_embedding_deletions(
@@ -807,8 +801,8 @@ impl HistoryStore {
                 transaction.commit()?;
                 Ok(deletions)
             })
-            })
-            .await
+        })
+        .await
     }
 
     pub(crate) async fn complete_embedding_deletion(
@@ -853,8 +847,8 @@ impl HistoryStore {
                 )?;
                 Ok(())
             })
-            })
-            .await
+        })
+        .await
     }
 
     pub async fn queue_semantic_backfill(

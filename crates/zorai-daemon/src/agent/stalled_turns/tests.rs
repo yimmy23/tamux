@@ -306,6 +306,7 @@ fn terminal_goal_run_for_thread(goal_run_id: &str, thread_id: &str, now: u64) ->
         runtime_assignment_list: Vec::new(),
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 0,
         plan_summary: None,
@@ -1900,7 +1901,8 @@ async fn collect_stalled_turn_observations_detects_primary_thread_empty_after_to
     let now = super::now_millis();
     let thread_id = "thread-primary-empty-after-tool-result";
 
-    let mut tool_message = AgentMessage::user("Created file /tmp/output.md.", now.saturating_sub(60_000));
+    let mut tool_message =
+        AgentMessage::user("Created file /tmp/output.md.", now.saturating_sub(60_000));
     tool_message.id = "tool-result-1".to_string();
     tool_message.role = MessageRole::Tool;
     tool_message.tool_call_id = Some("call-1".to_string());
@@ -2040,10 +2042,7 @@ async fn collect_stalled_turn_observations_detects_subagent_stuck_on_empty_first
                 agent_name: Some("Dazhbog".to_string()),
                 title: "Spawned worker".to_string(),
                 messages: vec![
-                    AgentMessage::user(
-                        "Check the issue.",
-                        now.saturating_sub(started_ago_ms),
-                    ),
+                    AgentMessage::user("Check the issue.", now.saturating_sub(started_ago_ms)),
                     AgentMessage {
                         id: "assistant-empty-first-turn".to_string(),
                         role: MessageRole::Assistant,
@@ -2095,7 +2094,8 @@ async fn collect_stalled_turn_observations_detects_subagent_stuck_on_empty_first
     let task = AgentTask {
         id: task_id.to_string(),
         title: "Spawned worker".to_string(),
-        description: "Stalled on first turn with empty/reasoning-only assistant message".to_string(),
+        description: "Stalled on first turn with empty/reasoning-only assistant message"
+            .to_string(),
         status: TaskStatus::InProgress,
         priority: TaskPriority::Normal,
         progress: 0,
@@ -2651,7 +2651,8 @@ async fn supervise_stalled_turns_recovers_subagent_stuck_on_empty_first_turn() {
     let task = AgentTask {
         id: task_id.to_string(),
         title: "Spawned worker".to_string(),
-        description: "Stalled on first turn with empty/reasoning-only assistant message".to_string(),
+        description: "Stalled on first turn with empty/reasoning-only assistant message"
+            .to_string(),
         status: TaskStatus::InProgress,
         priority: TaskPriority::Normal,
         progress: 0,
@@ -2729,9 +2730,7 @@ async fn supervise_stalled_turns_recovers_subagent_stuck_on_empty_first_turn() {
     assert!(
         thread.messages.iter().any(|message| {
             message.role == MessageRole::System
-                && message
-                    .content
-                    .contains("WELES stalled-turn recovery")
+                && message.content.contains("WELES stalled-turn recovery")
         }),
         "WELES recovery system message must be appended to the stalled subagent thread"
     );

@@ -44,7 +44,6 @@ pub(crate) fn drain_tool_calls(map: &mut HashMap<u32, PendingToolCall>) -> Vec<T
         .collect()
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FetchedModelPricing {
     pub prompt: Option<String>,

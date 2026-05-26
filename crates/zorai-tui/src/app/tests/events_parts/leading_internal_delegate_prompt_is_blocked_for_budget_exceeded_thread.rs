@@ -542,8 +542,8 @@ fn participant_stop_directive_refreshes_thread_after_deactivate() {
                 "refresh must target the same thread the deactivate was issued against"
             );
         }
-        other => panic!(
-            "expected RequestThread refresh after participant deactivate, got {other:?}"
-        ),
+        other => {
+            panic!("expected RequestThread refresh after participant deactivate, got {other:?}")
+        }
     }
 }

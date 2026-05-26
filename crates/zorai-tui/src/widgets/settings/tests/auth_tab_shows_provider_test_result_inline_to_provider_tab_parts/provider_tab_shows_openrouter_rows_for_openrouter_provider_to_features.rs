@@ -1,15 +1,10 @@
 use crate::state::config::{ConfigAction, ConfigState};
 use crate::state::modal::ModalState;
-use crate::state::settings::{
-    SettingsAction, SettingsState, SettingsTab,
-};
+use crate::state::settings::{SettingsAction, SettingsState, SettingsTab};
 use crate::state::subagents::SubAgentsState;
 use crate::theme::ThemeTokens;
 use crate::widgets::settings::render_tab_content;
-use crate::widgets::settings::{
-    render_agent_tab,
-    render_concierge_tab, render_provider_tab,
-};
+use crate::widgets::settings::{render_agent_tab, render_concierge_tab, render_provider_tab};
 use zorai_shared::providers::*;
 #[test]
 fn provider_tab_shows_openrouter_rows_for_openrouter_provider() {

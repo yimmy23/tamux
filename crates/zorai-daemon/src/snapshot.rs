@@ -18,7 +18,6 @@ mod store;
 use detect::detect_snapshot_backend;
 pub use store::SnapshotStore;
 
-
 /// Pluggable backend for creating, restoring and listing workspace snapshots.
 pub trait SnapshotBackend: Send + Sync {
     fn create(
@@ -36,7 +35,6 @@ pub trait SnapshotBackend: Send + Sync {
 
     fn name(&self) -> &'static str;
 }
-
 
 fn now_ts() -> u64 {
     SystemTime::now()
@@ -184,7 +182,6 @@ fn restore_snapshot_payload(snapshot: &SnapshotInfo) -> Result<(bool, String)> {
     }
 }
 
-
 pub struct TarBackend {
     root: PathBuf,
     index_path: PathBuf,
@@ -303,7 +300,6 @@ impl SnapshotBackend for TarBackend {
     }
 }
 
-
 pub struct ZfsBackend {
     /// The ZFS dataset that corresponds to the workspace (e.g. "pool/data").
     dataset: String,
@@ -412,7 +408,6 @@ impl SnapshotBackend for ZfsBackend {
             .collect())
     }
 }
-
 
 pub struct BtrfsBackend {
     /// Directory where BTRFS snapshots are stored.
@@ -550,4 +545,3 @@ impl SnapshotBackend for BtrfsBackend {
             .collect())
     }
 }
-

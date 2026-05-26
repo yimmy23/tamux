@@ -383,6 +383,7 @@ impl TuiModel {
                     goal_run_id,
                     action: "pause".to_string(),
                     step_index: None,
+                    payload_json: None,
                 });
                 self.status_line = "Pausing goal run...".to_string();
             }
@@ -391,6 +392,7 @@ impl TuiModel {
                     goal_run_id,
                     action: "stop".to_string(),
                     step_index: None,
+                    payload_json: None,
                 });
                 self.status_line = "Stopping goal run...".to_string();
             }
@@ -399,6 +401,7 @@ impl TuiModel {
                     goal_run_id,
                     action: "resume".to_string(),
                     step_index: None,
+                    payload_json: None,
                 });
                 self.status_line = "Resuming goal run...".to_string();
             }
@@ -411,6 +414,7 @@ impl TuiModel {
                     goal_run_id,
                     action: "retry_step".to_string(),
                     step_index: Some(step_index),
+                    payload_json: None,
                 });
                 self.status_line = "Retrying goal step...".to_string();
             }
@@ -419,6 +423,7 @@ impl TuiModel {
                     goal_run_id,
                     action: "retry_step".to_string(),
                     step_index: None,
+                    payload_json: None,
                 });
                 self.status_line = "Retrying goal prompt...".to_string();
             }
@@ -431,6 +436,7 @@ impl TuiModel {
                     goal_run_id,
                     action: "rerun_from_step".to_string(),
                     step_index: Some(step_index),
+                    payload_json: None,
                 });
                 self.status_line = "Rerunning goal from step...".to_string();
             }
@@ -439,6 +445,7 @@ impl TuiModel {
                     goal_run_id,
                     action: "rerun_from_step".to_string(),
                     step_index: None,
+                    payload_json: None,
                 });
                 self.status_line = "Rerunning goal from prompt...".to_string();
             }

@@ -1,13 +1,10 @@
 use super::{
     build_gateway_bootstrap_payload, build_session_end_episode_payload,
-    concierge_welcome_fingerprint, enqueue_gateway_incoming_event,
-    is_expected_disconnect_error, persist_gateway_health_update,
+    concierge_welcome_fingerprint, enqueue_gateway_incoming_event, is_expected_disconnect_error,
+    persist_gateway_health_update,
 };
 use crate::agent::types::AgentConfig;
-use crate::agent::types::{
-    AgentEvent, ConciergeAction, ConciergeActionType,
-    ConciergeDetailLevel,
-};
+use crate::agent::types::{AgentEvent, ConciergeAction, ConciergeActionType, ConciergeDetailLevel};
 use crate::agent::AgentEngine;
 use crate::history::HistoryStore;
 use crate::session_manager::SessionManager;
@@ -16,8 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::time::{timeout, Duration};
 use zorai_protocol::{
-    DaemonMessage, GatewayConnectionStatus, GatewayHealthState,
-    GatewayIncomingEvent, SessionInfo,
+    DaemonMessage, GatewayConnectionStatus, GatewayHealthState, GatewayIncomingEvent, SessionInfo,
 };
 
 pub(crate) fn repo_root() -> PathBuf {

@@ -1,8 +1,5 @@
 use super::*;
-use super::{
-    has_provider_auth_row, write_provider_auth_row,
-    EnvGuard,
-};
+use super::{has_provider_auth_row, write_provider_auth_row, EnvGuard};
 #[path = "activating_about_tab_does_not_enter_edit_mode_to_commit_parts/activating_about_tab_does_not_enter_edit_mode_to_commit_subagent_editor.rs"]
 mod activating_about_tab_does_not_enter_edit_mode_to_commit_subagent_editor;
 #[path = "activating_about_tab_does_not_enter_edit_mode_to_commit_parts/activating_openrouter_audio_tts_model_requests_audio_output_filter.rs"]

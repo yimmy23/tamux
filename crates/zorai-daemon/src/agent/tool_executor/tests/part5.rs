@@ -1,12 +1,10 @@
 use super::super::*;
 use super::super::{
-    execute_gateway_message, execute_get_debate_session, execute_get_divergent_session, execute_headless_shell_command, execute_run_debate,
-    get_available_tools, resolve_skill_path, wait_for_managed_command_outcome,
+    execute_gateway_message, execute_get_debate_session, execute_get_divergent_session,
+    execute_headless_shell_command, execute_run_debate, get_available_tools, resolve_skill_path,
+    wait_for_managed_command_outcome,
 };
-use crate::agent::{
-    types::AgentConfig,
-    AgentEngine,
-};
+use crate::agent::{types::AgentConfig, AgentEngine};
 use crate::history::SkillVariantRecord;
 use crate::session_manager::SessionManager;
 use std::fs;

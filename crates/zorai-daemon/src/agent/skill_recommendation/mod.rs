@@ -643,7 +643,10 @@ fn read_recommendation_document(path: &Path, document_kind: &str) -> Result<Opti
         }
     };
     let mut buf = String::with_capacity(RECOMMENDATION_HEAD_BYTES as usize);
-    if let Err(error) = file.take(RECOMMENDATION_HEAD_BYTES).read_to_string(&mut buf) {
+    if let Err(error) = file
+        .take(RECOMMENDATION_HEAD_BYTES)
+        .read_to_string(&mut buf)
+    {
         if buf.is_empty() {
             tracing::warn!(
                 path = %path.display(),

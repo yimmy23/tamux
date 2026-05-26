@@ -27,6 +27,7 @@ impl AgentEngine {
             GoalRunStatus::Running => "Goal running",
             GoalRunStatus::AwaitingApproval => "Goal awaiting approval",
             GoalRunStatus::Paused => "Goal paused",
+            GoalRunStatus::Blocked => "Goal blocked",
             GoalRunStatus::Completed => "Goal completed",
             GoalRunStatus::Failed => "Goal failed",
             GoalRunStatus::Cancelled => "Goal cancelled",
@@ -245,10 +246,20 @@ impl AgentEngine {
                     error = %error,
                     "gateway: failed to query task-owned pending approvals"
                 );
-                let tasks = self.tasks.lock().await;
-                if tasks.iter().any(|task| task.awaiting_approval_id.is_some()) {
-                    return true;
-                }
+            }
+        }
+
+        // Always also consult the in-memory task queue, not only on the
+        // history-query Err branch. The live queue is the source of truth
+        // for approvals that arrived this session — history catches up
+        // via background persistence and may lag. Without this in-memory
+        // check, a freshly-created awaiting-approval task is invisible to
+        // cross-platform/cross-thread stale-reply rejection until the
+        // next persist cycle.
+        {
+            let tasks = self.tasks.lock().await;
+            if tasks.iter().any(|task| task.awaiting_approval_id.is_some()) {
+                return true;
             }
         }
 

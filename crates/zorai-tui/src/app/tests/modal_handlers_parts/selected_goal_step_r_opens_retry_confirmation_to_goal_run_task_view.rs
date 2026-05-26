@@ -202,6 +202,7 @@ fn selected_goal_step_action_menu_can_send_retry_step() {
             goal_run_id,
             action,
             step_index: Some(1),
+            payload_json: None,
         } if goal_run_id == "goal-1" && action == "retry_step"
     ));
 }

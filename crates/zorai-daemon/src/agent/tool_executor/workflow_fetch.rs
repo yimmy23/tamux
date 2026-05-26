@@ -644,4 +644,3 @@ pub(crate) async fn record_browser_profile_fetch_success(
     };
     agent.history.upsert_browser_profile(&updated).await
 }
-

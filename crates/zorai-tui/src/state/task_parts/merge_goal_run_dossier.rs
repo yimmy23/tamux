@@ -224,4 +224,3 @@ pub(super) fn merge_goal_run_dossier(
         }
     }
 }
-

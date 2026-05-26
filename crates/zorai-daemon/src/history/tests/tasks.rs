@@ -71,7 +71,11 @@ async fn list_tasks_past_approval_deadline_returns_only_overdue_tasks() -> Resul
     store.upsert_agent_task(&not_overdue).await?;
     store.upsert_agent_task(&no_deadline).await?;
     let stale = store.list_tasks_past_approval_deadline(now).await?;
-    assert_eq!(stale.len(), 1, "exactly one task should be past the deadline");
+    assert_eq!(
+        stale.len(),
+        1,
+        "exactly one task should be past the deadline"
+    );
     let (task_id, thread_id, approval_id, expires_at) = &stale[0];
     assert_eq!(task_id, "overdue");
     assert_eq!(thread_id.as_deref(), Some("thread-overdue"));
@@ -91,7 +95,10 @@ async fn list_tasks_past_approval_deadline_skips_non_awaiting_approval_status() 
     resolved.status = TaskStatus::InProgress;
     store.upsert_agent_task(&resolved).await?;
     let stale = store.list_tasks_past_approval_deadline(10_000).await?;
-    assert!(stale.is_empty(), "only AwaitingApproval tasks should be returned");
+    assert!(
+        stale.is_empty(),
+        "only AwaitingApproval tasks should be returned"
+    );
     Ok(())
 }
 

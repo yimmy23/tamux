@@ -82,8 +82,7 @@ fn try_parse_osc(text: &str) -> Option<OscNotificationPayload> {
             if parts.len() == 2 {
                 body = parts[1].to_string();
                 for kv in parts[0].split(':') {
-                    if let Some((_k, _v)) = kv.split_once('=') {
-                    }
+                    if let Some((_k, _v)) = kv.split_once('=') {}
                 }
             }
         }

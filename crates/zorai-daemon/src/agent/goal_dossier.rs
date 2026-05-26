@@ -7,7 +7,9 @@ fn projection_state_for_goal_run(goal_run: &GoalRun) -> GoalProjectionState {
     match goal_run.status {
         GoalRunStatus::Queued => GoalProjectionState::Pending,
         GoalRunStatus::Planning | GoalRunStatus::Running => GoalProjectionState::InProgress,
-        GoalRunStatus::AwaitingApproval | GoalRunStatus::Paused => GoalProjectionState::Blocked,
+        GoalRunStatus::AwaitingApproval
+        | GoalRunStatus::Paused
+        | GoalRunStatus::Blocked => GoalProjectionState::Blocked,
         GoalRunStatus::Completed => GoalProjectionState::Completed,
         GoalRunStatus::Failed | GoalRunStatus::Cancelled => GoalProjectionState::Failed,
         // BreakGlass and Compensated are "the work concluded" outcomes —

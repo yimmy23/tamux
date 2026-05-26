@@ -181,7 +181,6 @@ impl AwarenessMonitor {
     }
 }
 
-
 use crate::agent::engine::AgentEngine;
 use crate::agent::types::AgentEvent;
 

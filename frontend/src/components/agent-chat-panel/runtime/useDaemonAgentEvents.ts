@@ -4,6 +4,7 @@ import { shouldUseDaemonRuntime, getAgentBridge } from "@/lib/agentDaemonConfig"
 import { fetchAllThreadTodos, fetchThreadTodos } from "@/lib/agentTodos";
 import { fetchGoalRuns, type GoalRun } from "@/lib/goalRuns";
 import { useAgentMissionStore } from "@/lib/agentMissionStore";
+import type { RiskLevel } from "@/lib/agent-mission-store/types";
 import { useWorkspaceStore } from "@/lib/workspaceStore";
 import type { AgentBackend } from "@/lib/agentStore/types";
 import type { AgentMessage, AgentThread, AgentTodoItem } from "@/lib/agentStore";
@@ -58,6 +59,10 @@ const THREADLESS_STREAM_EVENT_TYPES = new Set([
   "tool_result",
   "error",
 ]);
+
+function normalizeApprovalRiskLevel(value: unknown): RiskLevel {
+  return value === "high" || value === "critical" ? value : "medium";
+}
 
 export function isThreadlessDaemonStreamEvent(event: any): boolean {
   return THREADLESS_STREAM_EVENT_TYPES.has(String(event?.type ?? ""))
@@ -337,6 +342,35 @@ export function useDaemonAgentEvents({
             totalTokens: 0,
             isCompactionSummary: false,
             isStreaming: true,
+          });
+          break;
+        }
+        case "approval_required": {
+          const approvalId = typeof event.approval_id === "string" ? event.approval_id : "";
+          if (!approvalId) break;
+          const reasons = Array.isArray(event.reasons)
+            ? event.reasons.map((reason: unknown) => String(reason))
+            : [];
+          useAgentMissionStore.getState().upsertDaemonApproval({
+            id: approvalId,
+            paneId: activePaneId ?? activeThreadId ?? "",
+            workspaceId: activeWorkspace?.id ?? null,
+            surfaceId: null,
+            sessionId: typeof event.thread_id === "string" ? event.thread_id : null,
+            command: String(event.command ?? approvalId),
+            reasons: reasons.length > 0 ? reasons : ["Managed command requires approval"],
+            riskLevel: normalizeApprovalRiskLevel(event.risk_level),
+            blastRadius: String(event.blast_radius ?? "tool execution"),
+          });
+          addNotification({
+            title: "Approval required",
+            body: String(event.command ?? approvalId),
+            subtitle: String(event.rationale ?? "Tool execution paused for operator approval"),
+            icon: "shield",
+            source: "system",
+            workspaceId: activeWorkspace?.id ?? null,
+            paneId: activePaneId ?? null,
+            panelId: activePaneId ?? null,
           });
           break;
         }

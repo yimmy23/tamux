@@ -128,9 +128,9 @@ fn header_usage_summary_uses_runtime_model_context_window_for_rarog() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
-    
+
         message_id: None,
-});
+    });
     model.handle_client_event(ClientEvent::ContextWindowUpdate {
         thread_id: "thread-rarog-usage".to_string(),
         active_context_window_start: 0,
@@ -178,9 +178,9 @@ fn header_profile_tracks_repeated_swarog_config_changes_after_runtime_metadata_e
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: None,
-    
+
         message_id: None,
-});
+    });
 
     let initial = model.current_header_agent_profile();
     assert_eq!(initial.provider, "provider-old");

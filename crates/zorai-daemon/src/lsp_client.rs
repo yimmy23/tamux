@@ -53,7 +53,6 @@ fn symbol_kind_name(kind: u64) -> &'static str {
     }
 }
 
-
 static REQUEST_ID: AtomicI64 = AtomicI64::new(1);
 
 fn next_id() -> i64 {
@@ -90,7 +89,6 @@ fn read_message(reader: &mut BufReader<impl std::io::Read>) -> Option<Value> {
     reader.read_exact(&mut body).ok()?;
     serde_json::from_slice(&body).ok()
 }
-
 
 /// A thin wrapper around a language-server child process.
 pub struct LspClient {
@@ -235,7 +233,6 @@ impl Drop for LspClient {
         let _ = self.child.wait();
     }
 }
-
 
 /// Detect which language servers are available on `$PATH` for files under
 /// `workspace_root`.

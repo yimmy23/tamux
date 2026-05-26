@@ -2,6 +2,8 @@
 mod active_context_tokens_persist_across_message_append;
 #[path = "chat_parts/delta_appends_to_streaming_content_to_thread_created_moves_new_thread.rs"]
 mod delta_appends_to_streaming_content_to_thread_created_moves_new_thread;
+#[path = "chat_parts/operator_question_dedupes_on_append_and_thread_detail.rs"]
+mod operator_question_dedupes_on_append_and_thread_detail;
 #[path = "chat_parts/select_next_message_from_none_to_thread_detail_refresh_preserves.rs"]
 mod select_next_message_from_none_to_thread_detail_refresh_preserves;
 #[path = "chat_parts/select_thread_with_empty_id_clears_active_selection_to_thread_detail.rs"]
@@ -14,5 +16,3 @@ mod thread_detail_preserves_local_messages_in_active_compaction_window;
 mod thread_detail_refresh_preserves_finalized_stream_after_stale_user;
 #[path = "chat_parts/thread_list_received_defaults_missing_agent_name_to_svarog.rs"]
 mod thread_list_received_defaults_missing_agent_name_to_svarog;
-#[path = "chat_parts/operator_question_dedupes_on_append_and_thread_detail.rs"]
-mod operator_question_dedupes_on_append_and_thread_detail;

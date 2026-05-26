@@ -2,4 +2,3 @@
 mod daemon_message_kind_to_handle_connection;
 #[path = "daemon_message_kind_to_handle_connection_to_handle_daemon_parts/handle_daemon_message.rs"]
 mod handle_daemon_message;
-

@@ -187,7 +187,10 @@ mod tests {
         // Body should mention the canonical level label (L3), not just prose.
         assert!(notification.body.contains("L3"));
         // Subtitle echoes the audit summary so the operator can see the chain.
-        assert_eq!(notification.subtitle.as_deref(), Some(audit.summary.as_str()));
+        assert_eq!(
+            notification.subtitle.as_deref(),
+            Some(audit.summary.as_str())
+        );
     }
 
     #[test]
@@ -283,8 +286,8 @@ mod tests {
         // audit consumer might want (trigger, task/thread/approval ids,
         // deadlines, timestamps) so the operator-facing summary stays
         // concise while the persistent audit retains the full payload.
-        let parsed: serde_json::Value = serde_json::from_str(&audit.raw_data_json)
-            .expect("raw_data_json should be valid JSON");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&audit.raw_data_json).expect("raw_data_json should be valid JSON");
         assert_eq!(parsed["trigger"], "operator_response_timeout");
         assert_eq!(parsed["task_id"], "task-y");
         assert_eq!(parsed["thread_id"], "thread-y");

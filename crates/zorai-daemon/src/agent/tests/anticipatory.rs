@@ -82,6 +82,7 @@ fn sample_goal_run(id: &str, thread_id: Option<&str>) -> GoalRun {
         current_step_kind: None,
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 3,
         plan_summary: None,
@@ -2255,7 +2256,11 @@ async fn system_outcome_foresight_skips_build_risk_when_repo_monitor_disabled() 
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
 
     engine
-        .record_operator_attention("conversation:chat", Some("thread-build-risk-disabled"), None)
+        .record_operator_attention(
+            "conversation:chat",
+            Some("thread-build-risk-disabled"),
+            None,
+        )
         .await
         .unwrap();
     engine.thread_work_contexts.write().await.insert(

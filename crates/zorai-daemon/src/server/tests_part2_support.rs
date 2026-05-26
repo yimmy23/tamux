@@ -14,16 +14,27 @@ pub(crate) fn daemon_boxes_large_gateway_hot_path_futures() {
     .collect::<Vec<_>>()
     .join("\n");
 
+    // Each required boxing site is matched against a *normalized* form
+    // of the source where contiguous whitespace collapses to one space.
+    // This keeps the guard rail robust to rustfmt re-flowing lines
+    // (e.g., joining `agent\n    .send_internal_delegate_message(` onto
+    // a single line) while still checking the actual `Box::pin` is
+    // wrapping the right call.
+    let normalized_source = source.split_whitespace().collect::<Vec<_>>().join(" ");
     for required in [
         "Box::pin(startup_agent.run_loop(shutdown_rx)).await;",
         "Box::pin(handle_connection(",
         "if let Err(e) = Box::pin(agent.send_message_with_session_surface_and_target(",
         "match Box::pin(agent.send_direct_message(",
-        "if let Err(error) = Box::pin(agent\n                            .send_internal_delegate_message(",
-        "spawn_background_operation(\n                                BackgroundSubsystem::ConfigReconcile,\n                                Some(operation.operation_id.clone()),\n                                background_daemon_tx,\n                                &mut background_daemon_pending,\n                                Box::pin(async move {",
+        "if let Err(error) = Box::pin(agent.send_internal_delegate_message(",
+        "spawn_background_operation( BackgroundSubsystem::ConfigReconcile, Some(operation.operation_id.clone()), background_daemon_tx, background_daemon_pending, Box::pin(async move {",
     ] {
+        let normalized_required = required
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
         assert!(
-            source.contains(required),
+            normalized_source.contains(&normalized_required),
             "server hot path should box oversized future: {required}"
         );
     }

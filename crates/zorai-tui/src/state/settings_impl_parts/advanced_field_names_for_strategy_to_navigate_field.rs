@@ -348,9 +348,7 @@ impl SettingsState {
                 24 => "workspace_repo_monitor_exclude_dirs",
                 _ => "",
             },
-            SettingsTab::Plugins => {
-                "plugin_field"
-            }
+            SettingsTab::Plugins => "plugin_field",
             SettingsTab::About => "",
         }
     }

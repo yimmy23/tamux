@@ -3150,7 +3150,6 @@ async fn concurrent_read_write() -> Result<()> {
     Ok(())
 }
 
-
 #[tokio::test]
 async fn ensure_column_adds_user_action_to_action_audit() -> Result<()> {
     let (store, root) = make_test_store().await?;

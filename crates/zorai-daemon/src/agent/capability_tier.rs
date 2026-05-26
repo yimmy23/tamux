@@ -12,7 +12,6 @@ use super::operator_model::RiskTolerance;
 #[path = "capability_tier/disclosures.rs"]
 mod disclosures;
 
-
 /// Progressive capability tier.  Order matters for `PartialOrd`/`Ord` -- each
 /// successive variant represents a higher tier.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -48,7 +47,6 @@ impl CapabilityTier {
     }
 }
 
-
 /// Aggregated signals used to compute the current capability tier.
 #[derive(Debug, Clone)]
 pub(super) struct TierSignals {
@@ -59,7 +57,6 @@ pub(super) struct TierSignals {
     pub user_self_assessment: Option<CapabilityTier>,
     pub user_override: Option<CapabilityTier>,
 }
-
 
 /// Compute the effective tier from the given signals.
 ///
@@ -94,7 +91,6 @@ pub(super) fn resolve_tier(signals: &TierSignals) -> CapabilityTier {
 
     behavioral
 }
-
 
 /// Feature visibility flags driven by the current tier (D-04).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,7 +141,6 @@ pub(super) fn tier_features_visible(tier: CapabilityTier) -> TierFeatureFlags {
     }
 }
 
-
 /// A single feature disclosure entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeatureDisclosure {
@@ -184,7 +179,6 @@ impl DisclosureQueue {
     }
 }
 
-
 /// Tier settings persisted in `config.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -209,7 +203,6 @@ impl Default for TierConfig {
         }
     }
 }
-
 
 use zorai_protocol::DaemonMessage;
 
@@ -443,12 +436,10 @@ impl AgentEngine {
     }
 }
 
-
 /// Define features available at each tier for progressive disclosure.
 fn tier_disclosure_features(tier: CapabilityTier) -> Vec<FeatureDisclosure> {
     disclosures::tier_disclosure_features(tier)
 }
-
 
 #[cfg(test)]
 #[path = "capability_tier/tests.rs"]

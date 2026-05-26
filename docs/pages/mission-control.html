@@ -61,7 +61,7 @@
 
       <section>
         <h2>Runtime edits</h2>
-        <p>Goal-oriented surfaces can expose operator-safe runtime changes such as edits to the active role roster. The design distinguishes changes that apply on future work from changes that would affect the currently active step, even when client parity is still catching up.</p>
+        <p>Goal-oriented surfaces can expose operator-safe runtime changes such as edits to the active role roster. The daemon's <code>control_goal_run</code> dispatcher accepts an <code>update-role</code> action carrying a target step index and a replacement owner profile: edits targeted at the current step rewrite the active owner profile immediately, while edits targeted at a future step are staged in a sparse override map and consumed when that step transitions. Past steps are immutable. Replans clear pending overrides so they cannot leak into a new plan. Client parity may still be catching up, but the daemon-side contract is in place.</p>
       </section>
 
       <section>

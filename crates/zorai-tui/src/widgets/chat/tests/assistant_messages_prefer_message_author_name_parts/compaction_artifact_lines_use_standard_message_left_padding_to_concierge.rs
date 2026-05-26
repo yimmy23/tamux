@@ -64,7 +64,9 @@ fn compaction_artifact_visible_header_renders_without_expand_toggle() {
         "compaction trigger must be visible without expand toggle: {plain_lines:?}"
     );
     assert!(
-        plain_lines.iter().any(|line| line.contains("Auto compaction")),
+        plain_lines
+            .iter()
+            .any(|line| line.contains("Auto compaction")),
         "automatic compaction must be labelled as 'Auto compaction': {plain_lines:?}"
     );
 }

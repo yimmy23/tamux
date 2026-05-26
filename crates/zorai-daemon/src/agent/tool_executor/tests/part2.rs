@@ -1,6 +1,6 @@
 use super::super::{
-    execute_onecontext_search_with_runner,
-    execute_search_files_with_runner, execute_web_search_with_runner,
+    execute_onecontext_search_with_runner, execute_search_files_with_runner,
+    execute_web_search_with_runner,
 };
 use super::part1::{exit_status_with_code, successful_exit_status};
 use std::fs;

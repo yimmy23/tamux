@@ -79,7 +79,6 @@ const INVALID_PARAMS: i64 = -32602;
 #[allow(dead_code)]
 const INTERNAL_ERROR: i64 = -32603;
 
-
 /// Execute an MCP tool call against the daemon and return the result as JSON.
 async fn handle_tool_call(name: &str, args: &Value) -> Value {
     match dispatch_tool(name, args).await {
@@ -168,7 +167,6 @@ async fn dispatch_tool(name: &str, args: &Value) -> Result<Value> {
         _ => anyhow::bail!("unknown tool: {name}"),
     }
 }
-
 
 async fn tool_enqueue_task(args: &Value) -> Result<Value> {
     let description = args
@@ -834,7 +832,6 @@ async fn handle_tools_call(id: Option<Value>, params: Option<Value>) -> JsonRpcR
     let result = handle_tool_call(&tool_name, &arguments).await;
     JsonRpcResponse::success(id, result)
 }
-
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -135,8 +135,7 @@ impl TuiModel {
                     self.main_pane_view = MainPaneView::Conversation;
                     self.focus = FocusArea::Chat;
                     self.input.set_mode(input::InputMode::Insert);
-                    self.status_line =
-                        format!("Stop request sent for {}", directive.agent_alias);
+                    self.status_line = format!("Stop request sent for {}", directive.agent_alias);
                     self.show_input_notice(
                         format!(
                             "Stop request sent for {participant_name}; refreshing thread to confirm"

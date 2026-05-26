@@ -104,10 +104,8 @@ impl DaemonClient {
             | DaemonMessage::Error { .. }) => {
                 Self::handle_activity_profile_gateway_daemon_messages(message, event_tx).await
             }
-            DaemonMessage::Pong => {
-            }
-            DaemonMessage::AgentConciergeWelcomeDismissed => {
-            }
+            DaemonMessage::Pong => {}
+            DaemonMessage::AgentConciergeWelcomeDismissed => {}
             DaemonMessage::AgentAsyncCommandCapabilityAck { capability } => {
                 debug!(
                     target: "zorai_tui::client",

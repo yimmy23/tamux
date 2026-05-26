@@ -95,7 +95,13 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
-                let incoming_message_count = messages.len() as i64;
+                // Use the thread row's full message count, not
+                // `messages.len()` — the caller filters the message
+                // batch by a cutoff timestamp, so a re-persist that only
+                // carries metadata changes has `messages` near zero and
+                // would spuriously trip the stale-snapshot gate even
+                // though the conversation has not shrunk.
+                let incoming_message_count = thread.message_count;
                 let incoming_latest_created_at = messages
                     .iter()
                     .map(|message| message.created_at)
@@ -287,7 +293,13 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 let transaction = conn.transaction()?;
-                let incoming_message_count = messages.len() as i64;
+                // Use the thread row's full message count, not
+                // `messages.len()` — the caller filters the message
+                // batch by a cutoff timestamp, so a re-persist that only
+                // carries metadata changes has `messages` near zero and
+                // would spuriously trip the stale-snapshot gate even
+                // though the conversation has not shrunk.
+                let incoming_message_count = thread.message_count;
                 let incoming_latest_created_at = messages
                     .iter()
                     .map(|message| message.created_at)
@@ -955,18 +967,15 @@ impl HistoryStore {
                      ORDER BY thread_id ASC, created_at ASC, id ASC"
                 );
                 let mut stmt = conn.prepare(&sql)?;
-                let rows = stmt
-                    .query_map(
-                        rusqlite::params_from_iter(thread_ids_query.iter()),
-                        |row| {
-                            Ok((
-                                row.get::<_, String>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, Option<String>>(2)?,
-                                row.get::<_, Option<String>>(3)?,
-                            ))
-                        },
-                    )?;
+                let rows =
+                    stmt.query_map(rusqlite::params_from_iter(thread_ids_query.iter()), |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                            row.get::<_, Option<String>>(3)?,
+                        ))
+                    })?;
 
                 let mut unanswered: Vec<String> = Vec::new();
                 let mut current_thread: Option<String> = None;
@@ -1799,16 +1808,14 @@ impl HistoryStore {
                      ORDER BY created_at DESC, id DESC \
                      LIMIT ?2",
                 )?;
-                let tail_rows = tail_stmt.query_map(
-                    params![&thread_id, tail_limit as i64],
-                    |row| {
+                let tail_rows =
+                    tail_stmt.query_map(params![&thread_id, tail_limit as i64], |row| {
                         Ok((
                             row.get::<_, String>(0)?,
                             row.get::<_, String>(1)?,
                             row.get::<_, Option<String>>(2)?,
                         ))
-                    },
-                )?;
+                    })?;
                 let mut tail_desc: Vec<(String, String, Option<String>)> =
                     tail_rows.filter_map(|row| row.ok()).collect();
 

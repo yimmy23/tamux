@@ -324,9 +324,14 @@ pub enum GoalRunStatus {
     Running,
     AwaitingApproval,
     Paused,
+    Blocked,
     Completed,
     Failed,
     Cancelled,
+    Contained,
+    Compensated,
+    PartiallyCompensated,
+    BreakGlass,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

@@ -73,7 +73,6 @@ pub(crate) fn render_cached(
         ])
         .split(area);
 
-
     for (tab, cell) in tab_cells(chunks[0], show_spawned, show_pinned) {
         let style = if sidebar.active_tab() == tab {
             theme.fg_active.bg(Color::Indexed(236))

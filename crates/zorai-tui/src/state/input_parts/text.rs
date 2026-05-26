@@ -1,4 +1,3 @@
-
 use super::InputState;
 
 impl InputState {

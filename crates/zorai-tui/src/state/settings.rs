@@ -3,8 +3,6 @@
 #[path = "settings_cursor.rs"]
 mod cursor;
 
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsTab {
     Auth,
@@ -24,7 +22,6 @@ pub enum SettingsTab {
 
 #[path = "settings_impl_parts/all.rs"]
 mod all;
-
 
 #[derive(Debug, Clone)]
 pub enum SettingsAction {
@@ -52,7 +49,6 @@ pub enum SettingsAction {
     SelectDropdown,
     Save,
 }
-
 
 pub struct SettingsState {
     active_tab: SettingsTab,
@@ -84,7 +80,6 @@ mod reduce;
 
 #[path = "settings_impl_parts/default.rs"]
 mod default;
-
 
 /// State for the Plugins settings tab. Stored separately from SettingsState
 /// because plugin data is dynamic (varies by installed plugins).
@@ -147,8 +142,6 @@ mod new_to_is_key_secret;
 #[path = "settings_impl_parts/default_02.rs"]
 mod default_02;
 
-
 #[cfg(test)]
 #[path = "tests/settings.rs"]
 mod tests;
-

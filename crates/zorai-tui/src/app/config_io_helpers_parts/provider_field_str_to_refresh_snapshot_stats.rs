@@ -1,7 +1,7 @@
 use super::super::*;
 use super::{
-    normalize_provider_auth_source,
-    normalize_provider_transport, openrouter_provider_list_value, split_openrouter_provider_list,
+    normalize_provider_auth_source, normalize_provider_transport, openrouter_provider_list_value,
+    split_openrouter_provider_list,
 };
 use crate::providers;
 use zorai_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENROUTER};

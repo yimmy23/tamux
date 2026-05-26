@@ -140,6 +140,34 @@ impl DaemonClient {
                     })
                     .await;
             }
+            "approval_required" => {
+                let reasons = event
+                    .get("reasons")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .map(|item| {
+                                item.as_str()
+                                    .map(ToOwned::to_owned)
+                                    .unwrap_or_else(|| item.to_string())
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let _ = event_tx
+                    .send(ClientEvent::ApprovalRequired {
+                        approval_id: get_string(&event, "approval_id").unwrap_or_default(),
+                        command: get_string_lossy(&event, "command"),
+                        rationale: get_string(&event, "rationale"),
+                        reasons,
+                        risk_level: get_string(&event, "risk_level")
+                            .unwrap_or_else(|| "medium".to_string()),
+                        blast_radius: get_string(&event, "blast_radius")
+                            .unwrap_or_else(|| "tool execution".to_string()),
+                    })
+                    .await;
+            }
             "done" => {
                 let thread_id = get_string(&event, "thread_id").unwrap_or_default();
                 if Self::is_hidden_agent_thread(Some(thread_id.as_str()), None) {

@@ -38,6 +38,15 @@ pub enum AgentEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         message_id: Option<String>,
     },
+    ApprovalRequired {
+        thread_id: String,
+        approval_id: String,
+        command: String,
+        rationale: Option<String>,
+        reasons: Vec<String>,
+        risk_level: String,
+        blast_radius: String,
+    },
     Done {
         thread_id: String,
         input_tokens: u64,
@@ -377,4 +386,3 @@ pub enum AgentEvent {
         reaction: Option<zorai_protocol::Reaction>,
     },
 }
-

@@ -116,11 +116,10 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
         map: Option<&mut serde_json::Map<String, serde_json::Value>>,
         key: &str,
     ) -> Option<String> {
-        map.and_then(|m| m.remove(key))
-            .and_then(|v| match v {
-                serde_json::Value::String(s) => Some(s),
-                _ => None,
-            })
+        map.and_then(|m| m.remove(key)).and_then(|v| match v {
+            serde_json::Value::String(s) => Some(s),
+            _ => None,
+        })
     }
     fn take_string_either(
         map: &mut Option<&mut serde_json::Map<String, serde_json::Value>>,
@@ -230,16 +229,14 @@ pub(super) fn parse_message_metadata(metadata_json: Option<&str>) -> ParsedMessa
                 "down" => Some(zorai_protocol::Reaction::Down),
                 _ => None,
             },
-            serde_json::Value::Object(mut obj) => {
-                obj.remove("reaction").and_then(|v| match v {
-                    serde_json::Value::String(s) => match s.as_str() {
-                        "up" => Some(zorai_protocol::Reaction::Up),
-                        "down" => Some(zorai_protocol::Reaction::Down),
-                        _ => None,
-                    },
+            serde_json::Value::Object(mut obj) => obj.remove("reaction").and_then(|v| match v {
+                serde_json::Value::String(s) => match s.as_str() {
+                    "up" => Some(zorai_protocol::Reaction::Up),
+                    "down" => Some(zorai_protocol::Reaction::Down),
                     _ => None,
-                })
-            }
+                },
+                _ => None,
+            }),
             _ => None,
         });
 

@@ -94,8 +94,7 @@ pub async fn compile_skill_document(
         embedding_records: Vec::new(),
     };
 
-    if matches!(context.mode, SkillMeshCompileMode::ProviderAssisted) {
-    }
+    if matches!(context.mode, SkillMeshCompileMode::ProviderAssisted) {}
 
     Ok(document)
 }

@@ -8,7 +8,6 @@ use std::collections::{HashMap, HashSet};
 
 use super::model::{ProfileFieldSpec, ProfileFieldValue};
 
-
 /// In-memory state for a single operator profile interview session.
 ///
 /// Tracks which questions have been skipped or deferred so that the planner
@@ -72,7 +71,6 @@ impl InterviewSession {
     }
 }
 
-
 /// Return the next question to present, or `None` when all specs have been
 /// answered or excluded.
 ///
@@ -102,7 +100,6 @@ pub fn next_question<'a>(
     None
 }
 
-
 /// Returns `true` when every required field has been answered.
 ///
 /// Optional fields and skipped/deferred items do **not** block completion.
@@ -115,7 +112,6 @@ pub fn is_complete(
         .filter(|s| s.required)
         .all(|s| answered.contains_key(&s.field_key))
 }
-
 
 /// Returns `(answered_count, remaining_count, completion_ratio)`.
 ///
@@ -150,7 +146,6 @@ pub fn progress(
     (answered_count, remaining_count, ratio)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,7 +167,6 @@ mod tests {
             updated_at: 0,
         }
     }
-
 
     #[test]
     fn first_run_asks_required_field_before_optional() {
@@ -236,7 +230,6 @@ mod tests {
         assert!(next_question(&specs, &answered, &session, 0).is_none());
     }
 
-
     #[test]
     fn skip_excludes_field_from_selection() {
         let specs = vec![make_spec("field_a", true), make_spec("field_b", true)];
@@ -258,7 +251,6 @@ mod tests {
         let next = next_question(&specs, &answered, &session, 0);
         assert_eq!(next.unwrap().field_key, "opt");
     }
-
 
     #[test]
     fn defer_excludes_field_before_expiry() {
@@ -303,7 +295,6 @@ mod tests {
         let next = next_question(&specs, &answered, &session, u64::MAX);
         assert!(next.is_none());
     }
-
 
     #[test]
     fn is_complete_true_when_all_required_answered() {
@@ -354,7 +345,6 @@ mod tests {
         let next = next_question(&specs, &answered, &session, 0);
         assert_eq!(next.unwrap().field_key, "opt");
     }
-
 
     #[test]
     fn progress_returns_correct_counts() {

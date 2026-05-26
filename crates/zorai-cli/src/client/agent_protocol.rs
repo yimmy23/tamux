@@ -119,6 +119,7 @@ pub(super) enum AgentBridgeCommand {
         goal_run_id: String,
         action: String,
         step_index: Option<usize>,
+        payload_json: Option<String>,
     },
     ListWorkspaceSettings,
     GetWorkspaceSettings {

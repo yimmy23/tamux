@@ -10,8 +10,7 @@ pub(crate) async fn dispatch_part8(
     framed: &mut ConnectionWriter,
     background_daemon_queues: &mut BackgroundSubsystemQueues,
     background_daemon_pending: &mut BackgroundPendingCounts,
-) -> Result<bool>
-{
+) -> Result<bool> {
     if !matches!(
         msg,
         ClientMessage::SkillInspect { .. }

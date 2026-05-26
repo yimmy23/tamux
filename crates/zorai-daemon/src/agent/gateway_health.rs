@@ -181,7 +181,6 @@ impl TokenBucket {
 mod tests {
     use super::*;
 
-
     #[test]
     fn new_starts_disconnected_with_zero_failures() {
         let state = PlatformHealthState::new();
@@ -304,7 +303,6 @@ mod tests {
         state.on_success(2000);
         assert!(!state.is_reconnect_transition(old));
     }
-
 
     #[test]
     fn new_starts_with_full_tokens() {

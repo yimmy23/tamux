@@ -69,7 +69,6 @@ where
     ))
 }
 
-
 /// Classify URL source authority for web search/read results (UNCR-03).
 /// Uses URL domain pattern matching -- deterministic, zero-latency.
 pub(crate) fn classify_source_authority(url: &str) -> &'static str {
@@ -145,4 +144,3 @@ pub(crate) fn format_result_with_metadata(
         snippet
     )
 }
-

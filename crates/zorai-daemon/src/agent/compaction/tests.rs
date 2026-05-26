@@ -178,6 +178,7 @@ fn sample_goal_run_for_compaction(thread_id: &str) -> GoalRun {
         runtime_assignment_list: Vec::new(),
         planner_owner_profile: None,
         current_step_owner_profile: None,
+        step_owner_overrides: std::collections::BTreeMap::new(),
         replan_count: 0,
         max_replans: 1,
         plan_summary: Some(
@@ -552,12 +553,17 @@ async fn persisted_compaction_keeps_single_transcript_entry_for_the_compaction_e
         .count();
 
     assert_eq!(
-        compaction_entries, 1,
+        compaction_entries,
+        1,
         "compaction should leave one transcript entry, got messages: {:?}",
         thread
             .messages
             .iter()
-            .map(|message| (&message.role, &message.message_kind, message.content.as_str()))
+            .map(|message| (
+                &message.role,
+                &message.message_kind,
+                message.content.as_str()
+            ))
             .collect::<Vec<_>>()
     );
 }

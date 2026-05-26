@@ -8,7 +8,6 @@
 
 use serde::{Deserialize, Serialize};
 
-
 /// Verbal confidence band mapped from a numeric probability.
 ///
 /// Thresholds per D-09:
@@ -87,7 +86,6 @@ pub fn format_confidence_text(probability: f64, threshold: f64) -> Option<String
     };
     Some(text)
 }
-
 
 /// Result of attempting to generate an explanation from templates.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -208,7 +206,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-
     #[test]
     fn confidence_band_confident() {
         assert_eq!(confidence_band(0.85), ConfidenceBand::Confident);
@@ -244,7 +241,6 @@ mod tests {
         assert_eq!(confidence_band(0.40), ConfidenceBand::Uncertain);
     }
 
-
     #[test]
     fn format_confidence_suppressed_above_threshold() {
         assert_eq!(format_confidence_text(0.85, 0.80), None);
@@ -271,7 +267,6 @@ mod tests {
         assert!(text.contains("30%"), "got: {}", text);
     }
 
-
     #[test]
     fn confidence_band_as_str() {
         assert_eq!(ConfidenceBand::Confident.as_str(), "confident");
@@ -279,7 +274,6 @@ mod tests {
         assert_eq!(ConfidenceBand::Uncertain.as_str(), "uncertain");
         assert_eq!(ConfidenceBand::Guessing.as_str(), "guessing");
     }
-
 
     #[test]
     fn explain_stale_todo() {

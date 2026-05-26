@@ -94,7 +94,7 @@
 
 <section>
   <h2>Containment and compensation</h2>
-  <p>Zorai safety is designed to express honest outcomes such as <code>blocked</code>, <code>contained</code>, <code>compensated</code>, <code>partially_compensated</code>, and <code>break_glass</code>. This is important because autonomy often fails in partial, recoverable, or risky ways that should not be flattened into one generic error state.</p>
+  <p>Zorai safety is designed to express honest outcomes such as <code>blocked</code>, <code>contained</code>, <code>compensated</code>, <code>partially_compensated</code>, and <code>break_glass</code>. <code>blocked</code> is the non-terminal stall state for runs whose advancement is gated by governance — entered via the <code>block</code> control action and exited via <code>resume</code> (the <code>ResumeFromBlocked</code> transition). The other four are terminal outcomes. This is important because autonomy often fails in partial, recoverable, or risky ways that should not be flattened into one generic error state.</p>
 </section>
 
 <section>

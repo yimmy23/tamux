@@ -94,7 +94,6 @@ pub(super) const FILE_WATCH_TICK_MS: u64 = 250;
 const AGENT_HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const AGENT_HTTP_READ_TIMEOUT: Duration = Duration::from_secs(125);
 
-
 #[derive(Debug, Clone)]
 pub struct CritiqueApprovalContinuation {
     pub tool_call: ToolCall,
@@ -257,6 +256,14 @@ pub struct AgentEngine {
     pub(super) goal_step_completion_marker_retries: Mutex<HashMap<String, u32>>,
     /// Per-goal-run cost trackers, keyed by goal_run_id (Phase v3.0: COST-01).
     pub(super) cost_trackers: Mutex<HashMap<String, super::cost::CostTracker>>,
+    /// Per-goal-run `HealthMonitor` instances for the heartbeat-driven
+    /// aggregation layer. Lives on the engine (not reconstructed each tick)
+    /// so the monitor's hysteresis counters can persist across heartbeat
+    /// cycles — a transient error-rate spike across one tick must not flip
+    /// the goal-run state on its own. Entries are evicted when their goal
+    /// run leaves the `Running` status set.
+    pub(super) goal_run_health_monitors:
+        RwLock<HashMap<String, super::liveness::health_monitor::HealthMonitor>>,
 }
 
 impl AgentEngine {
@@ -467,6 +474,7 @@ impl AgentEngine {
             debate_sessions: RwLock::new(HashMap::new()),
             goal_step_completion_marker_retries: Mutex::new(HashMap::new()),
             cost_trackers: Mutex::new(HashMap::new()),
+            goal_run_health_monitors: RwLock::new(HashMap::new()),
         });
         super::skill_preflight::spawn_skill_discovery_result_applier(
             engine.clone(),
@@ -482,7 +490,6 @@ impl AgentEngine {
     ) -> &RwLock<HashMap<String, PromptMemoryInjectionState>> {
         &self.thread_memory_injection_states
     }
-
 
     /// Check the circuit breaker before an LLM call. Returns `Err` if the
     /// breaker is open (provider is unhealthy). Callers must invoke

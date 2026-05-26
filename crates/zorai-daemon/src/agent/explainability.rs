@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use super::engine::AgentEngine;
 use crate::agent::learning::traces::{CausalFactor, DecisionOption};
 
-
 /// Structured response to a "Why did you do that?" query (EXPL-01, EXPL-02).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplanationResponse {
@@ -42,7 +41,6 @@ pub struct AlternativeConsidered {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rejection_reason: Option<String>,
 }
-
 
 impl AgentEngine {
     /// Handle a "Why did you do that?" query for a past action (EXPL-01, EXPL-02).
@@ -203,7 +201,6 @@ impl AgentEngine {
         })
     }
 }
-
 
 #[cfg(test)]
 mod tests {

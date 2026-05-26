@@ -238,12 +238,11 @@ fn command_is_known_quick_shell_command(command: &str) -> bool {
         return false;
     }
 
-    trimmed
-        .split(';')
-        .flat_map(|part| part.split("&&"))
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .all(shell_command_segment_is_known_quick)
+    split_shell_segments_respecting_quotes(trimmed)
+        .into_iter()
+        .map(|segment| segment.trim().to_string())
+        .filter(|segment| !segment.is_empty())
+        .all(|segment| shell_command_segment_is_known_quick(segment.as_str()))
 }
 
 fn shell_command_should_start_in_background(command: &str) -> bool {
@@ -260,12 +259,63 @@ fn shell_command_should_start_in_background(command: &str) -> bool {
         return true;
     }
 
-    trimmed
-        .split(';')
-        .flat_map(|part| part.split("&&"))
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .any(shell_command_segment_should_start_in_background)
+    split_shell_segments_respecting_quotes(trimmed)
+        .into_iter()
+        .map(|segment| segment.trim().to_string())
+        .filter(|segment| !segment.is_empty())
+        .any(|segment| shell_command_segment_should_start_in_background(segment.as_str()))
+}
+
+/// Split a shell command into top-level segments at `;` and `&&`, respecting
+/// single- and double-quote groups. Naive `.split(';')` mis-fires on inline
+/// scripts such as `python3 -c "...; ...; ..."`, where the `;` lives inside
+/// the quoted argument; splitting there fragments the inline code into
+/// pieces where downstream segment classifiers can no longer recognize
+/// long-running constructs (e.g. `time.sleep`) and the command is
+/// mistakenly treated as "quick", running synchronously instead of
+/// auto-backgrounding.
+fn split_shell_segments_respecting_quotes(command: &str) -> Vec<String> {
+    let bytes = command.as_bytes();
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut single_quote = false;
+    let mut double_quote = false;
+    let mut idx = 0;
+    while idx < bytes.len() {
+        let ch = bytes[idx] as char;
+        match ch {
+            '\\' if !single_quote && idx + 1 < bytes.len() => {
+                current.push(ch);
+                current.push(bytes[idx + 1] as char);
+                idx += 2;
+                continue;
+            }
+            '\'' if !double_quote => {
+                single_quote = !single_quote;
+                current.push(ch);
+            }
+            '"' if !single_quote => {
+                double_quote = !double_quote;
+                current.push(ch);
+            }
+            ';' if !single_quote && !double_quote => {
+                segments.push(std::mem::take(&mut current));
+            }
+            '&' if !single_quote
+                && !double_quote
+                && idx + 1 < bytes.len()
+                && bytes[idx + 1] as char == '&' =>
+            {
+                segments.push(std::mem::take(&mut current));
+                idx += 2;
+                continue;
+            }
+            _ => current.push(ch),
+        }
+        idx += 1;
+    }
+    segments.push(current);
+    segments
 }
 
 fn shell_command_segment_should_start_in_background(segment: &str) -> bool {

@@ -195,8 +195,7 @@ fn attach_secondary_constraints(
     // the lane is already thrashing (2+ retries) at moderate-or-higher risk,
     // the next completion of this transition must wait for an explicit
     // operator resume before any further work runs on the lane.
-    if input.retry_or_rebind_history.len() >= MANUAL_RESUME_RETRY_THRESHOLD
-        && dims.max_score() >= 6
+    if input.retry_or_rebind_history.len() >= MANUAL_RESUME_RETRY_THRESHOLD && dims.max_score() >= 6
     {
         constraints.push(
             GovernanceConstraint::manual_resume_required_after_completion(

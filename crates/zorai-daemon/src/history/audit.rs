@@ -62,7 +62,6 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("list_heartbeat_history: {e}"))
     }
 
-
     /// Insert or replace an action audit entry.
     pub async fn insert_action_audit(&self, entry: &AuditEntryRow) -> Result<()> {
         let entry = entry.clone();

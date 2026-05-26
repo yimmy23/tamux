@@ -1,7 +1,5 @@
 use super::super::*;
-use super::super::{
-    execute_gateway_message, execute_tool,
-};
+use super::super::{execute_gateway_message, execute_tool};
 use crate::agent::{
     types::{AgentConfig, AgentEvent, ToolCall, ToolFunction},
     AgentEngine,
@@ -2238,7 +2236,6 @@ async fn send_telegram_message_uses_auto_injected_reply_context_for_chat() {
         .expect("send should succeed");
     assert_eq!(result, "Telegram message sent to 777");
 }
-
 
 use super::{classify_freshness, classify_source_authority, format_result_with_authority};
 
@@ -6962,6 +6959,7 @@ async fn update_todo_for_goal_owned_main_task_requires_explicit_goal_binding() {
             runtime_assignment_list: Vec::new(),
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: 0,
             plan_summary: None,
@@ -7135,6 +7133,7 @@ async fn update_todo_for_goal_owned_main_task_pins_items_to_bound_goal_step() {
             runtime_assignment_list: Vec::new(),
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: 0,
             plan_summary: None,
@@ -7323,6 +7322,7 @@ async fn update_todo_for_goal_owned_main_task_allows_only_status_changes_within_
             runtime_assignment_list: Vec::new(),
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: 0,
             plan_summary: None,
@@ -7599,6 +7599,7 @@ async fn update_todo_for_goal_owned_main_task_rejects_updates_after_goal_step_cl
             runtime_assignment_list: Vec::new(),
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: 0,
             plan_summary: None,
@@ -7907,6 +7908,7 @@ async fn submit_goal_step_verdict_records_structured_verdict_for_current_goal_ve
             runtime_assignment_list: Vec::new(),
             planner_owner_profile: None,
             current_step_owner_profile: None,
+            step_owner_overrides: std::collections::BTreeMap::new(),
             replan_count: 0,
             max_replans: 0,
             plan_summary: None,

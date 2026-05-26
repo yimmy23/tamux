@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[test]
 fn save_creates_valid_checkpoint_with_all_layers() {
     let gr = sample_goal_run();
@@ -70,7 +69,6 @@ fn save_assigns_unique_id() {
     assert!(cp2.id.starts_with("cp_"));
 }
 
-
 #[test]
 fn load_roundtrip_save_serialize_load() {
     let gr = sample_goal_run();
@@ -125,7 +123,6 @@ fn load_rejects_wrong_schema_version() {
     assert!(err_msg.contains("unsupported checkpoint schema version 999"));
 }
 
-
 #[test]
 fn list_returns_sorted_summaries() {
     let gr = sample_goal_run();
@@ -177,7 +174,6 @@ fn list_returns_sorted_summaries() {
     assert_eq!(summaries[1].created_at, 2000);
     assert_eq!(summaries[2].created_at, 1000);
 }
-
 
 #[test]
 fn prune_keeps_n_most_recent() {
@@ -234,4 +230,3 @@ fn prune_with_n_greater_than_len_does_nothing() {
     checkpoint_prune(&mut cps, 10);
     assert_eq!(cps.len(), 3);
 }
-

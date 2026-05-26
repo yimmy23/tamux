@@ -282,6 +282,7 @@ fn reset_goal_run_for_replanning(goal_run: &mut GoalRun) {
     goal_run.current_step_title = None;
     goal_run.current_step_kind = None;
     goal_run.current_step_owner_profile = None;
+    goal_run.step_owner_overrides.clear();
     goal_run.awaiting_approval_id = None;
     goal_run.active_task_id = None;
 }
@@ -495,6 +496,7 @@ pub(super) fn goal_run_status_message(goal_run: &GoalRun) -> &'static str {
         GoalRunStatus::Running => "Goal running",
         GoalRunStatus::AwaitingApproval => "Goal awaiting approval",
         GoalRunStatus::Paused => "Goal paused",
+        GoalRunStatus::Blocked => "Goal blocked by governance gate",
         GoalRunStatus::Completed => "Goal completed",
         GoalRunStatus::Failed => "Goal failed",
         GoalRunStatus::Cancelled => "Goal cancelled",

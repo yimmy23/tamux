@@ -30,11 +30,7 @@ pub(crate) struct GoalWorkspacePlanRow {
 /// goal_run_id, and the GoalWorkspaceState bits that change row content
 /// (prompt_expanded + expanded_step_ids). Theme is a pure styling input
 /// — same theme during a session — and excluded from the key for now.
-fn build_rows_cache_key(
-    tasks: &TaskState,
-    goal_run_id: &str,
-    state: &GoalWorkspaceState,
-) -> u64 {
+fn build_rows_cache_key(tasks: &TaskState, goal_run_id: &str, state: &GoalWorkspaceState) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     tasks.tasks_revision().hash(&mut hasher);

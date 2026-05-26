@@ -221,9 +221,16 @@ pub(crate) fn convert_goal_run(r: crate::wire::GoalRun) -> task::GoalRun {
             crate::wire::GoalRunStatus::Running => task::GoalRunStatus::Running,
             crate::wire::GoalRunStatus::AwaitingApproval => task::GoalRunStatus::AwaitingApproval,
             crate::wire::GoalRunStatus::Paused => task::GoalRunStatus::Paused,
+            crate::wire::GoalRunStatus::Blocked => task::GoalRunStatus::Blocked,
             crate::wire::GoalRunStatus::Completed => task::GoalRunStatus::Completed,
             crate::wire::GoalRunStatus::Failed => task::GoalRunStatus::Failed,
             crate::wire::GoalRunStatus::Cancelled => task::GoalRunStatus::Cancelled,
+            crate::wire::GoalRunStatus::Contained => task::GoalRunStatus::Contained,
+            crate::wire::GoalRunStatus::Compensated => task::GoalRunStatus::Compensated,
+            crate::wire::GoalRunStatus::PartiallyCompensated => {
+                task::GoalRunStatus::PartiallyCompensated
+            }
+            crate::wire::GoalRunStatus::BreakGlass => task::GoalRunStatus::BreakGlass,
         }),
         launch_assignment_snapshot: r
             .launch_assignment_snapshot

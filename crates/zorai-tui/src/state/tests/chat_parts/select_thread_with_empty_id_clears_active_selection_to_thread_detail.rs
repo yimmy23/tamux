@@ -28,9 +28,9 @@ fn tool_call_tracks_running_tool() {
         name: "bash_command".into(),
         args: "ls".into(),
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     assert_eq!(state.active_tool_calls().len(), 1);
     assert_eq!(state.active_tool_calls()[0].status, ToolCallStatus::Running);
 }
@@ -48,9 +48,9 @@ fn tool_result_updates_status() {
         name: "bash_command".into(),
         args: "ls".into(),
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     state.reduce(ChatAction::ToolResult {
         thread_id: "t1".into(),
         call_id: "c1".into(),
@@ -58,9 +58,9 @@ fn tool_result_updates_status() {
         content: "file.txt".into(),
         is_error: false,
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     assert_eq!(state.active_tool_calls()[0].status, ToolCallStatus::Done);
 }
 
@@ -82,9 +82,9 @@ fn reasoning_and_tool_calls_preserve_transcript_continuity() {
         name: "tool_one".into(),
         args: "{}".into(),
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     state.reduce(ChatAction::ToolResult {
         thread_id: "t1".into(),
         call_id: "call-1".into(),
@@ -92,9 +92,9 @@ fn reasoning_and_tool_calls_preserve_transcript_continuity() {
         content: "done".into(),
         is_error: false,
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     state.reduce(ChatAction::Reasoning {
         thread_id: "t1".into(),
         content: "Second reasoning".into(),
@@ -105,9 +105,9 @@ fn reasoning_and_tool_calls_preserve_transcript_continuity() {
         name: "tool_two".into(),
         args: "{}".into(),
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     state.reduce(ChatAction::ToolResult {
         thread_id: "t1".into(),
         call_id: "call-2".into(),
@@ -115,18 +115,18 @@ fn reasoning_and_tool_calls_preserve_transcript_continuity() {
         content: "done".into(),
         is_error: false,
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     state.reduce(ChatAction::ToolCall {
         thread_id: "t1".into(),
         call_id: "call-3".into(),
         name: "tool_three".into(),
         args: "{}".into(),
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     state.reduce(ChatAction::ToolResult {
         thread_id: "t1".into(),
         call_id: "call-3".into(),
@@ -134,9 +134,9 @@ fn reasoning_and_tool_calls_preserve_transcript_continuity() {
         content: "done".into(),
         is_error: false,
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     state.reduce(ChatAction::Reasoning {
         thread_id: "t1".into(),
         content: "Final reasoning".into(),
@@ -156,9 +156,9 @@ fn reasoning_and_tool_calls_preserve_transcript_continuity() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: Some("result_json".to_string()),
-    
+
         message_id: None,
-});
+    });
 
     let thread = state.active_thread().expect("thread should exist");
     let transcript: Vec<(MessageRole, Option<&str>, &str)> = thread
@@ -214,9 +214,9 @@ fn tool_messages_store_weles_review_metadata() {
         name: "bash_command".into(),
         args: "ls".into(),
         weles_review: Some(review.clone()),
-    
+
         message_id: None,
-});
+    });
     state.reduce(ChatAction::ToolResult {
         thread_id: "t1".into(),
         call_id: "c1".into(),
@@ -224,9 +224,9 @@ fn tool_messages_store_weles_review_metadata() {
         content: "file.txt".into(),
         is_error: false,
         weles_review: Some(review.clone()),
-    
+
         message_id: None,
-});
+    });
 
     let thread = state.active_thread().expect("thread should exist");
     let tool_message = thread
@@ -268,9 +268,9 @@ fn turn_done_uses_final_reasoning_when_no_reasoning_delta_was_streamed() {
         generation_ms: Some(1200),
         reasoning: Some("Final reasoning summary".into()),
         provider_final_result_json: Some("result_json".to_string()),
-    
+
         message_id: None,
-});
+    });
 
     let thread = state.active_thread().unwrap();
     let last = thread.messages.last().unwrap();
@@ -294,9 +294,9 @@ fn turn_done_does_not_append_reasoning_only_duplicate_of_flushed_content() {
         name: "bash_command".into(),
         args: "{}".into(),
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
     state.reduce(ChatAction::ToolResult {
         thread_id: "t1".into(),
         call_id: "call-1".into(),
@@ -304,9 +304,9 @@ fn turn_done_does_not_append_reasoning_only_duplicate_of_flushed_content() {
         content: "done".into(),
         is_error: false,
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
 
     state.reduce(ChatAction::TurnDone {
         thread_id: "t1".into(),
@@ -319,9 +319,9 @@ fn turn_done_does_not_append_reasoning_only_duplicate_of_flushed_content() {
         generation_ms: None,
         reasoning: Some("Perfect. That confirms it is truly online now.".into()),
         provider_final_result_json: Some("result_json".to_string()),
-    
+
         message_id: None,
-});
+    });
 
     let thread = state.active_thread().unwrap();
     let duplicate_count = thread
@@ -440,9 +440,9 @@ fn inactive_thread_streaming_does_not_pollute_selected_thread_view() {
         name: "bash_command".into(),
         args: "ls".into(),
         weles_review: None,
-    
+
         message_id: None,
-});
+    });
 
     assert_eq!(state.active_thread_id(), Some("t2"));
     assert_eq!(state.streaming_content(), "");
@@ -486,9 +486,9 @@ fn inactive_thread_done_finalizes_background_stream_on_origin_thread() {
         generation_ms: None,
         reasoning: None,
         provider_final_result_json: Some("result_json".to_string()),
-    
+
         message_id: None,
-});
+    });
 
     assert_eq!(state.active_thread_id(), Some("t2"));
     assert_eq!(state.streaming_content(), "");

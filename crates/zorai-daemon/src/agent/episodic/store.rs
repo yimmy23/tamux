@@ -245,10 +245,8 @@ impl AgentEngine {
         };
 
         let mut entities = Vec::new();
-        let file_re =
-            regex::Regex::new(r"(?:^|\s)((?:[\w.\-]+/)*[\w.\-]+\.\w+)").unwrap_or_else(|_| {
-                regex::Regex::new(r"\S+\.\w+").unwrap()
-            });
+        let file_re = regex::Regex::new(r"(?:^|\s)((?:[\w.\-]+/)*[\w.\-]+\.\w+)")
+            .unwrap_or_else(|_| regex::Regex::new(r"\S+\.\w+").unwrap());
         for step in &goal_run.steps {
             entities.push(format!("step:{}", step.title));
             for cap in file_re.captures_iter(&step.instructions) {

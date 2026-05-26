@@ -1,4 +1,3 @@
-
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Mutex;
@@ -10,10 +9,8 @@ use zorai_protocol::ClientMessage;
 
 use crate::wire::{
     AgentConfigSnapshot, AgentTask, AgentThread, AnticipatoryItem, CheckpointSummary, FetchedModel,
-    GoalRun, HeartbeatItem, ThreadParticipantSuggestion,
-    ThreadWorkContext,
+    GoalRun, HeartbeatItem, ThreadParticipantSuggestion, ThreadWorkContext,
 };
-
 
 #[derive(Debug, Clone)]
 pub struct WelesReviewMetaVm {

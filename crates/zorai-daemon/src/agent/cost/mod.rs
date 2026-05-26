@@ -16,7 +16,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-
 /// Operator-configurable cost tracking settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CostConfig {
@@ -45,7 +44,6 @@ impl Default for CostConfig {
     }
 }
 
-
 /// Accumulated cost snapshot for a goal run.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CostSummary {
@@ -56,7 +54,6 @@ pub struct CostSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimated_cost_usd: Option<f64>,
 }
-
 
 /// Tracks per-goal-run token usage and estimated cost.
 ///

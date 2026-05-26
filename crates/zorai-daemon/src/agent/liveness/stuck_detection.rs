@@ -7,7 +7,6 @@
 
 use crate::agent::types::{InterventionAction, StuckReason};
 
-
 /// A point-in-time view of an entity's runtime metrics, used by the
 /// [`StuckDetector`] to decide whether the entity is stuck.
 #[derive(Debug, Clone)]
@@ -34,7 +33,6 @@ pub struct DetectionSnapshot {
     pub context_utilization_pct: u32,
 }
 
-
 /// Describes a detected stuck condition with confidence and suggested action.
 #[derive(Debug, Clone)]
 pub struct StuckAnalysis {
@@ -51,7 +49,6 @@ pub struct StuckAnalysis {
     /// Human-readable evidence explaining the diagnosis.
     pub evidence: String,
 }
-
 
 /// A stuck detector with configurable thresholds.
 ///
@@ -120,7 +117,6 @@ impl StuckDetector {
     }
 }
 
-
 /// Check whether the recent tool names contain a repeating cycle (period 1 or 2)
 /// of at least `min_length` entries.
 ///
@@ -184,7 +180,6 @@ pub fn detect_tool_call_loop_evidence(recent: &[String], min_length: usize) -> O
 
     None
 }
-
 
 /// Detect whether the entity has exceeded its `max_duration_secs` deadline.
 fn detect_timeout(snapshot: &DetectionSnapshot, now: u64) -> Option<(f64, String)> {
@@ -300,7 +295,6 @@ fn detect_resource_exhaustion(
     }
 }
 
-
 /// Choose an intervention action based on the stuck reason and confidence.
 fn suggest_intervention(reason: StuckReason, confidence: f64) -> InterventionAction {
     match reason {
@@ -329,7 +323,6 @@ fn suggest_intervention(reason: StuckReason, confidence: f64) -> InterventionAct
         }
     }
 }
-
 
 #[cfg(test)]
 #[path = "tests/stuck_detection.rs"]

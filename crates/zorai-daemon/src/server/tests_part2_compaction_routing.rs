@@ -52,8 +52,7 @@ fn lag_recovery_synthesizes_thread_reload_required_for_each_subscribed_thread() 
 
 #[test]
 fn lag_recovery_with_no_subscribed_threads_returns_no_events() {
-    let subscribed: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let subscribed: std::collections::HashSet<String> = std::collections::HashSet::new();
     let events = super::super::lag_recovery_thread_reload_events(&subscribed);
     assert!(
         events.is_empty(),

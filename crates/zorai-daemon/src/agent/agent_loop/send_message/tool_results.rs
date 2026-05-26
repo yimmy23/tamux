@@ -570,6 +570,9 @@ impl<'a> SendMessageRunner<'a> {
         }
 
         if let Some(pending_approval) = result.pending_approval.as_ref() {
+            self.engine
+                .remember_pending_approval_command(pending_approval)
+                .await;
             let _ = self
                 .engine
                 .record_operator_approval_requested(pending_approval)
@@ -606,6 +609,15 @@ impl<'a> SendMessageRunner<'a> {
                     .mark_task_awaiting_approval(task_id, &self.tid, pending_approval)
                     .await;
             }
+            let _ = self.engine.event_tx.send(AgentEvent::ApprovalRequired {
+                thread_id: self.tid.clone(),
+                approval_id: pending_approval.approval_id.clone(),
+                command: pending_approval.command.clone(),
+                rationale: Some(pending_approval.rationale.clone()),
+                reasons: pending_approval.reasons.clone(),
+                risk_level: pending_approval.risk_level.clone(),
+                blast_radius: pending_approval.blast_radius.clone(),
+            });
             return Ok(ToolCallDisposition::BreakLoop);
         }
 

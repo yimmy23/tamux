@@ -2,9 +2,7 @@ use super::build_rendered_lines_to_build_visible_window_from_snapshot_to_apply::
 use super::render_streaming_markdown_to_message_block_style_to_message_action::*;
 use super::resolved_scroll_to_highlight_line_range_to_selected_text_to_selection::*;
 use super::*;
-use crate::state::chat::{
-    ChatHitTarget, ChatState, MessageRole, RetryPhase,
-};
+use crate::state::chat::{ChatHitTarget, ChatState, MessageRole, RetryPhase};
 use crate::theme::ThemeTokens;
 use unicode_width::UnicodeWidthStr;
 pub(crate) fn selection_point_from_snapshot(

@@ -262,7 +262,10 @@ fn slash_compact_without_active_thread_warns_to_start_or_load_thread_first() {
         "no daemon request should be sent when no thread is open"
     );
     assert_eq!(
-        model.input_notice.as_ref().map(|notice| notice.text.as_str()),
+        model
+            .input_notice
+            .as_ref()
+            .map(|notice| notice.text.as_str()),
         Some("Start or load thread first"),
         "no-thread case must show the explicit guard text as an input notice"
     );

@@ -301,11 +301,13 @@ pub(super) async fn tool_control_goal_run(args: &Value) -> Result<Value> {
         .get("step_index")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
+    let payload_json = args.get("payload").map(|value| value.to_string());
 
     let resp = daemon_roundtrip(ClientMessage::AgentControlGoalRun {
         goal_run_id: goal_run_id.clone(),
         action: action.clone(),
         step_index,
+        payload_json,
     })
     .await?;
 

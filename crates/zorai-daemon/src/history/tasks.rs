@@ -242,8 +242,7 @@ fn append_agent_task_query_filters(
             .join(", ");
         task_sql.push_str(&format!(" AND parent_task_id IN ({placeholders})"));
         for parent_task_id in parent_task_ids {
-            task_values
-                .push(rusqlite::types::Value::Text(parent_task_id.to_string()));
+            task_values.push(rusqlite::types::Value::Text(parent_task_id.to_string()));
         }
     }
     if let Some(approval_id) = query

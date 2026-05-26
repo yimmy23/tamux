@@ -106,7 +106,6 @@ mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-
     #[test]
     fn blocks_loopback() {
         assert!(is_blocked_ip(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
@@ -142,7 +141,6 @@ mod tests {
         assert!(!is_blocked_ip(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
     }
 
-
     #[test]
     fn blocks_ipv6_loopback() {
         assert!(is_blocked_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)));
@@ -165,7 +163,6 @@ mod tests {
         let v6: Ipv6Addr = "2001:4860:4860::8888".parse().unwrap();
         assert!(!is_blocked_ip(IpAddr::V6(v6)));
     }
-
 
     #[tokio::test]
     async fn allow_local_bypasses_ssrf_check() {

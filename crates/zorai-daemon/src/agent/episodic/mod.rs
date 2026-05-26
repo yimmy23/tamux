@@ -11,7 +11,6 @@ pub mod store;
 
 use serde::{Deserialize, Serialize};
 
-
 /// A structured record of something that happened during agent operation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Episode {
@@ -93,7 +92,6 @@ pub struct CausalStep {
     pub effect: String,
 }
 
-
 /// A directed relationship between two episodes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EpisodeLink {
@@ -116,7 +114,6 @@ pub enum LinkType {
     Supersedes,
     CausedBy,
 }
-
 
 /// A constraint representing something the agent has ruled out.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,7 +172,6 @@ fn default_direct_observation() -> bool {
     true
 }
 
-
 /// Persistent internal self-model: "what am I doing, what has changed, what has been tried."
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CounterWhoState {
@@ -213,7 +209,6 @@ pub struct CorrectionPattern {
     pub correction_count: u32,
     pub last_correction_at: u64,
 }
-
 
 /// In-memory state for the episodic memory subsystem.
 #[derive(Debug, Clone, Default)]
