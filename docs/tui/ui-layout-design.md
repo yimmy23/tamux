@@ -1,10 +1,10 @@
-# cmux-next TUI UI Layout Design
+# zorai TUI UI Layout Design
 
 **Version:** 0.1.0  
 **Date:** 2025-01-XX  
 **Status:** Design Draft
 
-This document defines the visual layout, interaction patterns, and component hierarchy for the cmux-next Rust TUI.
+This document defines the visual layout, interaction patterns, and component hierarchy for the zorai Rust TUI.
 
 ---
 
@@ -95,7 +95,7 @@ This document defines the visual layout, interaction patterns, and component hie
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│ ● session:abc123 ~ ~/projects/cmux-next                       [x] [split]│
+│ ● session:abc123 ~ ~/projects/zorai                       [x] [split]│
 ├─────────────────────────────────────────────────────────────────────────┤
 │ $ cargo build --release                                                  │
 │    Compiling zorai-daemon v0.1.10                                         │

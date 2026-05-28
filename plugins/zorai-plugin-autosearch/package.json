@@ -7,7 +7,7 @@
   "keywords": ["zorai", "plugin", "autoresearch", "autosearch", "research"],
   "repository": {
     "type": "git",
-    "url": "https://gitlab.com/anthropic/cmux-next"
+    "url": "https://github.com/mkurman/zorai"
   },
   "files": [
     "autosearch/",

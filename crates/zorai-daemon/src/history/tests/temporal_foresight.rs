@@ -89,7 +89,7 @@ async fn temporal_foresight_round_trips_patterns_predictions_precomputations_and
             pattern_type: "task_sequence".to_string(),
             timescale: "minutes".to_string(),
             pattern_description: "After editing Rust, cargo check follows".to_string(),
-            context_filter: Some("project=cmux-next".to_string()),
+            context_filter: Some("project=zorai".to_string()),
             frequency: 4,
             last_observed_ms: 160,
             first_observed_ms: 100,

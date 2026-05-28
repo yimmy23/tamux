@@ -506,14 +506,14 @@ mod tests {
             response_template: None,
         };
         let ctx = build_context(
-            serde_json::json!({"owner": "anthropic", "repo": "cmux-next"}),
+            serde_json::json!({"owner": "mkurman", "repo": "zorai"}),
             vec![("token".to_string(), "ghp_test_token".to_string(), true)],
             None,
         );
 
         let req = render_request(&reg, &api, &endpoint, &ctx).await.unwrap();
         assert_eq!(req.method, "GET");
-        assert_eq!(req.url, "https://api.github.com/repos/anthropic/cmux-next");
+        assert_eq!(req.url, "https://api.github.com/repos/anthropic/zorai");
         assert!(req
             .headers
             .iter()
@@ -559,7 +559,7 @@ mod tests {
             response_template: None,
         };
         let ctx = build_context(
-            serde_json::json!({"owner": "anthropic", "repo": "cmux-next"}),
+            serde_json::json!({"owner": "mkurman", "repo": "zorai"}),
             vec![("token".to_string(), "ghp_test_token".to_string(), true)],
             None,
         );
@@ -568,7 +568,7 @@ mod tests {
         assert_eq!(req.method, "GET");
         assert_eq!(
             req.url,
-            "https://api.github.com/repos/anthropic/cmux-next/issues?state=open&per_page=20"
+            "https://api.github.com/repos/anthropic/zorai/issues?state=open&per_page=20"
         );
         assert!(req
             .headers
@@ -608,8 +608,8 @@ mod tests {
         };
         let ctx = build_context(
             serde_json::json!({
-                "owner": "anthropic",
-                "repo": "cmux-next",
+                "owner": "mkurman",
+                "repo": "zorai",
                 "state": "closed",
                 "per_page": "50"
             }),
@@ -621,7 +621,7 @@ mod tests {
         assert_eq!(req.method, "GET");
         assert_eq!(
             req.url,
-            "https://api.github.com/repos/anthropic/cmux-next/pulls?state=closed&per_page=50"
+            "https://api.github.com/repos/anthropic/zorai/pulls?state=closed&per_page=50"
         );
         assert!(req
             .headers

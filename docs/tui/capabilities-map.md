@@ -1,16 +1,16 @@
-# cmux-next TUI Capabilities Map
+# zorai TUI Capabilities Map
 
 **Version:** 0.1.0  
 **Date:** 2025-01-XX  
 **Status:** Design Draft
 
-This document maps all capabilities that need to be exposed in the Rust TUI for cmux-next, based on comprehensive codebase analysis.
+This document maps all capabilities that need to be exposed in the Rust TUI for zorai, based on comprehensive codebase analysis.
 
 ---
 
 ## Executive Summary
 
-The cmux-next TUI will expose the following major capability domains:
+The zorai TUI will expose the following major capability domains:
 
 | Domain | Priority | Complexity | Description |
 |--------|----------|------------|-------------|

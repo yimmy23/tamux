@@ -23,7 +23,7 @@ fn parse_watcher_status_detects_running_mode_and_rejects_not_running() {
 #[test]
 fn parse_session_list_json_reads_real_cli_fields() {
     let list = parse_session_list_json(SAMPLE_JSON).expect("json should parse");
-    assert_eq!(list.sessions[0].project_name, "cmux-next");
+    assert_eq!(list.sessions[0].project_name, "zorai");
     assert!(list.sessions[0].session_id.starts_with("rollout-"));
 }
 
@@ -35,7 +35,7 @@ fn parse_session_list_json_accepts_full_current_cli_payload_fields() {
     assert_eq!(list.sessions[0].source, "codex");
     assert_eq!(
         list.sessions[0].project_path.as_deref(),
-        Some("/home/mkurman/gitlab/it/cmux-next")
+        Some("/home/mkurman/gitlab/it/zorai")
     );
     assert_eq!(list.sessions[0].created_at, "2026-04-07T09:00:00.000000");
     assert!(list.sessions[0].session_file.ends_with(".jsonl"));
@@ -65,8 +65,8 @@ fn candidate_selection_keeps_recent_new_exact_project_matches_only() {
         session(
             "new",
             "codex",
-            "cmux-next",
-            Some("/home/mkurman/gitlab/it/cmux-next"),
+            "zorai",
+            Some("/home/mkurman/gitlab/it/zorai"),
             "recent-a",
             "2026-04-07T11:00:00Z",
             "2026-04-07T11:59:00Z",
@@ -74,8 +74,8 @@ fn candidate_selection_keeps_recent_new_exact_project_matches_only() {
         session(
             "new",
             "codex",
-            "cmux-next",
-            Some("/home/mkurman/gitlab/it/cmux-next"),
+            "zorai",
+            Some("/home/mkurman/gitlab/it/zorai"),
             "recent-b",
             "2026-04-07T10:30:00Z",
             "2026-04-07T11:30:00Z",
@@ -83,8 +83,8 @@ fn candidate_selection_keeps_recent_new_exact_project_matches_only() {
         session(
             "new",
             "codex",
-            "cmux-next",
-            Some("/home/mkurman/gitlab/it/cmux-next"),
+            "zorai",
+            Some("/home/mkurman/gitlab/it/zorai"),
             "recent-c",
             "2026-04-07T09:30:00Z",
             "2026-04-07T10:30:00Z",
@@ -92,8 +92,8 @@ fn candidate_selection_keeps_recent_new_exact_project_matches_only() {
         session(
             "tracked",
             "codex",
-            "cmux-next",
-            Some("/home/mkurman/gitlab/it/cmux-next"),
+            "zorai",
+            Some("/home/mkurman/gitlab/it/zorai"),
             "tracked-a",
             "2026-04-07T11:10:00Z",
             "2026-04-07T11:50:00Z",
@@ -101,8 +101,8 @@ fn candidate_selection_keeps_recent_new_exact_project_matches_only() {
         session(
             "new",
             "codex",
-            "cmux-next-extra",
-            Some("/home/mkurman/gitlab/it/cmux-next-extra"),
+            "zorai-extra",
+            Some("/home/mkurman/gitlab/it/zorai-extra"),
             "wrong-project",
             "2026-04-07T10:40:00Z",
             "2026-04-07T11:40:00Z",
@@ -110,8 +110,8 @@ fn candidate_selection_keeps_recent_new_exact_project_matches_only() {
         session(
             "new",
             "codex",
-            "CMUX-NEXT",
-            Some("/home/mkurman/gitlab/it/CMUX-NEXT"),
+            "zorai",
+            Some("/home/mkurman/gitlab/it/zorai"),
             "wrong-case",
             "2026-04-07T10:20:00Z",
             "2026-04-07T11:20:00Z",
@@ -119,8 +119,8 @@ fn candidate_selection_keeps_recent_new_exact_project_matches_only() {
         session(
             "new",
             "codex",
-            "cmux-next",
-            Some("/home/mkurman/gitlab/it/cmux-next"),
+            "zorai",
+            Some("/home/mkurman/gitlab/it/zorai"),
             "too-old",
             "2026-04-02T11:59:59Z",
             "2026-04-03T11:59:59Z",
@@ -128,7 +128,7 @@ fn candidate_selection_keeps_recent_new_exact_project_matches_only() {
     ];
 
     let selected = select_import_candidates(
-        Path::new("/home/mkurman/gitlab/it/cmux-next"),
+        Path::new("/home/mkurman/gitlab/it/zorai"),
         &sessions,
         now,
         StartupSelectionPolicy::default(),
@@ -136,7 +136,7 @@ fn candidate_selection_keeps_recent_new_exact_project_matches_only() {
 
     assert_eq!(selected.len(), 3);
     assert!(selected.iter().all(|item| item.status == "new"));
-    assert!(selected.iter().all(|item| item.project_name == "cmux-next"));
+    assert!(selected.iter().all(|item| item.project_name == "zorai"));
 }
 
 #[test]
@@ -144,8 +144,8 @@ fn candidate_selection_prefers_project_path_when_present() {
     let temp = TempDir::new().expect("tempdir");
     let repo_a_parent = temp.path().join("a");
     let repo_b_parent = temp.path().join("b");
-    let repo_a = repo_a_parent.join("cmux-next");
-    let repo_b = repo_b_parent.join("cmux-next");
+    let repo_a = repo_a_parent.join("zorai");
+    let repo_b = repo_b_parent.join("zorai");
     std::fs::create_dir_all(&repo_a).expect("create repo_a");
     std::fs::create_dir_all(&repo_b).expect("create repo_b");
     for repo in [&repo_a, &repo_b] {
@@ -171,7 +171,7 @@ fn candidate_selection_prefers_project_path_when_present() {
         session(
             "new",
             "codex",
-            "cmux-next",
+            "zorai",
             Some(repo_b.to_str().expect("utf-8 path")),
             "path-mismatch",
             "2026-04-07T10:00:00.000000",
@@ -194,14 +194,14 @@ fn candidate_selection_prefers_project_path_when_present() {
 #[test]
 fn repo_root_basename_extracts_expected_repo_name() {
     assert_eq!(
-        repo_root_basename(Path::new("/home/mkurman/gitlab/it/cmux-next")),
-        Some("cmux-next")
+        repo_root_basename(Path::new("/home/mkurman/gitlab/it/zorai")),
+        Some("zorai")
     );
     assert_eq!(
         repo_root_basename(Path::new(
-            "/home/mkurman/gitlab/it/cmux-next/.worktrees/aline-startup-reconciliation"
+            "/home/mkurman/gitlab/it/zorai/.worktrees/aline-startup-reconciliation"
         )),
-        Some("cmux-next")
+        Some("zorai")
     );
 }
 
@@ -210,7 +210,7 @@ fn repo_root_basename_must_match_project_name_exactly() {
     let matching = session(
         "new",
         "codex",
-        "cmux-next",
+        "zorai",
         None,
         "recent-a",
         "2026-04-07T11:00:00Z",
@@ -219,7 +219,7 @@ fn repo_root_basename_must_match_project_name_exactly() {
     let mismatched = session(
         "new",
         "codex",
-        "CMUX-NEXT",
+        "zorai",
         None,
         "recent-b",
         "2026-04-07T10:30:00Z",
@@ -227,11 +227,11 @@ fn repo_root_basename_must_match_project_name_exactly() {
     );
 
     assert!(repo_root_matches_project_name(
-        Path::new("/home/mkurman/gitlab/it/cmux-next"),
+        Path::new("/home/mkurman/gitlab/it/zorai"),
         &matching.project_name,
     ));
     assert!(!repo_root_matches_project_name(
-        Path::new("/home/mkurman/gitlab/it/cmux-next"),
+        Path::new("/home/mkurman/gitlab/it/zorai"),
         &mismatched.project_name,
     ));
 }
@@ -241,15 +241,15 @@ fn session_matches_repo_accepts_same_repo_worktree_paths() {
     let session = session(
         "new",
         "codex",
-        "cmux-next",
-        Some("/home/mkurman/gitlab/it/cmux-next"),
+        "zorai",
+        Some("/home/mkurman/gitlab/it/zorai"),
         "recent-a",
         "2026-04-07T11:00:00Z",
         "2026-04-07T11:59:00Z",
     );
 
     assert!(session_matches_repo(
-        Path::new("/home/mkurman/gitlab/it/cmux-next/.worktrees/aline-startup-reconciliation"),
+        Path::new("/home/mkurman/gitlab/it/zorai/.worktrees/aline-startup-reconciliation"),
         &session,
     ));
 }
@@ -259,15 +259,15 @@ fn session_matches_repo_falls_back_for_unresolvable_project_path() {
     let session = session(
         "new",
         "codex",
-        "cmux-next",
-        Some("/tmp/missing-parent/cmux-next"),
+        "zorai",
+        Some("/tmp/missing-parent/zorai"),
         "recent-a",
         "2026-04-07T11:00:00Z",
         "2026-04-07T11:59:00Z",
     );
 
     assert!(session_matches_repo(
-        Path::new("/home/mkurman/gitlab/it/cmux-next"),
+        Path::new("/home/mkurman/gitlab/it/zorai"),
         &session,
     ));
 }
@@ -277,7 +277,7 @@ fn session_matches_repo_falls_back_when_project_path_is_missing() {
     let session = session(
         "new",
         "codex",
-        "cmux-next",
+        "zorai",
         None,
         "recent-a",
         "2026-04-07T11:00:00Z",
@@ -285,7 +285,7 @@ fn session_matches_repo_falls_back_when_project_path_is_missing() {
     );
 
     assert!(session_matches_repo(
-        Path::new("/home/mkurman/gitlab/it/cmux-next"),
+        Path::new("/home/mkurman/gitlab/it/zorai"),
         &session,
     ));
 }
@@ -295,8 +295,8 @@ fn session_matches_repo_rejects_proven_different_repo_with_same_basename() {
     let temp = TempDir::new().expect("tempdir");
     let repo_a_parent = temp.path().join("a");
     let repo_b_parent = temp.path().join("b");
-    let repo_a = repo_a_parent.join("cmux-next");
-    let repo_b = repo_b_parent.join("cmux-next");
+    let repo_a = repo_a_parent.join("zorai");
+    let repo_b = repo_b_parent.join("zorai");
     std::fs::create_dir_all(&repo_a).expect("create repo_a");
     std::fs::create_dir_all(&repo_b).expect("create repo_b");
     for repo in [&repo_a, &repo_b] {
@@ -311,7 +311,7 @@ fn session_matches_repo_rejects_proven_different_repo_with_same_basename() {
     let session = session(
         "new",
         "codex",
-        "cmux-next",
+        "zorai",
         Some(repo_b.to_str().expect("utf-8 path")),
         "recent-a",
         "2026-04-07T11:00:00.000000",
@@ -333,7 +333,7 @@ fn parse_session_list_json_rejects_missing_project_name_or_session_id() {
           "session_id": "rollout-2026-04-07-003",
           "created_at": "2026-04-07T09:00:00Z",
           "last_activity": "2026-04-07T11:45:00Z",
-          "session_file": "/tmp/aline/cmux-next/session-3.json"
+          "session_file": "/tmp/aline/zorai/session-3.json"
         }
       ]
     }
@@ -344,11 +344,11 @@ fn parse_session_list_json_rejects_missing_project_name_or_session_id() {
         {
           "status": "new",
           "source": "codex",
-          "project_name": "cmux-next",
+          "project_name": "zorai",
           "session_id": "",
           "created_at": "2026-04-07T09:00:00Z",
           "last_activity": "2026-04-07T11:45:00Z",
-          "session_file": "/tmp/aline/cmux-next/session-4.json"
+          "session_file": "/tmp/aline/zorai/session-4.json"
         }
       ]
     }
@@ -371,7 +371,7 @@ fn parse_session_list_json_rejects_missing_session_file() {
         {
           "status": "new",
           "source": "codex",
-          "project_name": "cmux-next",
+          "project_name": "zorai",
           "session_id": "rollout-2026-04-07-005",
           "created_at": "2026-04-07T09:00:00Z",
           "last_activity": "2026-04-07T11:45:00Z",
@@ -394,11 +394,11 @@ fn parse_session_list_json_rejects_blank_or_invalid_last_activity() {
         {
           "status": "new",
           "source": "codex",
-          "project_name": "cmux-next",
+          "project_name": "zorai",
           "session_id": "rollout-2026-04-07-006",
           "created_at": "2026-04-07T09:00:00Z",
           "last_activity": "",
-          "session_file": "/tmp/aline/cmux-next/session-6.jsonl"
+          "session_file": "/tmp/aline/zorai/session-6.jsonl"
         }
       ]
     }
@@ -409,11 +409,11 @@ fn parse_session_list_json_rejects_blank_or_invalid_last_activity() {
         {
           "status": "new",
           "source": "codex",
-          "project_name": "cmux-next",
+          "project_name": "zorai",
           "session_id": "rollout-2026-04-07-007",
           "created_at": "2026-04-07T09:00:00Z",
           "last_activity": "not-a-timestamp",
-          "session_file": "/tmp/aline/cmux-next/session-7.jsonl"
+          "session_file": "/tmp/aline/zorai/session-7.jsonl"
         }
       ]
     }
@@ -436,11 +436,11 @@ fn parse_session_list_json_rejects_blank_or_invalid_created_at() {
         {
           "status": "new",
           "source": "codex",
-          "project_name": "cmux-next",
+          "project_name": "zorai",
           "session_id": "rollout-2026-04-07-008",
           "created_at": "",
           "last_activity": "2026-04-07T11:45:00Z",
-          "session_file": "/tmp/aline/cmux-next/session-8.jsonl"
+          "session_file": "/tmp/aline/zorai/session-8.jsonl"
         }
       ]
     }
@@ -451,11 +451,11 @@ fn parse_session_list_json_rejects_blank_or_invalid_created_at() {
         {
           "status": "new",
           "source": "codex",
-          "project_name": "cmux-next",
+          "project_name": "zorai",
           "session_id": "rollout-2026-04-07-009",
           "created_at": "not-a-timestamp",
           "last_activity": "2026-04-07T11:45:00Z",
-          "session_file": "/tmp/aline/cmux-next/session-9.jsonl"
+          "session_file": "/tmp/aline/zorai/session-9.jsonl"
         }
       ]
     }

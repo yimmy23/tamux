@@ -561,7 +561,7 @@ async fn successful_noop_reconciliation_clears_stale_dedupe_state() {
         ],
     )
     .await;
-    let repo_root = harness.create_git_repo("cmux-next");
+    let repo_root = harness.create_git_repo("zorai");
     tokio::fs::write(
         harness.engine.data_dir.join("aline-startup-state.json"),
         serde_json::json!({
@@ -640,7 +640,7 @@ async fn hydrate_succeeds_when_session_import_fails() {
         ],
     )
     .await;
-    let repo_root = harness.create_git_repo("cmux-next");
+    let repo_root = harness.create_git_repo("zorai");
     harness.persist_repo_roots(&[repo_root.as_str()]).await;
 
     harness

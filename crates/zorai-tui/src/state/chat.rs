@@ -606,6 +606,29 @@ fn trimmed_non_empty(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+fn responder_identity_meaningfully_changed(
+    before: &ThreadResponderIdentity,
+    after: &ThreadResponderIdentity,
+) -> bool {
+    if before == after {
+        return false;
+    }
+    let names_equal = match (before.agent_name.as_deref(), after.agent_name.as_deref()) {
+        (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
+        (None, None) => true,
+        _ => false,
+    };
+    // A reload that only narrows the message window (e.g. after compaction)
+    // can drop the assistant author info, turning agent_id Some(_) → None
+    // while keeping agent_name the same. That is not a real responder
+    // switch and must not clear runtime_provider/runtime_model, otherwise
+    // the header falls back to the stale cached config.
+    if names_equal && before.agent_id.is_some() && after.agent_id.is_none() {
+        return false;
+    }
+    true
+}
+
 fn active_thread_responder_identity(thread: &AgentThread) -> ThreadResponderIdentity {
     let mut responder = ThreadResponderIdentity {
         agent_id: None,
@@ -1924,7 +1947,10 @@ impl ChatState {
                     }
                     collapse_adjacent_optimistic_user_tail(existing);
                     normalize_thread_window(existing);
-                    if responder_before != active_thread_responder_identity(existing) {
+                    if responder_identity_meaningfully_changed(
+                        &responder_before,
+                        &active_thread_responder_identity(existing),
+                    ) {
                         existing.runtime_provider = None;
                         existing.runtime_model = None;
                         existing.runtime_reasoning_effort = None;
