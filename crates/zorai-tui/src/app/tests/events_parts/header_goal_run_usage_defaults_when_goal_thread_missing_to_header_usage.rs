@@ -431,6 +431,81 @@ fn header_profile_resets_on_return_handoff_after_thread_detail_refresh() {
 }
 
 #[test]
+fn thread_detail_after_compaction_preserves_runtime_provider_and_model() {
+    let mut model = make_model();
+    model.config.provider = PROVIDER_ID_OPENAI.to_string();
+    model.config.model = "gpt-5.4".to_string();
+
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-compaction-runtime".to_string(),
+        title: "Compaction Runtime".to_string(),
+        agent_name: Some("Swarog".to_string()),
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-compaction-runtime".to_string(),
+    ));
+
+    // Simulate the state right before compaction: the daemon has been
+    // serving turns through github-copilot/gpt-5.5 (because the operator
+    // ran /provider + /model), and a MessageDone event has stamped those
+    // values onto the thread runtime fields.
+    if let Some(thread) = model.chat.active_thread_mut() {
+        thread.runtime_provider = Some(PROVIDER_ID_GITHUB_COPILOT.to_string());
+        thread.runtime_model = Some("gpt-5.5".to_string());
+        thread.messages.push(chat::AgentMessage {
+            role: chat::MessageRole::Assistant,
+            content: "earlier assistant turn".to_string(),
+            author_agent_id: Some("swarog".to_string()),
+            author_agent_name: Some("Swarog".to_string()),
+            ..Default::default()
+        });
+    }
+
+    // Compaction fires on the daemon, which then re-emits the thread with
+    // a narrowed window: only the compaction artifact (Assistant role, no
+    // author fields). This used to flip the responder identity from
+    // {Some("swarog"), Some("Swarog")} to {None, Some("Swarog")} and clear
+    // the runtime fields, dropping the header back onto the stale
+    // self.config (openai) instead of the actual responder (github-copilot).
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-compaction-runtime".to_string(),
+        title: "Compaction Runtime".to_string(),
+        agent_name: Some("Swarog".to_string()),
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::Assistant,
+            content: "Pre-compaction context: ~320,000 / 400,000 tokens".to_string(),
+            message_kind: "compaction_artifact".to_string(),
+            ..Default::default()
+        }],
+        total_message_count: 1,
+        loaded_message_start: 0,
+        loaded_message_end: 1,
+        created_at: 1,
+        updated_at: 2,
+        ..Default::default()
+    });
+
+    let thread = model
+        .chat
+        .active_thread()
+        .expect("thread should remain active");
+    assert_eq!(
+        thread.runtime_provider.as_deref(),
+        Some(PROVIDER_ID_GITHUB_COPILOT),
+        "compaction reload must not clear runtime_provider",
+    );
+    assert_eq!(
+        thread.runtime_model.as_deref(),
+        Some("gpt-5.5"),
+        "compaction reload must not clear runtime_model",
+    );
+
+    let profile = model.current_header_agent_profile();
+    assert_eq!(profile.provider, PROVIDER_ID_GITHUB_COPILOT);
+    assert_eq!(profile.model, "gpt-5.5");
+}
+
+#[test]
 fn header_usage_summary_caps_target_by_weles_compaction_window() {
     let mut model = make_model();
     model.config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();

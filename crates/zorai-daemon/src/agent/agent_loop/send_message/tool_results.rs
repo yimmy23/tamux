@@ -4,6 +4,7 @@ const OFFLOAD_SUMMARY_KEY_FINDING_LINES: usize = 3;
 const OFFLOAD_SUMMARY_LINE_CHAR_LIMIT: usize = 160;
 const TOOL_OUTPUT_PREVIEW_ALLOWLIST: &[&str] = &[
     zorai_protocol::tool_names::BASH_COMMAND,
+    zorai_protocol::tool_names::PYTHON_EXECUTE,
     zorai_protocol::tool_names::RUN_TERMINAL_COMMAND,
     zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND,
     zorai_protocol::tool_names::WEB_SEARCH,
@@ -56,6 +57,7 @@ fn should_include_argument_in_tool_output_preview(tool_name: &str) -> bool {
     matches!(
         tool_name,
         zorai_protocol::tool_names::BASH_COMMAND
+            | zorai_protocol::tool_names::PYTHON_EXECUTE
             | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
             | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
     )

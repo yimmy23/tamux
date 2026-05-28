@@ -3,7 +3,7 @@
 ## Project Scale & Structure
 - **Daemon LOC**: ~101,000 lines of Rust across 596 source files.
 - **Agent Module**: 429 files dedicated to agent runtime logic.
-- **Workspace Root**: `/home/mkurman/gitlab/it/cmux-next`
+- **Workspace Root**: `/home/mkurman/gitlab/it/zorai`
 - **Daemon Package Name**: `zorai-daemon` (crate path is `crates/zorai-daemon`, but use the Cargo package name for `cargo -p` invocations).
 - **Build System**: Cargo workspace, Node.js frontend, uv for Python tooling.
 - **Agent Personas**: The system hosts **8 distinct agent personas** sharing a common daemon runtime and memory infrastructure.

@@ -4136,6 +4136,50 @@ async fn allowlisted_shell_tool_preview_includes_argument_and_result_sections() 
 }
 
 #[tokio::test]
+async fn python_execute_tool_preview_includes_argument_and_result_sections() {
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.offload_tool_result_threshold_bytes = 512;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    let raw_payload = "Python finished successfully (exit_code: 0, interpreter: python3).\n\nStdout:\nhello from python\n".to_string();
+    let arguments = r#"{"code":"print('hello from python')","timeout_seconds":30}"#;
+    let prepared = crate::agent::agent_loop::send_message::tool_results::prepare_tool_result_thread_message_with_arguments(
+        &engine,
+        "thread-python-preview-with-argument",
+        None,
+        &ToolResult {
+            tool_call_id: "tool-call-python-preview-with-argument".to_string(),
+            name: "python_execute".to_string(),
+            content: raw_payload.clone(),
+            is_error: false,
+            weles_review: None,
+            pending_approval: None,
+        },
+        Some(arguments),
+        1_700_000_122,
+    )
+    .await;
+
+    let preview_path = engine.history.tool_output_preview_path(
+        "thread-python-preview-with-argument",
+        None,
+        "python_execute",
+        1_700_000_122,
+    );
+    assert_eq!(prepared.content, raw_payload);
+    assert_eq!(
+        prepared.tool_output_preview_path.as_deref(),
+        Some(preview_path.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        std::fs::read_to_string(&preview_path).expect("preview file should exist"),
+        "argument:\n{\n  \"code\": \"print('hello from python')\",\n  \"timeout_seconds\": 30\n}\n\nresult:\nPython finished successfully (exit_code: 0, interpreter: python3).\n\nStdout:\nhello from python\n"
+    );
+}
+
+#[tokio::test]
 async fn large_allowlisted_tool_result_keeps_preview_path_and_summary_content() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;

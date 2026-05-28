@@ -24,11 +24,11 @@ pub(super) const SAMPLE_JSON: &str = r#"
     {
       "status": "new",
       "source": "codex",
-      "project_name": "cmux-next",
+      "project_name": "zorai",
       "session_id": "rollout-2026-04-07-001",
             "created_at": "2026-04-07T09:15:00.000000",
             "last_activity": "2026-04-07T10:15:00.000000",
-      "session_file": "/tmp/aline/cmux-next/session-1.json"
+      "session_file": "/tmp/aline/zorai/session-1.json"
     }
   ]
 }
@@ -44,12 +44,12 @@ pub(super) const FULL_CURRENT_CLI_PAYLOAD_JSON: &str = r#"
     {
       "status": "new",
       "source": "codex",
-      "project_name": "cmux-next",
+      "project_name": "zorai",
       "session_id": "rollout-2026-04-07-002",
             "created_at": "2026-04-07T09:00:00.000000",
             "last_activity": "2026-04-07T11:45:00.000000",
       "session_file": "/home/mkurman/.codex/sessions/2026/04/07/rollout-2026-04-07-002.jsonl",
-      "project_path": "/home/mkurman/gitlab/it/cmux-next",
+      "project_path": "/home/mkurman/gitlab/it/zorai",
       "branch": "main",
       "message_count": 42,
       "tracked": false,
@@ -233,11 +233,11 @@ pub(super) fn single_session_list_output(status: &str) -> Result<StartupCommandO
         {{
             "status": "{status}",
             "source": "codex",
-            "project_name": "cmux-next",
+            "project_name": "zorai",
             "session_id": "{FULL_SESSION_ID}",
             "created_at": "{created_at}",
             "last_activity": "{last_activity}",
-            "session_file": "/tmp/aline/cmux-next/{FULL_SESSION_ID}.json"
+            "session_file": "/tmp/aline/zorai/{FULL_SESSION_ID}.json"
         }}
     ]
 }}"#

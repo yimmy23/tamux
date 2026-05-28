@@ -87,6 +87,30 @@ fn expected_disconnect_error_does_not_match_invalid_data() {
 }
 
 #[test]
+fn approval_required_events_forward_to_subscribed_thread() {
+    let event = AgentEvent::ApprovalRequired {
+        thread_id: "thread-pending".to_string(),
+        approval_id: "weles-governance-1".to_string(),
+        command: "bash_command pkill -f foo".to_string(),
+        rationale: Some("WELES requested operator decision".to_string()),
+        reasons: vec!["destructive mutation".to_string()],
+        risk_level: "medium".to_string(),
+        blast_radius: "shell command execution".to_string(),
+    };
+    let subscribed = HashSet::from(["thread-pending".to_string()]);
+    assert!(
+        super::should_forward_agent_event(&event, &subscribed),
+        "operator must receive WELES approval prompts on the thread that triggered them"
+    );
+
+    let unrelated = HashSet::from(["thread-other".to_string()]);
+    assert!(
+        !super::should_forward_agent_event(&event, &unrelated),
+        "approval prompts must not bleed to clients on unrelated threads"
+    );
+}
+
+#[test]
 fn gateway_incoming_events_forward_without_thread_subscription() {
     let event = AgentEvent::GatewayIncoming {
         platform: "WhatsApp".to_string(),
@@ -312,7 +336,7 @@ fn build_session_end_episode_payload_generates_summary_and_tags() {
     let info = SessionInfo {
         id: session_id,
         title: Some("Cargo test runner".to_string()),
-        cwd: Some("/workspace/cmux-next".to_string()),
+        cwd: Some("/workspace/zorai".to_string()),
         cols: 80,
         rows: 24,
         created_at: 0,
@@ -328,11 +352,11 @@ fn build_session_end_episode_payload_generates_summary_and_tags() {
         Some("running\n test result: ok. 3 passed"),
     );
 
-    assert!(summary.contains("Cargo test runner ended in cmux-next"));
+    assert!(summary.contains("Cargo test runner ended in zorai"));
     assert!(summary.contains("Last output: test result: ok. 3 passed"));
     assert!(entities.contains(&format!("session:{session_id}")));
     assert!(entities.contains(&"workspace:ws-main".to_string()));
-    assert!(entities.contains(&"cwd:cmux-next".to_string()));
+    assert!(entities.contains(&"cwd:zorai".to_string()));
     assert!(entities.contains(&"command:cargo".to_string()));
     assert!(entities.contains(&"title:cargo-test-runner".to_string()));
 }

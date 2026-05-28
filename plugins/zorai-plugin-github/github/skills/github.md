@@ -23,19 +23,19 @@ Use the **GitHub plugin** for read-only repository checks.
 Repository summary:
 
 ```json
-{"plugin_name": "github", "endpoint_name": "get_repo", "params": {"owner": "anthropic", "repo": "cmux-next"}}
+{"plugin_name": "github", "endpoint_name": "get_repo", "params": {"owner": "mkurman", "repo": "zorai"}}
 ```
 
 List open issues:
 
 ```json
-{"plugin_name": "github", "endpoint_name": "list_issues", "params": {"owner": "anthropic", "repo": "cmux-next"}}
+{"plugin_name": "github", "endpoint_name": "list_issues", "params": {"owner": "mkurman", "repo": "zorai"}}
 ```
 
 List pull requests:
 
 ```json
-{"plugin_name": "github", "endpoint_name": "list_pull_requests", "params": {"owner": "anthropic", "repo": "cmux-next"}}
+{"plugin_name": "github", "endpoint_name": "list_pull_requests", "params": {"owner": "mkurman", "repo": "zorai"}}
 ```
 
 ## Optional filters
@@ -47,7 +47,7 @@ Issues and pull requests support:
 Example:
 
 ```json
-{"plugin_name": "github", "endpoint_name": "list_pull_requests", "params": {"owner": "anthropic", "repo": "cmux-next", "state": "closed", "per_page": 10}}
+{"plugin_name": "github", "endpoint_name": "list_pull_requests", "params": {"owner": "mkurman", "repo": "zorai", "state": "closed", "per_page": 10}}
 ```
 
 ## Usage guidance

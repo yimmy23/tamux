@@ -63,6 +63,18 @@ pub(crate) fn security_level_for_tool_call(
     tool_name: &str,
     tool_args: &serde_json::Value,
 ) -> SecurityLevel {
+    let is_shell = matches!(
+        tool_name,
+        zorai_protocol::tool_names::BASH_COMMAND
+            | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
+            | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
+    );
+    // Operator-configured Yolo is authoritative for shell tools: an LLM that
+    // voluntarily passes a stricter `security_level` in args must not override
+    // the operator's explicit opt-out from gating.
+    if is_shell && matches!(config.managed_execution.security_level, SecurityLevel::Yolo) {
+        return SecurityLevel::Yolo;
+    }
     match tool_args
         .get("security_level")
         .and_then(|value| value.as_str())
@@ -73,15 +85,7 @@ pub(crate) fn security_level_for_tool_call(
         Some("lowest") => SecurityLevel::Lowest,
         Some("yolo") => SecurityLevel::Yolo,
         Some("moderate") => SecurityLevel::Moderate,
-        _ if matches!(
-            tool_name,
-            zorai_protocol::tool_names::BASH_COMMAND
-                | zorai_protocol::tool_names::RUN_TERMINAL_COMMAND
-                | zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND
-        ) =>
-        {
-            config.managed_execution.security_level
-        }
+        _ if is_shell => config.managed_execution.security_level,
         _ => SecurityLevel::Moderate,
     }
 }
@@ -377,5 +381,71 @@ pub(crate) fn classify_tool_call(
     WelesToolClassification {
         class: WelesGovernanceClass::AllowDirect,
         reasons: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zorai_protocol::tool_names;
+
+    fn config_with(security_level: SecurityLevel) -> AgentConfig {
+        let mut config = AgentConfig::default();
+        config.managed_execution.security_level = security_level;
+        config
+    }
+
+    #[test]
+    fn operator_yolo_overrides_llm_supplied_stricter_security_level_for_shell_tools() {
+        let config = config_with(SecurityLevel::Yolo);
+        let args = serde_json::json!({
+            "command": "pkill -f stale",
+            "security_level": "moderate",
+        });
+        assert_eq!(
+            security_level_for_tool_call(&config, tool_names::BASH_COMMAND, &args),
+            SecurityLevel::Yolo,
+            "operator Yolo must override an LLM-supplied moderate"
+        );
+        assert_eq!(
+            security_level_for_tool_call(&config, tool_names::RUN_TERMINAL_COMMAND, &args),
+            SecurityLevel::Yolo
+        );
+        assert_eq!(
+            security_level_for_tool_call(&config, tool_names::EXECUTE_MANAGED_COMMAND, &args),
+            SecurityLevel::Yolo
+        );
+    }
+
+    #[test]
+    fn operator_yolo_does_not_apply_to_non_shell_tools() {
+        let config = config_with(SecurityLevel::Yolo);
+        let args = serde_json::json!({ "security_level": "moderate" });
+        assert_eq!(
+            security_level_for_tool_call(&config, "send_slack_message", &args),
+            SecurityLevel::Moderate,
+            "Yolo override is scoped to shell execution tools only"
+        );
+    }
+
+    #[test]
+    fn non_yolo_operator_config_still_lets_llm_args_take_effect() {
+        let config = config_with(SecurityLevel::Lowest);
+        let args = serde_json::json!({ "security_level": "yolo" });
+        assert_eq!(
+            security_level_for_tool_call(&config, tool_names::BASH_COMMAND, &args),
+            SecurityLevel::Yolo,
+            "non-Yolo operator config must still honor LLM args (e.g., WELES self-yolo path)"
+        );
+    }
+
+    #[test]
+    fn shell_tools_fall_back_to_config_when_args_omit_security_level() {
+        let config = config_with(SecurityLevel::Highest);
+        let args = serde_json::json!({ "command": "ls" });
+        assert_eq!(
+            security_level_for_tool_call(&config, tool_names::BASH_COMMAND, &args),
+            SecurityLevel::Highest
+        );
     }
 }

@@ -13,12 +13,12 @@ async fn startup_reconciliation_lists_up_to_three_pages_then_stops() {
 	"sessions": [{
 		"status": "new",
 		"source": "codex",
-		"project_name": "cmux-next",
-		"project_path": "/home/mkurman/gitlab/it/cmux-next",
+		"project_name": "zorai",
+		"project_path": "/home/mkurman/gitlab/it/zorai",
 		"session_id": "page-1-a",
 		"created_at": "2026-04-07T09:00:00Z",
 		"last_activity": "2026-04-07T11:30:00Z",
-		"session_file": "/tmp/aline/cmux-next/page-1-a.json"
+		"session_file": "/tmp/aline/zorai/page-1-a.json"
 	}]
 }"#,
         ),
@@ -28,12 +28,12 @@ async fn startup_reconciliation_lists_up_to_three_pages_then_stops() {
 	"sessions": [{
 		"status": "new",
 		"source": "codex",
-		"project_name": "cmux-next",
-		"project_path": "/home/mkurman/gitlab/it/cmux-next",
+		"project_name": "zorai",
+		"project_path": "/home/mkurman/gitlab/it/zorai",
 		"session_id": "page-2-a",
 		"created_at": "2026-04-07T08:30:00Z",
 		"last_activity": "2026-04-07T11:00:00Z",
-		"session_file": "/tmp/aline/cmux-next/page-2-a.json"
+		"session_file": "/tmp/aline/zorai/page-2-a.json"
 	}]
 }"#,
         ),
@@ -43,12 +43,12 @@ async fn startup_reconciliation_lists_up_to_three_pages_then_stops() {
 	"sessions": [{
 		"status": "new",
 		"source": "codex",
-		"project_name": "cmux-next",
-		"project_path": "/home/mkurman/gitlab/it/cmux-next",
+		"project_name": "zorai",
+		"project_path": "/home/mkurman/gitlab/it/zorai",
 		"session_id": "page-3-a",
 		"created_at": "2026-04-07T08:00:00Z",
 		"last_activity": "2026-04-07T10:30:00Z",
-		"session_file": "/tmp/aline/cmux-next/page-3-a.json"
+		"session_file": "/tmp/aline/zorai/page-3-a.json"
 	}]
 }"#,
         ),
@@ -56,7 +56,7 @@ async fn startup_reconciliation_lists_up_to_three_pages_then_stops() {
 
     let sessions = list_recent_project_sessions(
         &runner,
-        Path::new("/home/mkurman/gitlab/it/cmux-next"),
+        Path::new("/home/mkurman/gitlab/it/zorai"),
         ts("2026-04-07T12:00:00Z"),
         StartupSelectionPolicy::default(),
     )
@@ -116,19 +116,19 @@ async fn startup_reconciliation_stops_when_page_reports_no_more_results() {
 	"sessions": [{
 		"status": "new",
 		"source": "codex",
-		"project_name": "cmux-next",
-		"project_path": "/home/mkurman/gitlab/it/cmux-next",
+		"project_name": "zorai",
+		"project_path": "/home/mkurman/gitlab/it/zorai",
 		"session_id": "page-1-a",
 		"created_at": "2026-04-07T09:00:00Z",
 		"last_activity": "2026-04-07T11:30:00Z",
-		"session_file": "/tmp/aline/cmux-next/page-1-a.json"
+		"session_file": "/tmp/aline/zorai/page-1-a.json"
 	}]
 }"#,
     )]);
 
     let sessions = list_recent_project_sessions(
         &runner,
-        Path::new("/home/mkurman/gitlab/it/cmux-next"),
+        Path::new("/home/mkurman/gitlab/it/zorai"),
         ts("2026-04-07T12:00:00Z"),
         StartupSelectionPolicy::default(),
     )
@@ -149,22 +149,22 @@ async fn startup_reconciliation_merges_pages_then_sorts_by_last_activity() {
 		{
 			"status": "new",
 			"source": "codex",
-			"project_name": "cmux-next",
-			"project_path": "/home/mkurman/gitlab/it/cmux-next",
+			"project_name": "zorai",
+			"project_path": "/home/mkurman/gitlab/it/zorai",
 			"session_id": "oldest",
 			"created_at": "2026-04-07T07:00:00Z",
 			"last_activity": "2026-04-07T09:00:00Z",
-			"session_file": "/tmp/aline/cmux-next/oldest.json"
+			"session_file": "/tmp/aline/zorai/oldest.json"
 		},
 		{
 			"status": "new",
 			"source": "codex",
-			"project_name": "cmux-next",
-			"project_path": "/home/mkurman/gitlab/it/cmux-next",
+			"project_name": "zorai",
+			"project_path": "/home/mkurman/gitlab/it/zorai",
 			"session_id": "middle",
 			"created_at": "2026-04-07T08:00:00Z",
 			"last_activity": "2026-04-07T10:00:00Z",
-			"session_file": "/tmp/aline/cmux-next/middle.json"
+			"session_file": "/tmp/aline/zorai/middle.json"
 		}
 	]
 }"#,
@@ -176,22 +176,22 @@ async fn startup_reconciliation_merges_pages_then_sorts_by_last_activity() {
 		{
 			"status": "new",
 			"source": "codex",
-			"project_name": "cmux-next",
-			"project_path": "/home/mkurman/gitlab/it/cmux-next",
+			"project_name": "zorai",
+			"project_path": "/home/mkurman/gitlab/it/zorai",
 			"session_id": "newest",
 			"created_at": "2026-04-07T09:00:00Z",
 			"last_activity": "2026-04-07T11:59:00Z",
-			"session_file": "/tmp/aline/cmux-next/newest.json"
+			"session_file": "/tmp/aline/zorai/newest.json"
 		},
 		{
 			"status": "new",
 			"source": "codex",
-			"project_name": "cmux-next",
-			"project_path": "/home/mkurman/gitlab/it/cmux-next",
+			"project_name": "zorai",
+			"project_path": "/home/mkurman/gitlab/it/zorai",
 			"session_id": "second-newest",
 			"created_at": "2026-04-07T08:30:00Z",
 			"last_activity": "2026-04-07T11:00:00Z",
-			"session_file": "/tmp/aline/cmux-next/second-newest.json"
+			"session_file": "/tmp/aline/zorai/second-newest.json"
 		}
 	]
 }"#,
@@ -201,7 +201,7 @@ async fn startup_reconciliation_merges_pages_then_sorts_by_last_activity() {
 
     let sessions = list_recent_project_sessions(
         &runner,
-        Path::new("/home/mkurman/gitlab/it/cmux-next"),
+        Path::new("/home/mkurman/gitlab/it/zorai"),
         ts("2026-04-07T12:00:00Z"),
         StartupSelectionPolicy {
             max_candidates: 3,
@@ -229,12 +229,12 @@ async fn startup_reconciliation_deduplicates_sessions_across_pages() {
 	"sessions": [{
 		"status": "new",
 		"source": "codex",
-		"project_name": "cmux-next",
-		"project_path": "/home/mkurman/gitlab/it/cmux-next",
+		"project_name": "zorai",
+		"project_path": "/home/mkurman/gitlab/it/zorai",
 		"session_id": "duplicate",
 		"created_at": "2026-04-07T09:00:00Z",
 		"last_activity": "2026-04-07T11:59:00Z",
-		"session_file": "/tmp/aline/cmux-next/duplicate.json"
+		"session_file": "/tmp/aline/zorai/duplicate.json"
 	}]
 }"#,
         ),
@@ -245,22 +245,22 @@ async fn startup_reconciliation_deduplicates_sessions_across_pages() {
 		{
 			"status": "new",
 			"source": "codex",
-			"project_name": "cmux-next",
-			"project_path": "/home/mkurman/gitlab/it/cmux-next",
+			"project_name": "zorai",
+			"project_path": "/home/mkurman/gitlab/it/zorai",
 			"session_id": "duplicate",
 			"created_at": "2026-04-07T09:00:00Z",
 			"last_activity": "2026-04-07T11:59:00Z",
-			"session_file": "/tmp/aline/cmux-next/duplicate.json"
+			"session_file": "/tmp/aline/zorai/duplicate.json"
 		},
 		{
 			"status": "new",
 			"source": "codex",
-			"project_name": "cmux-next",
-			"project_path": "/home/mkurman/gitlab/it/cmux-next",
+			"project_name": "zorai",
+			"project_path": "/home/mkurman/gitlab/it/zorai",
 			"session_id": "unique",
 			"created_at": "2026-04-07T08:00:00Z",
 			"last_activity": "2026-04-07T10:00:00Z",
-			"session_file": "/tmp/aline/cmux-next/unique.json"
+			"session_file": "/tmp/aline/zorai/unique.json"
 		}
 	]
 }"#,
@@ -269,7 +269,7 @@ async fn startup_reconciliation_deduplicates_sessions_across_pages() {
 
     let sessions = list_recent_project_sessions(
         &runner,
-        Path::new("/home/mkurman/gitlab/it/cmux-next"),
+        Path::new("/home/mkurman/gitlab/it/zorai"),
         ts("2026-04-07T12:00:00Z"),
         StartupSelectionPolicy::default(),
     )
@@ -294,12 +294,12 @@ async fn startup_reconciliation_keeps_newest_duplicate_session_row() {
 	"sessions": [{
 		"status": "new",
 		"source": "codex",
-		"project_name": "cmux-next",
-		"project_path": "/home/mkurman/gitlab/it/cmux-next",
+		"project_name": "zorai",
+		"project_path": "/home/mkurman/gitlab/it/zorai",
 		"session_id": "duplicate",
 		"created_at": "2026-04-07T08:00:00Z",
 		"last_activity": "2026-04-07T09:00:00Z",
-		"session_file": "/tmp/aline/cmux-next/duplicate.json"
+		"session_file": "/tmp/aline/zorai/duplicate.json"
 	}]
 }"#,
         ),
@@ -309,12 +309,12 @@ async fn startup_reconciliation_keeps_newest_duplicate_session_row() {
 	"sessions": [{
 		"status": "new",
 		"source": "codex",
-		"project_name": "cmux-next",
-		"project_path": "/home/mkurman/gitlab/it/cmux-next",
+		"project_name": "zorai",
+		"project_path": "/home/mkurman/gitlab/it/zorai",
 		"session_id": "duplicate",
 		"created_at": "2026-04-07T09:00:00Z",
 		"last_activity": "2026-04-07T11:59:00Z",
-		"session_file": "/tmp/aline/cmux-next/duplicate.json"
+		"session_file": "/tmp/aline/zorai/duplicate.json"
 	}]
 }"#,
         ),
@@ -322,7 +322,7 @@ async fn startup_reconciliation_keeps_newest_duplicate_session_row() {
 
     let sessions = list_recent_project_sessions(
         &runner,
-        Path::new("/home/mkurman/gitlab/it/cmux-next"),
+        Path::new("/home/mkurman/gitlab/it/zorai"),
         ts("2026-04-07T12:00:00Z"),
         StartupSelectionPolicy::default(),
     )
@@ -339,8 +339,8 @@ fn import_commands_use_full_session_id_not_index_or_prefix() {
     let discovered = session(
         "new",
         "codex",
-        "cmux-next",
-        Some("/home/mkurman/gitlab/it/cmux-next"),
+        "zorai",
+        Some("/home/mkurman/gitlab/it/zorai"),
         FULL_SESSION_ID,
         "2026-04-07T09:00:00Z",
         "2026-04-07T11:59:00Z",
@@ -409,7 +409,7 @@ async fn startup_reconciliation_runs_status_then_start_then_import_then_generate
         ],
     )
     .await;
-    let repo_root = harness.create_git_repo("cmux-next");
+    let repo_root = harness.create_git_repo("zorai");
 
     harness
         .engine
@@ -465,7 +465,7 @@ async fn startup_reconciliation_does_not_generate_events_before_import_is_confir
         ],
     )
     .await;
-    let repo_root = harness.create_git_repo("cmux-next");
+    let repo_root = harness.create_git_repo("zorai");
 
     harness
         .engine
@@ -523,7 +523,7 @@ async fn startup_reconciliation_allows_event_generation_after_partial_import_sta
         ],
     )
     .await;
-    let repo_root = harness.create_git_repo("cmux-next");
+    let repo_root = harness.create_git_repo("zorai");
 
     harness
         .engine
@@ -574,7 +574,7 @@ async fn startup_reconciliation_emits_stage_summary_fields() {
         ],
     )
     .await;
-    let repo_root = harness.create_git_repo("cmux-next");
+    let repo_root = harness.create_git_repo("zorai");
 
     let summary = harness
         .engine
@@ -614,7 +614,7 @@ async fn startup_reconciliation_counts_import_before_confirmation_failure() {
         ],
     )
     .await;
-    let repo_root = harness.create_git_repo("cmux-next");
+    let repo_root = harness.create_git_repo("zorai");
 
     let summary = harness
         .engine
@@ -645,7 +645,7 @@ async fn startup_reconciliation_does_not_persist_dedupe_on_event_generate_failur
         ],
     )
     .await;
-    let repo_root = harness.create_git_repo("cmux-next");
+    let repo_root = harness.create_git_repo("zorai");
 
     let summary = harness
         .engine
@@ -674,8 +674,8 @@ async fn startup_reconciliation_skips_recently_imported_session_ids_from_dedupe_
                     session(
                         "new",
                         "codex",
-                        "cmux-next",
-                        Some("/home/mkurman/gitlab/it/cmux-next"),
+                        "zorai",
+                        Some("/home/mkurman/gitlab/it/zorai"),
                         "already-imported-session",
                         &recent_timestamp(180),
                         &recent_timestamp(2),
@@ -683,8 +683,8 @@ async fn startup_reconciliation_skips_recently_imported_session_ids_from_dedupe_
                     session(
                         "new",
                         "codex",
-                        "cmux-next",
-                        Some("/home/mkurman/gitlab/it/cmux-next"),
+                        "zorai",
+                        Some("/home/mkurman/gitlab/it/zorai"),
                         "fresh-session",
                         &recent_timestamp(150),
                         &recent_timestamp(3),
@@ -697,7 +697,7 @@ async fn startup_reconciliation_skips_recently_imported_session_ids_from_dedupe_
         ],
     )
     .await;
-    let repo_root = harness.create_git_repo("cmux-next");
+    let repo_root = harness.create_git_repo("zorai");
     tokio::fs::write(
         harness.engine.data_dir.join("aline-startup-state.json"),
         serde_json::json!({
@@ -768,8 +768,8 @@ async fn startup_reconciliation_stops_scheduling_new_imports_when_budget_is_exha
                         session(
                             "new",
                             "codex",
-                            "cmux-next",
-                            Some("/home/mkurman/gitlab/it/cmux-next"),
+                            "zorai",
+                            Some("/home/mkurman/gitlab/it/zorai"),
                             "budget-one",
                             &recent_timestamp(180),
                             &recent_timestamp(1),
@@ -777,8 +777,8 @@ async fn startup_reconciliation_stops_scheduling_new_imports_when_budget_is_exha
                         session(
                             "new",
                             "codex",
-                            "cmux-next",
-                            Some("/home/mkurman/gitlab/it/cmux-next"),
+                            "zorai",
+                            Some("/home/mkurman/gitlab/it/zorai"),
                             "budget-two",
                             &recent_timestamp(190),
                             &recent_timestamp(2),
@@ -786,8 +786,8 @@ async fn startup_reconciliation_stops_scheduling_new_imports_when_budget_is_exha
                         session(
                             "new",
                             "codex",
-                            "cmux-next",
-                            Some("/home/mkurman/gitlab/it/cmux-next"),
+                            "zorai",
+                            Some("/home/mkurman/gitlab/it/zorai"),
                             "budget-three",
                             &recent_timestamp(200),
                             &recent_timestamp(3),
@@ -802,7 +802,7 @@ async fn startup_reconciliation_stops_scheduling_new_imports_when_budget_is_exha
         ],
     )
     .await;
-    let repo_root = harness.create_git_repo("cmux-next");
+    let repo_root = harness.create_git_repo("zorai");
 
     let summary = harness
         .engine
@@ -863,8 +863,8 @@ async fn startup_reconciliation_allows_current_session_to_finish_after_confirmat
                         session(
                             "new",
                             "codex",
-                            "cmux-next",
-                            Some("/home/mkurman/gitlab/it/cmux-next"),
+                            "zorai",
+                            Some("/home/mkurman/gitlab/it/zorai"),
                             "budget-one",
                             &recent_timestamp(180),
                             &recent_timestamp(1),
@@ -872,8 +872,8 @@ async fn startup_reconciliation_allows_current_session_to_finish_after_confirmat
                         session(
                             "new",
                             "codex",
-                            "cmux-next",
-                            Some("/home/mkurman/gitlab/it/cmux-next"),
+                            "zorai",
+                            Some("/home/mkurman/gitlab/it/zorai"),
                             "budget-two",
                             &recent_timestamp(190),
                             &recent_timestamp(2),
@@ -893,7 +893,7 @@ async fn startup_reconciliation_allows_current_session_to_finish_after_confirmat
         ],
     )
     .await;
-    let repo_root = harness.create_git_repo("cmux-next");
+    let repo_root = harness.create_git_repo("zorai");
 
     let summary = harness
         .engine

@@ -16,7 +16,7 @@ fn clicking_repo_backed_chat_file_chip_requests_git_diff() {
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
 
-    let repo_root = "/home/mkurman/gitlab/it/cmux-next";
+    let repo_root = "/home/mkurman/gitlab/it/zorai";
     let repo_path = format!("{repo_root}/README.md");
     model.chat.reduce(chat::ChatAction::AppendMessage {
         thread_id: "thread-1".to_string(),
@@ -93,7 +93,7 @@ fn clicking_apply_patch_file_chip_requests_git_diff() {
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
 
-    let repo_path = "/home/mkurman/gitlab/it/cmux-next/crates/zorai-daemon/src/agent/gateway_loop/message_flow.rs";
+    let repo_path = "/home/mkurman/gitlab/it/zorai/crates/zorai-daemon/src/agent/gateway_loop/message_flow.rs";
     model.chat.reduce(chat::ChatAction::AppendMessage {
         thread_id: "thread-1".to_string(),
         message: chat::AgentMessage {
@@ -153,7 +153,7 @@ fn clicking_apply_patch_file_chip_requests_git_diff() {
             repo_path,
             file_path,
         }) => {
-            assert_eq!(repo_path, "/home/mkurman/gitlab/it/cmux-next");
+            assert_eq!(repo_path, "/home/mkurman/gitlab/it/zorai");
             assert_eq!(
                 file_path.as_deref(),
                 Some("crates/zorai-daemon/src/agent/gateway_loop/message_flow.rs")
@@ -167,7 +167,7 @@ fn clicking_apply_patch_file_chip_requests_git_diff() {
             assert_eq!(target.path, repo_path);
             assert_eq!(
                 target.repo_root.as_deref(),
-                Some("/home/mkurman/gitlab/it/cmux-next")
+                Some("/home/mkurman/gitlab/it/zorai")
             );
             assert_eq!(
                 target.repo_relative_path.as_deref(),
@@ -193,7 +193,7 @@ fn clicking_repo_backed_read_file_chip_requests_plain_preview() {
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
 
-    let repo_path = "/home/mkurman/gitlab/it/cmux-next/crates/zorai-daemon/src/agent/agent_loop/send_message/setup.rs";
+    let repo_path = "/home/mkurman/gitlab/it/zorai/crates/zorai-daemon/src/agent/agent_loop/send_message/setup.rs";
     model.chat.reduce(chat::ChatAction::AppendMessage {
         thread_id: "thread-1".to_string(),
         message: chat::AgentMessage {
@@ -274,7 +274,7 @@ fn clicking_read_skill_chip_requests_plain_preview() {
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
 
-    let skills_root = "/home/mkurman/gitlab/it/cmux-next";
+    let skills_root = "/home/mkurman/gitlab/it/zorai";
     let relative_path = "skills/development/superpowers/systematic-debugging/SKILL.md";
     let full_path = format!("{skills_root}/{relative_path}");
     model.chat.reduce(chat::ChatAction::AppendMessage {
@@ -366,7 +366,7 @@ fn clicking_tool_file_path_metadata_requests_plain_preview() {
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
 
-    let preview_path = "/home/mkurman/gitlab/it/cmux-next/.zorai/.cache/tools/thread-thread-1/bash_command-1700000123.txt";
+    let preview_path = "/home/mkurman/gitlab/it/zorai/.zorai/.cache/tools/thread-thread-1/bash_command-1700000123.txt";
     model.chat.reduce(chat::ChatAction::AppendMessage {
         thread_id: "thread-1".to_string(),
         message: chat::AgentMessage {
