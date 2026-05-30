@@ -155,28 +155,48 @@ pub(super) fn ensure_context_archive_fts(connection: &Connection) {
 }
 
 pub(super) fn prepare_extended_schema_migrations(connection: &Connection) -> rusqlite::Result<()> {
-    if !table_has_column(connection, "external_runtime_profiles", "runtime")? {
-        return Ok(());
+    if table_has_column(connection, "external_runtime_profiles", "runtime")? {
+        ensure_column(
+            connection,
+            "external_runtime_profiles",
+            "session_id",
+            "TEXT",
+        )?;
+        ensure_column(
+            connection,
+            "external_runtime_profiles",
+            "source_config_path",
+            "TEXT",
+        )?;
+        ensure_column(
+            connection,
+            "external_runtime_profiles",
+            "source_fingerprint",
+            "TEXT",
+        )?;
     }
 
-    ensure_column(
-        connection,
-        "external_runtime_profiles",
-        "session_id",
-        "TEXT",
-    )?;
-    ensure_column(
-        connection,
-        "external_runtime_profiles",
-        "source_config_path",
-        "TEXT",
-    )?;
-    ensure_column(
-        connection,
-        "external_runtime_profiles",
-        "source_fingerprint",
-        "TEXT",
-    )?;
+    if table_has_column(connection, "workspace_settings", "workspace_id")? {
+        ensure_column(
+            connection,
+            "workspace_settings",
+            "repo_monitor_enabled",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        ensure_column(
+            connection,
+            "workspace_settings",
+            "repo_monitor_include_dirs_json",
+            "TEXT NOT NULL DEFAULT '[]'",
+        )?;
+        ensure_column(
+            connection,
+            "workspace_settings",
+            "repo_monitor_exclude_dirs_json",
+            "TEXT NOT NULL DEFAULT '[]'",
+        )?;
+    }
+
     Ok(())
 }
 
