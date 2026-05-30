@@ -1,4 +1,5 @@
 use super::*;
+use crate::history::schema_helpers::table_has_column;
 use zorai_protocol::{
     WorkspaceActor, WorkspaceNotice, WorkspaceOperator, WorkspacePriority, WorkspaceSettings,
     WorkspaceTask, WorkspaceTaskRuntimeHistoryEntry, WorkspaceTaskStatus, WorkspaceTaskType,
@@ -58,6 +59,69 @@ async fn init_schema_adds_workspace_tables() -> Result<()> {
         .map_err(|error| anyhow::anyhow!("{error}"))?;
 
     assert_eq!(has_tables, (true, true, true));
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn init_schema_migrates_legacy_workspace_settings_before_repo_monitor_index() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    store
+        .conn
+        .call(|conn| {
+            conn.execute_batch(
+                "
+                DROP TABLE IF EXISTS workspace_settings;
+                DROP INDEX IF EXISTS idx_workspace_settings_repo_monitor_enabled;
+                CREATE TABLE workspace_settings (
+                    workspace_id   TEXT PRIMARY KEY,
+                    workspace_root TEXT,
+                    operator       TEXT NOT NULL,
+                    created_at     INTEGER NOT NULL,
+                    updated_at     INTEGER NOT NULL
+                );
+                INSERT INTO workspace_settings
+                    (workspace_id, workspace_root, operator, created_at, updated_at)
+                VALUES
+                    ('legacy-workspace', '/tmp/legacy-workspace', 'svarog', 1, 2);
+                ",
+            )?;
+            Ok(())
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+
+    store.init_schema().await?;
+
+    let migrated = store
+        .conn
+        .call(|conn| {
+            let index_exists = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_workspace_settings_repo_monitor_enabled')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )? == 1;
+            Ok((
+                table_has_column(conn, "workspace_settings", "repo_monitor_enabled")?,
+                table_has_column(
+                    conn,
+                    "workspace_settings",
+                    "repo_monitor_include_dirs_json",
+                )?,
+                table_has_column(
+                    conn,
+                    "workspace_settings",
+                    "repo_monitor_exclude_dirs_json",
+                )?,
+                index_exists,
+            ))
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+
+    assert_eq!(migrated, (true, true, true, true));
 
     fs::remove_dir_all(root)?;
     Ok(())
