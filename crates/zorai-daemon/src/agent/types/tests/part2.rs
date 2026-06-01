@@ -3,8 +3,8 @@ use crate::agent::autonomy::AutonomyLevel;
 use crate::agent::config::load_config_from_items;
 use zorai_shared::providers::{
     PROVIDER_ID_ANTHROPIC, PROVIDER_ID_ARCEE, PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK,
-    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_HERMES_AGENT_API, PROVIDER_ID_NVIDIA,
-    PROVIDER_ID_OPENAI, PROVIDER_ID_XAI,
+    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_HERMES_AGENT_API, PROVIDER_ID_MINIMAX,
+    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_XAI,
 };
 
 #[test]
@@ -927,6 +927,28 @@ fn anthropic_provider_exposes_static_anthropic_defaults() {
         ),
         ApiType::Anthropic
     );
+}
+
+#[test]
+fn minimax_providers_expose_current_models_and_fetch_support() {
+    for provider_id in [PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN] {
+        let provider = get_provider_definition(provider_id).expect("minimax provider");
+        assert!(provider.supports_model_fetch);
+        assert_eq!(
+            provider.default_base_url,
+            "https://api.minimax.io/anthropic"
+        );
+        assert!(provider.models.iter().any(|model| model.id == "MiniMax-M3"));
+        assert!(provider
+            .models
+            .iter()
+            .any(|model| model.id == "MiniMax-M2.7-highspeed"));
+        assert!(provider
+            .models
+            .iter()
+            .any(|model| model.id == "MiniMax-M2.1-highspeed"));
+        assert!(provider.models.iter().any(|model| model.id == "MiniMax-M2"));
+    }
 }
 
 #[test]

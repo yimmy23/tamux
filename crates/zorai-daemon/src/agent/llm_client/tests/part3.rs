@@ -678,6 +678,65 @@ providers:
 }
 
 #[tokio::test]
+async fn minimax_model_fetch_uses_anthropic_v1_models_endpoint() {
+    let request = Arc::new(Mutex::new(String::new()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind minimax model fetch listener");
+    let addr = listener.local_addr().expect("listener addr");
+    let request_for_server = Arc::clone(&request);
+
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept request");
+        let mut buffer = [0_u8; 4096];
+        let read = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            tokio::io::AsyncReadExt::read(&mut stream, &mut buffer),
+        )
+        .await
+        .expect("read request timed out")
+        .expect("read request");
+        let raw_request = String::from_utf8_lossy(&buffer[..read]).to_string();
+        *request_for_server.lock().expect("lock minimax request") = raw_request.clone();
+        let request_line = raw_request.lines().next().unwrap_or_default();
+
+        let response = if request_line.contains("GET /anthropic/v1/models ") {
+            let body = r#"{"data":[{"id":"MiniMax-M3","display_name":"MiniMax-M3","type":"model"}],"has_more":false}"#;
+            format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+        } else {
+            "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_string()
+        };
+        tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+            .await
+            .expect("write response");
+    });
+
+    let models = fetch_models(
+        zorai_shared::providers::PROVIDER_ID_MINIMAX,
+        &format!("http://{addr}/anthropic"),
+        "minimax-key",
+        None,
+    )
+    .await
+    .expect("minimax model fetch should succeed");
+
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].id, "MiniMax-M3");
+    assert_eq!(models[0].name.as_deref(), Some("MiniMax-M3"));
+
+    server.await.expect("server task");
+    let raw_request = request.lock().expect("lock minimax request");
+    assert!(raw_request.starts_with("GET /anthropic/v1/models "));
+    assert!(raw_request
+        .lines()
+        .any(|line| line.eq_ignore_ascii_case("x-api-key: minimax-key")));
+}
+
+#[tokio::test]
 async fn fetch_models_preserves_remote_metadata_and_pricing() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await

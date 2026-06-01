@@ -94,6 +94,38 @@ describe("frontend xAI provider catalog", () => {
   });
 });
 
+describe("frontend MiniMax provider catalog", () => {
+  it("registers current MiniMax models with remote fetch support", () => {
+    for (const providerId of ["minimax", "minimax-coding-plan"] as const) {
+      const provider = getProviderDefinition(providerId);
+
+      expect(provider?.supportsModelFetch).toBe(true);
+      expect(provider?.models.map((model) => model.id)).toEqual([
+        "MiniMax-M3",
+        "MiniMax-M2.7",
+        "MiniMax-M2.7-highspeed",
+        "MiniMax-M2.5",
+        "MiniMax-M2.5-highspeed",
+        "MiniMax-M2.1",
+        "MiniMax-M2.1-highspeed",
+        "MiniMax-M2",
+      ]);
+      expect(getEffectiveContextWindow(providerId, {
+        model: "MiniMax-M3",
+        custom_model_name: "",
+        context_window_tokens: null,
+        auth_source: "api_key",
+      })).toBe(1_000_000);
+      expect(getEffectiveContextWindow(providerId, {
+        model: "MiniMax-M2.7",
+        custom_model_name: "",
+        context_window_tokens: null,
+        auth_source: "api_key",
+      })).toBe(204_800);
+    }
+  });
+});
+
 describe("frontend xAI audio/provider settings coverage", () => {
   it("flags only supported frontend audio providers as audio-capable", () => {
     expect(providerSupportsAudioTool("openai", "stt")).toBe(true);
