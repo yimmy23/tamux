@@ -340,6 +340,7 @@ pub enum DaemonCommand {
     },
     PluginList,
     PluginGet(String),
+    PluginInstallSource(String),
     PluginEnable(String),
     PluginDisable(String),
     PluginGetSettings(String),

@@ -210,6 +210,7 @@ impl TuiModel {
                 | "workspace-reviewer"
                 | "workspace-review"
                 | "attach"
+                | "plugins"
                 | "plugins install"
                 | "skills install"
                 | "guidelines install"
@@ -410,10 +411,16 @@ impl TuiModel {
                 self.status_line =
                     "Usage: /attach <path>  — attach a file to the next message".to_string();
             }
+            "plugins" => {
+                self.open_settings_tab(SettingsTab::Plugins);
+                self.status_line = "Opened plugin settings".to_string();
+            }
             "plugins install" => {
-                self.input.set_text("zorai install plugin ");
-                self.focus = FocusArea::Input;
-                self.status_line = "Edit the plugin source and run it in the terminal".to_string();
+                self.open_settings_tab(SettingsTab::Plugins);
+                self.plugin_settings.install_mode = true;
+                self.plugin_settings.install_source_buffer.clear();
+                self.plugin_settings.install_source_cursor = 0;
+                self.status_line = "Enter a plugin source to install".to_string();
             }
             "skills install" => {
                 self.input.set_text("zorai skill import ");

@@ -118,6 +118,68 @@ fn write_runtime_marker(message: &str) {
     }
 }
 
+fn zorai_cli_binary() -> PathBuf {
+    if let Ok(path) = std::env::var("ZORAI_CLI_PATH") {
+        return PathBuf::from(path);
+    }
+    let binary_name = if cfg!(windows) { "zorai.exe" } else { "zorai" };
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(parent) = current_exe.parent() {
+            let sibling = parent.join(binary_name);
+            if sibling.exists() {
+                return sibling;
+            }
+        }
+    }
+    PathBuf::from(binary_name)
+}
+
+fn plugin_install_output_message(
+    success: bool,
+    source: &str,
+    stdout: &[u8],
+    stderr: &[u8],
+) -> String {
+    let output = if success { stdout } else { stderr };
+    let text = String::from_utf8_lossy(output).trim().to_string();
+    if text.is_empty() {
+        if success {
+            format!("Plugin installed from {source}")
+        } else {
+            format!("Plugin installation failed for {source}")
+        }
+    } else {
+        text.lines().take(6).collect::<Vec<_>>().join("\n")
+    }
+}
+
+fn install_plugin_source_from_tui(
+    daemon_event_tx: mpsc::Sender<client::ClientEvent>,
+    source: String,
+) {
+    thread::spawn(move || {
+        let output = std::process::Command::new(zorai_cli_binary())
+            .args(["plugin", "add", source.as_str()])
+            .output();
+        let event = match output {
+            Ok(output) => client::ClientEvent::PluginAction {
+                success: output.status.success(),
+                message: plugin_install_output_message(
+                    output.status.success(),
+                    &source,
+                    &output.stdout,
+                    &output.stderr,
+                ),
+            },
+            Err(err) => client::ClientEvent::PluginAction {
+                success: false,
+                message: format!("Plugin installation failed: {err}"),
+            },
+        };
+        let _ = daemon_event_tx.send(event);
+    });
+}
+
 fn best_effort_restore_stdio_terminal() {
     let _ = disable_raw_mode();
     let mut stdout = io::stdout();
@@ -1133,6 +1195,9 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::PluginList => {
                                 let _ = client.plugin_list();
+                            }
+                            DaemonCommand::PluginInstallSource(source) => {
+                                install_plugin_source_from_tui(daemon_event_tx.clone(), source);
                             }
                             DaemonCommand::PluginGet(name) => {
                                 let _ = client.plugin_get(name);

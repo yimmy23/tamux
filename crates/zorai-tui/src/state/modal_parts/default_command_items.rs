@@ -95,6 +95,10 @@ pub(super) fn default_command_items() -> Vec<CommandItem> {
             description: "Attach a file to the message".into(),
         },
         CommandItem {
+            command: "plugins".into(),
+            description: "Open plugin settings".into(),
+        },
+        CommandItem {
             command: "plugins install".into(),
             description: "Seed plugin install command".into(),
         },

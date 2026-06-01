@@ -153,4 +153,5 @@ pub(super) struct SetupSummary {
     pub whatsapp_linked: bool,
     pub concierge: Option<String>,
     pub weles: Option<String>,
+    pub compaction: Option<String>,
 }

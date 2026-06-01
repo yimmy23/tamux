@@ -329,8 +329,8 @@ fn approval_center_keyboard_revokes_saved_rule() {
 }
 
 #[test]
-fn command_palette_plugins_install_seeds_terminal_command() {
-    let (mut model, _daemon_rx) = make_model();
+fn command_palette_plugins_install_opens_settings_install_prompt() {
+    let (mut model, mut daemon_rx) = make_model();
     model
         .modal
         .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
@@ -345,7 +345,111 @@ fn command_palette_plugins_install_seeds_terminal_command() {
     );
 
     assert!(!quit);
-    assert_eq!(model.input.buffer(), "zorai install plugin ");
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::Settings));
+    assert_eq!(model.settings.active_tab(), SettingsTab::Plugins);
+    assert!(model.plugin_settings.install_mode);
+    assert_eq!(model.input.buffer(), "");
+    assert!(
+        std::iter::from_fn(|| daemon_rx.try_recv().ok())
+            .any(|command| matches!(command, DaemonCommand::PluginList)),
+        "opening the plugin install prompt should refresh installed plugins"
+    );
+}
+
+#[test]
+fn command_palette_plugins_opens_plugin_settings_tab() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.input.set_text("keep me");
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::CommandPalette));
+    model
+        .modal
+        .reduce(modal::ModalAction::SetQuery("plugins".into()));
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::CommandPalette,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::Settings));
+    assert_eq!(model.settings.active_tab(), SettingsTab::Plugins);
+    assert_eq!(model.input.buffer(), "");
+    assert!(
+        std::iter::from_fn(|| daemon_rx.try_recv().ok())
+            .any(|command| matches!(command, DaemonCommand::PluginList)),
+        "opening the plugin settings tab should request installed plugins"
+    );
+}
+
+#[test]
+fn slash_plugins_opens_plugin_settings_tab() {
+    let (mut model, mut daemon_rx) = make_model();
+
+    assert!(model.execute_slash_command_line("/plugins"));
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::Settings));
+    assert_eq!(model.settings.active_tab(), SettingsTab::Plugins);
+    assert!(
+        std::iter::from_fn(|| daemon_rx.try_recv().ok())
+            .any(|command| matches!(command, DaemonCommand::PluginList)),
+        "/plugins should request installed plugins"
+    );
+}
+
+#[test]
+fn plugin_settings_install_shortcut_opens_install_prompt() {
+    let (mut model, _daemon_rx) = make_model();
+    model.open_settings_tab(SettingsTab::Plugins);
+
+    let quit = model.handle_key_modal(
+        KeyCode::Char('i'),
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::Settings));
+    assert!(model.plugin_settings.install_mode);
+    assert_eq!(model.input.buffer(), "");
+    assert_eq!(model.status_line, "Enter a plugin source to install");
+}
+
+#[test]
+fn plugin_settings_install_prompt_submits_source() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.open_settings_tab(SettingsTab::Plugins);
+    let _ = model.handle_key_modal(
+        KeyCode::Char('i'),
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+    for ch in "zorai-plugin-test".chars() {
+        let _ = model.handle_key_modal(
+            KeyCode::Char(ch),
+            KeyModifiers::NONE,
+            modal::ModalKind::Settings,
+        );
+    }
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert!(!model.plugin_settings.install_mode);
+    assert_eq!(model.plugin_settings.install_source_buffer, "");
+    assert!(model.plugin_settings.loading);
+    assert!(
+        std::iter::from_fn(|| daemon_rx.try_recv().ok()).any(
+            |command| matches!(command, DaemonCommand::PluginInstallSource(source) if source == "zorai-plugin-test")
+        ),
+        "install prompt should dispatch the entered plugin source"
+    );
 }
 
 #[test]
