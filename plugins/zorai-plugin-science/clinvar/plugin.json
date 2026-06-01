@@ -1,0 +1,49 @@
+{
+  "name": "clinvar",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "ClinVar — clinical significance, pathogenicity classifications (Pathogenic / Benign / VUS), clinical evidence rationales, and hard-positive benchmark controls for human genomic variants. Backed by NCBI E-utilities. Vendored from the google-deepmind/science-skills bundle.",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "settings": {
+    "NCBI_API_KEY": {
+      "type": "string",
+      "label": "NCBI API key (optional, raises E-utilities rate limit)",
+      "required": false,
+      "secret": true,
+      "description": "Without a key, NCBI E-utilities allows ~3 req/s. With one, the limit jumps to ~10 req/s. Get one at https://www.ncbi.nlm.nih.gov/account/settings/."
+    }
+  },
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "count": {
+      "description": "Get the total number of variants matching a ClinVar query without fetching IDs.",
+      "python": {
+        "command": "uv run scripts/clinvar_api.py count \"${CV_QUERY:?set CV_QUERY (e.g. \\\"BRCA1[gene] AND clinsig_pathogenic\\\"}\""
+      }
+    },
+    "search": {
+      "description": "Search for variants by gene, genomic coordinates, or clinical attributes. Returns a list of variant IDs.",
+      "python": {
+        "command": "uv run scripts/clinvar_api.py search \"${CV_QUERY:?set CV_QUERY}\" ${CV_RETMAX:+--retmax $CV_RETMAX}"
+      }
+    },
+    "summary": {
+      "description": "Get clinical significance, star rating, and phenotypes for one or more variant IDs (space-separated).",
+      "python": {
+        "command": "uv run scripts/clinvar_api.py summary ${CV_IDS:?set CV_IDS (space-separated variant IDs)}"
+      }
+    },
+    "evidence": {
+      "description": "Fetch the full clinical evidence record for a single variant — review status, assertions, citations, conditions.",
+      "python": {
+        "command": "uv run scripts/clinvar_api.py evidence ${CV_VARIANT_ID:?set CV_VARIANT_ID}"
+      }
+    }
+  },
+  "skills": ["skills/clinvar.md"]
+}

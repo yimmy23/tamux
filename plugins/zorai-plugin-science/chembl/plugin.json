@@ -1,0 +1,82 @@
+{
+  "name": "chembl",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "ChEMBL — bioactive molecules, drug targets, bioactivity data, approved drugs, and chemical structures. Backed by the public ChEMBL REST API (https://www.ebi.ac.uk/chembl/api/data/). Vendored from the google-deepmind/science-skills bundle.",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "status": {
+      "description": "Check ChEMBL API status and version.",
+      "python": {
+        "command": "uv run scripts/chembl_api.py status --output \"${CH_OUTPUT:-chembl_status.json}\""
+      }
+    },
+    "molecule": {
+      "description": "Query the molecule endpoint. Search by SMILES / ChEMBL ID / InChIKey, or fetch a single molecule by --id.",
+      "python": {
+        "command": "uv run scripts/chembl_api.py molecule ${CH_ID:+--id $CH_ID} ${CH_SMILES:+--smiles $CH_SMILES} ${CH_SEARCH:+--search $CH_SEARCH} ${CH_LIMIT:+--limit $CH_LIMIT} ${CH_OFFSET:+--offset $CH_OFFSET} ${CH_FORMAT:+--format $CH_FORMAT} ${CH_DL_FORMAT:+--dl_format $CH_DL_FORMAT}"
+      }
+    },
+    "target": {
+      "description": "Query the target endpoint (proteins, nucleic acids, complexes annotated with bioactivity data).",
+      "python": {
+        "command": "uv run scripts/chembl_api.py target ${CH_ID:+--id $CH_ID} ${CH_SEARCH:+--search $CH_SEARCH} ${CH_LIMIT:+--limit $CH_LIMIT} ${CH_OFFSET:+--offset $CH_OFFSET} ${CH_FORMAT:+--format $CH_FORMAT}"
+      }
+    },
+    "activity": {
+      "description": "Query the activity endpoint. Returns IC50 / Ki / etc. for (compound, target) pairs. Use --normalize to convert to nM.",
+      "python": {
+        "command": "uv run scripts/chembl_api.py activity ${CH_ID:+--id $CH_ID} ${CH_MOLECULE:+--molecule $CH_MOLECULE} ${CH_TARGET:+--target $CH_TARGET} ${CH_LIMIT:+--limit $CH_LIMIT} ${CH_OFFSET:+--offset $CH_OFFSET} ${CH_FORMAT:+--format $CH_FORMAT} ${CH_NORMALIZE:+--normalize}"
+      }
+    },
+    "assay": {
+      "description": "Query the assay endpoint (experimental protocols that produced bioactivity measurements).",
+      "python": {
+        "command": "uv run scripts/chembl_api.py assay ${CH_ID:+--id $CH_ID} ${CH_SEARCH:+--search $CH_SEARCH} ${CH_LIMIT:+--limit $CH_LIMIT} ${CH_FORMAT:+--format $CH_FORMAT}"
+      }
+    },
+    "drug": {
+      "description": "Query the drug endpoint (approved drugs with mechanism, indication, and trade names).",
+      "python": {
+        "command": "uv run scripts/chembl_api.py drug ${CH_ID:+--id $CH_ID} ${CH_SEARCH:+--search $CH_SEARCH} ${CH_LIMIT:+--limit $CH_LIMIT} ${CH_FORMAT:+--format $CH_FORMAT}"
+      }
+    },
+    "mechanism": {
+      "description": "Query the mechanism endpoint (drug → target → action type → mechanism-of-action).",
+      "python": {
+        "command": "uv run scripts/chembl_api.py mechanism ${CH_ID:+--id $CH_ID} ${CH_SEARCH:+--search $CH_SEARCH} ${CH_LIMIT:+--limit $CH_LIMIT} ${CH_FORMAT:+--format $CH_FORMAT}"
+      }
+    },
+    "similarity": {
+      "description": "Server-side similarity search. Returns molecules with Tanimoto >= the threshold (default 0.7) to the query SMILES.",
+      "python": {
+        "command": "uv run scripts/chembl_api.py similarity --smiles \"${CH_SMILES:?set CH_SMILES}\" ${CH_THRESHOLD:+--threshold $CH_THRESHOLD} ${CH_LIMIT:+--limit $CH_LIMIT} ${CH_FORMAT:+--format $CH_FORMAT}"
+      }
+    },
+    "substructure": {
+      "description": "Server-side substructure search. Returns molecules containing the query SMILES as a substructure.",
+      "python": {
+        "command": "uv run scripts/chembl_api.py substructure --smiles \"${CH_SMILES:?set CH_SMILES}\" ${CH_LIMIT:+--limit $CH_LIMIT} ${CH_FORMAT:+--format $CH_FORMAT}"
+      }
+    },
+    "image": {
+      "description": "Download a compound image (SVG by default, or PNG) for a given ChEMBL molecule ID.",
+      "python": {
+        "command": "uv run scripts/chembl_api.py image ${CH_ID:?set CH_ID (ChEMBL molecule ID like CHEMBL25)} ${CH_FORMAT:+--format $CH_FORMAT} ${CH_OUTPUT:+--output $CH_OUTPUT}"
+      }
+    },
+    "run": {
+      "description": "Generic catch-all: forward an arbitrary chembl_api.py subcommand. Use this for endpoints not exposed as named commands (assay_class, atc_class, binding_site, biotherapeutic, cell_line, chembl_id_lookup, chembl_release, compound_record, compound_structural_alert, document, document_similarity, drug_indication, drug_warning, go_slim, metabolism, molecule_form, organism, protein_classification, source, target_component, target_relation, tissue, xref_source). Required env: CH_SUBCOMMAND. Other args pass through to the script's flag parser.",
+      "python": {
+        "command": "uv run scripts/chembl_api.py \"${CH_SUBCOMMAND:?set CH_SUBCOMMAND}\" ${CH_ID:+--id $CH_ID} ${CH_SEARCH:+--search $CH_SEARCH} ${CH_SMILES:+--smiles $CH_SMILES} ${CH_LIMIT:+--limit $CH_LIMIT} ${CH_OFFSET:+--offset $CH_OFFSET} ${CH_FORMAT:+--format $CH_FORMAT} ${CH_DL_FORMAT:+--dl_format $CH_DL_FORMAT} ${CH_NORMALIZE:+--normalize}"
+      }
+    }
+  },
+  "skills": ["skills/chembl.md"]
+}

@@ -1,0 +1,14 @@
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Test infrastructure (do NOT ship these in the installed plugin — the
+# zorai plugin installer copies this directory verbatim, and a 50+ MB
+# venv plus test caches would bloat every install).
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+_test_pkgs/

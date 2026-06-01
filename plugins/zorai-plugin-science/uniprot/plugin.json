@@ -1,0 +1,52 @@
+{
+  "name": "uniprot",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "UniProt — protein metadata, function, taxonomy, and sequences across UniProtKB, UniParc, and UniRef. Search, get entries, map IDs between databases, run SPARQL queries, stream bulk results. Vendored from the google-deepmind/science-skills bundle.",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "search": {
+      "description": "Search proteins in a UniProt dataset (UniProtKB / UniParc / UniRef) with automatic pagination.",
+      "python": {
+        "command": "uv run scripts/uniprot_tools.py search \"${UP_QUERY:?set UP_QUERY}\" ${UP_DATASET:+--dataset $UP_DATASET} ${UP_LIMIT:+--limit $UP_LIMIT} ${UP_FIELDS:+--fields $UP_FIELDS} ${UP_FORMAT:+--format $UP_FORMAT}"
+      }
+    },
+    "get": {
+      "description": "Retrieve a single UniProt entry by accession (e.g. P04637).",
+      "python": {
+        "command": "uv run scripts/uniprot_tools.py get \"${UP_ACCESSION:?set UP_ACCESSION}\" ${UP_DATASET:+--dataset $UP_DATASET} ${UP_FORMAT:+--format $UP_FORMAT}"
+      }
+    },
+    "map": {
+      "description": "Map IDs between databases (e.g. RefSeq -> UniProt, Ensembl -> UniProt). Polls the job until completion.",
+      "python": {
+        "command": "uv run scripts/uniprot_tools.py map \"${UP_IDS:?set UP_IDS (comma-separated)}\" --from_db \"${UP_FROM_DB:?set UP_FROM_DB}\" --to_db \"${UP_TO_DB:?set UP_TO_DB}\""
+      }
+    },
+    "count": {
+      "description": "Count the number of hits for a query without retrieving the records.",
+      "python": {
+        "command": "uv run scripts/uniprot_tools.py count \"${UP_QUERY:?set UP_QUERY}\" ${UP_DATASET:+--dataset $UP_DATASET}"
+      }
+    },
+    "sparql": {
+      "description": "Execute a SPARQL query against the UniProt endpoint.",
+      "python": {
+        "command": "uv run scripts/uniprot_tools.py sparql \"${UP_SPARQL:?set UP_SPARQL (full SPARQL query string)}\""
+      }
+    },
+    "stream": {
+      "description": "Stream ALL results for a bulk query using the /stream endpoint (up to 10M entries, no limit). Use with care — large output.",
+      "python": {
+        "command": "uv run scripts/uniprot_tools.py stream \"${UP_QUERY:?set UP_QUERY}\" ${UP_DATASET:+--dataset $UP_DATASET}"
+      }
+    }
+  },
+  "skills": ["skills/uniprot.md"]
+}

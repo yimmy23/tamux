@@ -1,0 +1,61 @@
+{
+  "name": "openalex",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "OpenAlex scholarly database — query research papers (works), authors, institutions, topics, sources, publishers, funders, keywords, and more. DOI lookup, citation graphs, OA-PDF download, bibliometrics. Vendored from the google-deepmind/science-skills bundle.",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "settings": {
+    "OPENALEX_API_KEY": {
+      "type": "string",
+      "label": "OpenAlex API key (optional, raises rate limit)",
+      "required": false,
+      "secret": true,
+      "description": "Optional. Get one at https://openalex.org/. Without a key, requests are anonymous and rate-limited to ~10 req/s. With one, the limit is higher and the polite-pool header is set. Loaded by the script via dotenv from ~/.env."
+    }
+  },
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "rate-limit": {
+      "description": "Check current OpenAlex rate-limit status (polls the rate-limit endpoint; reports remaining / reset).",
+      "python": {
+        "command": "uv run scripts/openalex_cli.py rate-limit"
+      }
+    },
+    "resolve": {
+      "description": "Resolve an entity name to its OpenAlex ID. Entity types: works, authors, sources, institutions, topics, domains, fields, subfields, sdgs, countries, continents, languages, keywords, publishers, funders.",
+      "python": {
+        "command": "uv run scripts/openalex_cli.py resolve \"${OA_ENTITY_TYPE:?set OA_ENTITY_TYPE}\" \"${OA_QUERY:?set OA_QUERY}\" ${OA_PER_PAGE:+--per-page $OA_PER_PAGE}"
+      }
+    },
+    "get": {
+      "description": "Get a single entity by its OpenAlex ID (e.g. W2741809807 for a work, A123 for an author).",
+      "python": {
+        "command": "uv run scripts/openalex_cli.py get \"${OA_ENTITY_TYPE:?set OA_ENTITY_TYPE}\" \"${OA_ID:?set OA_ID}\" ${OA_SELECT:+--select $OA_SELECT}"
+      }
+    },
+    "filter": {
+      "description": "Filter and search entities. Most common: works with --search, --filter, --sort, --group-by, --per-page.",
+      "python": {
+        "command": "uv run scripts/openalex_cli.py filter \"${OA_ENTITY_TYPE:?set OA_ENTITY_TYPE}\" ${OA_SEARCH:+--search $OA_SEARCH} ${OA_FILTER:+--filter $OA_FILTER} ${OA_SORT:+--sort $OA_SORT} ${OA_GROUP_BY:+--group-by $OA_GROUP_BY} ${OA_PER_PAGE:+--per-page $OA_PER_PAGE} ${OA_PAGE:+--page $OA_PAGE} ${OA_SELECT:+--select $OA_SELECT}"
+      }
+    },
+    "download-pdf": {
+      "description": "⚠ COSTS $0.01 PER REQUEST. Download the OA-PDF for a work to the given output path. Confirm with the user before invoking in bulk.",
+      "python": {
+        "command": "uv run scripts/openalex_cli.py download-pdf \"${OA_ID:?set OA_ID (OpenAlex Work ID, e.g. W2741809807)}\" \"${OA_OUTPUT:?set OA_OUTPUT (output file path, e.g. paper.pdf)}\""
+      }
+    },
+    "run": {
+      "description": "Generic catch-all: forward an arbitrary openalex_cli.py invocation. Use for any of the 5 subcommands not explicitly named (currently all 5 are exposed as named commands, so this is mostly for forward-compat and full-arg-passing).",
+      "python": {
+        "command": "uv run scripts/openalex_cli.py \"${OA_SUBCOMMAND:?set OA_SUBCOMMAND}\" ${OA_ENTITY_TYPE:+--entity-type $OA_ENTITY_TYPE} ${OA_ID:+--id $OA_ID} ${OA_QUERY:+--query $OA_QUERY} ${OA_SEARCH:+--search $OA_SEARCH} ${OA_FILTER:+--filter $OA_FILTER} ${OA_SORT:+--sort $OA_SORT} ${OA_GROUP_BY:+--group-by $OA_GROUP_BY} ${OA_PER_PAGE:+--per-page $OA_PER_PAGE} ${OA_PAGE:+--page $OA_PAGE} ${OA_SELECT:+--select $OA_SELECT} ${OA_OUTPUT:+--output $OA_OUTPUT}"
+      }
+    }
+  },
+  "skills": ["skills/openalex.md"]
+}

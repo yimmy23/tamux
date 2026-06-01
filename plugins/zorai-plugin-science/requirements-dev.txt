@@ -1,0 +1,21 @@
+# Test-only dependencies for zorai-plugin-science.
+#
+# Runtime: the deepmind scripts' PEP 723 blocks are resolved at `uv run`
+# time, so a test venv does NOT need alphagenome, duckdb, pyarrow, etc.
+# installed ahead of time. Tests only need pytest + a Python that can
+# import the vendored scienceskillscommon (pure-stdlib, no extras).
+#
+# Install into a venv before running tests:
+#   cd plugins/zorai-plugin-science
+#   python3 -m venv .venv
+#   .venv/bin/pip install -r requirements-dev.txt
+#   .venv/bin/pytest tests/ -v
+#
+# Delete .venv/ before running `zorai plugin add` — the installer
+# copies the plugin directory verbatim and a venv bloats the install.
+
+pytest>=8.0
+# deepmind scripts declare these as PEP 723 deps; they're installed
+# automatically by `uv run` at runtime but the offline test venv needs
+# them pre-installed because the test venv doesn't go through `uv run`.
+python-dotenv>=1.0
