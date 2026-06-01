@@ -4,8 +4,8 @@ use zorai_shared::providers::{
     MINIMAX_PROVIDER, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_ANTHROPIC, PROVIDER_ID_ARCEE,
     PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK, PROVIDER_ID_GITHUB_COPILOT,
     PROVIDER_ID_HERMES_AGENT_API, PROVIDER_ID_KIMI, PROVIDER_ID_KIMI_CODING_PLAN,
-    PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_XAI, PROVIDER_ID_Z_AI,
-    PROVIDER_ID_Z_AI_CODING_PLAN, QWEN_PROVIDER,
+    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_XAI,
+    PROVIDER_ID_Z_AI, PROVIDER_ID_Z_AI_CODING_PLAN, QWEN_PROVIDER,
 };
 
 #[test]
@@ -148,6 +148,30 @@ fn xai_static_catalog_uses_current_grok_defaults() {
     );
     assert!(models.iter().any(|model| model.id == "grok-4"));
     assert!(models.iter().any(|model| model.id == "grok-code-fast-1"));
+}
+
+#[test]
+fn minimax_static_catalog_uses_current_models_and_fetch_support() {
+    for provider_id in [MINIMAX_PROVIDER.id, PROVIDER_ID_MINIMAX_CODING_PLAN] {
+        assert!(supports_model_fetch_for(provider_id));
+        let models = known_models_for_provider(provider_id);
+        assert!(models.iter().any(|model| model.id == "MiniMax-M3"));
+        assert!(models
+            .iter()
+            .any(|model| model.id == "MiniMax-M2.7-highspeed"));
+        assert!(models
+            .iter()
+            .any(|model| model.id == "MiniMax-M2.1-highspeed"));
+        assert!(models.iter().any(|model| model.id == "MiniMax-M2"));
+        assert_eq!(
+            known_context_window_for(provider_id, "MiniMax-M3"),
+            Some(1_000_000)
+        );
+        assert_eq!(
+            known_context_window_for(provider_id, "MiniMax-M2.7"),
+            Some(204_800)
+        );
+    }
 }
 
 #[test]

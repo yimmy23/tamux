@@ -260,27 +260,51 @@ pub const KIMI_CODING_MODELS: &[ModelDefinition] = &[
 
 pub const MINIMAX_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
+        id: "MiniMax-M3",
+        name: "MiniMax M3",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
         id: "MiniMax-M2.7",
         name: "MiniMax M2.7",
-        context_window: 205000,
+        context_window: 204_800,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "MiniMax-M2.7-highspeed",
+        name: "MiniMax M2.7 Highspeed",
+        context_window: 204_800,
         modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "MiniMax-M2.5",
         name: "MiniMax M2.5",
-        context_window: 205000,
+        context_window: 204_800,
         modalities: TEXT_ONLY,
     },
     ModelDefinition {
         id: "MiniMax-M2.5-highspeed",
-        name: "MiniMax M2.5 High Speed",
-        context_window: 205000,
+        name: "MiniMax M2.5 Highspeed",
+        context_window: 204_800,
         modalities: TEXT_ONLY,
     },
     ModelDefinition {
-        id: "MiniMax-M1-80k",
-        name: "MiniMax M1 80K",
-        context_window: 80000,
+        id: "MiniMax-M2.1",
+        name: "MiniMax M2.1",
+        context_window: 204_800,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "MiniMax-M2.1-highspeed",
+        name: "MiniMax M2.1 Highspeed",
+        context_window: 204_800,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "MiniMax-M2",
+        name: "MiniMax M2",
+        context_window: 204_800,
         modalities: TEXT_ONLY,
     },
 ];

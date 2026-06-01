@@ -293,7 +293,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         id: PROVIDER_ID_MINIMAX,
         name: "MiniMax",
         default_base_url: "https://api.minimax.io/anthropic",
-        default_model: "MiniMax-M2.7",
+        default_model: "MiniMax-M3",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
         supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
@@ -304,7 +304,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         id: PROVIDER_ID_MINIMAX_CODING_PLAN,
         name: "MiniMax Coding Plan",
         default_base_url: "https://api.minimax.io/anthropic",
-        default_model: "MiniMax-M2.7",
+        default_model: "MiniMax-M3",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
         supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
@@ -478,8 +478,6 @@ pub fn supports_model_fetch_for(provider: &str) -> bool {
             | PROVIDER_ID_Z_AI
             | PROVIDER_ID_Z_AI_CODING_PLAN
             | PROVIDER_ID_HUGGINGFACE
-            | PROVIDER_ID_MINIMAX
-            | PROVIDER_ID_MINIMAX_CODING_PLAN
             | PROVIDER_ID_ANTHROPIC
             | PROVIDER_ID_ALIBABA_CODING_PLAN
             | PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN

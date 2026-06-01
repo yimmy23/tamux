@@ -137,6 +137,7 @@ pub(crate) fn parse_fetched_models_response(json: &serde_json::Value) -> Vec<Fet
                     let id = m.get("id")?.as_str()?.to_string();
                     let name = m
                         .get("name")
+                        .or_else(|| m.get("display_name"))
                         .and_then(|n| n.as_str())
                         .map(|s| s.to_string());
 
@@ -205,7 +206,12 @@ pub async fn fetch_models(
     }
 
     let client = reqwest::Client::new();
-    let mut url = format!("{}/models", base_url.trim_end_matches('/'));
+    let trimmed_base_url = base_url.trim_end_matches('/');
+    let mut url = if def.api_type == ApiType::Anthropic && !trimmed_base_url.ends_with("/v1") {
+        format!("{trimmed_base_url}/v1/models")
+    } else {
+        format!("{trimmed_base_url}/models")
+    };
     if provider_id == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
         if let Some(output_modalities) = output_modalities
             .map(str::trim)
@@ -213,7 +219,7 @@ pub async fn fetch_models(
         {
             let normalized = output_modalities.to_ascii_lowercase();
             if normalized == "embedding" || normalized == "embeddings" {
-                url = format!("{}/embeddings/models", base_url.trim_end_matches('/'));
+                url = format!("{trimmed_base_url}/embeddings/models");
             } else {
                 url.push_str("?output_modalities=");
                 url.push_str(output_modalities);
@@ -225,7 +231,8 @@ pub async fn fetch_models(
         if include_auth && !api_key.is_empty() {
             req = def.auth_method.apply(req, api_key);
         }
-        apply_openrouter_attribution_headers(req, provider_id)
+        let req = apply_openrouter_attribution_headers(req, provider_id);
+        apply_dashscope_coding_plan_sdk_headers(req, provider_id, trimmed_base_url, def.api_type)
     };
 
     let mut response = send_request(true).send().await?;
@@ -489,5 +496,22 @@ mod helper_tests {
 
         assert_eq!(models[2].id, "grok-overflow");
         assert_eq!(models[2].context_window, None);
+    }
+
+    #[test]
+    fn parse_fetched_models_response_uses_display_name_when_name_is_absent() {
+        let json = serde_json::json!({
+            "data": [{
+                "id": "MiniMax-M3",
+                "display_name": "MiniMax-M3",
+                "type": "model"
+            }]
+        });
+
+        let models = parse_fetched_models_response(&json);
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "MiniMax-M3");
+        assert_eq!(models[0].name.as_deref(), Some("MiniMax-M3"));
     }
 }
