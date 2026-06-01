@@ -25,6 +25,8 @@ SUBPLUGINS = [
     "ensembl",
     "reactome",
     "gnomad",
+    "pdb-database",
+    "ncbi-sequence-fetch",
     # Long-tail sub-plugins (stub plugin.json with a single `run` command).
     "clinical-trials-database",
     "dbsnp-database",
@@ -46,6 +48,7 @@ SUBPLUGINS = [
     "protein-sequence-similarity-search",
     "pubchem-database",
     "pubmed-database",
+    "ncbi-sequence-fetch",
     "pymol",  # binary, no Python script; stub has empty commands
     "quickgo-database",
     "string-database",

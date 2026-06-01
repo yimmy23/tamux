@@ -2,8 +2,8 @@
 
 First-class zorai integration for the
 [google-deepmind/science-skills](https://github.com/google-deepmind/science-skills)
-bundle (vendored in-repo at `skills/scientific-skills-gdm/`). Ships **9
-full sub-plugins** and **25 long-tail stub sub-plugins** from one npm
+bundle (vendored in-repo at `skills/scientific-skills-gdm/`). Ships **11
+full sub-plugins** and **23 long-tail stub sub-plugins** from one npm
 package.
 
 ## Full sub-plugins (hand-written, offline-mock-tested)
@@ -19,6 +19,8 @@ package.
 | `ensembl` | Python (uv) | none | Gene/transcript/protein ID resolution, cross-references, sequence retrieval, gene structure, Variant Effect Predictor (VEP). The primary ID translator in genomics. |
 | `reactome` | Python (uv) | none | Pathway analysis, gene list enrichment, reaction participants, pathway hierarchy, diagram export, knowledgebase search. |
 | `gnomad` | Python (uv) | none | Allele frequencies (pLoF, missense), gene constraint (pLI, LOEUF), variant search by gene/region. Strict 10 req/min rate limit. |
+| `pdb-database` | Python (uv) | none | RCSB Protein Data Bank — search, sequence/structure/chemical similarity, download coordinate files (mmCIF/PDB), GraphQL metadata. Pairs with `alphafold-database` (predicted vs experimental). |
+| `ncbi-sequence-fetch` | Python (uv) | optional `NCBI_API_KEY` (raises E-utilities rate limit 3→10 req/s) | NCBI E-utilities — fetch protein/nucleotide by accession, gene+organism search, CDS→protein translation, cross-database linking. The central sequence-retrieval tool. |
 
 ## Long-tail stub sub-plugins (auto-generated, AST-tested only)
 
@@ -96,7 +98,7 @@ Only `alphagenome` and (optionally) `clinvar` and `openalex` need API keys:
   you as anonymous. With a key, you get a higher rate limit and the polite-
   pool header is set. Sign up at <https://openalex.org/>.
 
-The remaining six full sub-plugins (`alphafold-database`, `uniprot`, `chembl`, `ensembl`, `reactome`, `gnomad`)
+The remaining seven full sub-plugins (`alphafold-database`, `uniprot`, `chembl`, `ensembl`, `reactome`, `gnomad`, `pdb-database`)
 hit public anonymous endpoints. Most stub sub-plugins also hit anonymous endpoints; check each
 deepmind `SKILL.md` for the per-skill auth requirements.
 

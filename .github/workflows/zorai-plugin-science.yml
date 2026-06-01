@@ -37,7 +37,7 @@ env:
   #   - long-tail stubs (many have heavy deps: foldseek, pymol, mmseqs2,
   #     pdb download tools, etc. — verified by file-exists check below)
   FULL_SUBPLUGINS: >-
-    alphagenome-skipped
+    alphagenome_skipped
     alphafold-database
     uniprot
     clinvar
@@ -46,6 +46,8 @@ env:
     ensembl
     reactome
     gnomad
+    pdb-database
+    ncbi-sequence-fetch
   # Sub-plugins whose scripts are checked for file existence + AST parse,
   # but not run (heavy deps that would fail in CI).
   LONGTAIL_SUBPLUGINS: >-
@@ -58,13 +60,11 @@ env:
     human-protein-atlas-database
     interpro-database
     jaspar-database
-    literature-search-arxiv
-    literature-search-biorxiv
-    literature-search-europepmc
-    ncbi-sequence-fetch
+    literatura-search-arxiv
+    literatura-search-biorxiv
+    literatura-search-europepmc
     openfda-database
     opentargets-database
-    pdb-database
     protein-sequence-msa
     protein-sequence-similarity-search
     pubchem-database
@@ -85,6 +85,8 @@ env:
     ensembl
     reactome
     gnomad
+    pdb-database
+    ncbi-sequence-fetch
 
 permissions:
   contents: read

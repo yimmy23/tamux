@@ -53,6 +53,8 @@ SUBPLUGIN_SCRIPTS: dict[str, Path] = {
     "ensembl": PLUGIN_DIR / "ensembl" / "scripts",
     "reactome": PLUGIN_DIR / "reactome" / "scripts",
     "gnomad": PLUGIN_DIR / "gnomad" / "scripts",
+    "pdb-database": PLUGIN_DIR / "pdb-database" / "scripts",
+    "ncbi-sequence-fetch": PLUGIN_DIR / "ncbi-sequence-fetch" / "scripts",
     # Long-tail sub-plugins (stub plugin.json with a single `run` command).
     "clinical-trials-database":     PLUGIN_DIR / "clinical-trials-database" / "scripts",
     "dbsnp-database":               PLUGIN_DIR / "dbsnp-database" / "scripts",

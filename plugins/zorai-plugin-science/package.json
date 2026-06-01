@@ -1,7 +1,7 @@
 {
   "name": "zorai-plugin-science",
   "version": "1.0.0",
-  "description": "Zorai integration for the google-deepmind/science-skills bundle — typed API keys, settings UI, and structured command surfaces for the nine heavy-hitter sub-plugins and 25 long-tail stubs (AlphaGenome, AlphaFold DB, UniProt, ClinVar, ChEMBL, OpenAlex, Ensembl, Reactome, gnomAD (full) + 25 long-tail stubs). All other skills in the bundle are accessible via the vendored skills/scientific-skills-gdm/ tree.",
+  "description": "Zorai integration for the google-deepmind/science-skills bundle — typed API keys, settings UI, and structured command surfaces for the eleven heavy-hitter sub-plugins and 23 long-tail stubs (AlphaGenome, AlphaFold DB, UniProt, ClinVar, ChEMBL, OpenAlex, Ensembl, Reactome, gnomAD, PDB, NCBI E-utilities (full) + 23 long-tail stubs). All other skills in the bundle are accessible via the vendored skills/scientific-skills-gdm/ tree.",
   "author": "zorai",
   "license": "MIT",
   "keywords": [

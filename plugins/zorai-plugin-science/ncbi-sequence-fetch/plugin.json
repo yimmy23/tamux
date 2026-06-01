@@ -2,23 +2,72 @@
   "name": "ncbi-sequence-fetch",
   "version": "1.0.0",
   "schema_version": 1,
-  "description": "Long-tail stub for the ncbi_sequence_fetch deepmind skill. Retrieve protein and nucleotide sequences from NCBI databases using E-utilities. Supports direct accession lookup, CDS translation, gene+organism search, locus lookup, PubMed-linked sequences, patent protein extraction, and organism+length fallback search. Use when you need to fe",
+  "description": "NCBI E-utilities — fetch protein and nucleotide sequences by accession, gene name, locus tag, PubMed ID, or patent number. Translate CDS to protein, search any NCBI database, follow cross-database links. The central sequence-retrieval tool; pairs with clinvar, pubmed, uniprot, ensembl. Backed by the public NCBI E-utilities (https://eutils.ncbi.nlm.nih.gov/) — no auth required but optional NCBI_API_KEY raises the rate limit from 3 to 10 req/s. Vendored from the google-deepmind/science-skills bundle.",
   "author": "zorai",
   "license": "MIT",
   "zorai_version": ">=2.0.0",
+  "settings": {
+    "NCBI_API_KEY": {
+      "type": "string",
+      "label": "NCBI API key (optional, raises E-utilities rate limit)",
+      "required": false,
+      "secret": true,
+      "description": "Optional. Get one at https://www.ncbi.nlm.nih.gov/account/settings/. Without a key, NCBI E-utilities limits to ~3 req/s. With one, the limit is ~10 req/s. Loaded by the script via dotenv from ~/.env."
+    }
+  },
   "python": {
     "env": false,
     "dependencies": []
   },
   "commands": {
-    "run": {
-      "description": "Forward a ncbi_sequence_fetch CLI invocation. Calls `uv run scripts/ncbi_fetch.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `NCBI_SEQUENCE_FETCH_ARGS` (the deepmind subcommand plus its flags).",
+    "fetch-protein": {
+      "description": "Fetch protein sequence(s) by one or more NCBI protein accessions (e.g. NP_000537, P04637). Writes FASTA to --output.",
       "python": {
-        "command": "uv run scripts/ncbi_fetch.py ${NCBI_SEQUENCE_FETCH_ARGS:?set NCBI_SEQUENCE_FETCH_ARGS}"
+        "command": "uv run scripts/ncbi_fetch.py fetch-protein ${NCBI_ACCESSION:?set NCBI_ACCESSION (one or more protein accessions, space-separated)} --output \"${NCBI_OUTPUT:?set NCBI_OUTPUT}\""
+      }
+    },
+    "fetch-nucleotide": {
+      "description": "Fetch nucleotide sequence(s) by one or more NCBI nucleotide accessions (e.g. NM_000546, NC_000017). Writes FASTA to --output.",
+      "python": {
+        "command": "uv run scripts/ncbi_fetch.py fetch-nucleotide ${NCBI_ACCESSION:?set NCBI_ACCESSION} --output \"${NCBI_OUTPUT:?set NCBI_OUTPUT}\""
+      }
+    },
+    "cds-translate": {
+      "description": "Fetch a CDS (coding sequence) accession and translate to protein. Use to verify open reading frames or to get a protein from a nucleotide entry without a separate protein accession.",
+      "python": {
+        "command": "uv run scripts/ncbi_fetch.py cds-translate ${NCBI_CDS_ACCESSION:?set NCBI_CDS_ACCESSION} --output \"${NCBI_OUTPUT:?set NCBI_OUTPUT}\""
+      }
+    },
+    "search": {
+      "description": "Search any NCBI database (protein, nucleotide, gene, pubmed, omim, clinvar, etc.) by Entrez query. Returns matching IDs and total count.",
+      "python": {
+        "command": "uv run scripts/ncbi_fetch.py search \"${NCBI_QUERY:?set NCBI_QUERY (Entrez search query)}\" --database \"${NCBI_DATABASE:-protein}\" --retmax \"${NCBI_RETMAX:-20}\" --output \"${NCBI_OUTPUT:?set NCBI_OUTPUT}\""
+      }
+    },
+    "elink": {
+      "description": "Follow cross-database links from one NCBI database to another. E.g. get all protein accessions linked to a PubMed ID, or all gene IDs linked to a clinvar variation.",
+      "python": {
+        "command": "uv run scripts/ncbi_fetch.py elink \"${NCBI_ID:?set NCBI_ID (source ID)}\" --dbfrom \"${NCBI_DB_FROM:?set NCBI_DB_FROM (e.g. pubmed)}\" --db \"${NCBI_DB_TO:?set NCBI_DB_TO (e.g. protein)}\" --output \"${NCBI_OUTPUT:?set NCBI_OUTPUT}\""
+      }
+    },
+    "gene-protein": {
+      "description": "Search for a protein sequence by gene name + organism (e.g. TP53 + Homo sapiens). Useful when you have a gene symbol but not a direct accession.",
+      "python": {
+        "command": "uv run scripts/ncbi_fetch.py gene-protein --gene \"${NCBI_GENE:?set NCBI_GENE (gene symbol)}\" --organism \"${NCBI_ORGANISM:?set NCBI_ORGANISM (e.g. \\\"Homo sapiens\\\")}\" --output \"${NCBI_OUTPUT:?set NCBI_OUTPUT}\""
+      }
+    },
+    "locus-protein": {
+      "description": "Search for a protein sequence by locus tag. Use for microbial genetics workflows where you have a locus tag from a genome annotation.",
+      "python": {
+        "command": "uv run scripts/ncbi_fetch.py locus-protein --locus \"${NCBI_LOCUS:?set NCBI_LOCUS (locus tag)}\" --output \"${NCBI_OUTPUT:?set NCBI_OUTPUT}\""
+      }
+    },
+    "run": {
+      "description": "Generic catch-all: forward an arbitrary ncbi_fetch.py subcommand. Use for the 3 specialized subcommands not exposed as named (pubmed-proteins, patent-search, organism-length, plus forward-args to any of the named subcommands).",
+      "python": {
+        "command": "uv run scripts/ncbi_fetch.py \"${NCBI_SUBCOMMAND:?set NCBI_SUBCOMMAND}\" ${NCBI_ACCESSION:+--accession $NCBI_ACCESSION} ${NCBI_QUERY:+--query $NCBI_QUERY} ${NCBI_GENE:+--gene $NCBI_GENE} ${NCBI_ORGANISM:+--organism $NCBI_ORGANISM} ${NCBI_DATABASE:+--database $NCBI_DATABASE} ${NCBI_RETMAX:+--retmax $NCBI_RETMAX} ${NCBI_DB_FROM:+--dbfrom $NCBI_DB_FROM} ${NCBI_DB_TO:+--db $NCBI_DB_TO} --output \"${NCBI_OUTPUT:?set NCBI_OUTPUT}\""
       }
     }
   },
-  "skills": [
-    "skills/ncbi-sequence-fetch.md"
-  ]
+  "skills": ["skills/ncbi-sequence-fetch.md"]
 }

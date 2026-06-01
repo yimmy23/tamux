@@ -2,7 +2,7 @@
   "name": "pdb-database",
   "version": "1.0.0",
   "schema_version": 1,
-  "description": "Long-tail stub for the pdb_database deepmind skill. Use when you want to search for or download experimentally-determined 3D structures for biomolecules (proteins, nucleic acids, bound ligands). Supports searching by sequence similarity, structure similarity, chemical and other attributes. Also use to get metadata about biomolecul",
+  "description": "RCSB Protein Data Bank — search for and download experimentally-determined 3D biomolecular structures (proteins, nucleic acids, bound ligands). Supports structure search, sequence similarity, chemical search, and metadata fetch via the RCSB Data API. Pairs naturally with the alphafold-database sub-plugin (predicted vs experimental structures). Backed by the public RCSB APIs — no auth. Vendored from the google-deepmind/science-skills bundle.",
   "author": "zorai",
   "license": "MIT",
   "zorai_version": ">=2.0.0",
@@ -11,14 +11,30 @@
     "dependencies": []
   },
   "commands": {
-    "run": {
-      "description": "Forward a pdb_database CLI invocation. Calls `uv run scripts/download_coordinate_files.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `PDB_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+    "search": {
+      "description": "Search the PDB using the RCSB Search API v2. Supports full-text, sequence similarity, structure similarity, chemical similarity, and motif search.",
       "python": {
-        "command": "uv run scripts/download_coordinate_files.py ${PDB_DATABASE_ARGS:?set PDB_DATABASE_ARGS}"
+        "command": "uv run scripts/search_pdb.py --query \"${PDB_QUERY:?set PDB_QUERY (JSON search query)}\" --return_type \"${PDB_RETURN_TYPE:-entry}\" ${PDB_SORT_BY:+--sort_by $PDB_SORT_BY} ${PDB_SORT_DIRECTION:+--sort_direction $PDB_SORT_DIRECTION} ${PDB_PAGE_START:+--page_start $PDB_PAGE_START} ${PDB_ROWS:+--rows $PDB_ROWS} ${PDB_COUNT_ONLY:+--count-only} --output \"${PDB_OUTPUT:?set PDB_OUTPUT}\""
+      }
+    },
+    "fetch-metadata": {
+      "description": "Fetch PDB entry metadata via the RCSB Data API GraphQL endpoint. Use for rich per-entry details (resolution, R-factor, chains, ligands, citations).",
+      "python": {
+        "command": "uv run scripts/fetch_pdb_metadata.py --query \"${PDB_QUERY:?set PDB_QUERY (GraphQL query, e.g. entry id list)}\" --output \"${PDB_OUTPUT:?set PDB_OUTPUT}\""
+      }
+    },
+    "download-coordinates": {
+      "description": "Download coordinate files (mmCIF / PDB) for one or more PDB entries. Output is a directory of <ID>.cif / <ID>.pdb files.",
+      "python": {
+        "command": "uv run scripts/download_coordinate_files.py --ids \"${PDB_IDS:?set PDB_IDS (comma-separated PDB IDs, e.g. 1A2B,4HHB)}\" --format \"${PDB_FORMAT:-cif}\" --output_dir \"${PDB_OUTPUT_DIR:?set PDB_OUTPUT_DIR}\""
+      }
+    },
+    "fetch-schema": {
+      "description": "Fetch the RCSB Data API GraphQL schema (introspection). Use to discover available fields and types when building new search or metadata queries.",
+      "python": {
+        "command": "uv run scripts/fetch_schema.py --api \"${PDB_API:-data}\" ${PDB_TRUNCATE_DESC:+--truncate-description} ${PDB_TRUNCATE_ENUMS:+--truncate-enums} --output \"${PDB_OUTPUT:?set PDB_OUTPUT}\""
       }
     }
   },
-  "skills": [
-    "skills/pdb-database.md"
-  ]
+  "skills": ["skills/pdb-database.md"]
 }
