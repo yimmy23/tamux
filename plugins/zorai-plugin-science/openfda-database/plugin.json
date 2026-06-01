@@ -1,0 +1,24 @@
+{
+  "name": "openfda-database",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the openfda_database deepmind skill. Query, search, and download data from the openFDA API for drugs, devices, foods, tobacco, cosmetics, animal and veterinary products, substances, and transparency data. Use for FDA adverse events, recalls, labeling, approvals, shortages, 510(k) clearances, NDC lookups, and any FDA",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a openfda_database CLI invocation. Calls `uv run scripts/openfda_query.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `OPENFDA_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "uv run scripts/openfda_query.py ${OPENFDA_DATABASE_ARGS:?set OPENFDA_DATABASE_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/openfda-database.md"
+  ]
+}

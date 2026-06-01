@@ -1,0 +1,24 @@
+{
+  "name": "clinical-trials-database",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the clinical_trials_database deepmind skill. Query ClinicalTrials.gov via APIv2. Use when you want to search for trials by condition, drug, location, status, or phase; retrieve trial details by NCT ID; check eligibility/inclusion criteria; count trials across conditions or time periods; identify a sponsor's trial portfolio;",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a clinical_trials_database CLI invocation. Calls `uv run scripts/clinical_trials_api.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `CLINICAL_TRIALS_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "uv run scripts/clinical_trials_api.py ${CLINICAL_TRIALS_DATABASE_ARGS:?set CLINICAL_TRIALS_DATABASE_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/clinical-trials-database.md"
+  ]
+}

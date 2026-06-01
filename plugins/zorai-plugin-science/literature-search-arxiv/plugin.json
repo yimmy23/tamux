@@ -1,0 +1,24 @@
+{
+  "name": "literature-search-arxiv",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the literature_search_arxiv deepmind skill. Search for scientific papers, preprints, and publications on arXiv. Extract metadata, abstracts, and download full-text PDFs or HTML versions of papers. Use when the user asks to find research papers, literature, or specific arXiv IDs.",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a literature_search_arxiv CLI invocation. Calls `uv run scripts/download_paper.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `LITERATURE_SEARCH_ARXIV_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "uv run scripts/download_paper.py ${LITERATURE_SEARCH_ARXIV_ARGS:?set LITERATURE_SEARCH_ARXIV_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/literature-search-arxiv.md"
+  ]
+}

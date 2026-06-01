@@ -1,0 +1,24 @@
+{
+  "name": "literature-search-biorxiv",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the literature_search_biorxiv deepmind skill. Browse, filter, and download life sciences, biology, and medical preprints from bioRxiv and medRxiv. Supports fetching paper metadata by DOI, and browsing by date range with category and keyword filters. Keyword filtering is local, so date ranges MUST be narrow (1-4 weeks) with a",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a literature_search_biorxiv CLI invocation. Calls `uv run scripts/search_by_dates.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `LITERATURE_SEARCH_BIORXIV_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "uv run scripts/search_by_dates.py ${LITERATURE_SEARCH_BIORXIV_ARGS:?set LITERATURE_SEARCH_BIORXIV_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/literature-search-biorxiv.md"
+  ]
+}

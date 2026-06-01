@@ -1,0 +1,24 @@
+{
+  "name": "ncbi-sequence-fetch",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the ncbi_sequence_fetch deepmind skill. Retrieve protein and nucleotide sequences from NCBI databases using E-utilities. Supports direct accession lookup, CDS translation, gene+organism search, locus lookup, PubMed-linked sequences, patent protein extraction, and organism+length fallback search. Use when you need to fe",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a ncbi_sequence_fetch CLI invocation. Calls `uv run scripts/ncbi_fetch.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `NCBI_SEQUENCE_FETCH_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "uv run scripts/ncbi_fetch.py ${NCBI_SEQUENCE_FETCH_ARGS:?set NCBI_SEQUENCE_FETCH_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/ncbi-sequence-fetch.md"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "literature-search-europepmc",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the literature_search_europepmc deepmind skill. Search Europe PMC for scientific literature and download open-access full texts and PDFs. Retrieve full-text XML/plain text by PMCID, get citation lists and bibliography.",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a literature_search_europepmc CLI invocation. Calls `uv run scripts/europepmc_api.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `LITERATURE_SEARCH_EUROPEPMC_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "uv run scripts/europepmc_api.py ${LITERATURE_SEARCH_EUROPEPMC_ARGS:?set LITERATURE_SEARCH_EUROPEPMC_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/literature-search-europepmc.md"
+  ]
+}

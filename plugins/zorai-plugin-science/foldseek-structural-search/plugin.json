@@ -1,0 +1,24 @@
+{
+  "name": "foldseek-structural-search",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the foldseek_structural_search deepmind skill. Performs 3D structural searches of proteins against various databases (PDB, AlphaFold, CATH, MGnify, etc.) using the Foldseek API. Use ONLY when the user provides a physical 3D coordinate file (.cif, .mmcif, or .pdb) and wants to find structurally similar proteins. Do NOT use if ",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a foldseek_structural_search CLI invocation. Calls `uv run scripts/search.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `FOLDSEEK_STRUCTURAL_SEARCH_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "uv run scripts/search.py ${FOLDSEEK_STRUCTURAL_SEARCH_ARGS:?set FOLDSEEK_STRUCTURAL_SEARCH_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/foldseek-structural-search.md"
+  ]
+}

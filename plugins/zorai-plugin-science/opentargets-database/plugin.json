@@ -1,0 +1,24 @@
+{
+  "name": "opentargets-database",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the opentargets_database deepmind skill. Query Open Targets Platform for target-disease associations, drug target discovery, tractability/safety data, genetics/omics evidence, known drugs, for therapeutic target identification.",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": false,
+    "dependencies": []
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a opentargets_database CLI invocation. Calls `uv run scripts/query_opentargets.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `OPENTARGETS_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "uv run scripts/query_opentargets.py ${OPENTARGETS_DATABASE_ARGS:?set OPENTARGETS_DATABASE_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/opentargets-database.md"
+  ]
+}
