@@ -36,7 +36,7 @@ Relation types:
 #   "scienceskillscommon",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 import argparse

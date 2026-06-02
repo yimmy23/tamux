@@ -155,8 +155,7 @@ def _build_plugin_json(
     subcommand surface.
 
     `entry_script` is the canonical Python file the deepmind skill uses
-    for the bulk of its work. The agent can override with a different
-    script via the `SCRIPT` env var if needed.
+    for the bulk of its work.
     """
     return {
         "name": sub_name,
@@ -170,14 +169,14 @@ def _build_plugin_json(
         "license": "MIT",
         "zorai_version": ">=2.0.0",
         "python": {
-            "env": False,
-            "dependencies": [],
+            "env": True,
+            "dependencies": ["./scienceskillscommon"],
         },
         "commands": {
             "run": {
                 "description": (
                     f"Forward a {deepmind_name} CLI invocation. "
-                    f"Calls `uv run scripts/{entry_script}` with the deepmind "
+                    f"Calls `python scripts/{entry_script}` with the deepmind "
                     "subcommand and args you provide. Read "
                     "`skills/scientific-skills-gdm/<skill>/SKILL.md` "
                     "(relative to the repo root) for the canonical workflow "
@@ -187,7 +186,7 @@ def _build_plugin_json(
                 ),
                 "python": {
                     "command": (
-                        f"uv run scripts/{entry_script} ${{"
+                        f"python scripts/{entry_script} ${{"
                         f"{sub_name.upper().replace('-', '_')}_ARGS:?set "
                         f"{sub_name.upper().replace('-', '_')}_ARGS"
                         "}"
@@ -231,19 +230,15 @@ Python entry script (`scripts/{entry_script}`):
 
 ```bash
 {sub_name.upper().replace('-', '_')}_ARGS="<deepmind-subcommand-and-its-flags>" \\
-zorai plugin invoke {sub_name} run
+/{sub_name}.run
 ```
 
-Example (for `pubmed-database`):
+Example:
 
 ```bash
-PUBMED_DATABASE_ARGS="search --query 'BRCA1 AND clinsig_pathogenic' --output /tmp/pubmed.json" \\
-zorai plugin invoke pubmed-database run
+{sub_name.upper().replace('-', '_')}_ARGS="<deepmind-subcommand-and-its-flags>" \\
+/{sub_name}.run
 ```
-
-If the skill has multiple Python scripts and you need a non-default one,
-override with `SCRIPT=<other-script.py>` env var; the stub defaults to
-`{entry_script}`.
 
 ## Available subcommands (from the deepmind script)
 

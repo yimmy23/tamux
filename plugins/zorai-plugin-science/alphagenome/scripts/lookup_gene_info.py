@@ -16,14 +16,14 @@
 
 Usage:
   # 1. Lookup gene symbol or coordinate to get ID and location
-  uv run scripts/lookup_gene_info.py --genes='TP53,BRCA1'
-  uv run scripts/lookup_gene_info.py --genes='chr17:7675148'
+  python scripts/lookup_gene_info.py --genes='TP53,BRCA1'
+  python scripts/lookup_gene_info.py --genes='chr17:7675148'
 
   # 2. Find genes near a coordinate
-  uv run scripts/lookup_gene_info.py --coord='chr17:7675148' --window=50000
+  python scripts/lookup_gene_info.py --coord='chr17:7675148' --window=50000
 
   # 3. List and filter transcripts for a gene
-  uv run scripts/lookup_gene_info.py --genes='EGFR' --transcripts --mane
+  python scripts/lookup_gene_info.py --genes='EGFR' --transcripts --mane
 """
 
 # /// script

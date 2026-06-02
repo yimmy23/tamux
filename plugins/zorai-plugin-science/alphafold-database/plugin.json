@@ -7,28 +7,32 @@
   "license": "MIT",
   "zorai_version": ">=2.0.0",
   "python": {
-    "env": false,
-    "dependencies": []
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
   },
   "commands": {
     "fetch-structure": {
       "description": "Download AlphaFold predicted structure (mmCIF + PAE JSON) for a UniProt accession. Required: a valid UniProt ID. Output goes to the directory given by --output_dir.",
       "python": {
-        "command": "uv run scripts/fetch_structure.py \"${AF_UNIPROT_ID:?set AF_UNIPROT_ID}\" -o \"${AF_OUTPUT_DIR:-./af_output}\""
+        "command": "python scripts/fetch_structure.py \"${AF_UNIPROT_ID:?set AF_UNIPROT_ID}\" -o \"${AF_OUTPUT_DIR:-./af_output}\""
       }
     },
     "analyze-plddt": {
       "description": "Analyze pLDDT confidence metrics from a previously-fetched AlphaFold metadata JSON. Pass the path to the metadata JSON file (usually saved by fetch-structure).",
       "python": {
-        "command": "uv run scripts/analyze_plddt.py \"${AF_METADATA_FILE:?set AF_METADATA_FILE (path to AFDB metadata JSON)}\""
+        "command": "python scripts/analyze_plddt.py \"${AF_METADATA_FILE:?set AF_METADATA_FILE (path to AFDB metadata JSON)}\""
       }
     },
     "analyze-pae": {
       "description": "Analyze Predicted Aligned Error (PAE) and detect sub-domain boundaries from a PAE matrix JSON. Pass the path to the PAE JSON file (usually saved by fetch-structure).",
       "python": {
-        "command": "uv run scripts/analyze_pae.py \"${AF_PAE_FILE:?set AF_PAE_FILE (path to AFDB PAE JSON)}\" ${AF_PAE_DISTANCE_CUTOFF:+--distance-cutoff $AF_PAE_DISTANCE_CUTOFF} ${AF_PAE_MIN_DOMAIN_SIZE:+--min-domain-size $AF_PAE_MIN_DOMAIN_SIZE} ${AF_PAE_OUTPUT_FILE:+--output-file $AF_PAE_OUTPUT_FILE}"
+        "command": "python scripts/analyze_pae.py \"${AF_PAE_FILE:?set AF_PAE_FILE (path to AFDB PAE JSON)}\" ${AF_PAE_DISTANCE_CUTOFF:+--distance-cutoff $AF_PAE_DISTANCE_CUTOFF} ${AF_PAE_MIN_DOMAIN_SIZE:+--min-domain-size $AF_PAE_MIN_DOMAIN_SIZE} ${AF_PAE_OUTPUT_FILE:+--output-file $AF_PAE_OUTPUT_FILE}"
       }
     }
   },
-  "skills": ["skills/alphafold-database.md"]
+  "skills": [
+    "skills/alphafold-database.md"
+  ]
 }

@@ -45,7 +45,7 @@ Example:
 
 ```bash
 GNMD_GENE=PCSK9 GNMD_OUTPUT=./pcsk9_constraint.json \
-zorai plugin invoke gnomad get-gene-constraint
+/gnomad.get-gene-constraint
 ```
 
 ### `/gnomad.get-variant-frequency`
@@ -62,7 +62,7 @@ Example — a known PCSK9 loss-of-function variant:
 
 ```bash
 GNMD_RSID=rs562556 GNMD_OUTPUT=./pcsk9_lof_freq.json \
-zorai plugin invoke gnomad get-variant-frequency
+/gnomad.get-variant-frequency
 ```
 
 ### `/gnomad.search-variants`
@@ -83,7 +83,7 @@ Example — all pLoF variants in BRCA1:
 ```bash
 GNMD_GENE=BRCA1 GNMD_CONSEQUENCE=pLoF \
 GNMD_OUTPUT=./brca1_plof.json \
-zorai plugin invoke gnomad search-variants
+/gnomad.search-variants
 ```
 
 ## Limits

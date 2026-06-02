@@ -7,76 +7,80 @@
   "license": "MIT",
   "zorai_version": ">=2.0.0",
   "python": {
-    "env": false,
-    "dependencies": []
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
   },
   "commands": {
     "db-name": {
       "description": "Get the Reactome database name (sanity check; confirms the API is reachable).",
       "python": {
-        "command": "uv run scripts/reactome_analysis.py db-name --output \"${RE_OUTPUT:?set RE_OUTPUT (output file path)}\""
+        "command": "python scripts/reactome_analysis.py db-name --output \"${RE_OUTPUT:?set RE_OUTPUT (output file path)}\""
       }
     },
     "db-version": {
       "description": "Get the Reactome database version (useful for citing in publications).",
       "python": {
-        "command": "uv run scripts/reactome_analysis.py db-version --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
+        "command": "python scripts/reactome_analysis.py db-version --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
       }
     },
     "analyze": {
       "description": "Submit a gene list for pathway enrichment analysis. Returns a token you can use with the other token-* commands. The core operation — most workflows start here.",
       "python": {
-        "command": "uv run scripts/reactome_analysis.py analyze ${RE_FILE:+--file $RE_FILE} ${RE_IDS:+--ids $RE_IDS} --output \"${RE_OUTPUT:?set RE_OUTPUT}\" ${RE_PROJECTION:+--projection $RE_PROJECTION} ${RE_INTERACTORS:+--interactors}"
+        "command": "python scripts/reactome_analysis.py analyze ${RE_FILE:+--file $RE_FILE} ${RE_IDS:+--ids $RE_IDS} --output \"${RE_OUTPUT:?set RE_OUTPUT}\" ${RE_PROJECTION:+--projection $RE_PROJECTION} ${RE_INTERACTORS:+--interactors}"
       }
     },
     "token-result": {
       "description": "Retrieve the full analysis result by token (the path the original analysis used; default = species' main pathway hierarchy).",
       "python": {
-        "command": "uv run scripts/reactome_analysis.py token-result --token \"${RE_TOKEN:?set RE_TOKEN (token from /analyze)}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\" ${RE_PATHWAY:+--pathway $RE_PATHWAY}"
+        "command": "python scripts/reactome_analysis.py token-result --token \"${RE_TOKEN:?set RE_TOKEN (token from /analyze)}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\" ${RE_PATHWAY:+--pathway $RE_PATHWAY}"
       }
     },
     "token-found-all": {
       "description": "List all identifiers in the analysis result that mapped to Reactome (with the pathways they hit).",
       "python": {
-        "command": "uv run scripts/reactome_analysis.py token-found-all --token \"${RE_TOKEN:?set RE_TOKEN}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\" ${RE_PATHWAY:+--pathway $RE_PATHWAY} ${RE_RESOURCE:+--resource $RE_RESOURCE}"
+        "command": "python scripts/reactome_analysis.py token-found-all --token \"${RE_TOKEN:?set RE_TOKEN}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\" ${RE_PATHWAY:+--pathway $RE_PATHWAY} ${RE_RESOURCE:+--resource $RE_RESOURCE}"
       }
     },
     "token-not-found": {
       "description": "List identifiers in the analysis result that did NOT map to any Reactome pathway (useful for QC of an input gene list).",
       "python": {
-        "command": "uv run scripts/reactome_analysis.py token-not-found --token \"${RE_TOKEN:?set RE_TOKEN}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
+        "command": "python scripts/reactome_analysis.py token-not-found --token \"${RE_TOKEN:?set RE_TOKEN}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
       }
     },
     "token-filter-species": {
       "description": "Re-filter an analysis result by species (e.g. keep only Homo sapiens results).",
       "python": {
-        "command": "uv run scripts/reactome_analysis.py token-filter-species --token \"${RE_TOKEN:?set RE_TOKEN}\" --species-filter \"${RE_SPECIES:?set RE_SPECIES (NCBI taxon ID, e.g. 9606 for Homo sapiens)}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
+        "command": "python scripts/reactome_analysis.py token-filter-species --token \"${RE_TOKEN:?set RE_TOKEN}\" --species-filter \"${RE_SPECIES:?set RE_SPECIES (NCBI taxon ID, e.g. 9606 for Homo sapiens)}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
       }
     },
     "identifier": {
       "description": "Analyze a single identifier (e.g. 'TP53') and return its pathway hits directly, without the two-step token dance.",
       "python": {
-        "command": "uv run scripts/reactome_analysis.py identifier --id \"${RE_ID:?set RE_ID (single gene/protein ID)}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\" ${RE_RESOURCE:+--resource $RE_RESOURCE}"
+        "command": "python scripts/reactome_analysis.py identifier --id \"${RE_ID:?set RE_ID (single gene/protein ID)}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\" ${RE_RESOURCE:+--resource $RE_RESOURCE}"
       }
     },
     "search": {
       "description": "Full-text search across the Reactome knowledgebase (pathways, reactions, proteins).",
       "python": {
-        "command": "uv run scripts/reactome_analysis.py search --query \"${RE_QUERY:?set RE_QUERY (search string)}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
+        "command": "python scripts/reactome_analysis.py search --query \"${RE_QUERY:?set RE_QUERY (search string)}\" --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
       }
     },
     "top-pathways": {
       "description": "List the top-level Reactome pathways (the 20-ish super-pathways like 'Signal Transduction', 'Disease').",
       "python": {
-        "command": "uv run scripts/reactome_analysis.py top-pathways --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
+        "command": "python scripts/reactome_analysis.py top-pathways --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
       }
     },
     "run": {
       "description": "Generic catch-all: forward an arbitrary reactome_analysis.py subcommand. Use for the 44+ specialized endpoints not exposed as named commands (analyze-projection, analyze-form, token-filter-pathways, token-found-entities, token-found-interactors, token-page, token-binned, download-result, download-pathways, mapping, mapping-projection, import-json, report, species-comparison, participants, participating-entities, component-of, event-ancestors, contained-events, low-pathways, xref-mapping, xref-mapping-batch, diagram, reaction-diagram, etc.).",
       "python": {
-        "command": "uv run scripts/reactome_analysis.py \"${RE_SUBCOMMAND:?set RE_SUBCOMMAND}\" ${RE_ID:+--id $RE_ID} ${RE_TOKEN:+--token $RE_TOKEN} ${RE_PATHWAY:+--pathway $RE_PATHWAY} ${RE_FILE:+--file $RE_FILE} ${RE_URL:+--url $RE_URL} ${RE_QUERY:+--query $RE_QUERY} ${RE_SPECIES:+--species-filter $RE_SPECIES} ${RE_RESOURCE:+--resource $RE_RESOURCE} ${RE_PROJECTION:+--projection $RE_PROJECTION} ${RE_INTERACTORS:+--interactors} --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
+        "command": "python scripts/reactome_analysis.py \"${RE_SUBCOMMAND:?set RE_SUBCOMMAND}\" ${RE_ID:+--id $RE_ID} ${RE_TOKEN:+--token $RE_TOKEN} ${RE_PATHWAY:+--pathway $RE_PATHWAY} ${RE_FILE:+--file $RE_FILE} ${RE_URL:+--url $RE_URL} ${RE_QUERY:+--query $RE_QUERY} ${RE_SPECIES:+--species-filter $RE_SPECIES} ${RE_RESOURCE:+--resource $RE_RESOURCE} ${RE_PROJECTION:+--projection $RE_PROJECTION} ${RE_INTERACTORS:+--interactors} --output \"${RE_OUTPUT:?set RE_OUTPUT}\""
       }
     }
   },
-  "skills": ["skills/reactome.md"]
+  "skills": [
+    "skills/reactome.md"
+  ]
 }

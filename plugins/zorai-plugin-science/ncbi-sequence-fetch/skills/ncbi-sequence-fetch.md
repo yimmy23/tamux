@@ -65,7 +65,7 @@ Example:
 
 ```bash
 NCBI_ACCESSION="NP_000537 P04637" NCBI_OUTPUT=./p53_protein.fasta \
-zorai plugin invoke ncbi-sequence-fetch fetch-protein
+/ncbi-sequence-fetch.fetch-protein
 ```
 
 ### `/ncbi-sequence-fetch.fetch-nucleotide`
@@ -96,7 +96,7 @@ Example — search PubMed for papers citing p53:
 NCBI_QUERY="p53[Title] AND 2024[PDAT]" \
 NCBI_DATABASE=pubmed NCBI_RETMAX=10 \
 NCBI_OUTPUT=./pubmed_p53_2024.json \
-zorai plugin invoke ncbi-sequence-fetch search
+/ncbi-sequence-fetch.search
 ```
 
 ### `/ncbi-sequence-fetch.elink`
@@ -111,7 +111,7 @@ Example — get all protein accessions linked to a PubMed article:
 ```bash
 NCBI_ID=35000000 NCBI_DB_FROM=pubmed NCBI_DB_TO=protein \
 NCBI_OUTPUT=./pubmed_proteins.json \
-zorai plugin invoke ncbi-sequence-fetch elink
+/ncbi-sequence-fetch.elink
 ```
 
 ### `/ncbi-sequence-fetch.gene-protein`
@@ -126,7 +126,7 @@ Example:
 ```bash
 NCBI_GENE=TP53 NCBI_ORGANISM="Homo sapiens" \
 NCBI_OUTPUT=./tp53_protein.fasta \
-zorai plugin invoke ncbi-sequence-fetch gene-protein
+/ncbi-sequence-fetch.gene-protein
 ```
 
 ### `/ncbi-sequence-fetch.locus-protein`
@@ -150,7 +150,7 @@ Example — find proteins linked to a patent number:
 ```bash
 NCBI_SUBCOMMAND=patent-search NCBI_ACCESSION=US12345678 \
 NCBI_OUTPUT=./patent_proteins.json \
-zorai plugin invoke ncbi-sequence-fetch run
+/ncbi-sequence-fetch.run
 ```
 
 ## Limits

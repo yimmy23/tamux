@@ -27,7 +27,7 @@ Design Note:
   to the agent but provides heuristic flags (e.g., GAIN/LOSS) to guide the analysis.
 
 Usage:
-  uv run scripts/interpret_splicing.py --chrom=chr21 --pos=46126238 --ref=G --alt=C \
+  python scripts/interpret_splicing.py --chrom=chr21 --pos=46126238 --ref=G --alt=C \
       --ontology_id=CL:0002545
 """
 

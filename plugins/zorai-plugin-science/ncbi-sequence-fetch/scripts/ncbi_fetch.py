@@ -28,7 +28,7 @@ Rate-limited to 3 requests/second (10/s with NCBI_API_KEY).
 #   "python-dotenv",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 from __future__ import annotations

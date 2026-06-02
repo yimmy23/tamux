@@ -26,7 +26,7 @@ other, animalandveterinary, cosmetic, and transparency.
 #   "python-dotenv",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 from __future__ import annotations

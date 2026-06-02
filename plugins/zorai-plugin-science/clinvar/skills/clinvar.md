@@ -46,7 +46,7 @@ Example:
 
 ```bash
 CV_QUERY="BRCA1[gene] AND clinsig_pathogenic" \
-zorai plugin invoke clinvar count
+/clinvar.count
 ```
 
 ### `/clinvar.search`
@@ -66,7 +66,7 @@ Example:
 
 ```bash
 CV_IDS="12345 67890 11111" \
-zorai plugin invoke clinvar summary
+/clinvar.summary
 ```
 
 ### `/clinvar.evidence`

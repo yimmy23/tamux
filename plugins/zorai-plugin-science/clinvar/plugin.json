@@ -16,34 +16,39 @@
     }
   },
   "python": {
-    "env": false,
-    "dependencies": []
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon",
+      "python-dotenv"
+    ]
   },
   "commands": {
     "count": {
       "description": "Get the total number of variants matching a ClinVar query without fetching IDs.",
       "python": {
-        "command": "uv run scripts/clinvar_api.py count \"${CV_QUERY:?set CV_QUERY (e.g. \\\"BRCA1[gene] AND clinsig_pathogenic\\\"}\""
+        "command": "python scripts/clinvar_api.py count \"${CV_QUERY:?set CV_QUERY (e.g. \\\"BRCA1[gene] AND clinsig_pathogenic\\\"}\""
       }
     },
     "search": {
       "description": "Search for variants by gene, genomic coordinates, or clinical attributes. Returns a list of variant IDs.",
       "python": {
-        "command": "uv run scripts/clinvar_api.py search \"${CV_QUERY:?set CV_QUERY}\" ${CV_RETMAX:+--retmax $CV_RETMAX}"
+        "command": "python scripts/clinvar_api.py search \"${CV_QUERY:?set CV_QUERY}\" ${CV_RETMAX:+--retmax $CV_RETMAX}"
       }
     },
     "summary": {
       "description": "Get clinical significance, star rating, and phenotypes for one or more variant IDs (space-separated).",
       "python": {
-        "command": "uv run scripts/clinvar_api.py summary ${CV_IDS:?set CV_IDS (space-separated variant IDs)}"
+        "command": "python scripts/clinvar_api.py summary ${CV_IDS:?set CV_IDS (space-separated variant IDs)}"
       }
     },
     "evidence": {
       "description": "Fetch the full clinical evidence record for a single variant — review status, assertions, citations, conditions.",
       "python": {
-        "command": "uv run scripts/clinvar_api.py evidence ${CV_VARIANT_ID:?set CV_VARIANT_ID}"
+        "command": "python scripts/clinvar_api.py evidence ${CV_VARIANT_ID:?set CV_VARIANT_ID}"
       }
     }
   },
-  "skills": ["skills/clinvar.md"]
+  "skills": [
+    "skills/clinvar.md"
+  ]
 }

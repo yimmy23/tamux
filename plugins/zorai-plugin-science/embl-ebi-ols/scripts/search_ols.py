@@ -24,7 +24,7 @@ It parses the JSON response and outputs structured results.
 #   "scienceskillscommon",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 import argparse

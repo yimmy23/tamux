@@ -36,7 +36,7 @@ Example:
 
 ```bash
 UP_QUERY="gene:TP53 AND organism_id:9606" UP_LIMIT=10 UP_FIELDS="accession,id,gene_names,length" \
-zorai plugin invoke uniprot search
+/uniprot.search
 ```
 
 ### `/uniprot.get`

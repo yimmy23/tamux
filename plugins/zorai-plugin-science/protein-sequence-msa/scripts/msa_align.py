@@ -19,7 +19,7 @@
 #   "python-dotenv",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 """Runs EBI Clustal Omega for MSA computation.

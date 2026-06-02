@@ -23,7 +23,7 @@ Follows HPA Terms of Use by fetching sequentially and handling requests.
 #   "scienceskillscommon",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 import argparse

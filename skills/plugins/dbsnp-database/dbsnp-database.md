@@ -14,24 +14,16 @@ reference live in the deepmind bundle at
 
 ## Calling this stub
 
-The stub exposes a single `run` command that forwards to the deepmind
-Python entry script (`scripts/dbsnp_cli.py`):
+The stub exposes a single `/dbsnp-database.run` command that forwards to the deepmind
+Python entry script (`scripts/dbsnp_cli.py`).
 
 ```bash
 DBSNP_DATABASE_ARGS="<deepmind-subcommand-and-its-flags>" \
-zorai plugin invoke dbsnp-database run
+/dbsnp-database.run
 ```
 
-Example (for `pubmed-database`):
-
-```bash
-PUBMED_DATABASE_ARGS="search --query 'BRCA1 AND clinsig_pathogenic' --output /tmp/pubmed.json" \
-zorai plugin invoke pubmed-database run
-```
-
-If the skill has multiple Python scripts and you need a non-default one,
-override with `SCRIPT=<other-script.py>` env var; the stub defaults to
-`dbsnp_cli.py`.
+Replace `<deepmind-subcommand-and-its-flags>` with the subcommand and flags
+described in the upstream skill.
 
 ## Available subcommands (from the deepmind script)
 

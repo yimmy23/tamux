@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
 # Re-copy the deepmind scripts for every sub-plugin of zorai-plugin-science
-# from the vendored bundle, and copy the shared scienceskillscommon package
-# once at the package root.
+# from the vendored bundle, and copy scienceskillscommon into each installable
+# sub-plugin that ships Python commands.
 #
 # Usage: ./sync-from-bundle.sh
 #
 # This is a build-time helper. After refreshing skills/scientific-skills-gdm/
 # from upstream, run this once at the package root to update all sub-plugins.
 #
-# Background: the deepmind scripts embed a PEP 723 sources entry
+# Background: the upstream deepmind scripts embed a PEP 723 sources entry
 #   [tool.uv.sources]
 #   scienceskillscommon = { path = "../../scienceskillscommon" }
-# which resolves relative to the script file. In the upstream bundle, a
-# script at <bundle>/<skill>/scripts/foo.py sees `../../` as <bundle>/, so
-# `../../scienceskillscommon` lands at the bundle root. The same script
-# copied to plugins/zorai-plugin-science/<sub>/scripts/foo.py then needs
-# scienceskillscommon at the package root (plugins/zorai-plugin-science/),
-# not at the per-sub-plugin level. Hence: one shared copy at the root.
+# Zorai's nested plugin installer copies each sub-plugin directory by itself,
+# so package-level siblings are not present after install. We keep a root copy
+# for local tests and sync source parity, but every command-bearing sub-plugin
+# also vendors its own copy and the copied scripts are normalized to
+# `../scienceskillscommon`.
 
 set -euo pipefail
 
@@ -86,16 +85,26 @@ for sub in "${!SKILL_DIRS[@]}"; do
   mkdir -p "$dst"
   rm -rf "$dst"/*
   cp -r "$src/." "$dst/"
+  find "$dst" -type f -name '*.py' -exec sed -i 's#../../scienceskillscommon#../scienceskillscommon#g' {} +
+  find "$dst" -type f -name '*.py' -exec sed -i 's#uv run scripts/#python scripts/#g; s#uv run #python #g' {} +
   echo "OK $sub: scripts -> $dst ($(ls "$dst" | wc -l) files)"
 done
 
-# scienceskillscommon lives at the package root, shared across sub-plugins.
+# Keep a package-root copy for local tests and sync source parity.
 SCICOMMON_SRC="$BUNDLE/scienceskillscommon"
 SCICOMMON_DST="$PLUGIN_DIR/scienceskillscommon"
 if [ -d "$SCICOMMON_SRC" ]; then
   rm -rf "$SCICOMMON_DST"
   cp -r "$SCICOMMON_SRC" "$SCICOMMON_DST"
   echo "OK scienceskillscommon -> $SCICOMMON_DST"
+
+  for sub in "${!SKILL_DIRS[@]}"; do
+    if [ "$sub" != "pymol" ]; then
+      rm -rf "$PLUGIN_DIR/$sub/scienceskillscommon"
+      cp -r "$SCICOMMON_SRC" "$PLUGIN_DIR/$sub/scienceskillscommon"
+      echo "OK $sub: scienceskillscommon -> $PLUGIN_DIR/$sub/scienceskillscommon"
+    fi
+  done
 fi
 
 echo

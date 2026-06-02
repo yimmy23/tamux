@@ -25,18 +25,18 @@ Design Note:
   reverse complement.
 
 Usage:
-  uv run analyze_ism.py --chrom=chr17 --pos=7675148 --ref=G --alt=A \
+  python analyze_ism.py --chrom=chr17 --pos=7675148 --ref=G --alt=A \
     --tissue=liver --ontology=UBERON:0002107 --modality=DNASE
 
 Examples:
-  uv run analyze_ism.py --chrom=chr17 --pos=7675148 --ref=G --alt=A \
+  python analyze_ism.py --chrom=chr17 --pos=7675148 --ref=G --alt=A \
     --tissue=liver --ontology=UBERON:0002107 --modality=DNASE
 
-  uv run analyze_ism.py --chrom=chr21 --pos=46126238 --ref=G --alt=C \
+  python analyze_ism.py --chrom=chr21 --pos=46126238 --ref=G --alt=C \
     --tissue='skeletal muscle' --ontology=CL:0002545 --modality=SPLICE_SITE_USAGE \
     --gene=COL6A2
 
-  uv run analyze_ism.py --chrom=chr7 --pos=5529776 --ref=C --alt=T \
+  python analyze_ism.py --chrom=chr7 --pos=5529776 --ref=C --alt=T \
     --tissue=HepG2 --ontology=EFO:0001187 --modality=CHIP_TF --gene=ACTB \
     --output_dir=./ism_plots
 """

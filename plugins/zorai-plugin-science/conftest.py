@@ -110,6 +110,15 @@ def _ensure_scicommon_on_path() -> None:
         (pkg_root / "scienceskillscommon").symlink_to(
             SCICOMMON_SRC.resolve(), target_is_directory=True
         )
+    dotenv_shim = pkg_root.parent / "dotenv.py"
+    if not dotenv_shim.exists():
+        dotenv_shim.write_text(
+            "def load_dotenv(*args, **kwargs):\n"
+            "    return False\n"
+            "\n"
+            "def find_dotenv(*args, **kwargs):\n"
+            "    return ''\n"
+        )
     sys.path.insert(0, str(pkg_root.parent))
 
 

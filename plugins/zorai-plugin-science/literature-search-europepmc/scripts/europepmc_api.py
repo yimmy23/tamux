@@ -15,8 +15,8 @@
 """Europe PMC API CLI — search, download, full text, citations & references.
 
 Usage examples:
-  uv run europepmc_api.py search "CRISPR" --max_results 5 --output results.json
-  uv run europepmc_api.py get_fulltext PMC8371605 --output fulltext.txt
+  python europepmc_api.py search "CRISPR" --max_results 5 --output results.json
+  python europepmc_api.py get_fulltext PMC8371605 --output fulltext.txt
 """
 
 # /// script
@@ -25,7 +25,7 @@ Usage examples:
 #   "scienceskillscommon",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 from __future__ import annotations

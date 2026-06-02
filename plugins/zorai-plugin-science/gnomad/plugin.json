@@ -7,28 +7,32 @@
   "license": "MIT",
   "zorai_version": ">=2.0.0",
   "python": {
-    "env": false,
-    "dependencies": []
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
   },
   "commands": {
     "get-gene-constraint": {
       "description": "Get gene constraint metrics (pLI, LOEUF, oe_lof, oe_mis) for a gene symbol. Use to assess loss-of-function / missense intolerance.",
       "python": {
-        "command": "uv run scripts/get_gene_constraint.py --gene \"${GNMD_GENE:?set GNMD_GENE (gene symbol, e.g. PCSK9)}\" --output \"${GNMD_OUTPUT:?set GNMD_OUTPUT (output file path)}\""
+        "command": "python scripts/get_gene_constraint.py --gene \"${GNMD_GENE:?set GNMD_GENE (gene symbol, e.g. PCSK9)}\" --output \"${GNMD_OUTPUT:?set GNMD_OUTPUT (output file path)}\""
       }
     },
     "get-variant-frequency": {
       "description": "Get allele frequency for a single variant by chrom-pos-ref-alt ID or rsID. Use for clinical variant interpretation alongside ClinVar.",
       "python": {
-        "command": "uv run scripts/get_variant_frequency.py ${GNMD_VARIANT_ID:+--variant_id $GNMD_VARIANT_ID} ${GNMD_RSID:+--rsid $GNMD_RSID} --dataset \"${GNMD_DATASET:-gnomad_r4}\" --output \"${GNMD_OUTPUT:?set GNMD_OUTPUT}\""
+        "command": "python scripts/get_variant_frequency.py ${GNMD_VARIANT_ID:+--variant_id $GNMD_VARIANT_ID} ${GNMD_RSID:+--rsid $GNMD_RSID} --dataset \"${GNMD_DATASET:-gnomad_r4}\" --output \"${GNMD_OUTPUT:?set GNMD_OUTPUT}\""
       }
     },
     "search-variants": {
       "description": "Search variants by gene symbol, by genomic region (chrom/start/end), or filtered by consequence (pLoF, missense, etc.).",
       "python": {
-        "command": "uv run scripts/search_variants.py ${GNMD_GENE:+--gene $GNMD_GENE} ${GNMD_CHROM:+--chrom $GNMD_CHROM} ${GNMD_START:+--start $GNMD_START} ${GNMD_END:+--end $GNMD_END} ${GNMD_CONSEQUENCE:+--consequence $GNMD_CONSEQUENCE} --dataset \"${GNMD_DATASET:-gnomad_r4}\" --output \"${GNMD_OUTPUT:?set GNMD_OUTPUT}\""
+        "command": "python scripts/search_variants.py ${GNMD_GENE:+--gene $GNMD_GENE} ${GNMD_CHROM:+--chrom $GNMD_CHROM} ${GNMD_START:+--start $GNMD_START} ${GNMD_END:+--end $GNMD_END} ${GNMD_CONSEQUENCE:+--consequence $GNMD_CONSEQUENCE} --dataset \"${GNMD_DATASET:-gnomad_r4}\" --output \"${GNMD_OUTPUT:?set GNMD_OUTPUT}\""
       }
     }
   },
-  "skills": ["skills/gnomad.md"]
+  "skills": [
+    "skills/gnomad.md"
+  ]
 }

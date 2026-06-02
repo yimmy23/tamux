@@ -313,7 +313,7 @@ impl TuiModel {
         if self.plugin_settings.list_mode {
             if self.plugin_settings.install_mode {
                 match code {
-                    KeyCode::Enter => {
+                    KeyCode::Enter | KeyCode::Char('\r') | KeyCode::Char('\n') => {
                         let source = self
                             .plugin_settings
                             .install_source_buffer

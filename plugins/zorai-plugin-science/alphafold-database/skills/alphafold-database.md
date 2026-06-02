@@ -47,7 +47,7 @@ Example:
 
 ```bash
 AF_UNIPROT_ID=P04637 AF_OUTPUT_DIR=./p53 \
-zorai plugin invoke alphafold-database fetch-structure
+/alphafold-database.fetch-structure
 ```
 
 Outputs (inside `AF_OUTPUT_DIR`):

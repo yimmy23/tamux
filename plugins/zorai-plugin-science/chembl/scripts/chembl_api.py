@@ -25,7 +25,7 @@ retries on transient errors (HTTP 429, 503) with exponential backoff.
 #   "scienceskillscommon",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 from __future__ import annotations

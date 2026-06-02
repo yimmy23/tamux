@@ -87,7 +87,7 @@ Example — find a specific PDB entry:
 ```bash
 PDB_QUERY='{"query": {"type": "terminal", "service": "text", "parameters": {"attribute": "rcsb_entry_container_identifiers.entry_id", "operator": "exact_match", "value": "1A2B"}}, "return_type": "entry"}' \
 PDB_OUTPUT=./pdb_1a2b.json \
-zorai plugin invoke pdb-database search
+/pdb-database.search
 ```
 
 ### `/pdb-database.fetch-metadata`
@@ -102,7 +102,7 @@ Example:
 ```bash
 PDB_QUERY='{ entries(entry_ids: ["1A2B","4HHB"]) { rcsb_entry_info { resolution_combined } rcsb_accession_info { initial_release_date } } }' \
 PDB_OUTPUT=./pdb_metadata.json \
-zorai plugin invoke pdb-database fetch-metadata
+/pdb-database.fetch-metadata
 ```
 
 ### `/pdb-database.download-coordinates`
@@ -117,7 +117,7 @@ Example — download 3 structures:
 
 ```bash
 PDB_IDS=1A2B,4HHB,1CRN PDB_FORMAT=cif PDB_OUTPUT_DIR=./pdbs/ \
-zorai plugin invoke pdb-database download-coordinates
+/pdb-database.download-coordinates
 # -> ./pdbs/1A2B.cif  ./pdbs/4HHB.cif  ./pdbs/1CRN.cif
 ```
 

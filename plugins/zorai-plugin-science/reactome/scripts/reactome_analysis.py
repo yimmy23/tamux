@@ -27,7 +27,7 @@ Content Service queries, diagram export, and cross-reference mapping.
 #   "scienceskillscommon",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 from __future__ import annotations

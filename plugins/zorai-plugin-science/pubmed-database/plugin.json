@@ -7,14 +7,17 @@
   "license": "MIT",
   "zorai_version": ">=2.0.0",
   "python": {
-    "env": false,
-    "dependencies": []
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon",
+      "python-dotenv"
+    ]
   },
   "commands": {
     "run": {
-      "description": "Forward a pubmed_database CLI invocation. Calls `uv run scripts/pubmed_api.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `PUBMED_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+      "description": "Forward a pubmed_database CLI invocation. Calls `python scripts/pubmed_api.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `PUBMED_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
       "python": {
-        "command": "uv run scripts/pubmed_api.py ${PUBMED_DATABASE_ARGS:?set PUBMED_DATABASE_ARGS}"
+        "command": "python scripts/pubmed_api.py ${PUBMED_DATABASE_ARGS:?set PUBMED_DATABASE_ARGS}"
       }
     }
   },

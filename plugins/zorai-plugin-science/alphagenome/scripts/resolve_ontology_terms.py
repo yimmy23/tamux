@@ -27,11 +27,11 @@ Design Note:
   and final candidate selection.
 
 Usage:
-  uv run resolve_ontology_terms.py --query='liver'
+  python resolve_ontology_terms.py --query='liver'
 
 Examples:
-  uv run resolve_ontology_terms.py --query='liver'
-  uv run resolve_ontology_terms.py --query='k562' --limit=5
+  python resolve_ontology_terms.py --query='liver'
+  python resolve_ontology_terms.py --query='k562' --limit=5
 """
 
 # /// script

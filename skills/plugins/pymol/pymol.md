@@ -14,24 +14,9 @@ reference live in the deepmind bundle at
 
 ## Calling this stub
 
-The stub exposes a single `run` command that forwards to the deepmind
-Python entry script (`scripts/None`):
-
-```bash
-PYMOL_ARGS="<deepmind-subcommand-and-its-flags>" \
-zorai plugin invoke pymol run
-```
-
-Example (for `pubmed-database`):
-
-```bash
-PUBMED_DATABASE_ARGS="search --query 'BRCA1 AND clinsig_pathogenic' --output /tmp/pubmed.json" \
-zorai plugin invoke pubmed-database run
-```
-
-If the skill has multiple Python scripts and you need a non-default one,
-override with `SCRIPT=<other-script.py>` env var; the stub defaults to
-`None`.
+This stub is documentation-only because the upstream skill is driven by an
+external binary rather than a bundled Python entry script. Follow the upstream
+skill workflow and ensure the required binary is installed locally.
 
 ## Available subcommands (from the deepmind script)
 

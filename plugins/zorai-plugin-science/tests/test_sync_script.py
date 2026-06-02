@@ -9,8 +9,8 @@ These tests verify:
   1. The script is executable (also covered by test_plugin_manifests).
   2. Running it from a known state produces a known state.
   3. It is idempotent (running twice doesn't accumulate cruft).
-  4. After sync, the scienceskillscommon symlink/path resolves correctly
-     from a sub-plugin's scripts/ dir (the PEP 723 sources path).
+  4. After sync, the scienceskillscommon package resolves correctly
+     inside an installed sub-plugin (the normalized PEP 723 sources path).
 """
 
 from __future__ import annotations
@@ -99,17 +99,15 @@ def test_scienceskillscommon_at_package_root(plugin_dir: Path) -> None:
 
 
 def test_scienceskillscommon_path_resolves_from_subplugin(plugin_dir: Path) -> None:
-    """The PEP 723 sources path `../../scienceskillscommon` from a sub-plugin's
-    scripts/ dir must resolve to <package_root>/scienceskillscommon.
-    """
+    """The PEP 723 sources path must resolve inside the installed sub-plugin."""
     sample = plugin_dir / "uniprot" / "scripts" / "uniprot_tools.py"
     assert sample.is_file()
     # Read the PEP 723 block to confirm the expected path.
     text = sample.read_text()
-    assert 'scienceskillscommon = { path = "../../scienceskillscommon" }' in text, (
+    assert 'scienceskillscommon = { path = "../scienceskillscommon" }' in text, (
         "PEP 723 sources path in uniprot_tools.py changed; update the sync logic."
     )
     # And confirm the target exists.
-    target = (plugin_dir / "uniprot" / "scripts" / ".." / ".." / "scienceskillscommon").resolve()
+    target = (plugin_dir / "uniprot" / "scripts" / ".." / "scienceskillscommon").resolve()
     assert target.is_dir(), f"PEP 723 path does not resolve: {target}"
     assert (target / "__init__.py").is_file()

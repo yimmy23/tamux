@@ -15,16 +15,16 @@
 r"""Visualize regional model predictions.
 
 Usage:
-  uv run scripts/visualize_genome_tracks.py --chrom=chr19 --start=11089363 --end=11133820 \
+  python scripts/visualize_genome_tracks.py --chrom=chr19 --start=11089363 --end=11133820 \
       --ontology=UBERON:0002107 --output_dir=./region_plots
 
 Examples:
-  uv run scripts/visualize_genome_tracks.py --chrom=chr19 --start=11089363 --end=11133820 \
+  python scripts/visualize_genome_tracks.py --chrom=chr19 --start=11089363 --end=11133820 \
       --ontology=UBERON:0002107 --output_dir=./region_plots
-  uv run scripts/visualize_genome_tracks.py --chrom=chr19 --start=11089363 --end=11133820 \
+  python scripts/visualize_genome_tracks.py --chrom=chr19 --start=11089363 --end=11133820 \
       --ontology=UBERON:0002107 --output_dir=./region_plots \
       --zoom_genes=LDLR
-  uv run scripts/visualize_genome_tracks.py --chrom=chr17 --start=7661779 --end=7687538 \
+  python scripts/visualize_genome_tracks.py --chrom=chr17 --start=7661779 --end=7687538 \
       --ontology=UBERON:0000310 --output_dir=./plots \
       --zoom_genes=TP53
 """

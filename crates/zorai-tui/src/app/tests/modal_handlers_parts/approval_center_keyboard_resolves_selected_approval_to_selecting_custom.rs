@@ -453,6 +453,69 @@ fn plugin_settings_install_prompt_submits_source() {
 }
 
 #[test]
+fn plugin_settings_install_prompt_accepts_paste() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.open_settings_tab(SettingsTab::Plugins);
+    let _ = model.handle_key_modal(
+        KeyCode::Char('i'),
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    model.handle_paste("github:owner/zorai-plugin-test\n".to_string());
+
+    assert_eq!(
+        model.plugin_settings.install_source_buffer,
+        "github:owner/zorai-plugin-test"
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert!(
+        std::iter::from_fn(|| daemon_rx.try_recv().ok()).any(
+            |command| matches!(command, DaemonCommand::PluginInstallSource(source) if source == "github:owner/zorai-plugin-test")
+        ),
+        "pasted plugin source should be submitted unchanged"
+    );
+}
+
+#[test]
+fn plugin_settings_install_prompt_submits_on_carriage_return_enter() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.open_settings_tab(SettingsTab::Plugins);
+    let _ = model.handle_key_modal(
+        KeyCode::Char('i'),
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    model.handle_paste(
+        "/home/mkurman/gitlab/it/zorai/plugins/zorai-plugin-science/pubchem-database".to_string(),
+    );
+    let quit = model.handle_key_modal(
+        KeyCode::Char('\r'),
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert!(!model.plugin_settings.install_mode);
+    assert!(model.plugin_settings.loading);
+    assert_eq!(model.status_line, "Installing plugin...");
+    assert!(
+        std::iter::from_fn(|| daemon_rx.try_recv().ok()).any(
+            |command| matches!(command, DaemonCommand::PluginInstallSource(source) if source == "/home/mkurman/gitlab/it/zorai/plugins/zorai-plugin-science/pubchem-database")
+        ),
+        "carriage-return Enter should submit the pasted absolute path"
+    );
+}
+
+#[test]
 fn command_palette_skills_install_seeds_terminal_command() {
     let (mut model, _daemon_rx) = make_model();
     model

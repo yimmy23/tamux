@@ -125,7 +125,7 @@ Example — fetch a ChEMBL release record:
 
 ```bash
 CH_SUBCOMMAND=chembl_release CH_ID=ChEMBL_33 \
-zorai plugin invoke chembl run
+/chembl.run
 ```
 
 ## Limits

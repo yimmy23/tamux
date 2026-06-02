@@ -25,7 +25,7 @@ pagination handling, rate limit backoffs, and error checking.
 #   "python-dotenv",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 from __future__ import annotations

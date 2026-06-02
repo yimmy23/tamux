@@ -14,24 +14,16 @@ reference live in the deepmind bundle at
 
 ## Calling this stub
 
-The stub exposes a single `run` command that forwards to the deepmind
-Python entry script (`scripts/get_individual.py`):
+The stub exposes a single `/embl-ebi-ols.run` command that forwards to the deepmind
+Python entry script (`scripts/get_individual.py`).
 
 ```bash
 EMBL_EBI_OLS_ARGS="<deepmind-subcommand-and-its-flags>" \
-zorai plugin invoke embl-ebi-ols run
+/embl-ebi-ols.run
 ```
 
-Example (for `pubmed-database`):
-
-```bash
-PUBMED_DATABASE_ARGS="search --query 'BRCA1 AND clinsig_pathogenic' --output /tmp/pubmed.json" \
-zorai plugin invoke pubmed-database run
-```
-
-If the skill has multiple Python scripts and you need a non-default one,
-override with `SCRIPT=<other-script.py>` env var; the stub defaults to
-`get_individual.py`.
+Replace `<deepmind-subcommand-and-its-flags>` with the subcommand and flags
+described in the upstream skill.
 
 ## Available subcommands (from the deepmind script)
 

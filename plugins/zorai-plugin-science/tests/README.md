@@ -65,9 +65,8 @@ runtime deps). Tests import it via a small symlink shim set up in
   for the canonical example.
 - **Plugin manifest tests** live in `tests/test_plugin_manifests.py` and
   are cross-cutting: every `commands.<name>.python.command` is checked
-  to start with `uv run scripts/`, every `skills[0]` file must exist,
-  every `settings.<name>` declared in `plugin.json` is wired through
-  some command.
+  to start with `python scripts/`, every command-bearing sub-plugin must
+  vendor `scienceskillscommon/`, and every `skills[0]` file must exist.
 
 ## Adding a new sub-plugin
 
@@ -83,7 +82,5 @@ runtime deps). Tests import it via a small symlink shim set up in
 ## CI
 
 See `.github/workflows/zorai-plugin-science.yml`. CI runs the offline
-test suite, then runs `uv run --help` on every script (catches
-PEP 723 / scienceskillscommon resolution failures), then runs
-`sync-from-bundle.sh` from a clean state and re-runs the tests to
-confirm idempotency.
+test suite, smoke-tests script help output, then runs `sync-from-bundle.sh`
+from a clean state and re-runs the tests to confirm idempotency.

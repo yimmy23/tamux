@@ -18,9 +18,9 @@ Provides command-line access to NCBI E-utilities and PMC BioC endpoints.
 Outputs JSON to stdout; all diagnostics go to stderr.
 
 Usage:
-  uv run pubmed_api.py brca1_search.json \
+  python pubmed_api.py brca1_search.json \
     search_pubmed "BRCA1 cancer" 5 relevance
-  uv run pubmed_api.py abstract_35113657_31234568.json \
+  python pubmed_api.py abstract_35113657_31234568.json \
     fetch_article_abstracts "35113657,31234568"
 """
 
@@ -31,7 +31,7 @@ Usage:
 #   "python-dotenv",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 import inspect

@@ -17,9 +17,9 @@
 Queries via Variation Services and E-utilities.
 
 Usage examples:
-  uv run dbsnp_cli.py get-variant rs268 --output out.json
-  uv run dbsnp_cli.py resolve-variant 8 19949407 T C --output out.json
-  uv run dbsnp_cli.py search-region 7 117100000 117300000 --output out.json
+  python dbsnp_cli.py get-variant rs268 --output out.json
+  python dbsnp_cli.py resolve-variant 8 19949407 T C --output out.json
+  python dbsnp_cli.py search-region 7 117100000 117300000 --output out.json
 """
 
 # /// script
@@ -29,7 +29,7 @@ Usage examples:
 #   "python-dotenv",
 # ]
 # [tool.uv.sources]
-# scienceskillscommon = { path = "../../scienceskillscommon" }
+# scienceskillscommon = { path = "../scienceskillscommon" }
 # ///
 
 import argparse

@@ -44,7 +44,7 @@ Example:
 AG_CHROM=chr21 AG_POS=46126238 AG_REF=G AG_ALT=C \
 AG_GENE=COL6A2 AG_ONTOLOGY=UBERON:0001134 \
 AG_TISSUE=muscle AG_TRACKS=splicing \
-zorai plugin invoke alphagenome visualize-variant-effects
+/alphagenome.visualize-variant-effects
 ```
 
 ### `/alphagenome.interpret-splicing`

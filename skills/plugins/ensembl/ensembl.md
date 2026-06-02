@@ -46,7 +46,7 @@ Example:
 
 ```bash
 ENS_QUERY=TP53 ENS_OUTPUT=./tp53_ensembl.json \
-zorai plugin invoke ensembl resolve-gene
+/ensembl.resolve-gene
 ```
 
 ### `/ensembl.map-id`
@@ -61,7 +61,7 @@ Example:
 
 ```bash
 ENS_ID=ENSG00000141510 ENS_OUTPUT=./tp53_xrefs.json \
-zorai plugin invoke ensembl map-id
+/ensembl.map-id
 ```
 
 ### `/ensembl.get-sequence`

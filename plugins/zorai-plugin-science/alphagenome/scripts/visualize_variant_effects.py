@@ -23,15 +23,15 @@ Design Note:
   preferences (e.g., Total RNA over PolyA RNA) to reduce noise.
 
 Usage:
-  uv run visualize_variant_effects.py --chrom=chr21 --pos=46126238 --ref=G \
+  python visualize_variant_effects.py --chrom=chr21 --pos=46126238 --ref=G \
       --alt=C --gene=COL6A2 --tissue=muscle --ontology=UBERON:0001134 \
       --output_dir=./plots --tracks=splicing
 
 Examples:
-  uv run visualize_variant_effects.py --chrom=chr21 --pos=46126238 --ref=G \
+  python visualize_variant_effects.py --chrom=chr21 --pos=46126238 --ref=G \
       --alt=C --gene=COL6A2 --tissue=muscle --ontology=UBERON:0001134 \
       --output_dir=./plots --tracks=splicing
-  uv run visualize_variant_effects.py --chrom=chr7 --pos=5529776 --ref=C \
+  python visualize_variant_effects.py --chrom=chr7 --pos=5529776 --ref=C \
       --alt=T --gene=ACTB --tissue=HepG2 --ontology=EFO:0001187 \
       --output_dir=./plots --view=whole_gene
 """

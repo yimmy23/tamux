@@ -77,20 +77,22 @@ def test_plugin_json_required_fields(sub: str, plugin_manifests: dict) -> None:
 
 
 @pytest.mark.parametrize("sub", SUBPLUGINS)
-def test_python_block_is_pep723(sub: str, plugin_manifests: dict) -> None:
-    """The plugin.json python block must use env:false and an empty deps list
-    so that the deepmind scripts' PEP 723 inline deps drive the resolution.
-    """
+def test_python_block_uses_zorai_managed_env(sub: str, plugin_manifests: dict) -> None:
+    """Command plugins must use Zorai's managed Python environment."""
     py = plugin_manifests[sub].get("python")
     assert py is not None, f"{sub} missing python block"
-    assert py.get("env") is False, f"{sub} python.env must be false (PEP 723)"
-    assert py.get("dependencies") == [], f"{sub} python.dependencies must be [] (PEP 723)"
+    commands = plugin_manifests[sub].get("commands", {})
+    if commands:
+        assert py.get("env") is True, f"{sub} python.env must be true for Zorai commands"
+        assert py.get("dependencies"), f"{sub} python.dependencies must list runtime deps"
+    else:
+        assert py.get("dependencies") == [], f"{sub} has no commands and should not install deps"
 
 
 @pytest.mark.parametrize("sub", SUBPLUGINS)
 def test_commands_reference_real_scripts(sub: str, plugin_manifests: dict, plugin_dir: Path) -> None:
     """Every commands.<name>.python.command must:
-      - start with 'uv run scripts/'
+      - start with 'python scripts/'
       - reference a script that actually exists in <sub>/scripts/
     Skips stubs with empty `commands` (pymol — binary, no Python entry).
     """
@@ -105,11 +107,11 @@ def test_commands_reference_real_scripts(sub: str, plugin_manifests: dict, plugi
         py = cdef.get("python")
         assert py is not None, f"{sub}.{name} missing python block"
         cmd = py["command"]
-        assert cmd.startswith("uv run scripts/"), (
-            f"{sub}.{name} command must start with 'uv run scripts/'; got: {cmd!r}"
+        assert cmd.startswith("python scripts/"), (
+            f"{sub}.{name} command must start with 'python scripts/'; got: {cmd!r}"
         )
-        # Extract the script filename: "uv run scripts/<name>.py ..."
-        first_token = cmd.split()[2]  # uv, run, scripts/<x>.py, ...
+        # Extract the script filename: "python scripts/<name>.py ..."
+        first_token = cmd.split()[1]  # python, scripts/<x>.py, ...
         assert first_token.startswith("scripts/"), first_token
         script_rel = first_token[len("scripts/"):]
         script_path = scripts_dir / script_rel
@@ -158,14 +160,30 @@ def test_package_json_includes_all_subplugins(plugin_manifests: dict) -> None:
 
 def test_scienceskillscommon_exists(plugin_dir: Path) -> None:
     """The shared scienceskillscommon package must live at the package root
-    so the PEP 723 sources path `../../scienceskillscommon` resolves from
-    each sub-plugin's scripts/ dir.
+    as the sync source copied into each command-bearing sub-plugin.
     """
     sc = plugin_dir / "scienceskillscommon"
     assert sc.is_dir(), f"missing scienceskillscommon at {sc}"
     assert (sc / "__init__.py").is_file()
     assert (sc / "http_client.py").is_file()
     assert (sc / "pyproject.toml").is_file()
+
+
+@pytest.mark.parametrize("sub", SUBPLUGINS)
+def test_installable_subplugins_are_self_contained(sub: str, plugin_manifests: dict, plugin_dir: Path) -> None:
+    """Nested plugin installs copy each sub-plugin directory by itself."""
+    manifest = plugin_manifests[sub]
+    commands = manifest.get("commands", {})
+    common = plugin_dir / sub / "scienceskillscommon"
+    if commands:
+        assert common.is_dir(), f"{sub} must vendor scienceskillscommon inside the sub-plugin"
+        assert (common / "__init__.py").is_file()
+        assert (common / "http_client.py").is_file()
+        assert (common / "pyproject.toml").is_file()
+        deps = manifest["python"].get("dependencies", [])
+        assert "./scienceskillscommon" in deps, f"{sub} must install local scienceskillscommon"
+    else:
+        assert not common.exists(), f"{sub} has no commands and should not vendor scienceskillscommon"
 
 
 def test_sync_script_exists_and_is_executable(plugin_dir: Path) -> None:

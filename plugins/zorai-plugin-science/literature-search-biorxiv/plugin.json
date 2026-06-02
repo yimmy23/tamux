@@ -7,14 +7,16 @@
   "license": "MIT",
   "zorai_version": ">=2.0.0",
   "python": {
-    "env": false,
-    "dependencies": []
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
   },
   "commands": {
     "run": {
-      "description": "Forward a literature_search_biorxiv CLI invocation. Calls `uv run scripts/search_by_dates.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `LITERATURE_SEARCH_BIORXIV_ARGS` (the deepmind subcommand plus its flags).",
+      "description": "Forward a literature_search_biorxiv CLI invocation. Calls `python scripts/search_by_dates.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `LITERATURE_SEARCH_BIORXIV_ARGS` (the deepmind subcommand plus its flags).",
       "python": {
-        "command": "uv run scripts/search_by_dates.py ${LITERATURE_SEARCH_BIORXIV_ARGS:?set LITERATURE_SEARCH_BIORXIV_ARGS}"
+        "command": "python scripts/search_by_dates.py ${LITERATURE_SEARCH_BIORXIV_ARGS:?set LITERATURE_SEARCH_BIORXIV_ARGS}"
       }
     }
   },

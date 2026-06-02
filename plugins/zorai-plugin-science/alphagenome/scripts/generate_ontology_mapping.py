@@ -15,7 +15,7 @@
 """Generates tissue_ontology_mapping.json from the AlphaGenome API.
 
 Usage:
- uv run scripts/generate_ontology_mapping.py
+ python scripts/generate_ontology_mapping.py
 
 Can be imported and called programmatically:
   from generate_ontology_mapping import generate_mapping_file
@@ -127,7 +127,7 @@ def generate_mapping_file(output_path: str) -> dict:
     raise RuntimeError(
         'ALPHAGENOME_API_KEY not set. '
         'Ensure the `.env` file contains ALPHAGENOME_API_KEY=<key> and '
-        'use uv run to run this script.'
+        'use python to run this script.'
     )
 
   logger.info('Fetching output metadata from AlphaGenome API...')

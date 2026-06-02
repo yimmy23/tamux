@@ -8,6 +8,8 @@ the plugin's command surface + settings.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 
 def test_pdb_all_four_help(invoke_cli) -> None:
     for s in ("download_coordinate_files.py", "fetch_pdb_metadata.py", "fetch_schema.py", "search_pdb.py"):
@@ -17,7 +19,6 @@ def test_pdb_all_four_help(invoke_cli) -> None:
 
 def test_pdb_skill_md_lists_all_four_commands(plugin_manifests) -> None:
     """The skill.md must reference all 4 plugin.json commands by name."""
-    from pathlib import Path
     manifest = plugin_manifests["pdb-database"]
     cmds = set(manifest["commands"].keys())
     skill_path = Path(__file__).resolve().parents[1] / manifest["skills"][0]
@@ -35,7 +36,7 @@ def test_pdb_no_required_settings(plugin_manifests) -> None:
 
 
 def test_pdb_commands_reference_real_scripts(plugin_dir: Path) -> None:
-    """Every command's uv run must point to a real .py in pdb-database/scripts/."""
+    """Every command must point to a real .py in pdb-database/scripts/."""
     import json
     manifest = json.load(open(plugin_dir / "pdb-database" / "plugin.json"))
     scripts_dir = plugin_dir / "pdb-database" / "scripts"
@@ -44,7 +45,7 @@ def test_pdb_commands_reference_real_scripts(plugin_dir: Path) -> None:
     assert len(py_files) >= 4, f"expected 4 pdb scripts, got {py_files}"
     for name, cdef in manifest["commands"].items():
         py = cdef["python"]
-        script = py["command"].split()[2][len("scripts/"):]
+        script = py["command"].split()[1][len("scripts/"):]
         assert script in py_files, f"{name} references missing script {script}"
 
 

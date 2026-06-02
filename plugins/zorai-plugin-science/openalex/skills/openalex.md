@@ -63,7 +63,7 @@ Example — find an author:
 
 ```bash
 OA_ENTITY_TYPE=authors OA_QUERY="Yann LeCun" \
-zorai plugin invoke openalex resolve
+/openalex.resolve
 ```
 
 ### `/openalex.get`
@@ -77,7 +77,7 @@ Example — fetch a work's metadata:
 
 ```bash
 OA_ENTITY_TYPE=works OA_ID=W2741809807 OA_SELECT="id,title,doi,cited_by_count" \
-zorai plugin invoke openalex get
+/openalex.get
 ```
 
 ### `/openalex.filter`
@@ -96,7 +96,7 @@ OA_SEARCH="AlphaFold" \
 OA_FILTER="publication_year:2020-2026,is_oa:true" \
 OA_SORT="cited_by_count:desc" \
 OA_PER_PAGE=10 \
-zorai plugin invoke openalex filter
+/openalex.filter
 ```
 
 ### `/openalex.download-pdf` ⚠ **$0.01 per request**

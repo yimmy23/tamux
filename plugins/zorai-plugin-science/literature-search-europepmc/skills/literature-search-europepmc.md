@@ -14,24 +14,16 @@ reference live in the deepmind bundle at
 
 ## Calling this stub
 
-The stub exposes a single `run` command that forwards to the deepmind
-Python entry script (`scripts/europepmc_api.py`):
+The stub exposes a single `/literature-search-europepmc.run` command that forwards to the deepmind
+Python entry script (`scripts/europepmc_api.py`).
 
 ```bash
 LITERATURE_SEARCH_EUROPEPMC_ARGS="<deepmind-subcommand-and-its-flags>" \
-zorai plugin invoke literature-search-europepmc run
+/literature-search-europepmc.run
 ```
 
-Example (for `pubmed-database`):
-
-```bash
-PUBMED_DATABASE_ARGS="search --query 'BRCA1 AND clinsig_pathogenic' --output /tmp/pubmed.json" \
-zorai plugin invoke pubmed-database run
-```
-
-If the skill has multiple Python scripts and you need a non-default one,
-override with `SCRIPT=<other-script.py>` env var; the stub defaults to
-`europepmc_api.py`.
+Replace `<deepmind-subcommand-and-its-flags>` with the subcommand and flags
+described in the upstream skill.
 
 ## Available subcommands (from the deepmind script)
 

@@ -77,7 +77,7 @@ Example:
 ```bash
 RE_IDS=TP53,BRCA1,EGFR,KRAS,MYC,PTEN \
 RE_OUTPUT=./reactome_analysis.json \
-zorai plugin invoke reactome analyze
+/reactome.analyze
 # Then grab the token from the output JSON's "summary" key and use it:
 RE_TOKEN=$(jq -r .summary.token < reactome_analysis.json)
 ```

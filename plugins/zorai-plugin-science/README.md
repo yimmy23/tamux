@@ -10,29 +10,30 @@ package.
 
 | Sub-plugin | Surface | Auth | Notes |
 |---|---|---|---|
-| `alphagenome` | Python (uv) | `ALPHAGENOME_API_KEY` | Single-variant effect scoring, splicing, ontology resolution. Compute-heavy. |
-| `alphafold-database` | Python (uv) | none | Fetch predicted structures by UniProt ID, analyze pLDDT / PAE. |
-| `uniprot` | Python (uv) | none | Protein metadata, function, taxonomy, sequences across UniProtKB/UniParc/UniRef. |
-| `clinvar` | Python (uv) | optional `CLINVAR_API_KEY` (raises NCBI rate limit) | Pathogenicity classifications, clinical significance, evidence rationales. |
-| `chembl` | Python (uv) | none | Bioactive molecules, drug targets, IC50/Ki, structures. |
-| `openalex` | Python (uv) | optional `OPENALEX_API_KEY` (raises rate limit) | Scholarly works / authors / institutions / topics; bibliometrics; OA-PDF download (**$0.01 per request**). |
-| `ensembl` | Python (uv) | none | Gene/transcript/protein ID resolution, cross-references, sequence retrieval, gene structure, Variant Effect Predictor (VEP). The primary ID translator in genomics. |
-| `reactome` | Python (uv) | none | Pathway analysis, gene list enrichment, reaction participants, pathway hierarchy, diagram export, knowledgebase search. |
-| `gnomad` | Python (uv) | none | Allele frequencies (pLoF, missense), gene constraint (pLI, LOEUF), variant search by gene/region. Strict 10 req/min rate limit. |
-| `pdb-database` | Python (uv) | none | RCSB Protein Data Bank — search, sequence/structure/chemical similarity, download coordinate files (mmCIF/PDB), GraphQL metadata. Pairs with `alphafold-database` (predicted vs experimental). |
-| `ncbi-sequence-fetch` | Python (uv) | optional `NCBI_API_KEY` (raises E-utilities rate limit 3→10 req/s) | NCBI E-utilities — fetch protein/nucleotide by accession, gene+organism search, CDS→protein translation, cross-database linking. The central sequence-retrieval tool. |
+| `alphagenome` | Managed Python | `ALPHAGENOME_API_KEY` | Single-variant effect scoring, splicing, ontology resolution. Compute-heavy. |
+| `alphafold-database` | Managed Python | none | Fetch predicted structures by UniProt ID, analyze pLDDT / PAE. |
+| `uniprot` | Managed Python | none | Protein metadata, function, taxonomy, sequences across UniProtKB/UniParc/UniRef. |
+| `clinvar` | Managed Python | optional `CLINVAR_API_KEY` (raises NCBI rate limit) | Pathogenicity classifications, clinical significance, evidence rationales. |
+| `chembl` | Managed Python | none | Bioactive molecules, drug targets, IC50/Ki, structures. |
+| `openalex` | Managed Python | optional `OPENALEX_API_KEY` (raises rate limit) | Scholarly works / authors / institutions / topics; bibliometrics; OA-PDF download (**$0.01 per request**). |
+| `ensembl` | Managed Python | none | Gene/transcript/protein ID resolution, cross-references, sequence retrieval, gene structure, Variant Effect Predictor (VEP). The primary ID translator in genomics. |
+| `reactome` | Managed Python | none | Pathway analysis, gene list enrichment, reaction participants, pathway hierarchy, diagram export, knowledgebase search. |
+| `gnomad` | Managed Python | none | Allele frequencies (pLoF, missense), gene constraint (pLI, LOEUF), variant search by gene/region. Strict 10 req/min rate limit. |
+| `pdb-database` | Managed Python | none | RCSB Protein Data Bank — search, sequence/structure/chemical similarity, download coordinate files (mmCIF/PDB), GraphQL metadata. Pairs with `alphafold-database` (predicted vs experimental). |
+| `ncbi-sequence-fetch` | Managed Python | optional `NCBI_API_KEY` (raises E-utilities rate limit 3→10 req/s) | NCBI E-utilities — fetch protein/nucleotide by accession, gene+organism search, CDS→protein translation, cross-database linking. The central sequence-retrieval tool. |
 
 ## Long-tail stub sub-plugins (auto-generated, AST-tested only)
 
-These 25 skills are exposed as stubs so they show up in `zorai plugin ls`
+These 23 skills are exposed as stubs so they show up in `zorai plugin ls`
 and the agent can invoke them via the standard pattern:
 
 ```bash
 SUB_PLUGIN_ARGS="<deepmind-subcommand-and-its-flags>" \
-zorai plugin invoke <sub-plugin> run
+/<sub-plugin>.run
 ```
 
-The stub forwards to `uv run scripts/<entry-script>.py <args>`. The
+The stub forwards through Zorai's managed Python runner as
+`python scripts/<entry-script>.py <args>`. The
 canonical workflow lives in `skills/scientific-skills-gdm/<skill>/SKILL.md`
 in the repo — read that first. Stub plugin surface is auto-generated
 by `tools/generate_longtail_stubs.py` from the deepmind bundle.
@@ -51,10 +52,8 @@ by `tools/generate_longtail_stubs.py` from the deepmind bundle.
 | `literature-search-arxiv` | arXiv preprints | `download_paper.py` |
 | `literature-search-biorxiv` | bioRxiv preprints | `search_by_dates.py` |
 | `literature-search-europepmc` | EuropePMC abstracts | `europepmc_api.py` |
-| `ncbi-sequence-fetch` | NCBI E-utilities | `ncbi_fetch.py` |
 | `openfda-database` | FDA adverse events / labels | `openfda_query.py` |
 | `opentargets-database` | Drug-target associations | `query_opentargets.py` |
-| `pdb-database` | Protein structures | `download_coordinate_files.py` |
 | `protein-sequence-msa` | Multiple sequence alignment | `msa_align.py` |
 | `protein-sequence-similarity-search` | Sequence similarity (MMseqs2) | `mmseqs2_search.py` |
 | `pubchem-database` | Chemical compounds | `pubchem_api.py` |
@@ -76,10 +75,10 @@ Reactome, PDB, etc.) are reachable through the vendored
 zorai plugin add ./plugins/zorai-plugin-science
 ```
 
-All five sub-plugins are registered. Verify:
+All 34 sub-plugins are registered. Verify:
 
 ```bash
-zorai plugin ls            # all five listed: alphagenome, alphafold-database, uniprot, clinvar, chembl
+zorai plugin ls            # lists the full and long-tail science sub-plugins
 zorai plugin commands      # one command per script (e.g. /alphagenome score-variant ...)
 ```
 
@@ -141,7 +140,8 @@ plugins/zorai-plugin-science/
   alphagenome/                # sub-plugin
     plugin.json               # settings, commands, skills
     skills/alphagenome.md     # agent-facing instructions
-    scripts/                  # COPIES of deepmind scripts (sync via scripts/sync-from-bundle.sh)
+    scripts/                  # COPIES of deepmind scripts (sync via sync-from-bundle.sh)
+    scienceskillscommon/      # local runtime package copied by nested install
   alphafold-database/         # sub-plugin
   uniprot/                    # sub-plugin
   clinvar/                    # sub-plugin
@@ -153,14 +153,14 @@ plugins/zorai-plugin-science/
   clinical-trials-database/  # stub sub-plugin (auto-generated)
   dbsnp-database/            # ... 24 more stubs
   tools/
-    generate_longtail_stubs.py  # regenerates the 25 stub plugin.json + skills/<id>.md files
+    generate_longtail_stubs.py  # regenerates the long-tail stub plugin.json + skills/<id>.md files
 ```
 
 The deepmind `scripts/*.py` files are owned by the corresponding sub-plugin
-(vendored at build time, refreshed via `scripts/sync-from-bundle.sh`). The
+(vendored at build time, refreshed via `sync-from-bundle.sh`). The
 canonical source of truth is the bundle at
 `skills/scientific-skills-gdm/<skill_name>/` — when the upstream bundle is
-re-vendored, re-run the sync script in each sub-plugin to refresh.
+re-vendored, re-run the sync script from `plugins/zorai-plugin-science/`.
 
 ## License
 

@@ -16,52 +16,62 @@
     }
   },
   "python": {
-    "env": false,
-    "dependencies": []
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon",
+      "alphagenome",
+      "matplotlib",
+      "numpy",
+      "pandas",
+      "pyarrow",
+      "python-dotenv"
+    ]
   },
   "commands": {
     "visualize-variant-effects": {
       "description": "Visualize REF vs ALT allele effects across modalities (expression, regulatory, splicing) for a single variant. Produces matplotlib outputs in --output_dir.",
       "python": {
-        "command": "uv run scripts/visualize_variant_effects.py --chrom \"${AG_CHROM:?set AG_CHROM}\" --pos \"${AG_POS:?set AG_POS}\" --ref \"${AG_REF:?set AG_REF}\" --alt \"${AG_ALT:?set AG_ALT}\" --gene \"${AG_GENE:?set AG_GENE}\" --ontology \"${AG_ONTOLOGY:?set AG_ONTOLOGY}\" --output_dir \"${AG_OUTPUT_DIR:-./ag_output}\" ${AG_TISSUE:+--tissue $AG_TISSUE} ${AG_TRACKS:+--tracks $AG_TRACKS} ${AG_TF:+--tf $AG_TF} ${AG_VIEW:+--view $AG_VIEW}"
+        "command": "python scripts/visualize_variant_effects.py --chrom \"${AG_CHROM:?set AG_CHROM}\" --pos \"${AG_POS:?set AG_POS}\" --ref \"${AG_REF:?set AG_REF}\" --alt \"${AG_ALT:?set AG_ALT}\" --gene \"${AG_GENE:?set AG_GENE}\" --ontology \"${AG_ONTOLOGY:?set AG_ONTOLOGY}\" --output_dir \"${AG_OUTPUT_DIR:-./ag_output}\" ${AG_TISSUE:+--tissue $AG_TISSUE} ${AG_TRACKS:+--tracks $AG_TRACKS} ${AG_TF:+--tf $AG_TF} ${AG_VIEW:+--view $AG_VIEW}"
       }
     },
     "interpret-splicing": {
       "description": "Quantitative splicing analysis (delta scores, junctions) for a single variant.",
       "python": {
-        "command": "uv run scripts/interpret_splicing.py --chrom \"${AG_CHROM:?set AG_CHROM}\" --pos \"${AG_POS:?set AG_POS}\" --ref \"${AG_REF:?set AG_REF}\" --alt \"${AG_ALT:?set AG_ALT}\" --gene \"${AG_GENE:?set AG_GENE}\" --ontology \"${AG_ONTOLOGY:?set AG_ONTOLOGY}\" --output_dir \"${AG_OUTPUT_DIR:-./ag_output}\""
+        "command": "python scripts/interpret_splicing.py --chrom \"${AG_CHROM:?set AG_CHROM}\" --pos \"${AG_POS:?set AG_POS}\" --ref \"${AG_REF:?set AG_REF}\" --alt \"${AG_ALT:?set AG_ALT}\" --gene \"${AG_GENE:?set AG_GENE}\" --ontology \"${AG_ONTOLOGY:?set AG_ONTOLOGY}\" --output_dir \"${AG_OUTPUT_DIR:-./ag_output}\""
       }
     },
     "analyze-ism": {
       "description": "In-Silico Mutagenesis SeqLogo generation for a variant and tissue.",
       "python": {
-        "command": "uv run scripts/analyze_ism.py --chrom \"${AG_CHROM:?set AG_CHROM}\" --pos \"${AG_POS:?set AG_POS}\" --ref \"${AG_REF:?set AG_REF}\" --alt \"${AG_ALT:?set AG_ALT}\" --tissue \"${AG_TISSUE:?set AG_TISSUE}\" --ontology \"${AG_ONTOLOGY:?set AG_ONTOLOGY}\" --modality \"${AG_MODALITY:-DNASE}\" --output_dir \"${AG_OUTPUT_DIR:-./ag_output}\""
+        "command": "python scripts/analyze_ism.py --chrom \"${AG_CHROM:?set AG_CHROM}\" --pos \"${AG_POS:?set AG_POS}\" --ref \"${AG_REF:?set AG_REF}\" --alt \"${AG_ALT:?set AG_ALT}\" --tissue \"${AG_TISSUE:?set AG_TISSUE}\" --ontology \"${AG_ONTOLOGY:?set AG_ONTOLOGY}\" --modality \"${AG_MODALITY:-DNASE}\" --output_dir \"${AG_OUTPUT_DIR:-./ag_output}\""
       }
     },
     "lookup-gene-info": {
       "description": "Comprehensive gene and transcript lookup using local GTF data (offline, no external API).",
       "python": {
-        "command": "uv run scripts/lookup_gene_info.py --gene \"${AG_GENE:?set AG_GENE}\" ${AG_TRANSCRIPT:+--transcript $AG_TRANSCRIPT} ${AG_FEATURE:+--feature $AG_FEATURE}"
+        "command": "python scripts/lookup_gene_info.py --gene \"${AG_GENE:?set AG_GENE}\" ${AG_TRANSCRIPT:+--transcript $AG_TRANSCRIPT} ${AG_FEATURE:+--feature $AG_FEATURE}"
       }
     },
     "resolve-ontology-terms": {
       "description": "Resolve biological terms (e.g. 'liver', 'CD8 T cell') to UBERON / CL / EFO ontology CURIEs.",
       "python": {
-        "command": "uv run scripts/resolve_ontology_terms.py --terms \"${AG_TERMS:?set AG_TERMS (comma-separated)}\" --output_dir \"${AG_OUTPUT_DIR:-./ag_output}\""
+        "command": "python scripts/resolve_ontology_terms.py --terms \"${AG_TERMS:?set AG_TERMS (comma-separated)}\" --output_dir \"${AG_OUTPUT_DIR:-./ag_output}\""
       }
     },
     "generate-ontology-mapping": {
       "description": "Build a custom ontology mapping file from a set of tissue/cell-type terms.",
       "python": {
-        "command": "uv run scripts/generate_ontology_mapping.py --input \"${AG_INPUT:?set AG_INPUT (JSON file of terms)}\" --output \"${AG_OUTPUT_DIR:-./ag_output}/ontology_mapping.tsv\""
+        "command": "python scripts/generate_ontology_mapping.py --input \"${AG_INPUT:?set AG_INPUT (JSON file of terms)}\" --output \"${AG_OUTPUT_DIR:-./ag_output}/ontology_mapping.tsv\""
       }
     },
     "visualize-genome-tracks": {
       "description": "Genomic track visualization for a region (no variant — region-level view).",
       "python": {
-        "command": "uv run scripts/visualize_genome_tracks.py --chrom \"${AG_CHROM:?set AG_CHROM}\" --start \"${AG_START:?set AG_START}\" --end \"${AG_END:?set AG_END}\" --ontology \"${AG_ONTOLOGY:?set AG_ONTOLOGY}\" --output_dir \"${AG_OUTPUT_DIR:-./ag_output}\""
+        "command": "python scripts/visualize_genome_tracks.py --chrom \"${AG_CHROM:?set AG_CHROM}\" --start \"${AG_START:?set AG_START}\" --end \"${AG_END:?set AG_END}\" --ontology \"${AG_ONTOLOGY:?set AG_ONTOLOGY}\" --output_dir \"${AG_OUTPUT_DIR:-./ag_output}\""
       }
     }
   },
-  "skills": ["skills/alphagenome.md"]
+  "skills": [
+    "skills/alphagenome.md"
+  ]
 }
