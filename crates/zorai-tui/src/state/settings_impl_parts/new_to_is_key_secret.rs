@@ -10,6 +10,9 @@ impl PluginSettingsState {
             test_result: None,
             loading: false,
             detail_cursor: 0,
+            install_mode: false,
+            install_source_buffer: String::new(),
+            install_source_cursor: 0,
         }
     }
 

@@ -1,0 +1,27 @@
+{
+  "name": "dbsnp-database",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the dbsnp_database deepmind skill. Use when you want to look up, map, and search for short genetic variants (SNPs, indels) in NCBI's dbSNP database. Resolves between rsIDs, genomic coordinates in VCF format, and HGVS strings. For an rsID, returns variant type, gene associations, clinical significance, allele frequ",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon",
+      "python-dotenv"
+    ]
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a dbsnp_database CLI invocation. Calls `python scripts/dbsnp_cli.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `DBSNP_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "python scripts/dbsnp_cli.py ${DBSNP_DATABASE_ARGS:?set DBSNP_DATABASE_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/dbsnp-database.md"
+  ]
+}

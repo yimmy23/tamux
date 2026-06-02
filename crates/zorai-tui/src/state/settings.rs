@@ -101,6 +101,12 @@ pub struct PluginSettingsState {
     pub loading: bool,
     /// Field cursor in detail mode (indexes into schema_fields + action buttons).
     pub detail_cursor: usize,
+    /// Whether the list view is showing the plugin install prompt.
+    pub install_mode: bool,
+    /// Source entered in the plugin install prompt.
+    pub install_source_buffer: String,
+    /// Cursor position in the plugin install source buffer.
+    pub install_source_cursor: usize,
 }
 
 #[derive(Debug, Clone)]

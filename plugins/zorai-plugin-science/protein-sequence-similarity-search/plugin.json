@@ -1,0 +1,26 @@
+{
+  "name": "protein-sequence-similarity-search",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the protein_sequence_similarity_search deepmind skill. Searches for homologous protein sequences using MMseqs2 (fast, default) or BLAST (comprehensive, fallback). Trigger this whenever the user provides a protein sequence or FASTA file and asks to find homologues, sequence matches, or wants to infer protein function based on sequence",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a protein_sequence_similarity_search CLI invocation. Calls `python scripts/mmseqs2_search.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `PROTEIN_SEQUENCE_SIMILARITY_SEARCH_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "python scripts/mmseqs2_search.py ${PROTEIN_SEQUENCE_SIMILARITY_SEARCH_ARGS:?set PROTEIN_SEQUENCE_SIMILARITY_SEARCH_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/protein-sequence-similarity-search.md"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "name": "jaspar-database",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the jaspar_database deepmind skill. Query the JASPAR database for Transcription Factor (TF) binding profiles. Use when retrieving Position Frequency Matrices (PFMs) or Position Weight Matrices (PWMs) for specific TFs, resolving gene symbols to JASPAR Matrix IDs, or getting TF metadata. Supports multiple output form",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a jaspar_database CLI invocation. Calls `python scripts/jaspar_api.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `JASPAR_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "python scripts/jaspar_api.py ${JASPAR_DATABASE_ARGS:?set JASPAR_DATABASE_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/jaspar-database.md"
+  ]
+}

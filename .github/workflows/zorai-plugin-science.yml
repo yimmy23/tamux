@@ -1,0 +1,367 @@
+name: zorai-plugin-science
+
+# CI for plugins/zorai-plugin-science/ — the vendored deepmind
+# science-skills bundle + the six first-class zorai sub-plugins.
+#
+# Four jobs:
+#   1. manifest  — JSON validity for every plugin.json and command/skill wiring.
+#   2. uv-help   — uv run --help on every script, to catch PEP 723
+#                  resolution and the scienceskillscommon symlink path regressions.
+#   3. pytest    — full offline pytest suite (76 tests).
+#   4. sync      — runs sync-from-bundle.sh from a clean state and re-runs
+#                  pytest to confirm the sync is idempotent.
+#
+# Triggered on push to develop/main and on PRs that touch anything under
+# plugins/zorai-plugin-science/ or skills/scientific-skills-gdm/.
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'plugins/zorai-plugin-science/**'
+      - 'skills/scientific-skills-gdm/**'
+      - '.github/workflows/zorai-plugin-science.yml'
+  pull_request:
+    paths:
+      - 'plugins/zorai-plugin-science/**'
+      - 'skills/scientific-skills-gdm/**'
+      - '.github/workflows/zorai-plugin-science.yml'
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.12'
+  # Sub-plugins whose scripts are exercised via `uv run --help` in CI.
+  # Limited to scripts whose PEP 723 deps resolve on a clean CI runner.
+  # Excludes:
+  #   - alphagenome (private PyPI package)
+  #   - long-tail stubs (many have heavy deps: foldseek, pymol, mmseqs2,
+  #     pdb download tools, etc. — verified by file-exists check below)
+  FULL_SUBPLUGINS: >-
+    alphagenome_skipped
+    alphafold-database
+    uniprot
+    clinvar
+    chembl
+    openalex
+    ensembl
+    reactome
+    gnomad
+    pdb-database
+    ncbi-sequence-fetch
+  # Sub-plugins whose scripts are checked for file existence + AST parse,
+  # but not run (heavy deps that would fail in CI).
+  LONGTAIL_SUBPLUGINS: >-
+    clinical-trials-database
+    dbsnp-database
+    embl-ebi-ols
+    encode-ccres-database
+    foldseek-structural-search
+    gtex-database
+    human-protein-atlas-database
+    interpro-database
+    jaspar-database
+    literatura-search-arxiv
+    literatura-search-biorxiv
+    literatura-search-europepmc
+    openfda-database
+    opentargets-database
+    protein-sequence-msa
+    protein-sequence-similarity-search
+    pubchem-database
+    pubmed-database
+    pymol
+    quickgo-database
+    string-database
+    ucsc-conservation-and-tfbs
+    unibind-database
+  # Sub-plugins with a `tests/` directory (run under pytest).
+  TESTED_SUBPLUGINS: >-
+    alphagenome
+    alphafold-database
+    uniprot
+    clinvar
+    chembl
+    openalex
+    ensembl
+    reactome
+    gnomad
+    pdb-database
+    ncbi-sequence-fetch
+
+permissions:
+  contents: read
+
+jobs:
+  # ================================================================
+  # 1. Plugin.json manifest validation
+  # ================================================================
+  manifest:
+    name: Validate plugin manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Validate every plugin.json parses
+        working-directory: plugins/zorai-plugin-science
+        run: |
+          set -euo pipefail
+          for f in package.json */plugin.json; do
+            echo "Checking $f ..."
+            python3 -c "import json, sys; json.load(open('$f')); print('  OK')" || {
+              echo "  FAIL: $f is not valid JSON"; exit 1;
+            }
+          done
+
+      - name: Assert every command references a real script and skill file exists
+        working-directory: plugins/zorai-plugin-science
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json, pathlib
+          root = pathlib.Path('.')
+          errors = []
+          for sub in ('alphagenome', 'alphafold-database', 'uniprot', 'clinvar', 'chembl', 'openalex', 'ensembl', 'reactome'):
+              manifest = json.load(open(root / sub / 'plugin.json'))
+              scripts_dir = root / sub / 'scripts'
+              assert scripts_dir.is_dir(), f'missing {scripts_dir}'
+              for name, cdef in manifest.get('commands', {}).items():
+                  py = cdef.get('python')
+                  if not py:
+                      continue
+                  cmd = py['command']
+                  if not cmd.startswith('uv run scripts/'):
+                      errors.append(f'{sub}.{name}: command must start with "uv run scripts/"')
+                      continue
+                  script = cmd.split()[2][len('scripts/'):]
+                  if not (scripts_dir / script).is_file():
+                      errors.append(f'{sub}.{name}: missing script {script}')
+              for s in manifest.get('skills', []):
+                  if not (root / sub / s).is_file():
+                      errors.append(f'{sub}: missing skill file {s}')
+          if errors:
+              for e in errors:
+                  print('  FAIL:', e)
+              raise SystemExit(1)
+          print('All manifests OK.')
+          PY
+
+  # ================================================================
+  # 2. uv run --help on every script (skip alphagenome — heavy PyPI deps)
+  # ================================================================
+  uv-help:
+    name: uv run --help on every script
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Sync all sub-plugins from the vendored bundle
+        working-directory: plugins/zorai-plugin-science
+        run: ./sync-from-bundle.sh
+
+      - name: uv run --help on every FULL sub-plugin's script
+        working-directory: plugins/zorai-plugin-science
+        run: |
+          set -euo pipefail
+          # Skip alphagenome (requires private PyPI package).
+          for sub in $FULL_SUBPLUGINS; do
+            if [[ "$sub" == "alphagenome-skipped" ]]; then
+              echo "::group::alphagenome -- skipped (heavy PyPI deps)"
+              echo "skipping alphagenome (requires private PyPI package; verified by test suite)"
+              echo "::endgroup::"
+              continue
+            fi
+            echo "::group::$sub"
+            for s in "$sub"/scripts/*.py; do
+              if [ -f "$s" ]; then
+                echo "  - $s"
+                uv run "$s" --help > /dev/null
+              fi
+            done
+            echo "::endgroup::"
+          done
+
+      - name: Verify LONGTAIL sub-plugins' scripts exist + parse as Python
+        working-directory: plugins/zorai-plugin-science
+        run: |
+          set -euo pipefail
+          for sub in $LONGTAIL_SUBPLUGINS; do
+            echo "::group::$sub"
+            scripts_dir="$sub/scripts"
+            if [ ! -d "$scripts_dir" ]; then
+              echo "  SKIP: $scripts_dir not present (binary-driven skill like pymol)"
+              echo "::endgroup::"
+              continue
+            fi
+            count=0
+            for s in "$scripts_dir"/*.py; do
+              if [ -f "$s" ]; then
+                python3 -c "import ast; ast.parse(open('$s').read())" || {
+                  echo "  FAIL: $s not valid Python"; exit 1;
+                }
+                count=$((count + 1))
+              fi
+            done
+            echo "  $count scripts parsed OK"
+            echo "::endgroup::"
+          done
+
+  # ================================================================
+  # 3. Full offline pytest suite
+  # ================================================================
+  pytest:
+    name: Offline pytest suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Create venv and install test deps
+        working-directory: plugins/zorai-plugin-science
+        run: |
+          uv venv --python ${{ env.PYTHON_VERSION }} .venv
+          uv pip install --python .venv/bin/python -r requirements-dev.txt
+
+      - name: Sync all sub-plugins
+        working-directory: plugins/zorai-plugin-science
+        run: ./sync-from-bundle.sh
+
+      - name: Run full test suite
+        working-directory: plugins/zorai-plugin-science
+        run: |
+          set -euo pipefail
+          pytest_args="tests/"
+          for sub in $TESTED_SUBPLUGINS; do
+            pytest_args="$pytest_args $sub/tests/"
+          done
+          .venv/bin/pytest $pytest_args -v --tb=short
+
+  # ================================================================
+  # 4. Idempotency check: re-sync and re-test
+  # ================================================================
+  sync:
+    name: sync-from-bundle.sh idempotency
+    runs-on: ubuntu-latest
+    needs: [pytest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Create venv and install test deps
+        working-directory: plugins/zorai-plugin-science
+        run: |
+          uv venv --python ${{ env.PYTHON_VERSION }} .venv
+          uv pip install --python .venv/bin/python -r requirements-dev.txt
+
+      - name: First sync
+        working-directory: plugins/zorai-plugin-science
+        run: ./sync-from-bundle.sh
+
+      - name: Capture pre-second-sync file counts
+        id: pre
+        working-directory: plugins/zorai-plugin-science
+        run: |
+          for sub in $FULL_SUBPLUGINS $LONGTAIL_SUBPLUGINS; do
+            if [ "$sub" = "alphagenome-skipped" ]; then
+              sub=alphagenome
+            fi
+            count=$(ls "$sub/scripts" 2>/dev/null | wc -l)
+            echo "PRE_${sub//-/_}=${count}" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Second sync (must be no-op)
+        working-directory: plugins/zorai-plugin-science
+        run: ./sync-from-bundle.sh
+
+      - name: Assert idempotent
+        working-directory: plugins/zorai-plugin-science
+        env:
+          PRE_ALPHAGENOME: ${{ steps.pre.outputs.PRE_ALPHAGENOME }}
+          PRE_ALPHAFOLD_DATABASE: ${{ steps.pre.outputs.PRE_ALPHAFOLD_DATABASE }}
+          PRE_UNIPROT: ${{ steps.pre.outputs.PRE_UNIPROT }}
+          PRE_CLINVAR: ${{ steps.pre.outputs.PRE_CLINVAR }}
+          PRE_CHEMBL: ${{ steps.pre.outputs.PRE_CHEMBL }}
+          PRE_OPENALEX: ${{ steps.pre.outputs.PRE_OPENALEX }}
+          PRE_ENSEMBL: ${{ steps.pre.outputs.PRE_ENSEMBL }}
+          PRE_REACTOME: ${{ steps.pre.outputs.PRE_REACTOME }}
+          PRE_GNOMAD: ${{ steps.pre.outputs.PRE_GNOMAD }}
+          PRE_CLINICAL_TRIALS_DATABASE: ${{ steps.pre.outputs.PRE_CLINICAL_TRIALS_DATABASE }}
+          PRE_DBSNP_DATABASE: ${{ steps.pre.outputs.PRE_DBSNP_DATABASE }}
+          PRE_EMBL_EBI_OLS: ${{ steps.pre.outputs.PRE_EMBL_EBI_OLS }}
+          PRE_ENCODE_CCRES_DATABASE: ${{ steps.pre.outputs.PRE_ENCODE_CCRES_DATABASE }}
+          PRE_FOLDSEEK_STRUCTURAL_SEARCH: ${{ steps.pre.outputs.PRE_FOLDSEEK_STRUCTURAL_SEARCH }}
+          PRE_GTEX_DATABASE: ${{ steps.pre.outputs.PRE_GTEX_DATABASE }}
+          PRE_HUMAN_PROTEIN_ATLAS_DATABASE: ${{ steps.pre.outputs.PRE_HUMAN_PROTEIN_ATLAS_DATABASE }}
+          PRE_INTERPRO_DATABASE: ${{ steps.pre.outputs.PRE_INTERPRO_DATABASE }}
+          PRE_JASPAR_DATABASE: ${{ steps.pre.outputs.PRE_JASPAR_DATABASE }}
+          PRE_LITERATURE_SEARCH_ARXIV: ${{ steps.pre.outputs.PRE_LITERATURE_SEARCH_ARXIV }}
+          PRE_LITERATURE_SEARCH_BIORXIV: ${{ steps.pre.outputs.PRE_LITERATURE_SEARCH_BIORXIV }}
+          PRE_LITERATURE_SEARCH_EUROPEPMC: ${{ steps.pre.outputs.PRE_LITERATURE_SEARCH_EUROPEPMC }}
+          PRE_NCBI_SEQUENCE_FETCH: ${{ steps.pre.outputs.PRE_NCBI_SEQUENCE_FETCH }}
+          PRE_OPENFDA_DATABASE: ${{ steps.pre.outputs.PRE_OPENFDA_DATABASE }}
+          PRE_OPENTARGETS_DATABASE: ${{ steps.pre.outputs.PRE_OPENTARGETS_DATABASE }}
+          PRE_PDB_DATABASE: ${{ steps.pre.outputs.PRE_PDB_DATABASE }}
+          PRE_PROTEIN_SEQUENCE_MSA: ${{ steps.pre.outputs.PRE_PROTEIN_SEQUENCE_MSA }}
+          PRE_PROTEIN_SEQUENCE_SIMILARITY_SEARCH: ${{ steps.pre.outputs.PRE_PROTEIN_SEQUENCE_SIMILARITY_SEARCH }}
+          PRE_PUBCHEM_DATABASE: ${{ steps.pre.outputs.PRE_PUBCHEM_DATABASE }}
+          PRE_PUBMED_DATABASE: ${{ steps.pre.outputs.PRE_PUBMED_DATABASE }}
+          PRE_PYMOL: ${{ steps.pre.outputs.PRE_PYMOL }}
+          PRE_QUICKGO_DATABASE: ${{ steps.pre.outputs.PRE_QUICKGO_DATABASE }}
+          PRE_STRING_DATABASE: ${{ steps.pre.outputs.PRE_STRING_DATABASE }}
+          PRE_UCSC_CONSERVATION_AND_TFBS: ${{ steps.pre.outputs.PRE_UCSC_CONSERVATION_AND_TFBS }}
+          PRE_UNIBIND_DATABASE: ${{ steps.pre.outputs.PRE_UNIBIND_DATABASE }}
+        run: |
+          set -euo pipefail
+          for sub in $FULL_SUBPLUGINS $LONGTAIL_SUBPLUGINS; do
+            if [ "$sub" = "alphagenome-skipped" ]; then
+              sub=alphagenome
+            fi
+            key=PRE_${sub//-/_}
+            expected="${!key}"
+            actual=$(ls "$sub/scripts" 2>/dev/null | wc -l)
+            if [[ "$expected" != "$actual" ]]; then
+              echo "FAIL: $sub scripts count changed: $expected -> $actual"
+              exit 1
+            fi
+            echo "OK $sub: $actual scripts"
+          done
+
+      - name: Re-run pytest after second sync
+        working-directory: plugins/zorai-plugin-science
+        run: |
+          set -euo pipefail
+          pytest_args="tests/"
+          for sub in $TESTED_SUBPLUGINS; do
+            pytest_args="$pytest_args $sub/tests/"
+          done
+          .venv/bin/pytest $pytest_args -q

@@ -1,0 +1,26 @@
+{
+  "name": "unibind-database",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the unibind_database deepmind skill. Queries the UniBind database for experimentally validated transcription factor (TF) binding sites. Use when retrieving direct TF-DNA interaction datasets, downloading binding site coordinates (BED/FASTA) for local analysis, or listing available datasets by species, cell line, or ",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a unibind_database CLI invocation. Calls `python scripts/unibind_api.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `UNIBIND_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "python scripts/unibind_api.py ${UNIBIND_DATABASE_ARGS:?set UNIBIND_DATABASE_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/unibind-database.md"
+  ]
+}

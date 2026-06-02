@@ -1,6 +1,6 @@
 use crate::state::config::ConfigState;
 use crate::state::modal::ModalState;
-use crate::state::settings::{SettingsAction, SettingsState, SettingsTab};
+use crate::state::settings::{PluginSettingsState, SettingsAction, SettingsState, SettingsTab};
 use crate::state::subagents::SubAgentsState;
 use crate::theme::ThemeTokens;
 use crate::widgets::settings::render_tab_content;
@@ -91,6 +91,40 @@ fn gateway_tab_shows_allowlist_requirement_before_linking() {
 
     assert!(text.contains("> Link Device  [Enter]  (requires allowed contacts)"));
     assert!(text.contains("Add at least one allowed phone number before QR linking."));
+}
+
+#[test]
+fn plugins_tab_shows_install_shortcut_in_list_mode() {
+    let mut settings = SettingsState::new();
+    settings.reduce(SettingsAction::SwitchTab(SettingsTab::Plugins));
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let subagents = SubAgentsState::new();
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("base");
+    let plugin_settings = PluginSettingsState::new();
+
+    let lines = render_tab_content(
+        100,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    );
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(text.contains("Press i to install a plugin."));
+    assert!(text.contains("zorai plugin add <source>"));
 }
 
 #[test]

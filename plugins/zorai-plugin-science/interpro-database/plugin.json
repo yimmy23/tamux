@@ -1,0 +1,26 @@
+{
+  "name": "interpro-database",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the interpro_database deepmind skill. Identify domains, families, and sites in proteins; find all proteins in a family or sharing a domain; explore species distribution for a domain; annotate genomes with protein families and GO terms. InterPro combines 14 databases (e.g., Pfam, CDD) into one searchable resource. Int",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a interpro_database CLI invocation. Calls `python scripts/interpro_client.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `INTERPRO_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "python scripts/interpro_client.py ${INTERPRO_DATABASE_ARGS:?set INTERPRO_DATABASE_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/interpro-database.md"
+  ]
+}

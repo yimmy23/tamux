@@ -444,7 +444,9 @@ impl TuiModel {
     }
 
     pub(in crate::app) fn handle_plugin_action_event(&mut self, success: bool, message: String) {
+        self.plugin_settings.loading = false;
         if success {
+            self.status_line = message;
             if self.settings.active_tab() == settings::SettingsTab::Plugins {
                 self.send_daemon_command(DaemonCommand::PluginList);
                 if let Some(plugin) = self.plugin_settings.selected_plugin() {

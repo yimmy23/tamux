@@ -1,0 +1,80 @@
+{
+  "name": "ensembl",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Ensembl REST — gene/transcript/protein ID resolution, cross-references, sequence retrieval, gene structure, and Variant Effect Predictor (VEP). The primary ID translator in genomics. Backed by the public Ensembl REST API (https://rest.ensembl.org/) — no auth. Vendored from the google-deepmind/science-skills bundle.",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
+  },
+  "commands": {
+    "resolve-gene": {
+      "description": "Resolve a gene symbol / alias / RefSeq ID to one or more Ensembl gene IDs (ENSG).",
+      "python": {
+        "command": "python scripts/ensembl_api.py resolve-gene \"${ENS_QUERY:?set ENS_QUERY}\" ${ENS_OUTPUT:+--output $ENS_OUTPUT} ${ENS_ASSEMBLY:+--assembly $ENS_ASSEMBLY}"
+      }
+    },
+    "map-id": {
+      "description": "Cross-reference an Ensembl gene/transcript/protein ID to external databases (RefSeq, UniProt, HGNC, etc.).",
+      "python": {
+        "command": "python scripts/ensembl_api.py map-id \"${ENS_ID:?set ENS_ID}\" ${ENS_OUTPUT:+--output $ENS_OUTPUT} ${ENS_ASSEMBLY:+--assembly $ENS_ASSEMBLY}"
+      }
+    },
+    "get-sequence": {
+      "description": "Fetch raw genomic DNA sequence for a coordinate window (region).",
+      "python": {
+        "command": "python scripts/ensembl_api.py get-sequence ${ENS_REGION:+--region $ENS_REGION} ${ENS_CHROM:+--chrom $ENS_CHROM} ${ENS_START:+--start $ENS_START} ${ENS_END:+--end $ENS_END} ${ENS_OUTPUT:+--output $ENS_OUTPUT} ${ENS_ASSEMBLY:+--assembly $ENS_ASSEMBLY}"
+      }
+    },
+    "gene-summary": {
+      "description": "Get high-level metadata for a gene: symbol, biotype, location, description.",
+      "python": {
+        "command": "python scripts/ensembl_api.py gene-summary \"${ENS_ENSG_ID:?set ENS_ENSG_ID (e.g. ENSG00000141510)}\" ${ENS_OUTPUT:+--output $ENS_OUTPUT} ${ENS_ASSEMBLY:+--assembly $ENS_ASSEMBLY}"
+      }
+    },
+    "transcripts": {
+      "description": "List transcripts for a gene, with optional MANE/canonical filter.",
+      "python": {
+        "command": "python scripts/ensembl_api.py transcripts \"${ENS_ENSG_ID:?set ENS_ENSG_ID}\" ${ENS_OUTPUT:+--output $ENS_OUTPUT} ${ENS_ASSEMBLY:+--assembly $ENS_ASSEMBLY}"
+      }
+    },
+    "canonical-tss": {
+      "description": "Get transcription start site (TSS) coordinate for the canonical transcript of a gene.",
+      "python": {
+        "command": "python scripts/ensembl_api.py canonical-tss \"${ENS_GENE:?set ENS_GENE (symbol or ENSG ID)}\" ${ENS_OUTPUT:+--output $ENS_OUTPUT} ${ENS_ASSEMBLY:+--assembly $ENS_ASSEMBLY}"
+      }
+    },
+    "transcript-structure": {
+      "description": "Get exon, CDS, and UTR layout for a transcript (ENST ID).",
+      "python": {
+        "command": "python scripts/ensembl_api.py transcript-structure \"${ENS_ENST_ID:?set ENS_ENST_ID (transcript ID, e.g. ENST00000269305)}\" ${ENS_OUTPUT:+--output $ENS_OUTPUT} ${ENS_ASSEMBLY:+--assembly $ENS_ASSEMBLY}"
+      }
+    },
+    "protein-info": {
+      "description": "Get ENSP ID and sequence length for a transcript (ENST).",
+      "python": {
+        "command": "python scripts/ensembl_api.py protein-info \"${ENS_ENST_ID:?set ENS_ENST_ID}\" ${ENS_OUTPUT:+--output $ENS_OUTPUT} ${ENS_ASSEMBLY:+--assembly $ENS_ASSEMBLY}"
+      }
+    },
+    "protein-sequence": {
+      "description": "Fetch the amino acid sequence (FASTA) for a transcript (ENST) or protein (ENSP) ID.",
+      "python": {
+        "command": "python scripts/ensembl_api.py protein-sequence \"${ENS_ID:?set ENS_ID (transcript or protein ID)}\" ${ENS_OUTPUT:+--output $ENS_OUTPUT} ${ENS_ASSEMBLY:+--assembly $ENS_ASSEMBLY}"
+      }
+    },
+    "vep": {
+      "description": "Variant Effect Predictor — annotate a single variant with its functional consequences on overlapping transcripts, regulatory features, and known variants. Required: --variant (e.g. 'chr1 230710048 A G' or HGVS notation).",
+      "python": {
+        "command": "python scripts/ensembl_api.py vep ${ENS_VARIANT:+--variant $ENS_VARIANT} ${ENS_REGION:+--region $ENS_REGION} ${ENS_OUTPUT:+--output $ENS_OUTPUT} ${ENS_ASSEMBLY:+--assembly $ENS_ASSEMBLY}"
+      }
+    }
+  },
+  "skills": [
+    "skills/ensembl.md"
+  ]
+}

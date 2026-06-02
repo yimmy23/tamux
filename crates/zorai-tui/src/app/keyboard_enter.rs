@@ -238,6 +238,14 @@ impl TuiModel {
             self.review_workspace_task_from_args(args);
             return true;
         }
+        if cmd == "plugins" {
+            if args.trim() == "install" {
+                self.execute_command("plugins install");
+            } else {
+                self.execute_command("plugins");
+            }
+            return true;
+        }
         if cmd == "new" {
             let target_agent_id = if args.trim().is_empty() {
                 Some(

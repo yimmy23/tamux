@@ -41,6 +41,20 @@ impl TuiModel {
                     }
                     return;
                 }
+                modal::ModalKind::Settings
+                    if self.settings.active_tab() == SettingsTab::Plugins
+                        && self.plugin_settings.install_mode =>
+                {
+                    for ch in text.chars() {
+                        match ch {
+                            '\r' | '\n' => {}
+                            other => {
+                                self.handle_plugins_settings_key(KeyCode::Char(other));
+                            }
+                        }
+                    }
+                    return;
+                }
                 modal::ModalKind::Settings if self.settings.is_editing() => {
                     let allow_newlines = self.settings.is_textarea();
                     for ch in text.chars() {

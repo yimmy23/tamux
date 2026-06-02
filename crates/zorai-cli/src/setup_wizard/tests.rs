@@ -436,6 +436,48 @@ fn fetch_models_terminal_response_extracts_models_json() {
 }
 
 #[test]
+fn setup_model_options_parse_remote_model_payloads_for_all_agents() {
+    let models = super::flow::parse_setup_model_options(
+        r#"[
+            {
+                "id": "openai/gpt-5.4",
+                "name": "GPT 5.4",
+                "pricing": {
+                    "prompt": "0.0000025",
+                    "completion": "0.00001"
+                }
+            }
+        ]"#,
+    );
+
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].id, "openai/gpt-5.4");
+
+    let items = super::flow::setup_model_select_items(&models);
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].label, "openai/gpt-5.4");
+    assert_eq!(items[0].detail.as_deref(), Some("GPT 5.4"));
+    assert_eq!(
+        items[0].subtitle.as_deref(),
+        Some("Prompt $2.50/M tok, completion $10.00/M tok")
+    );
+}
+
+#[test]
+fn setup_model_options_parse_legacy_string_payloads() {
+    let models = super::flow::parse_setup_model_options(r#"["gpt-5.4-mini"]"#);
+
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].id, "gpt-5.4-mini");
+
+    let items = super::flow::setup_model_select_items(&models);
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].label, "gpt-5.4-mini");
+    assert_eq!(items[0].detail, None);
+    assert_eq!(items[0].subtitle, None);
+}
+
+#[test]
 fn config_set_response_completes_on_operation_acceptance() {
     let response = parse_set_config_item_response(DaemonMessage::OperationAccepted {
         operation_id: "op-config-set-1".to_string(),
@@ -610,6 +652,66 @@ fn remote_model_pricing_subtitle_returns_free_for_zero_prompt_and_completion() {
     assert_eq!(
         super::flow::format_remote_model_pricing_subtitle(&model),
         Some("free".to_string())
+    );
+}
+
+#[test]
+fn setup_compaction_choices_include_heuristic_weles_and_custom_llm() {
+    let choices = super::agents::compaction_choice_items();
+
+    assert_eq!(
+        choices.iter().map(|(label, _)| *label).collect::<Vec<_>>(),
+        vec!["Heuristic", "WELES", "Custom LLM"]
+    );
+}
+
+#[test]
+fn custom_llm_compaction_writes_provider_model_and_reasoning_effort() {
+    let writes = super::agents::custom_llm_compaction_writes(
+        "anthropic",
+        "https://api.anthropic.com",
+        "claude-opus-4-7",
+        Some("sk-ant-test"),
+        "api_key",
+        Some("high"),
+    );
+
+    assert_eq!(
+        writes,
+        vec![
+            super::types::ConfigWrite {
+                key_path: "/auto_compact_context".to_string(),
+                value_json: "true".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/strategy".to_string(),
+                value_json: "\"custom_model\"".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/custom_model/provider".to_string(),
+                value_json: "\"anthropic\"".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/custom_model/base_url".to_string(),
+                value_json: "\"https://api.anthropic.com\"".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/custom_model/model".to_string(),
+                value_json: "\"claude-opus-4-7\"".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/custom_model/api_key".to_string(),
+                value_json: "\"sk-ant-test\"".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/custom_model/auth_source".to_string(),
+                value_json: "\"api_key\"".to_string(),
+            },
+            super::types::ConfigWrite {
+                key_path: "/compaction/custom_model/reasoning_effort".to_string(),
+                value_json: "\"high\"".to_string(),
+            },
+        ]
     );
 }
 

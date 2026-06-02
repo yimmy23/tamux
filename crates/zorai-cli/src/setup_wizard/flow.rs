@@ -85,6 +85,60 @@ pub(super) fn format_remote_model_pricing_subtitle(model: &RemoteModelOption) ->
     Some(parts.join(", "))
 }
 
+pub(super) fn parse_setup_model_options(models_json: &str) -> Vec<RemoteModelOption> {
+    serde_json::from_str(models_json)
+        .or_else(|_| {
+            serde_json::from_str::<Vec<String>>(models_json).map(|ids| {
+                ids.into_iter()
+                    .map(|id| RemoteModelOption {
+                        id,
+                        name: None,
+                        context_window: None,
+                        pricing: None,
+                        metadata: None,
+                    })
+                    .collect()
+            })
+        })
+        .unwrap_or_default()
+}
+
+pub(super) fn setup_model_select_items(models: &[RemoteModelOption]) -> Vec<RichSelectItem> {
+    models
+        .iter()
+        .map(|model| RichSelectItem {
+            label: model.id.clone(),
+            detail: model
+                .name
+                .as_ref()
+                .filter(|name| name.as_str() != model.id)
+                .cloned(),
+            subtitle: format_remote_model_pricing_subtitle(model),
+        })
+        .collect()
+}
+
+pub(super) async fn fetch_setup_model_options(
+    framed: &mut Framed<impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin, ZoraiCodec>,
+    provider: &ProviderSelection,
+    api_key: &str,
+) -> Result<Vec<RemoteModelOption>> {
+    wizard_send(
+        framed,
+        ClientMessage::AgentFetchModels {
+            provider_id: provider.provider_id.clone(),
+            base_url: provider.base_url.clone(),
+            api_key: api_key.to_string(),
+            output_modalities: None,
+        },
+    )
+    .await
+    .context("Failed to fetch models")?;
+
+    let models_json = recv_fetch_models_terminal_response(framed).await?;
+    Ok(parse_setup_model_options(&models_json))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct AuthSetupResult {
     pub auth_source: String,
@@ -488,48 +542,10 @@ async fn configure_model(
         let svarog_model_hint = super::agents::setup_agent_model_hint("Svarog");
         println!("Fetching available models...");
         println!("{svarog_model_hint}");
-        wizard_send(
-            framed,
-            ClientMessage::AgentFetchModels {
-                provider_id: provider.provider_id.clone(),
-                base_url: provider.base_url.clone(),
-                api_key: api_key_saved.to_string(),
-                output_modalities: None,
-            },
-        )
-        .await
-        .context("Failed to fetch models")?;
-
-        match recv_fetch_models_terminal_response(framed).await {
-            Ok(models_json) => {
-                let models: Vec<RemoteModelOption> = serde_json::from_str(&models_json)
-                    .or_else(|_| {
-                        serde_json::from_str::<Vec<String>>(&models_json).map(|ids| {
-                            ids.into_iter()
-                                .map(|id| RemoteModelOption {
-                                    id,
-                                    name: None,
-                                    context_window: None,
-                                    pricing: None,
-                                    metadata: None,
-                                })
-                                .collect()
-                        })
-                    })
-                    .unwrap_or_default();
+        match fetch_setup_model_options(framed, provider, api_key_saved).await {
+            Ok(models) => {
                 if !models.is_empty() {
-                    let items: Vec<RichSelectItem> = models
-                        .iter()
-                        .map(|model| RichSelectItem {
-                            label: model.id.clone(),
-                            detail: model
-                                .name
-                                .as_ref()
-                                .filter(|name| name.as_str() != model.id)
-                                .cloned(),
-                            subtitle: format_remote_model_pricing_subtitle(model),
-                        })
-                        .collect();
+                    let items = setup_model_select_items(&models);
                     if let Some(idx) = select_rich_list(
                         &format!("Select default Svarog's model:\n{}", svarog_model_hint),
                         &items,

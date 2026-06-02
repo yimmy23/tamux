@@ -1,0 +1,26 @@
+{
+  "name": "ucsc-conservation-and-tfbs",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the ucsc_conservation_and_tfbs deepmind skill. Fetch Evolutionary Conservation scores (phyloP, phastCons) and Transcription Factor Binding Sites (TFBS) from the UCSC Genome Browser. Use when analyzing whether genomic variants or regions are evolutionarily conserved, functionally important, or bounded by TF regulators across m",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a ucsc_conservation_and_tfbs CLI invocation. Calls `python scripts/get_conservation.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `UCSC_CONSERVATION_AND_TFBS_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "python scripts/get_conservation.py ${UCSC_CONSERVATION_AND_TFBS_ARGS:?set UCSC_CONSERVATION_AND_TFBS_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/ucsc-conservation-and-tfbs.md"
+  ]
+}

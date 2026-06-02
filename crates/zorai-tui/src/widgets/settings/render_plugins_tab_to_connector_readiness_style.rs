@@ -17,11 +17,39 @@ pub(crate) fn render_plugins_tab<'a>(
             "  Manage installed plugins and their settings.",
             theme.fg_dim,
         )));
+        lines.push(Line::from(Span::styled(
+            "  Press i to install a plugin. `zorai plugin add <source>`",
+            theme.fg_dim,
+        )));
         lines.push(Line::raw(""));
+
+        if plugin_state.install_mode {
+            let cursor = plugin_state
+                .install_source_buffer
+                .get(..plugin_state.install_source_cursor)
+                .map(|prefix| prefix.chars().count())
+                .unwrap_or_else(|| plugin_state.install_source_buffer.chars().count());
+            lines.push(Line::from(Span::styled(
+                "  Install Plugin",
+                theme.fg_active,
+            )));
+            lines.push(Line::from(vec![
+                Span::styled("  Source  ", theme.fg_dim),
+                Span::styled(
+                    render_edit_buffer_with_cursor(&plugin_state.install_source_buffer, cursor),
+                    theme.accent_primary,
+                ),
+            ]));
+            lines.push(Line::from(Span::styled(
+                "  Enter installs. Esc cancels.",
+                theme.fg_dim,
+            )));
+            lines.push(Line::raw(""));
+        }
 
         if plugin_state.plugins.is_empty() {
             lines.push(Line::from(Span::styled(
-                "  No plugins. Run `zorai plugin add <name>` to install.",
+                "  No plugins installed yet.",
                 theme.fg_dim,
             )));
             return lines;

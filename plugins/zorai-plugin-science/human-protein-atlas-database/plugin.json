@@ -1,0 +1,26 @@
+{
+  "name": "human-protein-atlas-database",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the human_protein_atlas_database deepmind skill. Use when you want to retrieve semi-quantitative protein expression and spatial localisation data from the Human Protein Atlas (HPA).",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a human_protein_atlas_database CLI invocation. Calls `python scripts/hpa_cli.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `HUMAN_PROTEIN_ATLAS_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "python scripts/hpa_cli.py ${HUMAN_PROTEIN_ATLAS_DATABASE_ARGS:?set HUMAN_PROTEIN_ATLAS_DATABASE_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/human-protein-atlas-database.md"
+  ]
+}

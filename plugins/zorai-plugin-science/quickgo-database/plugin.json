@@ -1,0 +1,26 @@
+{
+  "name": "quickgo-database",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the quickgo_database deepmind skill. Query the QuickGO and Evidence & Conclusion Ontology (ECO) REST API. Use this when you need to map genes to biological processes, molecular functions, or cellular components, find genes associated with a specific pathway/GO term, or explore the Gene Ontology hierarchy. Do not use",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a quickgo_database CLI invocation. Calls `python scripts/quickgo_tool.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `QUICKGO_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "python scripts/quickgo_tool.py ${QUICKGO_DATABASE_ARGS:?set QUICKGO_DATABASE_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/quickgo-database.md"
+  ]
+}

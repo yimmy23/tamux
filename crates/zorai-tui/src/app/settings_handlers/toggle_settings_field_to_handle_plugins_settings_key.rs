@@ -1,5 +1,32 @@
 use super::*;
 use crossterm::event::KeyCode;
+
+fn clamp_to_char_boundary(text: &str, cursor: usize) -> usize {
+    let mut cursor = cursor.min(text.len());
+    while cursor > 0 && !text.is_char_boundary(cursor) {
+        cursor -= 1;
+    }
+    cursor
+}
+
+fn previous_char_boundary(text: &str, cursor: usize) -> usize {
+    let cursor = clamp_to_char_boundary(text, cursor);
+    text[..cursor]
+        .char_indices()
+        .last()
+        .map(|(idx, _)| idx)
+        .unwrap_or(0)
+}
+
+fn next_char_boundary(text: &str, cursor: usize) -> usize {
+    let cursor = clamp_to_char_boundary(text, cursor);
+    if cursor >= text.len() {
+        text.len()
+    } else {
+        cursor + text[cursor..].chars().next().map_or(0, char::len_utf8)
+    }
+}
+
 impl TuiModel {
     pub(crate) fn toggle_settings_field(&mut self) {
         let field = self.current_settings_field_name().to_string();
@@ -284,6 +311,87 @@ impl TuiModel {
 
     pub(crate) fn handle_plugins_settings_key(&mut self, code: KeyCode) -> bool {
         if self.plugin_settings.list_mode {
+            if self.plugin_settings.install_mode {
+                match code {
+                    KeyCode::Enter | KeyCode::Char('\r') | KeyCode::Char('\n') => {
+                        let source = self
+                            .plugin_settings
+                            .install_source_buffer
+                            .trim()
+                            .to_string();
+                        if source.is_empty() {
+                            self.status_line = "Enter a plugin source to install".to_string();
+                        } else {
+                            self.plugin_settings.install_mode = false;
+                            self.plugin_settings.install_source_buffer.clear();
+                            self.plugin_settings.install_source_cursor = 0;
+                            self.plugin_settings.loading = true;
+                            self.send_daemon_command(DaemonCommand::PluginInstallSource(source));
+                            self.status_line = "Installing plugin...".to_string();
+                        }
+                        return true;
+                    }
+                    KeyCode::Esc => {
+                        self.plugin_settings.install_mode = false;
+                        self.plugin_settings.install_source_buffer.clear();
+                        self.plugin_settings.install_source_cursor = 0;
+                        self.status_line = "Plugin installation cancelled".to_string();
+                        return true;
+                    }
+                    KeyCode::Backspace => {
+                        let cursor = clamp_to_char_boundary(
+                            &self.plugin_settings.install_source_buffer,
+                            self.plugin_settings.install_source_cursor,
+                        );
+                        if cursor > 0 {
+                            let previous = previous_char_boundary(
+                                &self.plugin_settings.install_source_buffer,
+                                cursor,
+                            );
+                            self.plugin_settings
+                                .install_source_buffer
+                                .replace_range(previous..cursor, "");
+                            self.plugin_settings.install_source_cursor = previous;
+                        }
+                        return true;
+                    }
+                    KeyCode::Left => {
+                        self.plugin_settings.install_source_cursor = previous_char_boundary(
+                            &self.plugin_settings.install_source_buffer,
+                            self.plugin_settings.install_source_cursor,
+                        );
+                        return true;
+                    }
+                    KeyCode::Right => {
+                        self.plugin_settings.install_source_cursor = next_char_boundary(
+                            &self.plugin_settings.install_source_buffer,
+                            self.plugin_settings.install_source_cursor,
+                        );
+                        return true;
+                    }
+                    KeyCode::Home => {
+                        self.plugin_settings.install_source_cursor = 0;
+                        return true;
+                    }
+                    KeyCode::End => {
+                        self.plugin_settings.install_source_cursor =
+                            self.plugin_settings.install_source_buffer.len();
+                        return true;
+                    }
+                    KeyCode::Char(ch) => {
+                        let cursor = clamp_to_char_boundary(
+                            &self.plugin_settings.install_source_buffer,
+                            self.plugin_settings.install_source_cursor,
+                        );
+                        self.plugin_settings
+                            .install_source_buffer
+                            .insert(cursor, ch);
+                        self.plugin_settings.install_source_cursor = cursor + ch.len_utf8();
+                        return true;
+                    }
+                    _ => return true,
+                }
+            }
             match code {
                 KeyCode::Down => {
                     let count = self.plugin_settings.plugins.len();
@@ -320,6 +428,13 @@ impl TuiModel {
                             self.send_daemon_command(DaemonCommand::PluginEnable(name));
                         }
                     }
+                    return true;
+                }
+                KeyCode::Char('i') | KeyCode::Char('I') => {
+                    self.plugin_settings.install_mode = true;
+                    self.plugin_settings.install_source_buffer.clear();
+                    self.plugin_settings.install_source_cursor = 0;
+                    self.status_line = "Enter a plugin source to install".to_string();
                     return true;
                 }
                 _ => {}

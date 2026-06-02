@@ -1,0 +1,26 @@
+{
+  "name": "gtex-database",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the gtex_database deepmind skill. Use when you want to retrieve quantitative RNA expression data and variant eQTL information from the GTEx (Genotype-Tissue Expression) Project across 54 non-diseased tissue sites.",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon"
+    ]
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a gtex_database CLI invocation. Calls `python scripts/gtex_cli.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `GTEX_DATABASE_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "python scripts/gtex_cli.py ${GTEX_DATABASE_ARGS:?set GTEX_DATABASE_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/gtex-database.md"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "protein-sequence-msa",
+  "version": "1.0.0",
+  "schema_version": 1,
+  "description": "Long-tail stub for the protein_sequence_msa deepmind skill. Performs multiple sequence alignment of proteins with EBI Clustal Omega. Use when you need to align multiple sequences to assess similarity, domain conservation, or key residue conservation. Supports up to 4000 sequences and a maximum file size of 4 MB. Do not use to search for h",
+  "author": "zorai",
+  "license": "MIT",
+  "zorai_version": ">=2.0.0",
+  "python": {
+    "env": true,
+    "dependencies": [
+      "./scienceskillscommon",
+      "python-dotenv"
+    ]
+  },
+  "commands": {
+    "run": {
+      "description": "Forward a protein_sequence_msa CLI invocation. Calls `python scripts/msa_align.py` with the deepmind subcommand and args you provide. Read `skills/scientific-skills-gdm/<skill>/SKILL.md` (relative to the repo root) for the canonical workflow and the full subcommand surface. Required env: `PROTEIN_SEQUENCE_MSA_ARGS` (the deepmind subcommand plus its flags).",
+      "python": {
+        "command": "python scripts/msa_align.py ${PROTEIN_SEQUENCE_MSA_ARGS:?set PROTEIN_SEQUENCE_MSA_ARGS}"
+      }
+    }
+  },
+  "skills": [
+    "skills/protein-sequence-msa.md"
+  ]
+}
