@@ -1,8 +1,8 @@
 use super::*;
 use zorai_shared::providers::{
-    PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM, PROVIDER_ID_GROQ, PROVIDER_ID_MINIMAX,
-    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI,
-    PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+    PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_CUSTOM, PROVIDER_ID_ELEVENLABS, PROVIDER_ID_GROQ,
+    PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_OPENROUTER, PROVIDER_ID_XAI, PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
 };
 impl TuiModel {
     fn image_remote_model_fetch_output_modalities(provider_id: &str) -> Option<String> {
@@ -79,6 +79,12 @@ impl TuiModel {
             (PROVIDER_ID_XAI, "stt" | "tts") => {
                 vec![model("grok-4.3", "Grok 4.3", Some(1_000_000))]
             }
+            (PROVIDER_ID_ELEVENLABS, "stt") => vec![model("scribe_v2", "Scribe v2", None)],
+            (PROVIDER_ID_ELEVENLABS, "tts") => vec![model(
+                "eleven_multilingual_v2",
+                "Eleven Multilingual v2",
+                None,
+            )],
             (PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN, "tts") => vec![
                 model("mimo-v2.5-tts", "MiMo V2.5 TTS", Some(128_000)),
                 model(

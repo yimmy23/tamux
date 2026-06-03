@@ -48,7 +48,10 @@ pub(super) fn setting_name_matches(value: &serde_json::Value) -> bool {
 
 pub(super) fn provider_supports_audio(provider: &str, group: &str) -> bool {
     match group {
-        "stt" | "tts" => provider == "openrouter",
+        "stt" | "tts" => {
+            provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER
+                || provider == zorai_shared::providers::PROVIDER_ID_ELEVENLABS
+        }
         _ => false,
     }
 }

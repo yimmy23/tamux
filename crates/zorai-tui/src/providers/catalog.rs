@@ -23,6 +23,17 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
+        id: PROVIDER_ID_ELEVENLABS,
+        name: "ElevenLabs",
+        default_base_url: "https://api.elevenlabs.io",
+        default_model: "scribe_v2",
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
+        native_base_url: None,
+    },
+    ProviderDef {
         id: PROVIDER_ID_AZURE_OPENAI,
         name: "Azure OpenAI",
         default_base_url: "https://YOUR-RESOURCE-NAME.openai.azure.com/openai/v1",

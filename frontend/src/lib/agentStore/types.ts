@@ -65,6 +65,7 @@ export type BuiltinAgentProviderId =
   | "anthropic"
   | "openai"
   | "xai"
+  | "elevenlabs"
   | "azure-openai"
   | "github-copilot"
   | "hermes-agent-api"
@@ -99,6 +100,7 @@ export const AGENT_PROVIDER_IDS: BuiltinAgentProviderId[] = [
   "anthropic",
   "openai",
   "xai",
+  "elevenlabs",
   "azure-openai",
   "github-copilot",
   "hermes-agent-api",
@@ -183,7 +185,7 @@ export interface SubAgentDefinition {
 }
 
 export type ApiType = "openai" | "anthropic";
-export type AuthMethod = "bearer" | "x-api-key";
+export type AuthMethod = "bearer" | "x-api-key" | "xi-api-key";
 export type AuthSource = "api_key" | "chatgpt_subscription" | "github_copilot";
 export type ApiTransportMode =
   | "native_assistant"

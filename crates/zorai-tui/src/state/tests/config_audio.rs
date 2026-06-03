@@ -26,6 +26,14 @@ fn make_config_raw_without_audio() -> serde_json::Value {
     })
 }
 
+fn make_config_raw_elevenlabs_without_audio_provider() -> serde_json::Value {
+    json!({
+        "provider": "elevenlabs",
+        "model": "scribe_v2",
+        "extra": {}
+    })
+}
+
 fn make_config_raw_partial_audio() -> serde_json::Value {
     json!({
         "provider": "openai",
@@ -87,6 +95,18 @@ fn audio_stt_provider_parses_from_extra() {
     state.reduce(ConfigAction::ConfigRawReceived(make_config_raw_with_audio()));
 
     assert_eq!(state.audio_stt_provider(), "openai");
+}
+
+#[test]
+fn audio_providers_default_to_active_elevenlabs_provider() {
+    let mut state = ConfigState::new();
+    state.reduce(ConfigAction::SetProvider("elevenlabs".to_string()));
+    state.reduce(ConfigAction::ConfigRawReceived(
+        make_config_raw_elevenlabs_without_audio_provider(),
+    ));
+
+    assert_eq!(state.audio_stt_provider(), "elevenlabs");
+    assert_eq!(state.audio_tts_provider(), "elevenlabs");
 }
 
 #[test]

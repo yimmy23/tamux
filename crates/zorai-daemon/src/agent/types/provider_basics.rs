@@ -50,6 +50,8 @@ pub enum AuthMethod {
     Bearer,
     #[serde(rename = "x-api-key", alias = "x_api_key")]
     XApiKey,
+    #[serde(rename = "xi-api-key", alias = "xi_api_key")]
+    XiApiKey,
 }
 
 impl AuthMethod {
@@ -58,6 +60,7 @@ impl AuthMethod {
         match self {
             Self::Bearer => req.header("Authorization", format!("Bearer {}", api_key)),
             Self::XApiKey => req.header("x-api-key", api_key),
+            Self::XiApiKey => req.header("xi-api-key", api_key),
         }
     }
 }

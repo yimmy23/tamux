@@ -38,6 +38,7 @@ enum AudioToolRoute {
     XiaomiChatCompletionsTts,
     XaiStt,
     XaiTts,
+    ElevenLabs,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -765,6 +766,10 @@ fn audio_tool_route(
         };
     }
 
+    if provider_id == zorai_shared::providers::PROVIDER_ID_ELEVENLABS {
+        return AudioToolRoute::ElevenLabs;
+    }
+
     if provider_id == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
         return match audio_tool_kind {
             zorai_shared::providers::AudioToolKind::SpeechToText => {
@@ -1248,6 +1253,66 @@ fn xai_tts_voice(args: &serde_json::Value) -> &str {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_XAI_TTS_VOICE)
+}
+
+fn elevenlabs_api_endpoint(base_url: &str, endpoint: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    let endpoint = endpoint.trim_start_matches('/');
+    if base.ends_with("/v1") {
+        format!("{base}/{endpoint}")
+    } else {
+        format!("{base}/v1/{endpoint}")
+    }
+}
+
+fn elevenlabs_stt_endpoint(base_url: &str) -> String {
+    elevenlabs_api_endpoint(base_url, "speech-to-text")
+}
+
+fn elevenlabs_tts_endpoint(base_url: &str, voice_id: &str) -> Result<String> {
+    let voice_id = voice_id.trim();
+    if voice_id.is_empty() {
+        anyhow::bail!(
+            "ElevenLabs text_to_speech requires audio_tts_voice to be an ElevenLabs voice ID"
+        );
+    }
+    let encoded_voice_id =
+        percent_encoding::utf8_percent_encode(voice_id, percent_encoding::NON_ALPHANUMERIC)
+            .to_string();
+    Ok(elevenlabs_api_endpoint(
+        base_url,
+        &format!("text-to-speech/{encoded_voice_id}"),
+    ))
+}
+
+fn build_elevenlabs_stt_multipart_fields(
+    args: &serde_json::Value,
+    model: &str,
+    filename: &str,
+    mime_type: &str,
+) -> Vec<OrderedMultipartField> {
+    let mut fields = vec![OrderedMultipartField::Text {
+        name: "model_id".to_string(),
+        value: model.trim().to_string(),
+    }];
+    push_nonempty_text_field(
+        &mut fields,
+        "language_code",
+        args.get("language").and_then(|value| value.as_str()),
+    );
+    fields.push(OrderedMultipartField::File {
+        name: "file".to_string(),
+        filename: filename.to_string(),
+        mime_type: mime_type.to_string(),
+    });
+    fields
+}
+
+fn build_elevenlabs_tts_body(input: &str, model: &str) -> serde_json::Value {
+    serde_json::json!({
+        "text": input,
+        "model_id": model.trim(),
+    })
 }
 
 fn build_xai_tts_body(args: &serde_json::Value, input: &str) -> Result<serde_json::Value> {
@@ -2078,40 +2143,60 @@ pub(crate) async fn execute_speech_to_text(
         .await;
     }
 
-    let url = stt_endpoint_for_route(&provider_config.base_url, route);
     let response_format = args
         .get("response_format")
         .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("json");
-    let form = if route == AudioToolRoute::XaiStt {
-        let fields = build_xai_stt_multipart_fields(args, &filename, &mime_type);
-        ordered_fields_to_multipart_form(&fields, &bytes)?
-    } else {
-        let file_part = reqwest::multipart::Part::bytes(bytes)
-            .file_name(filename)
-            .mime_str(&mime_type)?;
-        let mut form = reqwest::multipart::Form::new()
-            .part("file", file_part)
-            .text("model", provider_config.model.clone());
-        if let Some(language) = args
-            .get("language")
-            .and_then(|value| value.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            form = form.text("language", language.to_string());
+    let (url, form) = match route {
+        AudioToolRoute::ElevenLabs => {
+            let fields = build_elevenlabs_stt_multipart_fields(
+                args,
+                &provider_config.model,
+                &filename,
+                &mime_type,
+            );
+            (
+                elevenlabs_stt_endpoint(&provider_config.base_url),
+                ordered_fields_to_multipart_form(&fields, &bytes)?,
+            )
         }
-        if let Some(prompt) = args
-            .get("prompt")
-            .and_then(|value| value.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            form = form.text("prompt", prompt.to_string());
+        AudioToolRoute::XaiStt => {
+            let fields = build_xai_stt_multipart_fields(args, &filename, &mime_type);
+            (
+                stt_endpoint_for_route(&provider_config.base_url, route),
+                ordered_fields_to_multipart_form(&fields, &bytes)?,
+            )
         }
-        form.text("response_format", response_format.to_string())
+        _ => {
+            let file_part = reqwest::multipart::Part::bytes(bytes)
+                .file_name(filename)
+                .mime_str(&mime_type)?;
+            let mut form = reqwest::multipart::Form::new()
+                .part("file", file_part)
+                .text("model", provider_config.model.clone());
+            if let Some(language) = args
+                .get("language")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                form = form.text("language", language.to_string());
+            }
+            if let Some(prompt) = args
+                .get("prompt")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                form = form.text("prompt", prompt.to_string());
+            }
+            (
+                stt_endpoint_for_route(&provider_config.base_url, route),
+                form.text("response_format", response_format.to_string()),
+            )
+        }
     };
 
     let request =
@@ -2124,7 +2209,10 @@ pub(crate) async fn execute_speech_to_text(
     }
 
     let body = response.text().await?;
-    if route != AudioToolRoute::XaiStt && response_format == "text" {
+    if route != AudioToolRoute::XaiStt
+        && route != AudioToolRoute::ElevenLabs
+        && response_format == "text"
+    {
         return Ok(body);
     }
 
@@ -2173,6 +2261,37 @@ pub(crate) async fn execute_text_to_speech(
             input,
         )
         .await;
+    }
+
+    if route == AudioToolRoute::ElevenLabs {
+        let voice = args
+            .get("voice")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let url = elevenlabs_tts_endpoint(&provider_config.base_url, voice)?;
+        let body = build_elevenlabs_tts_body(input, &provider_config.model);
+        let request =
+            apply_media_auth_headers(media_http_client.post(&url), &provider_id, &provider_config)?;
+        let response = request.json(&body).send().await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            anyhow::bail!("text_to_speech failed: HTTP {status} {text}");
+        }
+
+        let bytes = response.bytes().await?;
+        let output_path = temp_output_path("speech", "mp3");
+        tokio::fs::write(&output_path, &bytes).await?;
+
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "provider": provider_id,
+            "model": provider_config.model,
+            "voice": voice.trim(),
+            "path": output_path,
+            "mime_type": "audio/mpeg",
+            "bytes": bytes.len(),
+        }))
+        .map_err(Into::into);
     }
 
     let voice = if route == AudioToolRoute::XaiTts {
@@ -2370,6 +2489,83 @@ mod media_tools_tests {
             tts_endpoint_for_route("https://api.x.ai/v1", route),
             "https://api.x.ai/v1/tts"
         );
+    }
+
+    #[test]
+    fn elevenlabs_speech_to_text_uses_native_endpoint() {
+        let route = audio_tool_route(
+            zorai_shared::providers::PROVIDER_ID_ELEVENLABS,
+            zorai_shared::providers::AudioToolKind::SpeechToText,
+        );
+        assert_eq!(route, AudioToolRoute::ElevenLabs);
+        assert_eq!(
+            elevenlabs_stt_endpoint("https://api.elevenlabs.io"),
+            "https://api.elevenlabs.io/v1/speech-to-text"
+        );
+    }
+
+    #[test]
+    fn elevenlabs_text_to_speech_uses_voice_id_endpoint() {
+        let route = audio_tool_route(
+            zorai_shared::providers::PROVIDER_ID_ELEVENLABS,
+            zorai_shared::providers::AudioToolKind::TextToSpeech,
+        );
+        assert_eq!(route, AudioToolRoute::ElevenLabs);
+        assert_eq!(
+            elevenlabs_tts_endpoint("https://api.elevenlabs.io", "JBFqnCBsd6RMkjVDRZzb")
+                .expect("voice endpoint should build"),
+            "https://api.elevenlabs.io/v1/text-to-speech/JBFqnCBsd6RMkjVDRZzb"
+        );
+    }
+
+    #[test]
+    fn elevenlabs_stt_multipart_fields_map_model_language_and_file() {
+        let fields = build_elevenlabs_stt_multipart_fields(
+            &serde_json::json!({
+                "language": "pl"
+            }),
+            "scribe_v2",
+            "capture.webm",
+            "audio/webm",
+        );
+
+        assert_eq!(
+            fields,
+            vec![
+                OrderedMultipartField::Text {
+                    name: "model_id".to_string(),
+                    value: "scribe_v2".to_string()
+                },
+                OrderedMultipartField::Text {
+                    name: "language_code".to_string(),
+                    value: "pl".to_string()
+                },
+                OrderedMultipartField::File {
+                    name: "file".to_string(),
+                    filename: "capture.webm".to_string(),
+                    mime_type: "audio/webm".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn elevenlabs_tts_body_maps_input_and_model_id() {
+        let body = build_elevenlabs_tts_body("Read this aloud", "eleven_multilingual_v2");
+
+        assert_eq!(body["text"], "Read this aloud");
+        assert_eq!(body["model_id"], "eleven_multilingual_v2");
+        assert!(body.get("voice").is_none());
+    }
+
+    #[test]
+    fn elevenlabs_tts_endpoint_requires_voice_id() {
+        let error = elevenlabs_tts_endpoint("https://api.elevenlabs.io", " ")
+            .expect_err("empty voice id should be rejected");
+
+        assert!(error
+            .to_string()
+            .contains("requires audio_tts_voice to be an ElevenLabs voice ID"));
     }
 
     #[test]
