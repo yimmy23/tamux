@@ -205,6 +205,21 @@ pub const HERMES_AGENT_API_MODELS: &[ModelDefinition] = &[ModelDefinition {
     modalities: TEXT_ONLY,
 }];
 
+pub const ELEVENLABS_MODELS: &[ModelDefinition] = &[
+    ModelDefinition {
+        id: "scribe_v2",
+        name: "Scribe v2",
+        context_window: 0,
+        modalities: TEXT_AUDIO,
+    },
+    ModelDefinition {
+        id: "eleven_multilingual_v2",
+        name: "Eleven Multilingual v2",
+        context_window: 0,
+        modalities: TEXT_AUDIO,
+    },
+];
+
 pub const OPENCODE_ZEN_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
         id: "claude-opus-4-6",

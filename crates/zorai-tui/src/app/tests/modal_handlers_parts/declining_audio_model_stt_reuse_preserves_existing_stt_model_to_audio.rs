@@ -1,6 +1,41 @@
 use super::whatsapp_modal_esc_sends_stop_and_closes_to_clicking_rendered_settings::*;
 use crate::app::*;
 use zorai_shared::providers::*;
+
+#[test]
+fn elevenlabs_audio_model_picker_uses_static_stt_and_tts_models() {
+    let (mut model, _daemon_rx) = make_model();
+    model.config.agent_config_raw = Some(serde_json::json!({
+        "audio": {
+            "stt": {
+                "provider": PROVIDER_ID_ELEVENLABS,
+                "model": "scribe_v2"
+            },
+            "tts": {
+                "provider": PROVIDER_ID_ELEVENLABS,
+                "model": "eleven_multilingual_v2"
+            }
+        }
+    }));
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioSttModel);
+    let stt_models = model
+        .available_model_picker_models()
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+
+    model.settings_picker_target = Some(SettingsPickerTarget::AudioTtsModel);
+    let tts_models = model
+        .available_model_picker_models()
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(stt_models, vec!["scribe_v2"]);
+    assert_eq!(tts_models, vec!["eleven_multilingual_v2"]);
+}
+
 #[test]
 fn declining_audio_model_stt_reuse_preserves_existing_stt_model() {
     let (mut model, mut daemon_rx) = make_model();

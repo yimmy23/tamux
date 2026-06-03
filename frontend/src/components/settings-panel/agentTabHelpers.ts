@@ -22,6 +22,14 @@ const XAI_AUDIO_MODELS: ModelDefinition[] = [
   { id: "grok-4.3", name: "Grok 4.3", contextWindow: 1_000_000, modalities: ["audio"] },
 ];
 
+const ELEVENLABS_STT_MODELS: ModelDefinition[] = [
+  { id: "scribe_v2", name: "Scribe v2", contextWindow: 0, modalities: ["audio"] },
+];
+
+const ELEVENLABS_TTS_MODELS: ModelDefinition[] = [
+  { id: "eleven_multilingual_v2", name: "Eleven Multilingual v2", contextWindow: 0, modalities: ["audio"] },
+];
+
 const GROQ_STT_MODELS: ModelDefinition[] = [
   { id: "whisper-large-v3-turbo", name: "Whisper Large V3 Turbo", contextWindow: 0, modalities: ["audio"] },
   { id: "whisper-large-v3", name: "Whisper Large V3", contextWindow: 0, modalities: ["audio"] },
@@ -115,6 +123,9 @@ export function audioModelOptions(
   }
   if (providerId === "xai") {
     return XAI_AUDIO_MODELS;
+  }
+  if (providerId === "elevenlabs") {
+    return kind === "stt" ? ELEVENLABS_STT_MODELS : ELEVENLABS_TTS_MODELS;
   }
   if (providerId === "groq") {
     return kind === "stt" ? GROQ_STT_MODELS : GROQ_TTS_MODELS;

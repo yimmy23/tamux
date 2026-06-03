@@ -25,6 +25,7 @@ pub const PROVIDER_ID_CEREBRAS: &str = "cerebras";
 pub const PROVIDER_ID_CHUTES: &str = "chutes";
 pub const PROVIDER_ID_CUSTOM: &str = "custom";
 pub const PROVIDER_ID_DEEPSEEK: &str = "deepseek";
+pub const PROVIDER_ID_ELEVENLABS: &str = "elevenlabs";
 pub const PROVIDER_ID_FEATHERLESS: &str = "featherless";
 pub const PROVIDER_ID_GITHUB_COPILOT: &str = "github-copilot";
 pub const PROVIDER_ID_GROQ: &str = "groq";
@@ -64,6 +65,9 @@ pub const CUSTOM_PROVIDER: ProviderRef = ProviderRef {
 };
 pub const DEEPSEEK_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_DEEPSEEK,
+};
+pub const ELEVENLABS_PROVIDER: ProviderRef = ProviderRef {
+    id: PROVIDER_ID_ELEVENLABS,
 };
 pub const GITHUB_COPILOT_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_GITHUB_COPILOT,
@@ -206,6 +210,7 @@ pub fn provider_supports_audio_tool(provider_id: &str, kind: AudioToolKind) -> b
             PROVIDER_ID_CUSTOM
                 | PROVIDER_ID_OPENAI
                 | PROVIDER_ID_AZURE_OPENAI
+                | PROVIDER_ID_ELEVENLABS
                 | PROVIDER_ID_GROQ
                 | PROVIDER_ID_OPENROUTER
                 | PROVIDER_ID_XAI
@@ -215,6 +220,7 @@ pub fn provider_supports_audio_tool(provider_id: &str, kind: AudioToolKind) -> b
             PROVIDER_ID_CUSTOM
                 | PROVIDER_ID_OPENAI
                 | PROVIDER_ID_AZURE_OPENAI
+                | PROVIDER_ID_ELEVENLABS
                 | PROVIDER_ID_GROQ
                 | PROVIDER_ID_MINIMAX
                 | PROVIDER_ID_MINIMAX_CODING_PLAN
@@ -261,6 +267,18 @@ mod tests {
         ));
         assert!(provider_supports_audio_tool(
             PROVIDER_ID_XAI,
+            AudioToolKind::TextToSpeech,
+        ));
+    }
+
+    #[test]
+    fn elevenlabs_is_marked_as_audio_capable_for_both_tools() {
+        assert!(provider_supports_audio_tool(
+            PROVIDER_ID_ELEVENLABS,
+            AudioToolKind::SpeechToText,
+        ));
+        assert!(provider_supports_audio_tool(
+            PROVIDER_ID_ELEVENLABS,
             AudioToolKind::TextToSpeech,
         ));
     }

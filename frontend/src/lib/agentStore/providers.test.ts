@@ -131,6 +131,8 @@ describe("frontend xAI audio/provider settings coverage", () => {
     expect(providerSupportsAudioTool("openai", "stt")).toBe(true);
     expect(providerSupportsAudioTool("openrouter", "tts")).toBe(true);
     expect(providerSupportsAudioTool("xai", "stt")).toBe(true);
+    expect(providerSupportsAudioTool("elevenlabs", "stt")).toBe(true);
+    expect(providerSupportsAudioTool("elevenlabs", "tts")).toBe(true);
     expect(providerSupportsAudioTool("xiaomi-mimo-token-plan", "tts")).toBe(true);
     expect(providerSupportsAudioTool("xiaomi-mimo-token-plan", "stt")).toBe(false);
     expect(providerSupportsAudioTool("minimax", "tts")).toBe(true);

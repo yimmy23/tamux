@@ -109,6 +109,10 @@ pub(super) fn known_models_for_provider_auth(
             ("grok-4", "Grok 4", 256_000),
             ("grok-code-fast-1", "Grok Code Fast 1", 256_000),
         ],
+        PROVIDER_ID_ELEVENLABS => &[
+            ("scribe_v2", "Scribe v2", 0),
+            ("eleven_multilingual_v2", "Eleven Multilingual v2", 0),
+        ],
         PROVIDER_ID_OLLAMA => &[
             ("llama3.3", "Llama 3.3", 128_000),
             ("qwen2.5-coder", "Qwen 2.5 Coder", 32_768),

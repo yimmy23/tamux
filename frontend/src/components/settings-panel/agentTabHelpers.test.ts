@@ -59,6 +59,12 @@ test("audio model options match tui static catalogs", () => {
     "canopylabs/orpheus-v1-english",
     "canopylabs/orpheus-arabic-saudi",
   ]);
+  expect(audioModelOptions("elevenlabs", "stt")?.map((model) => model.id)).toEqual([
+    "scribe_v2",
+  ]);
+  expect(audioModelOptions("elevenlabs", "tts")?.map((model) => model.id)).toEqual([
+    "eleven_multilingual_v2",
+  ]);
 });
 
 test("minimax provider changes normalize tts defaults and image defaults", () => {
@@ -67,6 +73,13 @@ test("minimax provider changes normalize tts defaults and image defaults", () =>
   expect(normalizeAudioModelForProviderChange("minimax", "stt", "whisper-1")).toBe("");
   expect(normalizeImageGenerationModelForProviderChange("minimax", "")).toBe("image-01");
   expect(normalizeImageGenerationModelForProviderChange("minimax-coding-plan", "image-01")).toBe("image-01");
+});
+
+test("elevenlabs provider changes normalize stt and tts defaults", () => {
+  expect(normalizeAudioModelForProviderChange("elevenlabs", "stt", "")).toBe("scribe_v2");
+  expect(normalizeAudioModelForProviderChange("elevenlabs", "tts", "")).toBe("eleven_multilingual_v2");
+  expect(normalizeAudioModelForProviderChange("elevenlabs", "stt", "whisper-1")).toBe("scribe_v2");
+  expect(normalizeAudioModelForProviderChange("elevenlabs", "tts", "tts-1")).toBe("eleven_multilingual_v2");
 });
 
 test("embedding model options match tui static catalogs", () => {

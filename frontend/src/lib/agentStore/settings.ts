@@ -81,6 +81,7 @@ export interface AgentSettings {
   nvidia: AgentProviderConfig;
   "nous-portal": AgentProviderConfig;
   openrouter: AgentProviderConfig;
+  elevenlabs: AgentProviderConfig;
   cerebras: AgentProviderConfig;
   together: AgentProviderConfig;
   groq: AgentProviderConfig;
@@ -210,6 +211,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   nvidia: { base_url: "https://integrate.api.nvidia.com/v1", model: "minimaxai/minimax-m2.7", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   "nous-portal": { base_url: "https://inference-api.nousresearch.com/v1", model: "nousresearch/hermes-4-70b", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   openrouter: { base_url: "https://openrouter.ai/api/v1", model: "arcee-ai/trinity-large-thinking", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null, openrouter_response_cache_enabled: false },
+  elevenlabs: { base_url: "https://api.elevenlabs.io", model: "scribe_v2", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   cerebras: { base_url: "https://api.cerebras.ai/v1", model: "llama-3.3-70b", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   together: { base_url: "https://api.together.xyz/v1", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   groq: { base_url: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: null },
@@ -613,6 +615,7 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     nvidia: providerConfigFromRaw("nvidia", source),
     "nous-portal": providerConfigFromRaw("nous-portal", source),
     openrouter: providerConfigFromRaw("openrouter", source),
+    elevenlabs: providerConfigFromRaw("elevenlabs", source),
     cerebras: providerConfigFromRaw("cerebras", source),
     together: providerConfigFromRaw("together", source),
     groq: providerConfigFromRaw("groq", source),

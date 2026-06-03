@@ -3,8 +3,9 @@ use crate::agent::autonomy::AutonomyLevel;
 use crate::agent::config::load_config_from_items;
 use zorai_shared::providers::{
     PROVIDER_ID_ANTHROPIC, PROVIDER_ID_ARCEE, PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK,
-    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_HERMES_AGENT_API, PROVIDER_ID_MINIMAX,
-    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_XAI,
+    PROVIDER_ID_ELEVENLABS, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_HERMES_AGENT_API,
+    PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_XAI,
 };
 
 #[test]
@@ -901,6 +902,25 @@ fn hermes_agent_api_provider_uses_documented_openai_compatible_defaults() {
     assert_eq!(provider.models[0].id, "hermes-agent");
     assert_eq!(provider.models[0].context_window, 128_000);
     assert_eq!(provider.models[0].modalities, TEXT_ONLY);
+}
+
+#[test]
+fn elevenlabs_provider_exposes_audio_defaults() {
+    let provider = get_provider_definition(PROVIDER_ID_ELEVENLABS).expect("elevenlabs provider");
+    assert_eq!(provider.name, "ElevenLabs");
+    assert_eq!(provider.default_base_url, "https://api.elevenlabs.io");
+    assert_eq!(provider.default_model, "scribe_v2");
+    assert_eq!(provider.api_type, ApiType::OpenAI);
+    assert_eq!(provider.auth_method, AuthMethod::XiApiKey);
+    assert_eq!(provider.default_transport, ApiTransport::ChatCompletions);
+    assert_eq!(provider.supported_transports, CHAT_ONLY_TRANSPORTS);
+    assert!(!provider.supports_model_fetch);
+    assert!(!provider.supports_response_continuity);
+    assert_eq!(provider.models.len(), 2);
+    assert_eq!(provider.models[0].id, "scribe_v2");
+    assert_eq!(provider.models[0].modalities, TEXT_AUDIO);
+    assert_eq!(provider.models[1].id, "eleven_multilingual_v2");
+    assert_eq!(provider.models[1].modalities, TEXT_AUDIO);
 }
 
 #[test]
