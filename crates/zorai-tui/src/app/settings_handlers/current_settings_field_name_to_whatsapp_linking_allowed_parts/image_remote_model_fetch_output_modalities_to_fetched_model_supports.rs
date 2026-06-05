@@ -22,7 +22,8 @@ impl TuiModel {
         }
 
         match endpoint {
-            "tts" => Some("audio".to_string()),
+            "tts" => Some("speech".to_string()),
+            "stt" => Some("transcription".to_string()),
             _ => None,
         }
     }
@@ -386,13 +387,17 @@ impl TuiModel {
     }
 
     fn json_array_contains_audio(value: Option<&serde_json::Value>) -> bool {
+        Self::json_array_contains_modality(value, "audio")
+    }
+
+    fn json_array_contains_modality(value: Option<&serde_json::Value>, modality: &str) -> bool {
         value
             .and_then(|value| value.as_array())
             .map(|items| {
                 items.iter().any(|item| {
                     item.as_str()
                         .map(str::trim)
-                        .map(|value| value.eq_ignore_ascii_case("audio"))
+                        .map(|value| value.eq_ignore_ascii_case(modality))
                         .unwrap_or(false)
                 })
             })
@@ -478,6 +483,18 @@ impl TuiModel {
                 .and_then(|value| value.pointer("/architecture/output_modalities"))
                 .or_else(|| metadata.and_then(|value| value.pointer("/output_modalities"))),
         );
+        let output_speech = Self::json_array_contains_modality(
+            metadata
+                .and_then(|value| value.pointer("/architecture/output_modalities"))
+                .or_else(|| metadata.and_then(|value| value.pointer("/output_modalities"))),
+            "speech",
+        );
+        let output_transcription = Self::json_array_contains_modality(
+            metadata
+                .and_then(|value| value.pointer("/architecture/output_modalities"))
+                .or_else(|| metadata.and_then(|value| value.pointer("/output_modalities"))),
+            "transcription",
+        );
         let modality_input_audio = Self::json_string_has_directional_audio(
             metadata
                 .and_then(|value| value.pointer("/architecture/modality"))
@@ -492,8 +509,8 @@ impl TuiModel {
         );
 
         let directional_match = match endpoint {
-            "stt" => input_audio || modality_input_audio,
-            "tts" => output_audio || modality_output_audio,
+            "stt" => input_audio || modality_input_audio || output_transcription,
+            "tts" => output_audio || modality_output_audio || output_speech,
             _ => false,
         };
         if directional_match {

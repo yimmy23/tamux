@@ -72,7 +72,10 @@ fn help_modal_lines(theme: &ThemeTokens) -> Vec<Line<'static>> {
         ]),
         Line::from(vec![
             Span::styled("  Ctrl+P           ", theme.fg_active),
-            Span::styled("Speak selected assistant message (or latest)", theme.fg_dim),
+            Span::styled(
+                "Speak selected/latest assistant message; pause/resume while playing (mpv)",
+                theme.fg_dim,
+            ),
         ]),
         Line::from(vec![
             Span::styled("  Ctrl+S           ", theme.fg_active),

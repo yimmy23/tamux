@@ -353,15 +353,60 @@ impl TuiModel {
         capture_path
     }
 
+    pub(in crate::app) fn clear_voice_player_ipc(&mut self) {
+        if let Some(socket) = self.voice_player_ipc.take() {
+            let _ = std::fs::remove_file(&socket);
+        }
+        self.voice_paused = false;
+    }
+
     pub(in crate::app) fn stop_voice_playback(&mut self) {
         if let Some(mut child) = self.voice_player.take() {
             let _ = child.kill();
             let _ = child.wait();
+            self.clear_voice_player_ipc();
             self.status_line = "Audio playback stopped".to_string();
             self.show_input_notice("Stopped playback", InputNoticeKind::Success, 50, true);
         } else {
+            self.clear_voice_player_ipc();
             self.status_line = "No active audio playback".to_string();
         }
+    }
+
+    /// Toggle pause/resume on the active mpv player via its IPC socket.
+    /// Returns true when the key was handled (something was playing), false when
+    /// there is nothing to toggle so the caller can fall back to synthesis.
+    pub(in crate::app) fn toggle_voice_pause(&mut self) -> bool {
+        if self.voice_player.is_none() {
+            return false;
+        }
+        let Some(socket) = self.voice_player_ipc.clone() else {
+            self.status_line = "Pause needs mpv (paplay can't pause)".to_string();
+            self.show_input_notice(
+                "Pause/resume requires mpv; Ctrl+S stops playback",
+                InputNoticeKind::Warning,
+                70,
+                true,
+            );
+            return true;
+        };
+        match send_mpv_ipc_command(&socket, "{\"command\":[\"cycle\",\"pause\"]}") {
+            Ok(()) => {
+                self.voice_paused = !self.voice_paused;
+                self.status_line = if self.voice_paused {
+                    "Speech paused".to_string()
+                } else {
+                    "Speech resumed".to_string()
+                };
+            }
+            Err(error) => {
+                self.status_line = "Pause/resume failed".to_string();
+                self.last_error = Some(format!("mpv pause/resume failed: {error}"));
+                self.error_active = true;
+                self.error_tick = self.tick_counter;
+            }
+        }
+        true
     }
 
     pub(in crate::app) fn play_audio_path(&mut self, path: &str) {
@@ -369,30 +414,50 @@ impl TuiModel {
             let _ = child.kill();
             let _ = child.wait();
         }
+        self.clear_voice_player_ipc();
+
+        self.voice_player_seq = self.voice_player_seq.wrapping_add(1);
+        let socket_path = std::env::temp_dir().join(format!(
+            "zorai-mpv-{}-{}.sock",
+            std::process::id(),
+            self.voice_player_seq
+        ));
+        let _ = std::fs::remove_file(&socket_path);
+        let ipc_arg = format!("--input-ipc-server={}", socket_path.display());
 
         let mpv = Command::new("mpv")
-            .args(["--no-video", path])
+            .args(["--no-video", "--no-terminal", &ipc_arg, path])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
 
-        let child = match mpv {
-            Ok(child) => Ok(child),
-            Err(_) => Command::new("paplay")
-                .arg(path)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn(),
+        let (child, has_ipc) = match mpv {
+            Ok(child) => (Ok(child), true),
+            Err(_) => (
+                Command::new("paplay")
+                    .arg(path)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn(),
+                false,
+            ),
         };
 
         match child {
             Ok(child) => {
                 self.voice_player = Some(child);
-                self.status_line = "Playing synthesized speech...".to_string();
+                self.voice_paused = false;
+                self.voice_player_ipc = if has_ipc { Some(socket_path) } else { None };
+                self.status_line = if has_ipc {
+                    "Playing speech (Ctrl+P pause/resume, Ctrl+S stop)".to_string()
+                } else {
+                    "Playing synthesized speech...".to_string()
+                };
             }
             Err(error) => {
+                self.voice_player_ipc = None;
                 self.status_line = "Audio playback failed (mpv/paplay unavailable)".to_string();
                 self.show_input_notice(
                     "Audio playback failed: install mpv or paplay",
@@ -408,6 +473,24 @@ impl TuiModel {
             }
         }
     }
+}
+
+#[cfg(unix)]
+fn send_mpv_ipc_command(socket: &std::path::Path, command: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::net::UnixStream;
+    let mut stream = UnixStream::connect(socket)?;
+    stream.write_all(command.as_bytes())?;
+    stream.write_all(b"\n")?;
+    stream.flush()
+}
+
+#[cfg(not(unix))]
+fn send_mpv_ipc_command(_socket: &std::path::Path, _command: &str) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "mpv IPC pause/resume is only supported on Unix",
+    ))
 }
 
 fn infer_attachment_mime(path: &std::path::Path) -> &'static str {

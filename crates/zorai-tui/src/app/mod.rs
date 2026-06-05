@@ -168,6 +168,11 @@ pub struct TuiModel {
     voice_capture_backend_label: Option<String>,
     voice_recorder: Option<Child>,
     voice_player: Option<Child>,
+    voice_player_ipc: Option<std::path::PathBuf>,
+    voice_paused: bool,
+    voice_player_seq: u64,
+    tts_audio_cache: std::collections::HashMap<String, std::path::PathBuf>,
+    pending_tts_cache_key: Option<String>,
 
     queued_prompts: Vec<QueuedPrompt>,
     queued_prompt_action: QueuedPromptAction,

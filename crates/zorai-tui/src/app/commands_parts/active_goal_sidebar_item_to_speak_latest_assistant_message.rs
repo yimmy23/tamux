@@ -456,6 +456,7 @@ impl TuiModel {
             let _ = child.kill();
             let _ = child.wait();
         }
+        self.clear_voice_player_ipc();
 
         let raw = self.config.agent_config_raw.as_ref();
         let provider = Self::voice_audio_string(
@@ -472,6 +473,18 @@ impl TuiModel {
         );
         let voice =
             Self::voice_audio_string(raw, "audio_tts_voice", &["audio", "tts", "voice"], "alloy");
+
+        let cache_key = tts_cache_key(&provider, &model, &voice, &content_to_speak);
+        if let Some(cached) = self.tts_audio_cache.get(&cache_key).cloned() {
+            if cached.exists() {
+                let path = cached.to_string_lossy().to_string();
+                self.play_audio_path(&path);
+                self.status_line = "Replaying cached speech (Ctrl+S stop)".to_string();
+                return;
+            }
+            self.tts_audio_cache.remove(&cache_key);
+        }
+
         let args_json = serde_json::json!({
             "input": content_to_speak,
             "provider": provider,
@@ -479,8 +492,49 @@ impl TuiModel {
             "voice": voice,
         })
         .to_string();
+        self.pending_tts_cache_key = Some(cache_key);
         self.send_daemon_command(DaemonCommand::TextToSpeech { args_json });
         self.status_line = "Synthesizing speech...".to_string();
         self.set_active_thread_activity("preparing speech");
+    }
+}
+
+pub(crate) fn tts_cache_key(provider: &str, model: &str, voice: &str, content: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    provider.hash(&mut hasher);
+    model.hash(&mut hasher);
+    voice.hash(&mut hasher);
+    content.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+#[cfg(test)]
+mod tts_cache_key_tests {
+    use super::tts_cache_key;
+
+    #[test]
+    fn identical_inputs_produce_identical_keys() {
+        let a = tts_cache_key("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "hello there");
+        let b = tts_cache_key("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "hello there");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn voice_or_content_change_changes_key() {
+        let base = tts_cache_key("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "hello there");
+        assert_ne!(
+            base,
+            tts_cache_key("openrouter", "x-ai/grok-voice-tts-1.0", "ara", "hello there")
+        );
+        assert_ne!(
+            base,
+            tts_cache_key("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "different text")
+        );
+        assert_ne!(
+            base,
+            tts_cache_key("openai", "x-ai/grok-voice-tts-1.0", "eve", "hello there")
+        );
     }
 }

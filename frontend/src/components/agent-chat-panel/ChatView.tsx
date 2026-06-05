@@ -9,6 +9,7 @@ import {
   summarizeSessionUsage,
 } from "./chat-view/helpers";
 import {
+  buildTtsCacheKey,
   findLatestAgentToolTextToSpeechPlayback,
   resolveAudioPlaybackSource,
 } from "./chat-view/audioPlayback";
@@ -88,7 +89,9 @@ export function ChatView({
   const [autoSpeakReplies, setAutoSpeakReplies] = useState(agentSettings.audio_tts_auto_speak);
   const [isSynthesizingSpeech, setIsSynthesizingSpeech] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [isSpeechPaused, setIsSpeechPaused] = useState(false);
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsAudioCacheRef = useRef<Map<string, string>>(new Map());
   const lastAutoSpokenMessageIdRef = useRef<string | null>(null);
   const lastPlayedToolTtsCallIdRef = useRef<string | null>(null);
 
@@ -139,6 +142,7 @@ export function ChatView({
     }
     setIsSynthesizingSpeech(false);
     setSpeakingMessageId(null);
+    setIsSpeechPaused(false);
   };
 
   const startAudioPlayback = async (source: string, playbackId: string | null = null) => {
@@ -147,21 +151,39 @@ export function ChatView({
       setSpeakingMessageId(playbackId);
     }
     setIsSynthesizingSpeech(false);
+    setIsSpeechPaused(false);
     const audio = new Audio(source);
     activeAudioRef.current = audio;
     audio.onended = () => {
       if (activeAudioRef.current === audio) {
         activeAudioRef.current = null;
         setSpeakingMessageId(null);
+        setIsSpeechPaused(false);
       }
     };
     audio.onerror = () => {
       if (activeAudioRef.current === audio) {
         activeAudioRef.current = null;
         setSpeakingMessageId(null);
+        setIsSpeechPaused(false);
       }
     };
     await audio.play();
+  };
+
+  const togglePauseResume = async (): Promise<boolean> => {
+    const audio = activeAudioRef.current;
+    if (!audio) {
+      return false;
+    }
+    if (audio.paused) {
+      await audio.play();
+      setIsSpeechPaused(false);
+    } else {
+      audio.pause();
+      setIsSpeechPaused(true);
+    }
+    return true;
   };
 
   const speakMessage = async (message: AgentMessage) => {
@@ -171,8 +193,10 @@ export function ChatView({
     }
 
     const messageId = "id" in message ? message.id : null;
-    if (messageId && speakingMessageId === messageId) {
-      stopAudioPlayback();
+    // Clicking the speaker on the message that is currently playing/paused
+    // toggles pause/resume instead of re-synthesizing.
+    if (messageId && speakingMessageId === messageId && activeAudioRef.current) {
+      await togglePauseResume();
       return;
     }
 
@@ -185,6 +209,24 @@ export function ChatView({
     if (messageId) {
       setSpeakingMessageId(messageId);
     }
+
+    const cacheKey = buildTtsCacheKey(
+      agentSettings.audio_tts_provider,
+      agentSettings.audio_tts_model,
+      agentSettings.audio_tts_voice,
+      text,
+    );
+    const cachedSource = ttsAudioCacheRef.current.get(cacheKey);
+    if (cachedSource) {
+      try {
+        await startAudioPlayback(cachedSource, messageId);
+        return;
+      } catch (error) {
+        console.error("cached text-to-speech playback failed", error);
+        ttsAudioCacheRef.current.delete(cacheKey);
+      }
+    }
+
     setIsSynthesizingSpeech(true);
     try {
       const result = await bridge.agentTextToSpeech(text, agentSettings.audio_tts_voice || null, {
@@ -196,6 +238,7 @@ export function ChatView({
         stopAudioPlayback();
         return;
       }
+      ttsAudioCacheRef.current.set(cacheKey, source);
       await startAudioPlayback(source, messageId);
     } catch (error) {
       console.error("text-to-speech failed", error);
@@ -410,6 +453,7 @@ export function ChatView({
                 void onFeedbackMessage(message.id, reaction);
               } : undefined}
               isSpeaking={speakingMessageId === message.id}
+              isSpeechPaused={speakingMessageId === message.id && isSpeechPaused}
             />
           );
         })}

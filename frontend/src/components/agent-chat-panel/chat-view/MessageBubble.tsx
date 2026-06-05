@@ -76,6 +76,7 @@ export function MessageBubble({
   onSpeak,
   onFeedback,
   isSpeaking = false,
+  isSpeechPaused = false,
 }: {
   message: AgentMessage;
   onCopy?: () => void;
@@ -87,6 +88,7 @@ export function MessageBubble({
   onSpeak?: () => void | Promise<void>;
   onFeedback?: (reaction: "up" | "down" | null) => void | Promise<void>;
   isSpeaking?: boolean;
+  isSpeechPaused?: boolean;
 }) {
   const isCompactionArtifact = message.messageKind === "compaction_artifact";
   const isUser = message.role === "user";
@@ -491,7 +493,7 @@ export function MessageBubble({
               : onPin && <ActionBtn label="Pin" onClick={() => { void onPin(); }} />}
             {isUser && onRerun && <ActionBtn label="Rerun" onClick={onRerun} />}
             {isAssistant && onRegenerate && <ActionBtn label="Regen" onClick={onRegenerate} />}
-            {isAssistant && onSpeak && <ActionBtn label={isSpeaking ? "Stop" : "Speak"} onClick={() => { void onSpeak(); }} />}
+            {isAssistant && onSpeak && <ActionBtn label={!isSpeaking ? "Speak" : isSpeechPaused ? "Resume" : "Pause"} onClick={() => { void onSpeak(); }} />}
             {(isAssistant || isTool) && onFeedback && (
               <>
                 <ActionBtn
