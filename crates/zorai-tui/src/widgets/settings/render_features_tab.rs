@@ -443,7 +443,7 @@ pub(crate) fn render_features_tab<'a>(
         Span::styled("Ctrl+L", theme.fg_active),
         Span::styled(" (record) | ", theme.fg_dim),
         Span::styled("Ctrl+P", theme.fg_active),
-        Span::styled(" (speak selected/latest) | ", theme.fg_dim),
+        Span::styled(" (speak / pause-resume) | ", theme.fg_dim),
         Span::styled("Ctrl+S", theme.fg_active),
         Span::styled(" (stop playback)", theme.fg_dim),
     ]));

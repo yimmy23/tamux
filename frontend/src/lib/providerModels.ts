@@ -333,6 +333,14 @@ function modelMetadataContainsAudio(
   const outputAudio = jsonArrayContainsAudio(
     architecture?.output_modalities ?? record.output_modalities,
   );
+  const outputSpeech = jsonArrayContainsModality(
+    architecture?.output_modalities ?? record.output_modalities,
+    "speech",
+  );
+  const outputTranscription = jsonArrayContainsModality(
+    architecture?.output_modalities ?? record.output_modalities,
+    "transcription",
+  );
   const modalityInputAudio = jsonStringHasDirectionalAudio(
     architecture?.modality ?? record.modality,
     "input",
@@ -343,8 +351,8 @@ function modelMetadataContainsAudio(
   );
 
   const directionalMatch = endpoint === "stt"
-    ? inputAudio || modalityInputAudio
-    : outputAudio || modalityOutputAudio;
+    ? inputAudio || modalityInputAudio || outputTranscription
+    : outputAudio || modalityOutputAudio || outputSpeech;
   if (directionalMatch) {
     return true;
   }

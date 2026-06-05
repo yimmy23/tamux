@@ -397,7 +397,7 @@ fn activating_audio_stt_model_fetches_remote_models_for_audio_provider() {
             assert_eq!(provider_id, PROVIDER_ID_OPENROUTER);
             assert_eq!(base_url, "https://openrouter.ai/api/v1");
             assert_eq!(api_key, "router-key");
-            assert_eq!(output_modalities, None);
+            assert_eq!(output_modalities.as_deref(), Some("transcription"));
         }
         other => panic!("expected FetchModels for audio STT picker, got {other:?}"),
     }

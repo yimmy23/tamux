@@ -1,10 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { AgentMessage } from "@/lib/agentStore";
 import {
+  buildTtsCacheKey,
   findLatestAgentToolTextToSpeechPlayback,
   resolveAudioPlaybackSource,
   resolveToolResultAudioPlaybackSource,
 } from "./audioPlayback";
+
+describe("buildTtsCacheKey", () => {
+  it("is stable for identical inputs", () => {
+    expect(buildTtsCacheKey("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "hello there")).toBe(
+      buildTtsCacheKey("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "hello there"),
+    );
+  });
+
+  it("changes when voice, model, provider, or text differ", () => {
+    const base = buildTtsCacheKey("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "hello there");
+    expect(buildTtsCacheKey("openrouter", "x-ai/grok-voice-tts-1.0", "ara", "hello there")).not.toBe(base);
+    expect(buildTtsCacheKey("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "different")).not.toBe(base);
+    expect(buildTtsCacheKey("openai", "x-ai/grok-voice-tts-1.0", "eve", "hello there")).not.toBe(base);
+    expect(buildTtsCacheKey("openrouter", "openai/gpt-4o-mini-tts", "eve", "hello there")).not.toBe(base);
+  });
+});
 
 function makeToolMessage(partial: Partial<AgentMessage>): AgentMessage {
   return {

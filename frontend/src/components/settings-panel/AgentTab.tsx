@@ -369,6 +369,7 @@ export function AgentTab({
                             allowProviderAuthFetch={providerHasDaemonAuth(settings.audio_stt_provider)}
                             modelOptions={audioModelOptions(settings.audio_stt_provider, "stt")}
                             remoteModelFilter={(model) => filterFetchedModelsForAudio([model], "stt").length > 0}
+                            fetchOutputModalities={settings.audio_stt_provider === "openrouter" ? "transcription" : undefined}
                             disabled={!settings.audio_stt_enabled}
                         />
                     </SettingRow>
@@ -414,7 +415,7 @@ export function AgentTab({
                             allowProviderAuthFetch={providerHasDaemonAuth(settings.audio_tts_provider)}
                             modelOptions={audioModelOptions(settings.audio_tts_provider, "tts")}
                             remoteModelFilter={(model) => filterFetchedModelsForAudio([model], "tts").length > 0}
-                            fetchOutputModalities={settings.audio_tts_provider === "openrouter" ? "audio" : undefined}
+                            fetchOutputModalities={settings.audio_tts_provider === "openrouter" ? "speech" : undefined}
                             disabled={!settings.audio_tts_enabled}
                         />
                     </SettingRow>

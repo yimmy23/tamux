@@ -35,6 +35,8 @@ enum AudioToolRoute {
     OpenAiCompatibleDirect,
     MiniMaxTts,
     ProviderMultimodalCompletion,
+    OpenRouterJsonStt,
+    OpenRouterTts,
     XiaomiChatCompletionsTts,
     XaiStt,
     XaiTts,
@@ -468,26 +470,44 @@ async fn resolve_media_input_source(
     })
 }
 
+fn provider_specific_default_media_model(
+    provider_id: &str,
+    endpoint: MediaEndpoint,
+) -> Option<&'static str> {
+    if provider_id == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+        return match endpoint {
+            MediaEndpoint::TextToSpeech => Some("openai/gpt-4o-mini-tts"),
+            MediaEndpoint::SpeechToText => Some("openai/whisper-1"),
+            MediaEndpoint::ImageGeneration => None,
+        };
+    }
+    None
+}
+
 fn select_media_provider_config(
     config: &AgentConfig,
     provider_id: &str,
     mut provider_config: crate::agent::types::ProviderConfig,
     explicit_model: Option<&str>,
     default_model: Option<&str>,
+    endpoint: Option<MediaEndpoint>,
 ) -> (String, crate::agent::types::ProviderConfig) {
-    let chosen_model = explicit_model
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| default_model.map(ToOwned::to_owned))
-        .unwrap_or_else(|| provider_config.model.clone());
-    provider_config.model = chosen_model;
-    let provider_id = if provider_id.trim().is_empty() {
+    let resolved_provider_id = if provider_id.trim().is_empty() {
         config.provider.clone()
     } else {
         provider_id.to_string()
     };
-    (provider_id, provider_config)
+    let provider_specific_default = endpoint
+        .and_then(|endpoint| provider_specific_default_media_model(&resolved_provider_id, endpoint));
+    let chosen_model = explicit_model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| provider_specific_default.map(ToOwned::to_owned))
+        .or_else(|| default_model.map(ToOwned::to_owned))
+        .unwrap_or_else(|| provider_config.model.clone());
+    provider_config.model = chosen_model;
+    (resolved_provider_id, provider_config)
 }
 
 fn media_setting_string(
@@ -576,6 +596,7 @@ async fn resolve_media_provider_config(
             provider_config,
             selected_model,
             default_model,
+            endpoint,
         ));
     }
 
@@ -586,6 +607,7 @@ async fn resolve_media_provider_config(
         provider_config,
         selected_model,
         default_model,
+        endpoint,
     ))
 }
 
@@ -772,12 +794,8 @@ fn audio_tool_route(
 
     if provider_id == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
         return match audio_tool_kind {
-            zorai_shared::providers::AudioToolKind::SpeechToText => {
-                AudioToolRoute::OpenAiCompatibleDirect
-            }
-            zorai_shared::providers::AudioToolKind::TextToSpeech => {
-                AudioToolRoute::OpenAiCompatibleDirect
-            }
+            zorai_shared::providers::AudioToolKind::SpeechToText => AudioToolRoute::OpenRouterJsonStt,
+            zorai_shared::providers::AudioToolKind::TextToSpeech => AudioToolRoute::OpenRouterTts,
         };
     }
 
@@ -872,7 +890,28 @@ fn build_minimax_tts_body(
     })
 }
 
+fn minimax_base_resp_error(payload: &serde_json::Value) -> Option<String> {
+    let base_resp = payload.get("base_resp")?;
+    let status_code = base_resp
+        .get("status_code")
+        .and_then(|value| value.as_i64())
+        .unwrap_or(0);
+    if status_code == 0 {
+        return None;
+    }
+    let status_msg = base_resp
+        .get("status_msg")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown error");
+    Some(format!("MiniMax error {status_code}: {status_msg}"))
+}
+
 fn extract_minimax_tts_audio_bytes(payload: &serde_json::Value) -> Result<Vec<u8>> {
+    if let Some(error) = minimax_base_resp_error(payload) {
+        anyhow::bail!("{error}");
+    }
     let audio_data = payload
         .pointer("/data/audio")
         .and_then(|value| value.as_str())
@@ -1142,6 +1181,321 @@ async fn execute_xiaomi_text_to_speech(
         "path": output_path,
         "mime_type": mime_type,
         "bytes": bytes.len(),
+    }))
+    .map_err(Into::into)
+}
+
+fn build_openrouter_stt_body(
+    args: &serde_json::Value,
+    model: &str,
+    base64_data: &str,
+    audio_format: &str,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "model": model.trim(),
+        "input_audio": {
+            "data": base64_data,
+            "format": audio_format,
+        },
+    });
+    if let Some(language) = args
+        .get("language")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        body["language"] = serde_json::Value::String(language.to_string());
+    }
+    if let Some(temperature) = args.get("temperature").and_then(|value| value.as_f64()) {
+        body["temperature"] = serde_json::json!(temperature);
+    }
+    body
+}
+
+async fn execute_openrouter_speech_to_text(
+    args: &serde_json::Value,
+    media_http_client: &reqwest::Client,
+    provider_id: &str,
+    provider_config: &crate::agent::types::ProviderConfig,
+    mime_type: &str,
+    bytes: &[u8],
+) -> Result<String> {
+    let audio_format = audio_format_from_mime_type(mime_type)
+        .or_else(|| {
+            args.get("format")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| match value {
+                    "wav" | "mp3" | "flac" | "m4a" | "ogg" | "webm" | "aac" => value,
+                    _ => "wav",
+                })
+        })
+        .unwrap_or("wav");
+    let base64_data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let body = build_openrouter_stt_body(args, &provider_config.model, &base64_data, audio_format);
+    let url = openai_like_endpoint(&provider_config.base_url, "audio/transcriptions");
+    let request =
+        apply_media_auth_headers(media_http_client.post(&url), provider_id, provider_config)?;
+    let response = request.json(&body).send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        anyhow::bail!("speech_to_text failed: HTTP {status} {text}");
+    }
+
+    let response_format = args
+        .get("response_format")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("json");
+    let body = response.text().await?;
+    let parsed: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|error| anyhow::anyhow!("speech_to_text returned invalid JSON: {error}"))?;
+    format_speech_to_text_response(AudioToolRoute::OpenRouterJsonStt, response_format, &parsed)
+}
+
+const OPENROUTER_TTS_MAX_CHARS: usize = 3_000;
+const OPENROUTER_TTS_DEFAULT_FORMAT: &str = "wav";
+const OPENROUTER_TTS_PCM_SAMPLE_RATE: u32 = 24_000;
+
+fn chunk_tts_input(text: &str, max_chars: usize) -> Vec<String> {
+    let text = text.trim();
+    if max_chars == 0 || text.chars().count() <= max_chars {
+        return if text.is_empty() {
+            Vec::new()
+        } else {
+            vec![text.to_string()]
+        };
+    }
+
+    let mut chunks: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0usize;
+
+    let flush = |current: &mut String, current_len: &mut usize, chunks: &mut Vec<String>| {
+        let trimmed = current.trim();
+        if !trimmed.is_empty() {
+            chunks.push(trimmed.to_string());
+        }
+        current.clear();
+        *current_len = 0;
+    };
+
+    for unit in text.split_inclusive(char::is_whitespace) {
+        let unit_len = unit.chars().count();
+        if unit_len > max_chars {
+            flush(&mut current, &mut current_len, &mut chunks);
+            let mut piece = String::new();
+            let mut piece_len = 0usize;
+            for ch in unit.chars() {
+                if piece_len == max_chars {
+                    let trimmed = piece.trim();
+                    if !trimmed.is_empty() {
+                        chunks.push(trimmed.to_string());
+                    }
+                    piece.clear();
+                    piece_len = 0;
+                }
+                piece.push(ch);
+                piece_len += 1;
+            }
+            let trimmed = piece.trim();
+            if !trimmed.is_empty() {
+                chunks.push(trimmed.to_string());
+            }
+            continue;
+        }
+
+        if current_len + unit_len > max_chars {
+            flush(&mut current, &mut current_len, &mut chunks);
+        }
+        current.push_str(unit);
+        current_len += unit_len;
+    }
+    flush(&mut current, &mut current_len, &mut chunks);
+    chunks
+}
+
+fn wrap_pcm_as_wav(pcm: &[u8], sample_rate: u32, channels: u16, bits_per_sample: u16) -> Vec<u8> {
+    let byte_rate = sample_rate * u32::from(channels) * u32::from(bits_per_sample / 8);
+    let block_align = channels * (bits_per_sample / 8);
+    let data_len = pcm.len() as u32;
+    let mut out = Vec::with_capacity(44 + pcm.len());
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&byte_rate.to_le_bytes());
+    out.extend_from_slice(&block_align.to_le_bytes());
+    out.extend_from_slice(&bits_per_sample.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    out.extend_from_slice(pcm);
+    out
+}
+
+fn parse_wav(bytes: &[u8]) -> Result<(u16, u32, u16, Vec<u8>)> {
+    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        anyhow::bail!("OpenRouter TTS returned audio that is not a RIFF/WAVE container");
+    }
+    let mut pos = 12usize;
+    let mut fmt: Option<(u16, u32, u16)> = None;
+    let mut data: Option<Vec<u8>> = None;
+    while pos + 8 <= bytes.len() {
+        let id = &bytes[pos..pos + 4];
+        let size = u32::from_le_bytes([bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7]])
+            as usize;
+        let body_start = pos + 8;
+        let body_end = body_start.saturating_add(size).min(bytes.len());
+        if id == b"fmt " && body_end - body_start >= 16 {
+            let channels = u16::from_le_bytes([bytes[body_start + 2], bytes[body_start + 3]]);
+            let sample_rate = u32::from_le_bytes([
+                bytes[body_start + 4],
+                bytes[body_start + 5],
+                bytes[body_start + 6],
+                bytes[body_start + 7],
+            ]);
+            let bits = u16::from_le_bytes([bytes[body_start + 14], bytes[body_start + 15]]);
+            fmt = Some((channels, sample_rate, bits));
+        } else if id == b"data" {
+            data = Some(bytes[body_start..body_end].to_vec());
+        }
+        pos = body_start + size + (size & 1);
+    }
+    let (channels, sample_rate, bits) =
+        fmt.ok_or_else(|| anyhow::anyhow!("OpenRouter TTS WAV is missing a fmt chunk"))?;
+    let data = data.ok_or_else(|| anyhow::anyhow!("OpenRouter TTS WAV is missing a data chunk"))?;
+    Ok((channels, sample_rate, bits, data))
+}
+
+fn merge_wav_chunks(chunks: &[Vec<u8>]) -> Result<Vec<u8>> {
+    let mut iter = chunks.iter();
+    let first = iter
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("OpenRouter TTS produced no audio chunks"))?;
+    let (channels, sample_rate, bits, mut payload) = parse_wav(first)?;
+    for chunk in iter {
+        let (_, _, _, data) = parse_wav(chunk)?;
+        payload.extend_from_slice(&data);
+    }
+    Ok(wrap_pcm_as_wav(&payload, sample_rate, channels, bits))
+}
+
+fn combine_openrouter_tts_chunks(
+    format: &str,
+    chunks: &[Vec<u8>],
+) -> Result<(Vec<u8>, &'static str, String)> {
+    match format {
+        "wav" => Ok((merge_wav_chunks(chunks)?, "audio/wav", "wav".to_string())),
+        "pcm" | "pcm16" => {
+            let mut raw = Vec::new();
+            for chunk in chunks {
+                raw.extend_from_slice(chunk);
+            }
+            let wav = wrap_pcm_as_wav(&raw, OPENROUTER_TTS_PCM_SAMPLE_RATE, 1, 16);
+            Ok((wav, "audio/wav", "wav".to_string()))
+        }
+        other => {
+            let mut raw = Vec::new();
+            for chunk in chunks {
+                raw.extend_from_slice(chunk);
+            }
+            let mime = output_mime_type_for_codec(other);
+            let ext = file_extension_for_generated_mime(mime, other);
+            Ok((raw, mime, ext))
+        }
+    }
+}
+
+async fn execute_openrouter_text_to_speech(
+    args: &serde_json::Value,
+    media_http_client: &reqwest::Client,
+    provider_id: &str,
+    provider_config: &crate::agent::types::ProviderConfig,
+    input: &str,
+) -> Result<String> {
+    let voice = args
+        .get("voice")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_TTS_VOICE);
+    let requested_format = args
+        .get("response_format")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| OPENROUTER_TTS_DEFAULT_FORMAT.to_string());
+
+    let chunks = chunk_tts_input(input, OPENROUTER_TTS_MAX_CHARS);
+    if chunks.is_empty() {
+        anyhow::bail!("missing 'input' argument");
+    }
+    let url = openai_like_endpoint(&provider_config.base_url, "audio/speech");
+
+    let mut active_format = requested_format.clone();
+    let mut collected: Vec<Vec<u8>> = Vec::new();
+    loop {
+        collected.clear();
+        let mut fall_back_to_pcm = false;
+        for (index, chunk) in chunks.iter().enumerate() {
+            let body = serde_json::json!({
+                "model": provider_config.model,
+                "input": chunk,
+                "voice": voice,
+                "response_format": active_format,
+            });
+            let request = apply_media_auth_headers(
+                media_http_client.post(&url),
+                provider_id,
+                provider_config,
+            )?;
+            let response = request.json(&body).send().await?;
+            if !response.status().is_success() {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                if index == 0 && active_format != "pcm" {
+                    active_format = "pcm".to_string();
+                    fall_back_to_pcm = true;
+                    break;
+                }
+                anyhow::bail!(
+                    "text_to_speech failed: HTTP {status} {text} (provider='{}', model='{}', voice='{}', response_format='{}', chunk={}/{}). The voice or format is likely not valid for this model.",
+                    provider_id,
+                    provider_config.model,
+                    voice,
+                    active_format,
+                    index + 1,
+                    chunks.len()
+                );
+            }
+            collected.push(response.bytes().await?.to_vec());
+        }
+        if !fall_back_to_pcm {
+            break;
+        }
+    }
+
+    let (bytes, mime_type, extension) = combine_openrouter_tts_chunks(&active_format, &collected)?;
+    let output_path = temp_output_path("speech", &extension);
+    tokio::fs::write(&output_path, &bytes).await?;
+
+    serde_json::to_string_pretty(&serde_json::json!({
+        "provider": provider_id,
+        "model": provider_config.model,
+        "voice": voice,
+        "path": output_path,
+        "mime_type": mime_type,
+        "bytes": bytes.len(),
+        "chunks": chunks.len(),
+        "response_format": active_format,
     }))
     .map_err(Into::into)
 }
@@ -2143,6 +2497,18 @@ pub(crate) async fn execute_speech_to_text(
         .await;
     }
 
+    if route == AudioToolRoute::OpenRouterJsonStt {
+        return execute_openrouter_speech_to_text(
+            args,
+            &media_http_client,
+            &provider_id,
+            &provider_config,
+            &mime_type,
+            &bytes,
+        )
+        .await;
+    }
+
     let response_format = args
         .get("response_format")
         .and_then(|value| value.as_str())
@@ -2263,6 +2629,17 @@ pub(crate) async fn execute_text_to_speech(
         .await;
     }
 
+    if route == AudioToolRoute::OpenRouterTts {
+        return execute_openrouter_text_to_speech(
+            args,
+            &media_http_client,
+            &provider_id,
+            &provider_config,
+            input,
+        )
+        .await;
+    }
+
     if route == AudioToolRoute::ElevenLabs {
         let voice = args
             .get("voice")
@@ -2327,7 +2704,13 @@ pub(crate) async fn execute_text_to_speech(
     if !response.status().is_success() {
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
-        anyhow::bail!("text_to_speech failed: HTTP {status} {text}");
+        anyhow::bail!(
+            "text_to_speech failed: HTTP {status} {text} (provider='{}', model='{}', voice='{}', response_format='{}'). If the provider rejected the request, the voice or format is likely not valid for this model.",
+            provider_id,
+            provider_config.model,
+            voice,
+            output_format
+        );
     }
 
     let bytes = response.bytes().await?;
@@ -2414,38 +2797,140 @@ mod media_tools_tests {
     }
 
     #[test]
-    fn openrouter_speech_to_text_uses_audio_transcriptions_endpoint() {
+    fn openrouter_speech_to_text_uses_json_input_audio_route() {
         assert_eq!(
             audio_tool_route(
                 zorai_shared::providers::PROVIDER_ID_OPENROUTER,
                 zorai_shared::providers::AudioToolKind::SpeechToText,
             ),
-            AudioToolRoute::OpenAiCompatibleDirect
-        );
-        assert_eq!(
-            stt_endpoint_for_route(
-                "https://openrouter.ai/api/v1",
-                AudioToolRoute::OpenAiCompatibleDirect
-            ),
-            "https://openrouter.ai/api/v1/audio/transcriptions"
+            AudioToolRoute::OpenRouterJsonStt
         );
     }
 
     #[test]
-    fn openrouter_text_to_speech_uses_audio_speech_endpoint() {
+    fn openrouter_text_to_speech_uses_dedicated_audio_speech_route() {
         assert_eq!(
             audio_tool_route(
                 zorai_shared::providers::PROVIDER_ID_OPENROUTER,
                 zorai_shared::providers::AudioToolKind::TextToSpeech,
             ),
-            AudioToolRoute::OpenAiCompatibleDirect
+            AudioToolRoute::OpenRouterTts
         );
         assert_eq!(
             tts_endpoint_for_route(
                 "https://openrouter.ai/api/v1",
-                AudioToolRoute::OpenAiCompatibleDirect
+                AudioToolRoute::OpenRouterTts
             ),
             "https://openrouter.ai/api/v1/audio/speech"
+        );
+    }
+
+    #[test]
+    fn chunk_tts_input_keeps_short_text_in_one_chunk() {
+        let chunks = chunk_tts_input("Hello world.", 3_000);
+        assert_eq!(chunks, vec!["Hello world.".to_string()]);
+    }
+
+    #[test]
+    fn chunk_tts_input_splits_long_text_on_word_boundaries_within_limit() {
+        let sentence = "word ".repeat(50);
+        let chunks = chunk_tts_input(&sentence, 20);
+        assert!(chunks.len() > 1, "expected multiple chunks, got {chunks:?}");
+        for chunk in &chunks {
+            assert!(
+                chunk.chars().count() <= 20,
+                "chunk exceeded limit: {chunk:?}"
+            );
+            assert_eq!(chunk.trim(), chunk, "chunks should be trimmed");
+        }
+        let rejoined = chunks.join(" ");
+        assert_eq!(rejoined.split_whitespace().count(), 50);
+    }
+
+    #[test]
+    fn chunk_tts_input_hard_splits_oversized_token() {
+        let token = "a".repeat(45);
+        let chunks = chunk_tts_input(&token, 10);
+        assert_eq!(chunks.len(), 5);
+        assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 10));
+        assert_eq!(chunks.concat(), token);
+    }
+
+    #[test]
+    fn wrap_pcm_as_wav_writes_canonical_header() {
+        let pcm = vec![1u8, 2, 3, 4];
+        let wav = wrap_pcm_as_wav(&pcm, 24_000, 1, 16);
+        assert_eq!(&wav[0..4], b"RIFF");
+        assert_eq!(&wav[8..12], b"WAVE");
+        assert_eq!(&wav[12..16], b"fmt ");
+        assert_eq!(&wav[36..40], b"data");
+        assert_eq!(
+            u32::from_le_bytes([wav[40], wav[41], wav[42], wav[43]]),
+            pcm.len() as u32
+        );
+        assert_eq!(&wav[44..], pcm.as_slice());
+        let (channels, sample_rate, bits, data) = parse_wav(&wav).expect("round-trips");
+        assert_eq!((channels, sample_rate, bits), (1, 24_000, 16));
+        assert_eq!(data, pcm);
+    }
+
+    #[test]
+    fn merge_wav_chunks_concatenates_pcm_payloads() {
+        let first = wrap_pcm_as_wav(&[1, 2, 3, 4], 24_000, 1, 16);
+        let second = wrap_pcm_as_wav(&[5, 6, 7, 8], 24_000, 1, 16);
+        let merged = merge_wav_chunks(&[first, second]).expect("merge should succeed");
+        let (channels, sample_rate, bits, data) = parse_wav(&merged).expect("merged is valid wav");
+        assert_eq!((channels, sample_rate, bits), (1, 24_000, 16));
+        assert_eq!(data, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn combine_openrouter_tts_chunks_wraps_pcm_into_wav() {
+        let (bytes, mime, ext) =
+            combine_openrouter_tts_chunks("pcm", &[vec![1, 2], vec![3, 4]]).expect("combine pcm");
+        assert_eq!(mime, "audio/wav");
+        assert_eq!(ext, "wav");
+        let (_, _, _, data) = parse_wav(&bytes).expect("pcm wrapped into wav");
+        assert_eq!(data, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn openrouter_stt_body_uses_input_audio_with_base64_data() {
+        let body = build_openrouter_stt_body(
+            &serde_json::json!({"language": "pl", "temperature": 0.2}),
+            "openai/whisper-1",
+            "aGVsbG8=",
+            "wav",
+        );
+        assert_eq!(body["model"], "openai/whisper-1");
+        assert_eq!(body["input_audio"]["data"], "aGVsbG8=");
+        assert_eq!(body["input_audio"]["format"], "wav");
+        assert_eq!(body["language"], "pl");
+        assert_eq!(body["temperature"], 0.2);
+    }
+
+    #[test]
+    fn openrouter_defaults_use_openai_prefixed_model_ids() {
+        assert_eq!(
+            provider_specific_default_media_model(
+                zorai_shared::providers::PROVIDER_ID_OPENROUTER,
+                MediaEndpoint::TextToSpeech,
+            ),
+            Some("openai/gpt-4o-mini-tts")
+        );
+        assert_eq!(
+            provider_specific_default_media_model(
+                zorai_shared::providers::PROVIDER_ID_OPENROUTER,
+                MediaEndpoint::SpeechToText,
+            ),
+            Some("openai/whisper-1")
+        );
+        assert_eq!(
+            provider_specific_default_media_model(
+                zorai_shared::providers::PROVIDER_ID_OPENAI,
+                MediaEndpoint::TextToSpeech,
+            ),
+            None
         );
     }
 
@@ -2615,6 +3100,31 @@ mod media_tools_tests {
         );
         assert_eq!(body["audio_setting"]["format"], "wav");
         assert_eq!(body["output_format"], "hex");
+    }
+
+    #[test]
+    fn minimax_tts_surfaces_base_resp_error_instead_of_missing_audio() {
+        let payload = serde_json::json!({
+            "base_resp": {
+                "status_code": 1004,
+                "status_msg": "insufficient balance"
+            }
+        });
+
+        let error = extract_minimax_tts_audio_bytes(&payload)
+            .expect_err("non-zero base_resp should surface as an error");
+        assert_eq!(error.to_string(), "MiniMax error 1004: insufficient balance");
+    }
+
+    #[test]
+    fn minimax_tts_decodes_audio_when_base_resp_is_success() {
+        let payload = serde_json::json!({
+            "data": { "audio": "68656c6c6f" },
+            "base_resp": { "status_code": 0, "status_msg": "success" }
+        });
+
+        let bytes = extract_minimax_tts_audio_bytes(&payload).expect("audio should decode");
+        assert_eq!(bytes, b"hello");
     }
 
     #[test]

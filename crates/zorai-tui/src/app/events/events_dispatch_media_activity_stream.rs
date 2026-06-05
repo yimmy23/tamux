@@ -48,6 +48,7 @@ impl TuiModel {
                 self.clear_matching_agent_activity("preparing speech");
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
                     if let Some(error) = value.get("error").and_then(|v| v.as_str()) {
+                        self.pending_tts_cache_key = None;
                         self.status_line = format!("TTS failed: {error}");
                         self.show_input_notice(
                             "Text-to-speech failed (see status/error)",
@@ -71,8 +72,13 @@ impl TuiModel {
                             .map(str::to_string)
                     });
                 if let Some(path) = path {
+                    if let Some(key) = self.pending_tts_cache_key.take() {
+                        self.tts_audio_cache
+                            .insert(key, std::path::PathBuf::from(&path));
+                    }
                     self.play_audio_path(&path);
                 } else {
+                    self.pending_tts_cache_key = None;
                     self.status_line = "TTS result missing audio path".to_string();
                     self.show_input_notice(
                         "TTS returned no playable path",

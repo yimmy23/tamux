@@ -40,7 +40,7 @@ fn activating_openrouter_audio_tts_model_requests_audio_output_filter() {
             assert_eq!(provider_id, PROVIDER_ID_OPENROUTER);
             assert_eq!(base_url, "https://openrouter.ai/api/v1");
             assert_eq!(api_key, "router-key");
-            assert_eq!(output_modalities.as_deref(), Some("audio"));
+            assert_eq!(output_modalities.as_deref(), Some("speech"));
         }
         other => {
             panic!("expected filtered FetchModels for OpenRouter audio TTS picker, got {other:?}")

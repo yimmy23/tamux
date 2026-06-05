@@ -97,13 +97,19 @@ impl TuiModel {
             match player.try_wait() {
                 Ok(Some(_status)) => {
                     self.voice_player = None;
-                    if self.status_line == "Playing synthesized speech..." {
+                    self.clear_voice_player_ipc();
+                    if self.status_line.starts_with("Playing speech")
+                        || self.status_line == "Playing synthesized speech..."
+                        || self.status_line == "Speech paused"
+                        || self.status_line == "Speech resumed"
+                    {
                         self.status_line = "Audio playback finished".to_string();
                     }
                 }
                 Ok(None) => {}
                 Err(error) => {
                     self.voice_player = None;
+                    self.clear_voice_player_ipc();
                     self.status_line = "Audio playback process error".to_string();
                     self.last_error = Some(format!("Audio playback monitor failed: {error}"));
                     self.error_active = true;

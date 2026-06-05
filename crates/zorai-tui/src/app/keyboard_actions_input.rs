@@ -22,7 +22,9 @@ impl TuiModel {
             }
             KeyCode::Char('p') if ctrl && self.focus == FocusArea::Chat => {
                 {
-                    self.speak_latest_assistant_message();
+                    if !self.toggle_voice_pause() {
+                        self.speak_latest_assistant_message();
+                    }
                 };
                 Some(false)
             }

@@ -21,6 +21,15 @@ export function resolveAudioPlaybackSource(result: unknown): string {
   return "";
 }
 
+export function buildTtsCacheKey(
+  provider: string,
+  model: string,
+  voice: string,
+  text: string,
+): string {
+  return [provider, model, voice, text].join("");
+}
+
 export function resolveToolResultAudioPlaybackSource(content: string): string {
   if (!content.trim()) {
     return "";
