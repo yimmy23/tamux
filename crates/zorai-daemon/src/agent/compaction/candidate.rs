@@ -366,18 +366,11 @@ pub(crate) fn estimate_message_tokens(messages: &[AgentMessage]) -> usize {
     messages.iter().map(estimate_single_message_tokens).sum()
 }
 
-/// Tokens the char-based heuristic structurally cannot see on every request:
-/// the system prompt, the full tool schemas, prior reasoning, and the gap
-/// between `chars / APPROX_CHARS_PER_TOKEN` and the provider's real tokenizer.
-/// Rather than re-estimate those pieces — which would require threading the
-/// prompt and tool definitions through every call site — recover them directly
-/// from the most recent real `input_tokens` the provider reported: that figure
-/// already counts all of them.
-///
-/// Returns 0 before the thread has any measured turn (cold start), where only
-/// the heuristic is available.
 pub(crate) fn measured_context_overhead(messages: &[AgentMessage]) -> usize {
-    let Some(anchor) = messages.iter().rposition(|message| message.input_tokens > 0) else {
+    let Some(anchor) = messages
+        .iter()
+        .rposition(|message| message.input_tokens > 0)
+    else {
         return 0;
     };
     let measured = messages[anchor].input_tokens as usize;
@@ -385,10 +378,6 @@ pub(crate) fn measured_context_overhead(messages: &[AgentMessage]) -> usize {
     measured.saturating_sub(estimated_prefix)
 }
 
-/// Predicted prompt size for the next request: the heuristic estimate of the
-/// messages plus the measured overhead the heuristic misses. This is what the
-/// provider actually counts against its context window, so compaction decisions
-/// key off this rather than the raw heuristic.
 pub(crate) fn predicted_request_tokens(messages: &[AgentMessage]) -> usize {
     estimate_message_tokens(messages).saturating_add(measured_context_overhead(messages))
 }
@@ -452,7 +441,6 @@ pub(crate) fn hard_truncate_to_fit(
     kept
 }
 
-/// Get the model's context window from its definition, falling back to config.
 pub(crate) fn model_context_window(provider_id: &str, model_id: &str, config_fallback: u32) -> u32 {
     crate::agent::types::get_provider_definition(provider_id)
         .and_then(|def| def.models.iter().find(|m| m.id == model_id))

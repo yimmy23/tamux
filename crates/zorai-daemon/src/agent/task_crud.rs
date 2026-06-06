@@ -1670,11 +1670,9 @@ impl AgentEngine {
                         } else {
                             "goal run resumed"
                         };
-                        goal_run.events.push(make_goal_run_event(
-                            "control",
-                            message,
-                            None,
-                        ));
+                        goal_run
+                            .events
+                            .push(make_goal_run_event("control", message, None));
                         changed_goal = Some(goal_run.clone());
                     }
                 }

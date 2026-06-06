@@ -130,8 +130,7 @@ impl RecoveryPlanner {
                 if let Some(channel) = &self.external_channel {
                     return RecoveryStrategy::NotifyExternal {
                         channel: channel.clone(),
-                        message: "Goal run repeatedly timed out without operator response."
-                            .into(),
+                        message: "Goal run repeatedly timed out without operator response.".into(),
                     };
                 }
             }

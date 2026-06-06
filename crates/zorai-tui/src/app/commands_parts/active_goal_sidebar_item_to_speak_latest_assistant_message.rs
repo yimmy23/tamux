@@ -516,21 +516,46 @@ mod tts_cache_key_tests {
 
     #[test]
     fn identical_inputs_produce_identical_keys() {
-        let a = tts_cache_key("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "hello there");
-        let b = tts_cache_key("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "hello there");
+        let a = tts_cache_key(
+            "openrouter",
+            "x-ai/grok-voice-tts-1.0",
+            "eve",
+            "hello there",
+        );
+        let b = tts_cache_key(
+            "openrouter",
+            "x-ai/grok-voice-tts-1.0",
+            "eve",
+            "hello there",
+        );
         assert_eq!(a, b);
     }
 
     #[test]
     fn voice_or_content_change_changes_key() {
-        let base = tts_cache_key("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "hello there");
-        assert_ne!(
-            base,
-            tts_cache_key("openrouter", "x-ai/grok-voice-tts-1.0", "ara", "hello there")
+        let base = tts_cache_key(
+            "openrouter",
+            "x-ai/grok-voice-tts-1.0",
+            "eve",
+            "hello there",
         );
         assert_ne!(
             base,
-            tts_cache_key("openrouter", "x-ai/grok-voice-tts-1.0", "eve", "different text")
+            tts_cache_key(
+                "openrouter",
+                "x-ai/grok-voice-tts-1.0",
+                "ara",
+                "hello there"
+            )
+        );
+        assert_ne!(
+            base,
+            tts_cache_key(
+                "openrouter",
+                "x-ai/grok-voice-tts-1.0",
+                "eve",
+                "different text"
+            )
         );
         assert_ne!(
             base,

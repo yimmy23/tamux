@@ -93,7 +93,8 @@ fn clicking_apply_patch_file_chip_requests_git_diff() {
         .chat
         .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
 
-    let repo_path = "/home/mkurman/gitlab/it/zorai/crates/zorai-daemon/src/agent/gateway_loop/message_flow.rs";
+    let repo_path =
+        "/home/mkurman/gitlab/it/zorai/crates/zorai-daemon/src/agent/gateway_loop/message_flow.rs";
     model.chat.reduce(chat::ChatAction::AppendMessage {
         thread_id: "thread-1".to_string(),
         message: chat::AgentMessage {

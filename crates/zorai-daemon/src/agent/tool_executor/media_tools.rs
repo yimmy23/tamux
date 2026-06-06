@@ -497,8 +497,9 @@ fn select_media_provider_config(
     } else {
         provider_id.to_string()
     };
-    let provider_specific_default = endpoint
-        .and_then(|endpoint| provider_specific_default_media_model(&resolved_provider_id, endpoint));
+    let provider_specific_default = endpoint.and_then(|endpoint| {
+        provider_specific_default_media_model(&resolved_provider_id, endpoint)
+    });
     let chosen_model = explicit_model
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -794,7 +795,9 @@ fn audio_tool_route(
 
     if provider_id == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
         return match audio_tool_kind {
-            zorai_shared::providers::AudioToolKind::SpeechToText => AudioToolRoute::OpenRouterJsonStt,
+            zorai_shared::providers::AudioToolKind::SpeechToText => {
+                AudioToolRoute::OpenRouterJsonStt
+            }
             zorai_shared::providers::AudioToolKind::TextToSpeech => AudioToolRoute::OpenRouterTts,
         };
     }
@@ -1349,8 +1352,12 @@ fn parse_wav(bytes: &[u8]) -> Result<(u16, u32, u16, Vec<u8>)> {
     let mut data: Option<Vec<u8>> = None;
     while pos + 8 <= bytes.len() {
         let id = &bytes[pos..pos + 4];
-        let size = u32::from_le_bytes([bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7]])
-            as usize;
+        let size = u32::from_le_bytes([
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
+        ]) as usize;
         let body_start = pos + 8;
         let body_end = body_start.saturating_add(size).min(bytes.len());
         if id == b"fmt " && body_end - body_start >= 16 {
@@ -3113,7 +3120,10 @@ mod media_tools_tests {
 
         let error = extract_minimax_tts_audio_bytes(&payload)
             .expect_err("non-zero base_resp should surface as an error");
-        assert_eq!(error.to_string(), "MiniMax error 1004: insufficient balance");
+        assert_eq!(
+            error.to_string(),
+            "MiniMax error 1004: insufficient balance"
+        );
     }
 
     #[test]

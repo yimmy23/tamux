@@ -3256,7 +3256,9 @@ async fn block_action_moves_running_goal_run_into_blocked_state() {
         run.awaiting_approval_id = None;
         goal_runs.push_back(run);
     }
-    let changed = engine.control_goal_run(goal_run_id, "block", None, None).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "block", None, None)
+        .await;
     assert!(changed, "block should mutate state");
     let goal = engine.get_goal_run(goal_run_id).await.expect("goal exists");
     assert_eq!(goal.status, GoalRunStatus::Blocked);
@@ -3287,9 +3289,9 @@ async fn resume_action_exits_blocked_state_back_to_running() {
     let goal = engine.get_goal_run(goal_run_id).await.expect("goal exists");
     assert_eq!(goal.status, GoalRunStatus::Running);
     assert!(
-        goal.events.iter().any(|event| {
-            event.phase == "control" && event.message == "goal run unblocked"
-        }),
+        goal.events
+            .iter()
+            .any(|event| { event.phase == "control" && event.message == "goal run unblocked" }),
         "expected unblocked audit event distinct from regular resume"
     );
 }
@@ -3306,7 +3308,9 @@ async fn block_action_is_noop_on_terminal_goal_run() {
         run.completed_at = Some(now_millis());
         goal_runs.push_back(run);
     }
-    let changed = engine.control_goal_run(goal_run_id, "block", None, None).await;
+    let changed = engine
+        .control_goal_run(goal_run_id, "block", None, None)
+        .await;
     assert!(!changed, "block must not mutate terminal runs");
     let goal = engine.get_goal_run(goal_run_id).await.expect("goal exists");
     assert_eq!(goal.status, GoalRunStatus::Completed);
@@ -3330,7 +3334,11 @@ async fn blocked_status_roundtrips_through_sqlite() {
         run.awaiting_approval_id = None;
         goal_runs.push_back(run);
     }
-    assert!(engine.control_goal_run(goal_run_id, "block", None, None).await);
+    assert!(
+        engine
+            .control_goal_run(goal_run_id, "block", None, None)
+            .await
+    );
     // Clear the live cache so the next read must come from SQLite.
     engine
         .goal_runs

@@ -299,8 +299,8 @@ impl TuiModel {
                 self.concierge.model = None;
                 self.send_concierge_config();
             }
-            field if field.starts_with("tool_")
-                && field != "tool_synthesis_max_generated_tools" =>
+            field
+                if field.starts_with("tool_") && field != "tool_synthesis_max_generated_tools" =>
             {
                 let tool_name = field.strip_prefix("tool_").unwrap_or(field).to_string();
                 self.config
