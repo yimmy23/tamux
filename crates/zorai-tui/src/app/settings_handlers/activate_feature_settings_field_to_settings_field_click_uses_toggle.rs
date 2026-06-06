@@ -245,6 +245,7 @@ impl TuiModel {
                 | "feat_embedding_enabled"
                 | "whatsapp_link_device"
                 | "whatsapp_relink_device"
-        ) || self.current_settings_field_name().starts_with("tool_")
+        ) || (self.current_settings_field_name().starts_with("tool_")
+            && self.current_settings_field_name() != "tool_synthesis_max_generated_tools")
     }
 }

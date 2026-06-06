@@ -241,7 +241,7 @@ impl TuiModel {
             json,
             "tui_chat_history_page_size",
             "tui_chat_history_page_size",
-            20,
+            100,
         )
         .clamp(20, 500);
         self.config.participant_observer_restore_window_hours = config_u32(
