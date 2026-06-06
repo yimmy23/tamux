@@ -707,6 +707,79 @@ fn compaction_candidate_uses_known_model_window_over_larger_inherited_config_win
     );
 }
 
+fn assistant_message_with_input_tokens(content: &str, input_tokens: u64, now: u64) -> AgentMessage {
+    let mut message = AgentMessage::user(content, now);
+    message.role = MessageRole::Assistant;
+    message.input_tokens = input_tokens;
+    message
+}
+
+#[test]
+fn predicted_request_tokens_calibrates_from_measured_input_tokens() {
+    let prefix = vec![
+        AgentMessage::user("hello", 1),
+        AgentMessage::user("world", 2),
+    ];
+    let heuristic_prefix = estimate_message_tokens(&prefix);
+
+    let mut messages = prefix;
+    // The last turn measured a far larger real prompt than the char heuristic
+    // can see — system prompt + tool schemas + tokenizer reality.
+    messages.push(assistant_message_with_input_tokens("ok", 50_000, 3));
+
+    let overhead = measured_context_overhead(&messages);
+    assert_eq!(overhead, 50_000 - heuristic_prefix);
+
+    let predicted = predicted_request_tokens(&messages);
+    assert!(
+        predicted >= 50_000,
+        "predicted {predicted} ignored the measured input_tokens floor"
+    );
+    assert_eq!(predicted, estimate_message_tokens(&messages) + overhead);
+}
+
+#[test]
+fn measured_context_overhead_is_zero_without_a_measured_turn() {
+    let messages = vec![
+        AgentMessage::user("hello", 1),
+        AgentMessage::user("world", 2),
+    ];
+    assert_eq!(measured_context_overhead(&messages), 0);
+    assert_eq!(
+        predicted_request_tokens(&messages),
+        estimate_message_tokens(&messages)
+    );
+}
+
+#[test]
+fn compaction_triggers_on_measured_input_tokens_when_heuristic_underestimates() {
+    let mut config = AgentConfig::default();
+    config.compact_threshold_pct = 80;
+    config.max_context_messages = 500;
+    config.keep_recent_on_compact = 1;
+    config.auto_compact_context = true;
+
+    let provider = sample_provider_config(); // 128_000 window → 102_400 target
+
+    // Tiny by the char heuristic, but the measured prompt already blew past the
+    // 80% threshold. Without calibration the heuristic would never compact and
+    // the next request would be rejected by the provider.
+    let messages = vec![
+        AgentMessage::user("u1", 1),
+        AgentMessage::user("u2", 2),
+        assistant_message_with_input_tokens("a1", 110_000, 3),
+    ];
+
+    assert!(
+        estimate_message_tokens(&messages) < 102_400,
+        "precondition: heuristic alone must stay under the threshold"
+    );
+
+    let candidate =
+        compaction_candidate(&messages, &config, &provider).expect("candidate should exist");
+    assert_eq!(candidate.trigger, CompactionTrigger::TokenThreshold);
+}
+
 #[test]
 fn build_llm_compaction_messages_trims_to_fit_model_budget() {
     let messages = (0..40)

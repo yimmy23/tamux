@@ -64,6 +64,28 @@ fn chat_settings_history_page_size_allows_twenty_messages() {
 }
 
 #[test]
+fn chat_settings_tool_limit_enters_edit_mode_on_enter() {
+    let (mut model, _daemon_rx) = make_model();
+    focus_settings_field(
+        &mut model,
+        SettingsTab::Chat,
+        "tool_synthesis_max_generated_tools",
+    );
+
+    let quit = model.handle_key_modal(
+        KeyCode::Enter,
+        KeyModifiers::NONE,
+        modal::ModalKind::Settings,
+    );
+
+    assert!(!quit);
+    assert_eq!(
+        model.settings.editing_field(),
+        Some("tool_synthesis_max_generated_tools")
+    );
+}
+
+#[test]
 fn websearch_provider_cycle_includes_duckduckgo() {
     let (mut model, _daemon_rx) = make_model();
     focus_settings_field(&mut model, SettingsTab::WebSearch, "search_provider");

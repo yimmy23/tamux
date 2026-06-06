@@ -14,7 +14,7 @@ pub(crate) fn compact_messages_for_request(
                 .context_window_tokens
                 .max(config.context_window_tokens),
         ) as usize;
-        let current = estimate_message_tokens(&runtime_messages);
+        let current = predicted_request_tokens(&runtime_messages);
         if current > model_window {
             return hard_truncate_to_fit(&runtime_messages, model_window);
         }
@@ -125,7 +125,7 @@ pub(crate) fn compaction_candidate_with_mode(
                 matches!(config.compaction.strategy, CompactionStrategy::Heuristic);
             let over_message_limit =
                 message_count_gate_enabled && active_messages.len() > max_messages;
-            let over_token_limit = estimate_message_tokens(active_messages) > target_tokens;
+            let over_token_limit = predicted_request_tokens(active_messages) > target_tokens;
             match (over_message_limit, over_token_limit) {
                 (false, false) => return None,
                 (true, false) => CompactionTrigger::MessageCount,
@@ -174,7 +174,7 @@ pub(crate) fn trim_compacted_messages(
     has_summary: bool,
 ) {
     let removable_floor = if has_summary { 2 } else { 1 };
-    let mut total_tokens = estimate_message_tokens(messages);
+    let mut total_tokens = estimate_message_tokens(messages) + measured_context_overhead(messages);
     while (messages.len() > max_messages || total_tokens > target_tokens)
         && messages.len() > removable_floor
     {
@@ -366,6 +366,22 @@ pub(crate) fn estimate_message_tokens(messages: &[AgentMessage]) -> usize {
     messages.iter().map(estimate_single_message_tokens).sum()
 }
 
+pub(crate) fn measured_context_overhead(messages: &[AgentMessage]) -> usize {
+    let Some(anchor) = messages
+        .iter()
+        .rposition(|message| message.input_tokens > 0)
+    else {
+        return 0;
+    };
+    let measured = messages[anchor].input_tokens as usize;
+    let estimated_prefix = estimate_message_tokens(&messages[..anchor]);
+    measured.saturating_sub(estimated_prefix)
+}
+
+pub(crate) fn predicted_request_tokens(messages: &[AgentMessage]) -> usize {
+    estimate_message_tokens(messages).saturating_add(measured_context_overhead(messages))
+}
+
 pub(crate) fn estimate_single_message_tokens(message: &AgentMessage) -> usize {
     let mut chars = compaction_runtime_content(message).chars().count();
 
@@ -399,7 +415,7 @@ pub(crate) fn hard_truncate_to_fit(
     max_tokens: usize,
 ) -> Vec<AgentMessage> {
     let mut kept: Vec<AgentMessage> = Vec::new();
-    let mut total = 0usize;
+    let mut total = measured_context_overhead(messages);
     for msg in messages.iter().rev() {
         let msg_tokens = estimate_single_message_tokens(msg);
         if total + msg_tokens > max_tokens && !kept.is_empty() {
@@ -425,7 +441,6 @@ pub(crate) fn hard_truncate_to_fit(
     kept
 }
 
-/// Get the model's context window from its definition, falling back to config.
 pub(crate) fn model_context_window(provider_id: &str, model_id: &str, config_fallback: u32) -> u32 {
     crate::agent::types::get_provider_definition(provider_id)
         .and_then(|def| def.models.iter().find(|m| m.id == model_id))

@@ -61,9 +61,7 @@ pub(crate) fn goal_status_badge(
         Some(GoalRunStatus::Cancelled) => ("■ STOPPED", theme.fg_dim),
         Some(GoalRunStatus::Contained) => ("# CONTAINED", theme.accent_danger),
         Some(GoalRunStatus::Compensated) => ("↺ COMPENSATED", theme.accent_secondary),
-        Some(GoalRunStatus::PartiallyCompensated) => {
-            ("↺ PARTIAL", theme.accent_secondary)
-        }
+        Some(GoalRunStatus::PartiallyCompensated) => ("↺ PARTIAL", theme.accent_secondary),
         Some(GoalRunStatus::BreakGlass) => ("* BREAK-GLASS", theme.accent_danger),
         None => ("○ QUEUED", theme.fg_dim),
     }

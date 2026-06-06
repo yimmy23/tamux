@@ -345,10 +345,9 @@ fn step_status_chip(status: Option<GoalRunStatus>, theme: &ThemeTokens) -> Span<
         Some(GoalRunStatus::Failed) => Span::styled("[!]", theme.accent_danger),
         Some(GoalRunStatus::Cancelled) => Span::styled("[C]", theme.fg_dim),
         Some(GoalRunStatus::Contained) => Span::styled("[#]", theme.accent_danger),
-        Some(
-            GoalRunStatus::Compensated
-            | GoalRunStatus::PartiallyCompensated,
-        ) => Span::styled("[~]", theme.accent_secondary),
+        Some(GoalRunStatus::Compensated | GoalRunStatus::PartiallyCompensated) => {
+            Span::styled("[~]", theme.accent_secondary)
+        }
         Some(GoalRunStatus::BreakGlass) => Span::styled("[*]", theme.accent_danger),
     }
 }
