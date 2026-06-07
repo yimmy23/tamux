@@ -147,6 +147,9 @@ pub(crate) async fn parse_openai_sse(
                     .get("completion_tokens")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(output_tokens);
+                let total_tokens = usage.get("total_tokens").and_then(|v| v.as_u64());
+                (input_tokens, output_tokens) =
+                    normalize_openai_usage_tokens(input_tokens, output_tokens, total_tokens);
             }
 
             let delta = match parsed.pointer("/choices/0/delta") {
@@ -279,8 +282,7 @@ fn apply_openai_responses_terminal_response(
         *response_id = Some(id);
     }
     if let Some(usage) = response.usage.as_ref() {
-        *input_tokens = usage.input_tokens;
-        *output_tokens = usage.output_tokens;
+        (*input_tokens, *output_tokens) = usage.normalized_input_output_tokens();
     }
 }
 

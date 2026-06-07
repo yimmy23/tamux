@@ -153,7 +153,9 @@ async fn persisted_assistant_messages_reload_provider_final_result_metadata() {
                                             output: Vec::new(),
                                             usage: crate::agent::llm_client::OpenAiResponsesResponseUsage {
                                                 input_tokens: 7,
+                                                input_tokens_details: None,
                                                 output_tokens: 3,
+                                                output_tokens_details: None,
                                                 total_tokens: None,
                                             },
                                             error: None,

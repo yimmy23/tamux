@@ -148,9 +148,31 @@ pub(crate) struct OpenAiResponsesTerminalResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct OpenAiResponsesResponseUsage {
     pub input_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens_details: Option<OpenAiResponsesInputTokensDetails>,
     pub output_tokens: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens_details: Option<OpenAiResponsesOutputTokensDetails>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total_tokens: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct OpenAiResponsesInputTokensDetails {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_tokens: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct OpenAiResponsesOutputTokensDetails {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<u64>,
+}
+
+impl OpenAiResponsesResponseUsage {
+    pub(crate) fn normalized_input_output_tokens(&self) -> (u64, u64) {
+        normalize_openai_usage_tokens(self.input_tokens, self.output_tokens, self.total_tokens)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

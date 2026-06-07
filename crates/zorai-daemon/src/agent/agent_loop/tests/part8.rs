@@ -1,8 +1,10 @@
 use super::*;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tempfile::tempdir;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
-use zorai_shared::providers::PROVIDER_ID_CUSTOM;
+use zorai_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENAI};
 
 #[tokio::test]
 async fn truncated_stream_with_accumulated_content_still_emits_done_event() {
@@ -104,5 +106,167 @@ async fn truncated_stream_with_accumulated_content_still_emits_done_event() {
             .last()
             .map(|message| message.content.as_str()),
         Some("Recovered terminal text")
+    );
+}
+
+#[tokio::test]
+async fn openai_context_window_stream_error_forces_compaction_and_retries_without_error_reply() {
+    let root = tempdir().unwrap();
+    let manager = SessionManager::new_test(root.path()).await;
+    let request_count = Arc::new(AtomicUsize::new(0));
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind context overflow retry server");
+    let addr = listener
+        .local_addr()
+        .expect("context overflow retry server addr");
+
+    tokio::spawn({
+        let request_count = request_count.clone();
+        async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let request_count = request_count.clone();
+                tokio::spawn(async move {
+                    let attempt = request_count.fetch_add(1, Ordering::SeqCst);
+                    let _ = read_http_request(&mut socket, "context overflow retry request").await;
+                    let body = if attempt == 0 {
+                        concat!(
+                            "data: {\"type\":\"error\",\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"Your input exceeds the context window of this model. Please adjust your input and try again.\"}}\n\n"
+                        )
+                    } else {
+                        concat!(
+                            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_after_compaction\"}}\n\n",
+                            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Recovered after compaction\"}\n\n",
+                            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_after_compaction\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":10,\"output_tokens\":4,\"total_tokens\":14},\"error\":null}}\n\n"
+                        )
+                    };
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    socket
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("write context overflow retry response");
+                });
+            }
+        }
+    });
+
+    let mut config = AgentConfig::default();
+    config.provider = PROVIDER_ID_OPENAI.to_string();
+    config.base_url = format!("http://{addr}/v1");
+    config.model = "gpt-5.4".to_string();
+    config.api_key = "test-key".to_string();
+    config.auth_source = AuthSource::ApiKey;
+    config.api_transport = ApiTransport::Responses;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.keep_recent_on_compact = 1;
+
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+    let thread_id = "thread-context-overflow-compacts-and-recovers";
+    engine.threads.write().await.insert(
+        thread_id.to_string(),
+        crate::agent::types::AgentThread {
+            id: thread_id.to_string(),
+            agent_name: None,
+            title: "Context overflow recovery".to_string(),
+            messages: vec![
+                crate::agent::types::AgentMessage::user("Older user context", 1),
+                crate::agent::types::AgentMessage {
+                    id: "assistant-older-context".to_string(),
+                    role: MessageRole::Assistant,
+                    content: "Older assistant context".to_string(),
+                    content_blocks: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_arguments: None,
+                    tool_status: None,
+                    weles_review: None,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cost: None,
+                    provider: None,
+                    model: None,
+                    api_transport: None,
+                    response_id: None,
+                    upstream_message: None,
+                    provider_final_result: None,
+                    author_agent_id: None,
+                    author_agent_name: None,
+                    reasoning: None,
+                    message_kind: AgentMessageKind::Normal,
+                    compaction_strategy: None,
+                    compaction_payload: None,
+                    offloaded_payload_id: None,
+                    tool_output_preview_path: None,
+                    structural_refs: Vec::new(),
+                    pinned_for_compaction: false,
+                    timestamp: 2,
+                    feedback: None,
+                },
+                crate::agent::types::AgentMessage::user("Recent user context", 3),
+            ],
+            pinned: false,
+            upstream_thread_id: None,
+            upstream_transport: None,
+            upstream_provider: None,
+            upstream_model: None,
+            upstream_assistant_id: None,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
+            created_at: 1,
+            updated_at: 1,
+        },
+    );
+
+    engine
+        .send_message_inner(
+            Some(thread_id),
+            "Continue with a compacted prompt",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("context overflow should compact and retry");
+
+    assert_eq!(request_count.load(Ordering::SeqCst), 2);
+    let thread = engine
+        .get_thread(thread_id)
+        .await
+        .expect("thread should exist");
+    assert!(
+        thread
+            .messages
+            .iter()
+            .any(|message| message.message_kind == AgentMessageKind::CompactionArtifact),
+        "expected forced compaction artifact before retry"
+    );
+    assert_eq!(
+        thread
+            .messages
+            .last()
+            .map(|message| message.content.as_str()),
+        Some("Recovered after compaction")
+    );
+    assert!(
+        thread
+            .messages
+            .iter()
+            .all(|message| !message.content.contains("context window of this model")),
+        "raw provider context-window error must not be persisted as a user-visible reply"
     );
 }

@@ -1375,6 +1375,57 @@ async fn copilot_responses_parser_tolerates_unknown_events_before_completion() {
 }
 
 #[tokio::test]
+async fn openai_responses_parser_uses_total_tokens_when_output_details_are_hidden() {
+    let body = concat!(
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_usage_total\"}}\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_usage_total\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":75,\"input_tokens_details\":{\"cached_tokens\":12},\"output_tokens\":100,\"output_tokens_details\":{\"reasoning_tokens\":1024},\"total_tokens\":1261},\"error\":null}}\n"
+        );
+    let (response, server) = responses_sse_test_response(body).await;
+
+    let (tx, mut rx) = mpsc::channel(8);
+    parse_openai_responses_sse(response, zorai_shared::providers::PROVIDER_ID_OPENAI, &tx)
+        .await
+        .expect("parse should succeed");
+    drop(tx);
+
+    let mut done_tokens = None;
+    while let Some(chunk) = rx.recv().await {
+        if let CompletionChunk::Done {
+            input_tokens,
+            output_tokens,
+            provider_final_result,
+            ..
+        } = chunk.expect("chunk")
+        {
+            let final_usage = match provider_final_result.expect("provider result") {
+                crate::agent::types::CompletionProviderFinalResult::OpenAiResponses(response) => {
+                    response.response.expect("terminal response").usage
+                }
+                other => panic!("expected responses provider result, got {other:?}"),
+            };
+            done_tokens = Some((input_tokens, output_tokens, final_usage));
+            break;
+        }
+    }
+
+    let (input_tokens, output_tokens, final_usage) =
+        done_tokens.expect("expected terminal done chunk");
+    assert_eq!(input_tokens, 75);
+    assert_eq!(output_tokens, 1186);
+    assert_eq!(final_usage.total_tokens, Some(1261));
+    assert_eq!(
+        final_usage
+            .output_tokens_details
+            .as_ref()
+            .unwrap()
+            .reasoning_tokens,
+        Some(1024)
+    );
+    server.await.expect("server task");
+}
+
+#[tokio::test]
 async fn copilot_responses_parser_rejects_chat_completions_payloads() {
     let body = concat!(
         "data: {\"id\":\"chatcmpl_123\",\"choices\":[{\"delta\":{\"content\":\"legacy\"}}]}\n",
@@ -1393,6 +1444,38 @@ async fn copilot_responses_parser_rejects_chat_completions_payloads() {
 
     let failure = upstream_failure_error(&err).expect("structured upstream failure");
     assert_eq!(failure.class, UpstreamFailureClass::TransportIncompatible);
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn openai_responses_parser_classifies_context_window_overflow_for_recovery() {
+    let body = concat!(
+            "data: {\"type\":\"error\",\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"Your input exceeds the context window of this model. Please adjust your input and try again.\"}}\n"
+        );
+    let (response, server) = responses_sse_test_response(body).await;
+
+    let (tx, mut rx) = mpsc::channel(8);
+    parse_openai_responses_sse(response, zorai_shared::providers::PROVIDER_ID_OPENAI, &tx)
+        .await
+        .expect("parse should complete with an error chunk");
+    drop(tx);
+
+    let mut saw_error = None;
+    while let Some(chunk) = rx.recv().await {
+        if let CompletionChunk::Error { message } = chunk.expect("chunk") {
+            saw_error = Some(message);
+            break;
+        }
+    }
+
+    let message = saw_error.expect("expected structured error chunk");
+    let diagnostics = parse_structured_error(&message);
+    assert_eq!(diagnostics.class, "context_window_exceeded");
+    assert_eq!(diagnostics.diagnostics["event_type"], "error");
+    assert_eq!(
+        diagnostics.diagnostics["upstream_error"]["code"],
+        "context_length_exceeded"
+    );
     server.await.expect("server task");
 }
 
@@ -1641,5 +1724,51 @@ async fn chat_completions_parser_provider_final_result_uses_normalized_tool_call
         emitted_tool_calls[1].function.arguments
     );
 
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn chat_completions_parser_uses_total_tokens_when_completion_details_are_hidden() {
+    let body = concat!(
+            "data: {\"id\":\"chatcmpl_usage_total\",\"model\":\"gpt-5.4\",\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n",
+            "data: {\"id\":\"chatcmpl_usage_total\",\"model\":\"gpt-5.4\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":75,\"completion_tokens\":100,\"completion_tokens_details\":{\"reasoning_tokens\":1024},\"total_tokens\":1261}}\n",
+            "data: [DONE]\n"
+        );
+    let (response, server) = responses_sse_test_response(body).await;
+
+    let (tx, mut rx) = mpsc::channel(8);
+    parse_openai_sse(response, &tx)
+        .await
+        .expect("parse should succeed");
+    drop(tx);
+
+    let mut done_tokens = None;
+    while let Some(chunk) = rx.recv().await {
+        if let CompletionChunk::Done {
+            input_tokens,
+            output_tokens,
+            provider_final_result,
+            ..
+        } = chunk.expect("chunk")
+        {
+            let final_result_tokens = match provider_final_result.expect("provider result") {
+                crate::agent::types::CompletionProviderFinalResult::OpenAiChatCompletions(
+                    response,
+                ) => (
+                    response.input_tokens.expect("input tokens"),
+                    response.output_tokens.expect("output tokens"),
+                ),
+                other => panic!("expected chat completions provider result, got {other:?}"),
+            };
+            done_tokens = Some((input_tokens, output_tokens, final_result_tokens));
+            break;
+        }
+    }
+
+    let (input_tokens, output_tokens, final_result_tokens) =
+        done_tokens.expect("expected terminal done chunk");
+    assert_eq!(input_tokens, 75);
+    assert_eq!(output_tokens, 1186);
+    assert_eq!(final_result_tokens, (75, 1186));
     server.await.expect("server task");
 }
