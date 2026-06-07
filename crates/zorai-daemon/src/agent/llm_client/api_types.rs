@@ -75,6 +75,10 @@ pub(crate) fn classify_http_failure_with_retry_after(
         || lower.contains("tool")
         || lower.contains("required")
         || lower.contains("missing");
+    let context_window_exceeded_like = lower.contains("context_length_exceeded")
+        || lower.contains("context window")
+        || lower.contains("context length")
+        || (lower.contains("input") && lower.contains("exceeds") && lower.contains("context"));
     let transport_incompatible_like = lower.contains("not supported")
         || lower.contains("does not support")
         || lower.contains("incompatible");
@@ -92,6 +96,8 @@ pub(crate) fn classify_http_failure_with_retry_after(
             | reqwest::StatusCode::FORBIDDEN
     ) {
         UpstreamFailureClass::AuthConfiguration
+    } else if context_window_exceeded_like {
+        UpstreamFailureClass::ContextWindowExceeded
     } else if matches!(
         upstream_error_type.as_deref(),
         Some("invalid_request_error" | "request_too_large")
@@ -145,6 +151,9 @@ pub(crate) fn classify_http_failure_with_retry_after(
     let summary = match class {
         UpstreamFailureClass::RequestInvalid => {
             format!("{provider} rejected the daemon request as invalid: {raw_message}")
+        }
+        UpstreamFailureClass::ContextWindowExceeded => {
+            format!("{provider} rejected the request because the input exceeds the model context window: {raw_message}")
         }
         UpstreamFailureClass::AuthConfiguration => {
             format!("{provider} rejected the request because authentication or provider configuration is invalid: {raw_message}")
@@ -219,6 +228,13 @@ pub(crate) fn classify_openai_responses_stream_failure(
     let lower_message = error_message.unwrap_or_default().to_ascii_lowercase();
     let stale_tool_output_mismatch = lower_message.contains("no tool call found")
         && lower_message.contains("function call output");
+    let context_window_exceeded_like = lower_code.contains("context_length_exceeded")
+        || lower_code.contains("context_window")
+        || lower_message.contains("context window")
+        || lower_message.contains("context length")
+        || (lower_message.contains("input")
+            && lower_message.contains("exceeds")
+            && lower_message.contains("context"));
 
     let class = if lower_code.contains("rate_limit") || lower_message.contains("rate limit") {
         UpstreamFailureClass::RateLimit
@@ -230,6 +246,8 @@ pub(crate) fn classify_openai_responses_stream_failure(
         || lower_message.contains("authentication")
     {
         UpstreamFailureClass::AuthConfiguration
+    } else if context_window_exceeded_like {
+        UpstreamFailureClass::ContextWindowExceeded
     } else if lower_code.contains("invalid")
         || lower_code.contains("malformed")
         || lower_code.contains("request_too_large")
@@ -259,6 +277,9 @@ pub(crate) fn classify_openai_responses_stream_failure(
         ),
         UpstreamFailureClass::RequestInvalid => {
             format!("{provider} Responses stream rejected the daemon request as invalid: {message}")
+        }
+        UpstreamFailureClass::ContextWindowExceeded => {
+            format!("{provider} Responses stream input exceeds the model context window: {message}")
         }
         UpstreamFailureClass::TemporaryUpstream => {
             format!("{provider} Responses stream failed upstream: {message}")

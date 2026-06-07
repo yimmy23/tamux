@@ -39,6 +39,21 @@ fn stream_timeout_retry_delay_ms(stream_timeout_count: u32) -> u64 {
     }
 }
 
+fn is_context_window_exceeded_failure(message: &str) -> bool {
+    if parse_structured_upstream_failure(message)
+        .as_ref()
+        .is_some_and(|failure| failure.class == "context_window_exceeded")
+    {
+        return true;
+    }
+
+    let lower = message.to_ascii_lowercase();
+    lower.contains("context_length_exceeded")
+        || lower.contains("context window")
+        || lower.contains("context length")
+        || (lower.contains("input") && lower.contains("exceeds") && lower.contains("context"))
+}
+
 impl<'a> SendMessageRunner<'a> {
     async fn prepare_request(&mut self) -> Result<PreparedLlmRequest> {
         let compaction_inserted = self
@@ -372,6 +387,42 @@ impl<'a> SendMessageRunner<'a> {
                         CompletionChunk::Error { message } => {
                             let visible_message = sanitize_upstream_failure_message(&message);
                             let structured_failure = parse_structured_upstream_failure(&message);
+                            if is_context_window_exceeded_failure(&message) {
+                                tracing::warn!(
+                                    thread_id = %self.tid,
+                                    provider = %self.config.provider,
+                                    model = %self.provider_config.model,
+                                    visible_message = %visible_message,
+                                    "context-window overflow detected; forcing compaction before retry"
+                                );
+                                let _ = self.engine.event_tx.send(AgentEvent::RetryStatus {
+                                    thread_id: self.tid.clone(),
+                                    phase: "compacting".to_string(),
+                                    attempt: self.scheduled_retry_cycles.saturating_add(1),
+                                    max_retries: 0,
+                                    delay_ms: 0,
+                                    failure_class: "context_window_exceeded".to_string(),
+                                    message: "Input exceeded the model context window; compacting context and retrying".to_string(),
+                                });
+                                self.retry_status_visible = true;
+                                let compacted = self
+                                    .engine
+                                    .force_persist_compaction_artifact(
+                                        &self.tid,
+                                        self.task_id,
+                                        &self.config,
+                                        &self.provider_config,
+                                    )
+                                    .await?;
+                                if compacted {
+                                    self.engine.clear_thread_continuation_state(&self.tid).await;
+                                    self.recorded_compaction_provenance = true;
+                                    return Err(FreshRunnerRetrySignal {
+                                        scheduled_retry_cycles: 0,
+                                    }
+                                    .into());
+                                }
+                            }
                             if let Some(structured) = structured_failure.as_ref() {
                                 let recovery = self
                                     .engine

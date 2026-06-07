@@ -130,6 +130,52 @@ fn responses_protocol_completed_response_round_trips_with_error_shape() {
 }
 
 #[test]
+fn responses_protocol_usage_round_trips_detailed_token_breakdown() {
+    let original = serde_json::json!({
+        "id": "resp_usage_details",
+        "object": "response",
+        "status": "completed",
+        "output": [],
+        "usage": {
+            "input_tokens": 75,
+            "input_tokens_details": {
+                "cached_tokens": 12
+            },
+            "output_tokens": 1186,
+            "output_tokens_details": {
+                "reasoning_tokens": 1024
+            },
+            "total_tokens": 1261
+        },
+        "error": null
+    });
+
+    let parsed: OpenAiResponsesTerminalResponse =
+        serde_json::from_value(original.clone()).expect("deserialize detailed usage response");
+    let serialized = serde_json::to_value(&parsed).expect("serialize detailed usage response");
+
+    assert_eq!(
+        parsed
+            .usage
+            .input_tokens_details
+            .as_ref()
+            .unwrap()
+            .cached_tokens,
+        Some(12)
+    );
+    assert_eq!(
+        parsed
+            .usage
+            .output_tokens_details
+            .as_ref()
+            .unwrap()
+            .reasoning_tokens,
+        Some(1024)
+    );
+    assert_eq!(serialized, original);
+}
+
+#[test]
 fn responses_protocol_function_call_item_round_trips() {
     let original = serde_json::json!({
         "type": "function_call",

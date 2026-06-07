@@ -20,6 +20,7 @@ pub(crate) const UPSTREAM_DIAGNOSTICS_MARKER: &str = "\n\n[zorai-upstream-diagno
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UpstreamFailureClass {
     RequestInvalid,
+    ContextWindowExceeded,
     AuthConfiguration,
     TransportIncompatible,
     TemporaryUpstream,
@@ -32,6 +33,7 @@ impl UpstreamFailureClass {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::RequestInvalid => "request_invalid",
+            Self::ContextWindowExceeded => "context_window_exceeded",
             Self::AuthConfiguration => "auth_configuration",
             Self::TransportIncompatible => "transport_incompatible",
             Self::TemporaryUpstream => "temporary_upstream",
@@ -107,6 +109,18 @@ pub(crate) fn sanitize_upstream_failure_message(message: &str) -> String {
     parse_structured_upstream_failure(message)
         .map(|structured| structured.summary)
         .unwrap_or_else(|| message.to_string())
+}
+
+pub(crate) fn normalize_openai_usage_tokens(
+    input_tokens: u64,
+    output_tokens: u64,
+    total_tokens: Option<u64>,
+) -> (u64, u64) {
+    let output_tokens = total_tokens
+        .and_then(|total| total.checked_sub(input_tokens))
+        .filter(|total_derived_output| *total_derived_output > output_tokens)
+        .unwrap_or(output_tokens);
+    (input_tokens, output_tokens)
 }
 
 #[derive(Debug, Clone, Copy)]
