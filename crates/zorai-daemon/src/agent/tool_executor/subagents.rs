@@ -779,7 +779,7 @@ pub(crate) async fn execute_spawn_subagent(
         derived_limits.child_depth, derived_limits.max_depth
     );
     let budget_suffix = format!(
-        "\nBudget: {} tokens, {}s, {} tool calls",
+        "\nBudget: {} output tokens, {}s, {} tool calls",
         derived_limits.context_budget_tokens.unwrap_or(0),
         derived_limits.max_duration_secs.unwrap_or(0),
         derived_limits.max_tool_calls.unwrap_or(0)

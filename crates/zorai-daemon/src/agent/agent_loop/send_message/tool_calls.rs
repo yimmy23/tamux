@@ -879,7 +879,11 @@ impl<'a> SendMessageRunner<'a> {
                     let threads = self.engine.threads.read().await;
                     threads
                         .get(&self.tid)
-                        .map(|thread| estimate_message_tokens(&thread.messages))
+                        .map(|thread| {
+                            crate::agent::subagent::context_budget::visible_output_budget_tokens(
+                                &thread.messages,
+                            )
+                        })
                         .unwrap_or(0) as u32
                 };
                 budget.set_consumed(current_tokens);
@@ -889,18 +893,18 @@ impl<'a> SendMessageRunner<'a> {
                         ..
                     } => match overflow_action {
                         crate::agent::types::ContextOverflowAction::Error => {
-                            tracing::warn!(thread_id = %self.tid, "context budget exceeded - stopping");
+                            tracing::warn!(thread_id = %self.tid, "output token budget exceeded - stopping");
                             self.terminated_for_budget = true;
                             self.engine.emit_workflow_notice(
                                 &self.tid,
                                 "budget-exceeded",
-                                "Context budget exceeded, execution stopped.",
+                                "Output token budget exceeded, execution stopped.",
                                 None,
                             );
                             return true;
                         }
                         _ => {
-                            tracing::info!(thread_id = %self.tid, "context budget exceeded - relying on compaction");
+                            tracing::info!(thread_id = %self.tid, "output token budget exceeded - relying on compaction");
                         }
                     },
                     crate::agent::subagent::context_budget::BudgetStatus::Warning {
