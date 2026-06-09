@@ -214,6 +214,7 @@ pub fn provider_supports_audio_tool(provider_id: &str, kind: AudioToolKind) -> b
                 | PROVIDER_ID_GROQ
                 | PROVIDER_ID_OPENROUTER
                 | PROVIDER_ID_XAI
+                | PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN
         ),
         AudioToolKind::TextToSpeech => matches!(
             provider_id,
@@ -284,8 +285,8 @@ mod tests {
     }
 
     #[test]
-    fn xiaomi_is_marked_as_tts_only_audio_provider() {
-        assert!(!provider_supports_audio_tool(
+    fn xiaomi_is_marked_as_audio_capable_provider() {
+        assert!(provider_supports_audio_tool(
             PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
             AudioToolKind::SpeechToText,
         ));

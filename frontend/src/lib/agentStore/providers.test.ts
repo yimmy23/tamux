@@ -134,7 +134,7 @@ describe("frontend xAI audio/provider settings coverage", () => {
     expect(providerSupportsAudioTool("elevenlabs", "stt")).toBe(true);
     expect(providerSupportsAudioTool("elevenlabs", "tts")).toBe(true);
     expect(providerSupportsAudioTool("xiaomi-mimo-token-plan", "tts")).toBe(true);
-    expect(providerSupportsAudioTool("xiaomi-mimo-token-plan", "stt")).toBe(false);
+    expect(providerSupportsAudioTool("xiaomi-mimo-token-plan", "stt")).toBe(true);
     expect(providerSupportsAudioTool("minimax", "tts")).toBe(true);
     expect(providerSupportsAudioTool("minimax", "stt")).toBe(false);
     expect(providerSupportsAudioTool("minimax-coding-plan", "tts")).toBe(true);
@@ -237,23 +237,28 @@ describe("frontend Xiaomi MiMo token plan provider catalog", () => {
     const mimo = getProviderDefinition("xiaomi-mimo-token-plan" as any);
 
     expect(mimo).toBeDefined();
-    expect(mimo?.defaultBaseUrl).toBe("https://api.xiaomimimo.com/v1");
-    expect(mimo?.defaultModel).toBe("mimo-v2-pro");
+    expect(mimo?.defaultBaseUrl).toBe("https://token-plan-ams.xiaomimimo.com/v1");
+    expect(mimo?.anthropicBaseUrl).toBe("https://token-plan-ams.xiaomimimo.com/anthropic");
+    expect(mimo?.defaultModel).toBe("mimo-v2.5-pro");
     expect(mimo?.supportsModelFetch).toBe(false);
+    expect(mimo?.supportedTransports).toEqual(["chat_completions", "anthropic_messages"]);
     expect(mimo?.models.map((model) => [model.id, model.contextWindow])).toEqual([
-      ["mimo-v2-pro", 1_000_000],
-      ["mimo-v2-omni", 256_000],
       ["mimo-v2.5-pro", 1_000_000],
+      ["mimo-v2.5-pro-ultraspeed", 1_000_000],
       ["mimo-v2.5", 1_000_000],
-      ["mimo-v2.5-tts", 128_000],
+      ["mimo-v2.5-asr", 128_000],
       ["mimo-v2.5-tts-voiceclone", 128_000],
       ["mimo-v2.5-tts-voicedesign", 128_000],
+      ["mimo-v2.5-tts", 128_000],
+      ["mimo-v2-pro", 1_000_000],
+      ["mimo-v2-omni", 256_000],
+      ["mimo-v2-tts", 128_000],
     ]);
   });
 
   it("recognizes Xiaomi MiMo token plan as a valid provider id", () => {
     expect(normalizeAgentProviderId("xiaomi-mimo-token-plan")).toBe("xiaomi-mimo-token-plan");
-    expect(getDefaultModelForProvider("xiaomi-mimo-token-plan" as any)).toBe("mimo-v2-pro");
+    expect(getDefaultModelForProvider("xiaomi-mimo-token-plan" as any)).toBe("mimo-v2.5-pro");
   });
 });
 
@@ -361,6 +366,12 @@ describe("frontend curated media provider catalog", () => {
       "gpt-5.5",
       "gpt-5.4",
     ]);
+    expect(getProviderModels("openai").find((model) => model.id === "gpt-5.3-codex-spark")).toMatchObject({
+      contextWindow: 128_000,
+    });
+    expect(getProviderModels("openai", "chatgpt_subscription").map((model) => model.id)).toContain(
+      "gpt-5.3-codex-spark",
+    );
   });
 
   it("keeps representative modalities aligned with the curated matrix", () => {
@@ -379,6 +390,9 @@ describe("frontend curated media provider catalog", () => {
     expect(
       getModelModalities(getModelDefinition("anthropic", "claude-opus-4-7")),
     ).toEqual(["text", "image"]);
+    expect(
+      getModelModalities(getModelDefinition("openai", "gpt-5.3-codex-spark")),
+    ).toEqual(["text"]);
     expect(
       getModelModalities(getModelDefinition("xiaomi-mimo-token-plan", "mimo-v2-omni")),
     ).toEqual(["text", "image", "video", "audio"]);

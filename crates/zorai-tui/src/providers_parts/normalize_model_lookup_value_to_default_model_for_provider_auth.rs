@@ -336,9 +336,9 @@ pub const PROVIDERS: &[ProviderDef] = &[
     ProviderDef {
         id: PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
         name: "Xiaomi MiMo Token Plan",
-        default_base_url: "https://api.xiaomimimo.com/v1",
-        default_model: "mimo-v2-pro",
-        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_base_url: "https://token-plan-ams.xiaomimimo.com/v1",
+        default_model: "mimo-v2.5-pro",
+        supported_transports: &["chat_completions", "anthropic_messages"],
         default_transport: "chat_completions",
         supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
         default_auth_source: "api_key",

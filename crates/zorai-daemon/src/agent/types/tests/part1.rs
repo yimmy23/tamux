@@ -351,6 +351,10 @@ fn openai_curated_media_modalities_match_expectations() {
         model_modalities(PROVIDER_ID_OPENAI, "gpt-5.4-mini"),
         TEXT_IMAGE
     );
+    assert_eq!(
+        model_modalities(PROVIDER_ID_OPENAI, "gpt-5.3-codex-spark"),
+        TEXT_ONLY
+    );
     assert!(model_supports(
         PROVIDER_ID_OPENAI,
         "gpt-5.5",
@@ -380,6 +384,11 @@ fn openai_curated_media_modalities_match_expectations() {
         PROVIDER_ID_OPENAI,
         "gpt-5.4-mini",
         Modality::Video
+    ));
+    assert!(!model_supports(
+        PROVIDER_ID_OPENAI,
+        "gpt-5.3-codex-spark",
+        Modality::Image
     ));
 }
 
@@ -451,6 +460,10 @@ fn xiaomi_mimo_v25_series_modalities_match_capabilities() {
         "mimo-v2.5",
         Modality::Audio
     ));
+    assert_eq!(
+        model_modalities(PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN, "mimo-v2.5-asr"),
+        TEXT_AUDIO
+    );
     assert_eq!(
         model_modalities(PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN, "mimo-v2.5-tts"),
         TEXT_AUDIO

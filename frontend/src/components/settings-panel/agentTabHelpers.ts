@@ -41,9 +41,14 @@ const GROQ_TTS_MODELS: ModelDefinition[] = [
 ];
 
 const XIAOMI_TTS_MODELS: ModelDefinition[] = [
+  { id: "mimo-v2-tts", name: "MiMo V2 TTS", contextWindow: 128000, modalities: ["audio"] },
   { id: "mimo-v2.5-tts", name: "MiMo V2.5 TTS", contextWindow: 128000, modalities: ["audio"] },
   { id: "mimo-v2.5-tts-voiceclone", name: "MiMo V2.5 TTS VoiceClone", contextWindow: 128000, modalities: ["audio"] },
   { id: "mimo-v2.5-tts-voicedesign", name: "MiMo V2.5 TTS VoiceDesign", contextWindow: 128000, modalities: ["audio"] },
+];
+
+const XIAOMI_STT_MODELS: ModelDefinition[] = [
+  { id: "mimo-v2.5-asr", name: "MiMo V2.5 ASR", contextWindow: 128000, modalities: ["audio"] },
 ];
 
 const MINIMAX_TTS_MODELS: ModelDefinition[] = [
@@ -133,8 +138,8 @@ export function audioModelOptions(
   if ((providerId === "minimax" || providerId === "minimax-coding-plan") && kind === "tts") {
     return MINIMAX_TTS_MODELS;
   }
-  if (providerId === "xiaomi-mimo-token-plan" && kind === "tts") {
-    return XIAOMI_TTS_MODELS;
+  if (providerId === "xiaomi-mimo-token-plan") {
+    return kind === "stt" ? XIAOMI_STT_MODELS : XIAOMI_TTS_MODELS;
   }
   return undefined;
 }

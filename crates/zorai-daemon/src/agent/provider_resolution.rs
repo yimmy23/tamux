@@ -35,6 +35,13 @@ fn finalize_resolved_provider(
     if let Some(fixed_transport) = fixed_api_transport_for_model(provider_id, &resolved.model) {
         resolved.api_transport = fixed_transport;
     }
+    if resolved.api_transport == ApiTransport::AnthropicMessages {
+        if let Some(anthropic_base_url) = get_provider_definition(provider_id)
+            .and_then(|definition| definition.anthropic_base_url)
+        {
+            resolved.base_url = anthropic_base_url.to_string();
+        }
+    }
     resolved
 }
 
@@ -322,7 +329,7 @@ mod tests {
     use super::*;
     use zorai_shared::providers::{
         PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_AZURE_OPENAI, PROVIDER_ID_GITHUB_COPILOT,
-        PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI,
+        PROVIDER_ID_GROQ, PROVIDER_ID_OPENAI, PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
     };
 
     #[test]
@@ -418,6 +425,55 @@ providers:
         assert_eq!(resolved.assistant_id, "assistant-root");
         assert_eq!(resolved.context_window_tokens, 99_999);
         assert_eq!(resolved.api_transport, ApiTransport::ChatCompletions);
+    }
+
+    #[test]
+    fn xiaomi_anthropic_transport_uses_anthropic_base_url() {
+        let mut config = AgentConfig::default();
+        config.provider = PROVIDER_ID_OPENAI.to_string();
+        config.providers.insert(
+            PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN.to_string(),
+            ProviderConfig {
+                base_url: String::new(),
+                model: "mimo-v2.5-pro".to_string(),
+                api_key: "mimo-key".to_string(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ApiKey,
+                api_transport: ApiTransport::AnthropicMessages,
+                context_window_tokens: 0,
+                reasoning_effort: String::new(),
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+                openrouter_provider_order: Vec::new(),
+                openrouter_provider_ignore: Vec::new(),
+                openrouter_allow_fallbacks: None,
+                openrouter_response_cache_enabled: false,
+            },
+        );
+
+        let resolved = resolve_provider_config_for(
+            &config,
+            PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+            Some("mimo-v2.5-pro"),
+        )
+        .expect("provider should resolve");
+
+        assert_eq!(resolved.api_transport, ApiTransport::AnthropicMessages);
+        assert_eq!(
+            resolved.base_url,
+            "https://token-plan-ams.xiaomimimo.com/anthropic"
+        );
     }
 
     #[test]

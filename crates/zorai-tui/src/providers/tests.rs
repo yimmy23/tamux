@@ -110,6 +110,10 @@ fn known_models_openai_non_empty() {
     );
     assert!(models.iter().any(|m| m.id == "gpt-5.5"));
     assert!(models.iter().any(|m| m.id == "gpt-5.4"));
+    assert_eq!(
+        known_context_window_for(PROVIDER_ID_OPENAI, "gpt-5.3-codex-spark"),
+        Some(128_000)
+    );
 }
 
 #[test]
@@ -125,6 +129,7 @@ fn known_models_openai_chatgpt_subscription_is_restricted() {
     );
     assert!(models.iter().any(|m| m.id == "gpt-5.5"));
     assert!(models.iter().any(|m| m.id == "gpt-5.4"));
+    assert!(models.iter().any(|m| m.id == "gpt-5.3-codex-spark"));
     assert!(!models.iter().any(|m| m.id == "gpt-4o"));
     assert!(!models.iter().any(|m| m.id == "o3"));
 }
@@ -419,12 +424,18 @@ fn deepseek_provider_uses_expected_defaults() {
 fn xiaomi_mimo_provider_uses_expected_defaults() {
     let provider = find_by_id("xiaomi-mimo-token-plan").unwrap();
     assert_eq!(provider.name, "Xiaomi MiMo Token Plan");
-    assert_eq!(provider.default_base_url, "https://api.xiaomimimo.com/v1");
-    assert_eq!(provider.default_model, "mimo-v2-pro");
+    assert_eq!(
+        provider.default_base_url,
+        "https://token-plan-ams.xiaomimimo.com/v1"
+    );
+    assert_eq!(provider.default_model, "mimo-v2.5-pro");
     assert_eq!(provider.default_auth_source, "api_key");
     assert_eq!(provider.supported_auth_sources, API_KEY_ONLY_AUTH_SOURCES);
     assert_eq!(provider.default_transport, "chat_completions");
-    assert_eq!(provider.supported_transports, CHAT_ONLY_TRANSPORTS);
+    assert_eq!(
+        provider.supported_transports,
+        &["chat_completions", "anthropic_messages"]
+    );
     assert_eq!(
         known_context_window_for("xiaomi-mimo-token-plan", "mimo-v2-pro"),
         Some(1_000_000)
@@ -438,8 +449,16 @@ fn xiaomi_mimo_provider_uses_expected_defaults() {
         Some(1_000_000)
     );
     assert_eq!(
+        known_context_window_for("xiaomi-mimo-token-plan", "mimo-v2.5-pro-ultraspeed"),
+        Some(1_000_000)
+    );
+    assert_eq!(
         known_context_window_for("xiaomi-mimo-token-plan", "mimo-v2.5"),
         Some(1_000_000)
+    );
+    assert_eq!(
+        known_context_window_for("xiaomi-mimo-token-plan", "mimo-v2.5-asr"),
+        Some(128_000)
     );
     assert_eq!(
         known_context_window_for("xiaomi-mimo-token-plan", "mimo-v2.5-tts"),
@@ -447,11 +466,15 @@ fn xiaomi_mimo_provider_uses_expected_defaults() {
     );
     assert!(!supports_model_fetch_for("xiaomi-mimo-token-plan"));
     let models = known_models_for_provider("xiaomi-mimo-token-plan");
-    assert_eq!(models.len(), 7);
+    assert_eq!(models.len(), 10);
     assert!(models.iter().any(|model| model.id == "mimo-v2-pro"));
     assert!(models.iter().any(|model| model.id == "mimo-v2-omni"));
     assert!(models.iter().any(|model| model.id == "mimo-v2.5-pro"));
+    assert!(models
+        .iter()
+        .any(|model| model.id == "mimo-v2.5-pro-ultraspeed"));
     assert!(models.iter().any(|model| model.id == "mimo-v2.5"));
+    assert!(models.iter().any(|model| model.id == "mimo-v2.5-asr"));
     assert!(models.iter().any(|model| model.id == "mimo-v2.5-tts"));
     assert!(models
         .iter()
@@ -459,6 +482,7 @@ fn xiaomi_mimo_provider_uses_expected_defaults() {
     assert!(models
         .iter()
         .any(|model| model.id == "mimo-v2.5-tts-voicedesign"));
+    assert!(models.iter().any(|model| model.id == "mimo-v2-tts"));
 }
 
 #[test]

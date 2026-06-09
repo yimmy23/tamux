@@ -29,6 +29,7 @@ const OPENAI_API_MODELS: ModelDefinition[] = [
   { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.4-nano", name: "GPT-5.4 Nano", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.3-codex-spark", name: "GPT-5.3 Codex Spark", contextWindow: 128_000 },
   { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.2", name: "GPT-5.2", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", contextWindow: 400_000, modalities: M_TI },
@@ -48,6 +49,7 @@ const OPENAI_CHATGPT_SUBSCRIPTION_MODELS: ModelDefinition[] = [
   { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000, modalities: M_TI },
   { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 400_000, modalities: M_TI },
+  { id: "gpt-5.3-codex-spark", name: "GPT-5.3 Codex Spark", contextWindow: 128_000 },
   { id: "gpt-5.2-codex", name: "GPT-5.2 Codex", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.2", name: "GPT-5.2", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.1-codex-max", name: "GPT-5.1 Codex Max", contextWindow: 400_000, modalities: M_TI },
@@ -187,13 +189,16 @@ const ALIBABA_CODING_COMPAT_MODELS: ModelDefinition[] = [
 ];
 
 const XIAOMI_MIMO_TOKEN_PLAN_MODELS: ModelDefinition[] = [
-  { id: "mimo-v2-pro", name: "MiMo V2 Pro", contextWindow: 1_000_000 },
-  { id: "mimo-v2-omni", name: "MiMo V2 Omni", contextWindow: 256_000, modalities: M_MULTI },
   { id: "mimo-v2.5-pro", name: "MiMo V2.5 Pro", contextWindow: 1_000_000 },
+  { id: "mimo-v2.5-pro-ultraspeed", name: "MiMo V2.5 Pro UltraSpeed", contextWindow: 1_000_000 },
   { id: "mimo-v2.5", name: "MiMo V2.5", contextWindow: 1_000_000, modalities: M_MULTI },
-  { id: "mimo-v2.5-tts", name: "MiMo V2.5 TTS", contextWindow: 128_000, modalities: M_TA },
+  { id: "mimo-v2.5-asr", name: "MiMo V2.5 ASR", contextWindow: 128_000, modalities: M_TA },
   { id: "mimo-v2.5-tts-voiceclone", name: "MiMo V2.5 TTS VoiceClone", contextWindow: 128_000, modalities: M_TA },
   { id: "mimo-v2.5-tts-voicedesign", name: "MiMo V2.5 TTS VoiceDesign", contextWindow: 128_000, modalities: M_TA },
+  { id: "mimo-v2.5-tts", name: "MiMo V2.5 TTS", contextWindow: 128_000, modalities: M_TA },
+  { id: "mimo-v2-pro", name: "MiMo V2 Pro", contextWindow: 1_000_000 },
+  { id: "mimo-v2-omni", name: "MiMo V2 Omni", contextWindow: 256_000, modalities: M_MULTI },
+  { id: "mimo-v2-tts", name: "MiMo V2 TTS", contextWindow: 128_000, modalities: M_TA },
 ];
 
 const NOUS_PORTAL_MODELS: ModelDefinition[] = [
@@ -275,7 +280,8 @@ export function providerSupportsAudioTool(
       || providerId === "elevenlabs"
       || providerId === "groq"
       || providerId === "openrouter"
-      || providerId === "xai";
+      || providerId === "xai"
+      || providerId === "xiaomi-mimo-token-plan";
   }
   return providerId === "custom"
     || providerId === "openai"
@@ -409,7 +415,7 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
   { id: "minimax", name: "MiniMax", defaultBaseUrl: "https://api.minimax.io/anthropic", defaultModel: "MiniMax-M3", apiType: "anthropic", authMethod: "x-api-key", models: MINIMAX_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "minimax-coding-plan", name: "MiniMax Coding Plan", defaultBaseUrl: "https://api.minimax.io/anthropic", defaultModel: "MiniMax-M3", apiType: "anthropic", authMethod: "x-api-key", models: MINIMAX_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "alibaba-coding-plan", name: "Alibaba Coding Plan", defaultBaseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1", defaultModel: "qwen3.6-plus", apiType: "openai", authMethod: "bearer", models: ALIBABA_CODING_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
-  { id: "xiaomi-mimo-token-plan", name: "Xiaomi MiMo Token Plan", defaultBaseUrl: "https://api.xiaomimimo.com/v1", defaultModel: "mimo-v2-pro", apiType: "openai", authMethod: "bearer", models: XIAOMI_MIMO_TOKEN_PLAN_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "xiaomi-mimo-token-plan", name: "Xiaomi MiMo Token Plan", defaultBaseUrl: "https://token-plan-ams.xiaomimimo.com/v1", defaultModel: "mimo-v2.5-pro", apiType: "openai", authMethod: "bearer", models: XIAOMI_MIMO_TOKEN_PLAN_MODELS, supportsModelFetch: false, anthropicBaseUrl: "https://token-plan-ams.xiaomimimo.com/anthropic", supportedTransports: ["chat_completions", "anthropic_messages"], defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "opencode-zen", name: "OpenCode Zen", defaultBaseUrl: "https://opencode.ai/zen/v1", defaultModel: "claude-sonnet-4-5", apiType: "anthropic", authMethod: "bearer", models: OPENCODE_ZEN_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "custom", name: "Custom", defaultBaseUrl: "", defaultModel: "", apiType: "openai", authMethod: "bearer", models: EMPTY_MODELS, supportsModelFetch: false, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
 ];

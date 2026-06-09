@@ -831,31 +831,51 @@ fn xai_provider_exposes_fetchable_responses_defaults() {
 #[test]
 fn xiaomi_mimo_token_plan_exposes_static_openai_defaults() {
     let provider = get_provider_definition("xiaomi-mimo-token-plan").expect("xiaomi mimo provider");
-    assert_eq!(provider.default_base_url, "https://api.xiaomimimo.com/v1");
-    assert_eq!(provider.default_model, "mimo-v2-pro");
+    assert_eq!(
+        provider.default_base_url,
+        "https://token-plan-ams.xiaomimimo.com/v1"
+    );
+    assert_eq!(
+        provider.anthropic_base_url,
+        Some("https://token-plan-ams.xiaomimimo.com/anthropic")
+    );
+    assert_eq!(provider.default_model, "mimo-v2.5-pro");
     assert_eq!(provider.api_type, ApiType::OpenAI);
     assert_eq!(provider.auth_method, AuthMethod::Bearer);
     assert!(provider.supports_model_fetch);
     assert_eq!(provider.default_transport, ApiTransport::ChatCompletions);
-    assert_eq!(provider.models.len(), 7);
-    assert_eq!(provider.models[0].id, "mimo-v2-pro");
+    assert!(provider
+        .supported_transports
+        .contains(&ApiTransport::AnthropicMessages));
+    assert_eq!(provider.models.len(), 10);
+    assert_eq!(provider.models[0].id, "mimo-v2.5-pro");
     assert_eq!(provider.models[0].context_window, 1_000_000);
-    assert_eq!(provider.models[1].id, "mimo-v2-omni");
-    assert_eq!(provider.models[1].context_window, 256_000);
-    assert_eq!(provider.models[2].id, "mimo-v2.5-pro");
+    assert_eq!(provider.models[1].id, "mimo-v2.5-pro-ultraspeed");
+    assert_eq!(provider.models[1].context_window, 1_000_000);
+    assert_eq!(provider.models[2].id, "mimo-v2.5");
     assert_eq!(provider.models[2].context_window, 1_000_000);
-    assert_eq!(provider.models[3].id, "mimo-v2.5");
-    assert_eq!(provider.models[3].context_window, 1_000_000);
-    assert_eq!(provider.models[4].id, "mimo-v2.5-tts");
-    assert_eq!(provider.models[5].id, "mimo-v2.5-tts-voiceclone");
-    assert_eq!(provider.models[6].id, "mimo-v2.5-tts-voicedesign");
+    assert_eq!(provider.models[3].id, "mimo-v2.5-asr");
+    assert_eq!(provider.models[4].id, "mimo-v2.5-tts-voiceclone");
+    assert_eq!(provider.models[5].id, "mimo-v2.5-tts-voicedesign");
+    assert_eq!(provider.models[6].id, "mimo-v2.5-tts");
+    assert_eq!(provider.models[7].id, "mimo-v2-pro");
+    assert_eq!(provider.models[8].id, "mimo-v2-omni");
+    assert_eq!(provider.models[9].id, "mimo-v2-tts");
     assert_eq!(
         get_provider_api_type(
             "xiaomi-mimo-token-plan",
-            "mimo-v2-pro",
-            "https://api.xiaomimimo.com/v1"
+            "mimo-v2.5-pro",
+            "https://token-plan-ams.xiaomimimo.com/v1"
         ),
         ApiType::OpenAI
+    );
+    assert_eq!(
+        get_provider_api_type(
+            "xiaomi-mimo-token-plan",
+            "mimo-v2.5-pro",
+            "https://token-plan-ams.xiaomimimo.com/anthropic"
+        ),
+        ApiType::Anthropic
     );
 }
 

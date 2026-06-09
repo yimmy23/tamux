@@ -2743,7 +2743,7 @@ mod media_tools_tests {
 
     fn test_provider_config(model: &str) -> crate::agent::types::ProviderConfig {
         crate::agent::types::ProviderConfig {
-            base_url: "https://api.xiaomimimo.com/v1".to_string(),
+            base_url: "https://token-plan-ams.xiaomimimo.com/v1".to_string(),
             model: model.to_string(),
             api_key: "sk-mimo".to_string(),
             assistant_id: String::new(),
