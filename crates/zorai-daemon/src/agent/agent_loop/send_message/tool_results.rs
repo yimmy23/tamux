@@ -485,7 +485,11 @@ impl<'a> SendMessageRunner<'a> {
             let threads = self.engine.threads.read().await;
             threads
                 .get(&self.tid)
-                .map(|thread| estimate_message_tokens(&thread.messages))
+                .map(|thread| {
+                    crate::agent::subagent::context_budget::visible_output_budget_tokens(
+                        &thread.messages,
+                    )
+                })
                 .unwrap_or(0) as u32
         };
         if let Some(task) = self.current_task_snapshot.as_ref() {

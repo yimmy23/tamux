@@ -86,7 +86,11 @@ impl TuiModel {
                 "Eleven Multilingual v2",
                 None,
             )],
+            (PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN, "stt") => {
+                vec![model("mimo-v2.5-asr", "MiMo V2.5 ASR", Some(128_000))]
+            }
             (PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN, "tts") => vec![
+                model("mimo-v2-tts", "MiMo V2 TTS", Some(128_000)),
                 model("mimo-v2.5-tts", "MiMo V2.5 TTS", Some(128_000)),
                 model(
                     "mimo-v2.5-tts-voiceclone",

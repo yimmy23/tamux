@@ -73,15 +73,15 @@ test("normalizeAudioModelForProviderChange resets stale xAI audio models", () =>
   expect(normalizeAudioModelForProviderChange("xai", "stt", "grok-4.3")).toBe("grok-4.3");
 });
 
-test("normalizeAudioModelForProviderChange uses Xiaomi TTS defaults and keeps STT empty", () => {
-  expect(normalizeAudioModelForProviderChange("xiaomi-mimo-token-plan", "tts", "")).toBe("mimo-v2.5-tts");
+test("normalizeAudioModelForProviderChange uses Xiaomi audio defaults", () => {
+  expect(normalizeAudioModelForProviderChange("xiaomi-mimo-token-plan", "tts", "")).toBe("mimo-v2-tts");
   expect(normalizeAudioModelForProviderChange("xiaomi-mimo-token-plan", "tts", "mimo-v2.5-tts-voiceclone")).toBe("mimo-v2.5-tts-voiceclone");
-  expect(normalizeAudioModelForProviderChange("xiaomi-mimo-token-plan", "stt", "whisper-1")).toBe("");
+  expect(normalizeAudioModelForProviderChange("xiaomi-mimo-token-plan", "stt", "whisper-1")).toBe("mimo-v2.5-asr");
 });
 
 test("normalizeAudioModelForProviderChange avoids non-audio chat defaults for dynamic providers", () => {
   expect(normalizeAudioModelForProviderChange("openrouter", "tts", "grok-4")).toBe("");
-  expect(normalizeAudioModelForProviderChange("groq", "stt", "whisper-1")).toBe("");
+  expect(normalizeAudioModelForProviderChange("groq", "stt", "whisper-1")).toBe("whisper-large-v3-turbo");
   expect(normalizeAudioModelForProviderChange("custom", "tts", "sonic-voice")).toBe("sonic-voice");
 });
 

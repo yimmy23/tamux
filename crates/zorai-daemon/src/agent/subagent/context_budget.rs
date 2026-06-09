@@ -5,6 +5,7 @@
 //! whether to compress, truncate, or error out.
 
 use crate::agent::types::ContextOverflowAction;
+use crate::agent::types::{AgentMessage, MessageRole};
 
 /// Tracks and enforces a context token budget for a sub-agent.
 #[derive(Debug, Clone)]
@@ -97,9 +98,49 @@ impl ContextBudget {
     }
 }
 
+/// Count the visible assistant output tokens that apply to a sub-agent's
+/// generated-token budget.
+///
+/// This intentionally ignores prompt/input tokens, stored reasoning text, and
+/// provider aggregate totals that may fold hidden reasoning into output usage.
+/// Enforcement is based on visible assistant text plus emitted tool-call
+/// names/arguments.
+pub(crate) fn visible_output_budget_tokens(messages: &[AgentMessage]) -> u32 {
+    messages
+        .iter()
+        .filter(|message| message.role == MessageRole::Assistant)
+        .map(visible_assistant_message_tokens)
+        .fold(0u32, u32::saturating_add)
+}
+
+fn visible_assistant_message_tokens(message: &AgentMessage) -> u32 {
+    let mut chars = message.content.chars().count();
+    if let Some(tool_calls) = &message.tool_calls {
+        chars = chars.saturating_add(
+            tool_calls
+                .iter()
+                .map(|call| {
+                    call.function.name.chars().count() + call.function.arguments.chars().count()
+                })
+                .sum::<usize>(),
+        );
+    }
+    if chars == 0 {
+        0
+    } else {
+        chars
+            .div_ceil(crate::agent::APPROX_CHARS_PER_TOKEN)
+            .saturating_add(12)
+            .min(u32::MAX as usize) as u32
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::types::{
+        AgentMessage, AgentMessageKind, MessageRole, ToolCall, ToolFunction,
+    };
 
     #[test]
     fn new_budget_starts_at_zero() {
@@ -209,5 +250,92 @@ mod tests {
         budget.record(u32::MAX - 10);
         budget.record(100);
         assert_eq!(budget.consumed(), u32::MAX);
+    }
+
+    #[test]
+    fn visible_output_budget_tokens_ignore_input_and_reasoning() {
+        let mut user = AgentMessage::user("large prompt text should not count", 1);
+        user.input_tokens = 50_000;
+
+        let assistant = assistant_message(
+            "visible answer",
+            Some("private reasoning should not count".to_string()),
+            7,
+            100_000,
+            None,
+        );
+        let tool_calling_assistant = assistant_message(
+            "using a tool",
+            None,
+            3,
+            1_000,
+            Some(vec![ToolCall {
+                id: "call-1".to_string(),
+                function: ToolFunction {
+                    name: "read_file".to_string(),
+                    arguments: "{\"path\":\"README.md\"}".to_string(),
+                },
+                weles_review: None,
+            }]),
+        );
+
+        let first_count = visible_output_budget_tokens(&[
+            user.clone(),
+            assistant.clone(),
+            tool_calling_assistant.clone(),
+        ]);
+        assert!(first_count > 0);
+
+        user.input_tokens = 1_000_000;
+        let mut inflated_assistant = assistant;
+        inflated_assistant.output_tokens = 1_000_000;
+        inflated_assistant.reasoning = Some("much more hidden reasoning".repeat(100));
+
+        assert_eq!(
+            visible_output_budget_tokens(&[user, inflated_assistant, tool_calling_assistant]),
+            first_count
+        );
+    }
+
+    fn assistant_message(
+        content: &str,
+        reasoning: Option<String>,
+        output_tokens: u64,
+        input_tokens: u64,
+        tool_calls: Option<Vec<ToolCall>>,
+    ) -> AgentMessage {
+        AgentMessage {
+            id: crate::agent::types::generate_message_id(),
+            role: MessageRole::Assistant,
+            content: content.to_string(),
+            content_blocks: Vec::new(),
+            tool_calls,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_status: None,
+            weles_review: None,
+            input_tokens,
+            output_tokens,
+            cost: None,
+            provider: None,
+            model: None,
+            api_transport: None,
+            response_id: None,
+            upstream_message: None,
+            provider_final_result: None,
+            author_agent_id: None,
+            author_agent_name: None,
+            reasoning,
+            message_kind: AgentMessageKind::Normal,
+            compaction_strategy: None,
+            compaction_payload: None,
+            offloaded_payload_id: None,
+            tool_output_preview_path: None,
+            structural_refs: Vec::new(),
+            pinned_for_compaction: false,
+            timestamp: 1,
+            feedback: None,
+        }
     }
 }

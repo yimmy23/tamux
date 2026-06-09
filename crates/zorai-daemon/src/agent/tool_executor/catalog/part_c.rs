@@ -387,7 +387,7 @@ pub(crate) fn add_available_tools_part_c(
             "budget": {
                 "type": "object",
                 "properties": {
-                    "max_tokens": { "type": "integer", "description": "Optional explicit context token budget for the spawned child" },
+                    "max_tokens": { "type": "integer", "description": "Optional explicit visible output-token budget for the spawned child. Input prompt tokens and hidden reasoning tokens are not counted." },
                     "max_wall_time_secs": { "type": "integer", "description": "Optional explicit wall-clock time budget in seconds" },
                     "max_tool_calls": { "type": "integer", "description": "Optional explicit tool-call budget; enforced via termination conditions" }
                 },

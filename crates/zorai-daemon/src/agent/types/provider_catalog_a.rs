@@ -32,6 +32,12 @@ pub const OPENAI_MODELS: &[ModelDefinition] = &[
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
+        id: "gpt-5.3-codex-spark",
+        name: "GPT-5.3 Codex Spark",
+        context_window: 128000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
         id: "gpt-5.2-codex",
         name: "GPT-5.2 Codex",
         context_window: 400000,

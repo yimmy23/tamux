@@ -433,14 +433,17 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
     ProviderDefinition {
         id: PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
         name: "Xiaomi MiMo Token Plan",
-        default_base_url: "https://api.xiaomimimo.com/v1",
-        default_model: "mimo-v2-pro",
+        default_base_url: "https://token-plan-ams.xiaomimimo.com/v1",
+        default_model: "mimo-v2.5-pro",
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: XIAOMI_MIMO_TOKEN_PLAN_MODELS,
         supports_model_fetch: true,
-        anthropic_base_url: None,
-        supported_transports: CHAT_ONLY_TRANSPORTS,
+        anthropic_base_url: Some("https://token-plan-ams.xiaomimimo.com/anthropic"),
+        supported_transports: &[
+            ApiTransport::ChatCompletions,
+            ApiTransport::AnthropicMessages,
+        ],
         default_transport: ApiTransport::ChatCompletions,
         native_transport_kind: None,
         native_base_url: None,
@@ -564,6 +567,14 @@ fn is_alibaba_coding_plan_anthropic_url(base_url: &str) -> bool {
     lower.contains("dashscope.aliyuncs.com") && lower.contains("/apps/anthropic")
 }
 
+fn is_xiaomi_mimo_token_plan_anthropic_url(base_url: &str) -> bool {
+    let lower = base_url.trim().to_ascii_lowercase();
+    lower == "https://token-plan-ams.xiaomimimo.com/anthropic"
+        || lower == "http://token-plan-ams.xiaomimimo.com/anthropic"
+        || lower.starts_with("https://token-plan-ams.xiaomimimo.com/anthropic/")
+        || lower.starts_with("http://token-plan-ams.xiaomimimo.com/anthropic/")
+}
+
 fn is_direct_anthropic_url(base_url: &str) -> bool {
     let lower = base_url.trim().to_ascii_lowercase();
     lower == "https://api.anthropic.com"
@@ -581,6 +592,12 @@ pub fn get_provider_api_type(provider_id: &str, model: &str, configured_url: &st
 
     if provider_id == PROVIDER_ID_ALIBABA_CODING_PLAN
         && is_alibaba_coding_plan_anthropic_url(configured_url)
+    {
+        return ApiType::Anthropic;
+    }
+
+    if provider_id == PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN
+        && is_xiaomi_mimo_token_plan_anthropic_url(configured_url)
     {
         return ApiType::Anthropic;
     }
@@ -614,7 +631,11 @@ pub fn get_provider_base_url(provider_id: &str, model: &str, configured_url: &st
 
     match def {
         Some(d) => {
-            if d.anthropic_base_url.is_some() && model.starts_with("claude") {
+            if provider_id == PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN
+                && matches!(d.anthropic_base_url, Some(url) if configured_url == url)
+            {
+                d.anthropic_base_url.unwrap().to_string()
+            } else if d.anthropic_base_url.is_some() && model.starts_with("claude") {
                 d.anthropic_base_url.unwrap().to_string()
             } else {
                 d.default_base_url.to_string()

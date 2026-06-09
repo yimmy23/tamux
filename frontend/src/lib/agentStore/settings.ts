@@ -221,7 +221,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   minimax: { base_url: "https://api.minimax.io/anthropic", model: "MiniMax-M3", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   "minimax-coding-plan": { base_url: "https://api.minimax.io/anthropic", model: "MiniMax-M3", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   "alibaba-coding-plan": { base_url: "https://coding-intl.dashscope.aliyuncs.com/v1", model: "qwen3.6-plus", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
-  "xiaomi-mimo-token-plan": { base_url: "https://api.xiaomimimo.com/v1", model: "mimo-v2-pro", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
+  "xiaomi-mimo-token-plan": { base_url: "https://token-plan-ams.xiaomimimo.com/v1", model: "mimo-v2.5-pro", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   "opencode-zen": { base_url: "https://opencode.ai/zen/v1", model: "claude-sonnet-4-5", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "chat_completions", auth_source: "api_key", context_window_tokens: null },
   custom: { base_url: "", model: "", custom_model_name: "", api_key: "", assistant_id: "", api_transport: "responses", auth_source: "api_key", context_window_tokens: 128_000 },
   enable_bash_tool: true,
@@ -575,22 +575,22 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
   const authSource = normalizeAuthSource(active_provider, source.auth_source ?? activeProviderConfig.auth_source);
   const audio_stt_provider = normalizeAgentProviderId(
     source.audio?.stt?.provider
-      ?? source.audio_stt_provider
-      ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.audio_stt_provider),
+    ?? source.audio_stt_provider
+    ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.audio_stt_provider),
   );
   const audio_tts_provider = normalizeAgentProviderId(
     source.audio?.tts?.provider
-      ?? source.audio_tts_provider
-      ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.audio_tts_provider),
+    ?? source.audio_tts_provider
+    ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.audio_tts_provider),
   );
   const image_generation_provider = normalizeAgentProviderId(
     source.image?.generation?.provider
-      ?? source.image_generation_provider
-      ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.image_generation_provider),
+    ?? source.image_generation_provider
+    ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.image_generation_provider),
   );
   const semantic_embedding_provider = normalizeAgentProviderId(
     source.semantic?.embedding?.provider
-      ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.semantic_embedding_provider),
+    ?? defaultAuxiliaryProvider(active_provider, DEFAULT_AGENT_SETTINGS.semantic_embedding_provider),
   );
   return {
     ...DEFAULT_AGENT_SETTINGS,
@@ -674,19 +674,19 @@ export function normalizeAgentSettingsFromSource(source: DiskAgentSettings): Age
     max_context_messages: source.max_context_messages ?? DEFAULT_AGENT_SETTINGS.max_context_messages,
     react_chat_history_page_size: normalizeReactChatHistoryPageSize(
       source.react_chat_history_page_size
-        ?? DEFAULT_AGENT_SETTINGS.react_chat_history_page_size,
+      ?? DEFAULT_AGENT_SETTINGS.react_chat_history_page_size,
     ),
     tui_chat_history_page_size: normalizeTuiChatHistoryPageSize(
       source.tui_chat_history_page_size
-        ?? DEFAULT_AGENT_SETTINGS.tui_chat_history_page_size,
+      ?? DEFAULT_AGENT_SETTINGS.tui_chat_history_page_size,
     ),
     participant_observer_restore_window_hours: normalizeParticipantObserverRestoreWindowHours(
       source.participant_observer_restore_window_hours
-        ?? DEFAULT_AGENT_SETTINGS.participant_observer_restore_window_hours,
+      ?? DEFAULT_AGENT_SETTINGS.participant_observer_restore_window_hours,
     ),
     auto_refresh_interval_secs: normalizeAutoRefreshIntervalSecs(
       source.auto_refresh_interval_secs
-        ?? DEFAULT_AGENT_SETTINGS.auto_refresh_interval_secs,
+      ?? DEFAULT_AGENT_SETTINGS.auto_refresh_interval_secs,
     ),
     max_tool_loops: source.max_tool_loops ?? DEFAULT_AGENT_SETTINGS.max_tool_loops,
     max_retries: source.max_retries ?? DEFAULT_AGENT_SETTINGS.max_retries,
