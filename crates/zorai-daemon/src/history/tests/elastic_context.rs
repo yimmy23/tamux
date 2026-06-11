@@ -990,6 +990,73 @@ async fn memory_graph_round_trips_nodes_and_edges() -> Result<()> {
 }
 
 #[tokio::test]
+async fn delegation_edge_links_parent_to_subagent_without_clobbering_labels() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+
+    // Parent task records itself with its real title first.
+    store
+        .upsert_memory_node(
+            "node:task:parent-1",
+            "Refactor billing module",
+            "task",
+            Some("task status: in_progress"),
+            1_717_180_001,
+        )
+        .await?;
+
+    // Subagent enqueue records the delegation edge. The parent stub must NOT
+    // overwrite the richer label already stored above.
+    store
+        .record_task_delegation_edge(
+            "parent-1",
+            "child-1",
+            "Write unit tests for billing",
+            1_717_180_002,
+        )
+        .await?;
+
+    let parent = store
+        .get_memory_node("node:task:parent-1")
+        .await?
+        .expect("parent node should exist");
+    assert_eq!(
+        parent.label, "Refactor billing module",
+        "delegation must not clobber the parent's real label"
+    );
+
+    let edges = store
+        .list_memory_edges_for_node("node:task:parent-1")
+        .await?;
+    let edge = edges
+        .iter()
+        .find(|edge| edge.relation_type == "delegated_to")
+        .expect("delegated_to edge should exist");
+    assert_eq!(edge.source_node_id, "node:task:parent-1");
+    assert_eq!(edge.target_node_id, "node:task:child-1");
+
+    // A second delegation of the same child reinforces the edge weight.
+    store
+        .record_task_delegation_edge(
+            "parent-1",
+            "child-1",
+            "Write unit tests for billing",
+            1_717_180_003,
+        )
+        .await?;
+    let edges = store
+        .list_memory_edges_for_node("node:task:parent-1")
+        .await?;
+    let edge = edges
+        .iter()
+        .find(|edge| edge.relation_type == "delegated_to")
+        .expect("delegated_to edge should still exist");
+    assert_eq!(edge.weight, 2.0);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn memory_graph_neighbor_lookup_returns_ranked_adjacent_nodes() -> Result<()> {
     let (store, root) = make_test_store().await?;
 

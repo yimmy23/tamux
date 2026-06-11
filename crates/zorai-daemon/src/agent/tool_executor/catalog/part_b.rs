@@ -19,13 +19,13 @@ pub(crate) fn add_available_tools_part_b(
     ));
     tools.push(tool_def(
         tool_names::FETCH_GATEWAY_HISTORY,
-        "Fetch a paged recent-message window from the current gateway conversation thread. Returns total_message_count, loaded_message_start/end, limit, offset, and has_more flags.",
+        "Fetch a paged recent-message window from the current gateway thread, with paging metadata and has_more flag.",
         serde_json::json!({
             "type": "object",
             "properties": {
                 "limit": { "type": "integer", "description": "Number of messages to fetch (default: 10, max: 100)" },
                 "count": { "type": "integer", "description": "Deprecated alias for limit" },
-                "offset": { "type": "integer", "description": "Number of newest messages to skip before applying the limit (default: 0)" }
+                "offset": { "type": "integer", "description": "Newest messages to skip before limit (default: 0)" }
             }
         }),
     ));
@@ -63,7 +63,7 @@ pub(crate) fn add_available_tools_part_b(
                 "query": { "type": "string", "description": "Search query" },
                 "scope": { "type": "string", "enum": ["session", "event", "turn"], "description": "Search scope (default: session)" },
                 "no_regex": { "type": "boolean", "description": "Treat query as plain text (default: true)" },
-                "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 300, max: 600)" }
+                "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max wait (default: 300, max: 600)" }
             },
             "required": ["query"]
         }),
@@ -93,27 +93,27 @@ pub(crate) fn add_available_tools_part_b(
 
     tools.push(tool_def(
         tool_names::UPDATE_TODO,
-        "Replace the current todo list for this conversation. For goal-owned main tasks, set the todo list once per goal step, then submit the same items with only status changes.",
+        "Replace the current todo list for this conversation. For goal-owned main tasks, set the list once per goal step; later calls may only change statuses.",
         serde_json::json!({
             "type": "object",
             "properties": {
                 "goal_run_id": {
                     "type": "string",
-                    "description": "Required when the current task is the main task for a goal run. Must match the active goal run ID."
+                    "description": "Required for goal-run main tasks; must match active goal run ID"
                 },
                 "goal_step_id": {
                     "type": "string",
-                    "description": "Required when the current task is the main task for a goal run. Must match the active goal step ID and binds the full todo list to that one goal step; later calls in the same step may only update statuses."
+                    "description": "Required for goal-run main tasks; binds list to active goal step"
                 },
                 "items": {
                     "type": "array",
-                    "description": "Ordered todo items representing the current plan",
+                    "description": "Ordered todo items for the current plan",
                     "items": {
                         "type": "object",
                         "properties": {
                             "content": { "type": "string", "description": "Short todo item text" },
                             "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "blocked"], "description": "Current execution state" },
-                            "step_index": { "type": "integer", "description": "Optional thread-local step label for non-goal todo displays. Do not use this to bind goal todos to a goal step." }
+                            "step_index": { "type": "integer", "description": "Optional step label for non-goal displays; never binds goal steps" }
                         },
                         "required": ["content", "status"]
                     }
@@ -125,12 +125,12 @@ pub(crate) fn add_available_tools_part_b(
 
     tools.push(tool_def(
         tool_names::GET_TODOS,
-        "Fetch the current planner todos for a thread. Lookup is thread-scoped; optional task_id is only used for task or goal-run context validation.",
+        "Fetch the current planner todos for a thread (thread-scoped lookup).",
         serde_json::json!({
             "type": "object",
             "properties": {
-                "thread_id": { "type": "string", "description": "Agent thread ID whose todos should be returned" },
-                "task_id": { "type": "string", "description": "Optional current task ID for validation and goal-run context" }
+                "thread_id": { "type": "string", "description": "Agent thread ID whose todos to return" },
+                "task_id": { "type": "string", "description": "Optional task ID for goal-run context validation" }
             },
             "required": ["thread_id"]
         }),
@@ -152,65 +152,65 @@ pub(crate) fn add_available_tools_part_b(
 
     tools.push(tool_def(
         tool_names::READ_MEMORY,
-        "Read persistent MEMORY.md plus related structured memory layers. This response is injection-aware and avoids re-sending already injected fresh base markdown unless explicitly requested.",
+        "Read MEMORY.md plus structured memory layers; skips base markdown already injected in the prompt.",
         serde_json::json!({
             "type": "object",
             "properties": {
-                "include_already_injected": { "type": "boolean", "description": "Force inclusion of base markdown even when a fresh copy is already injected in the prompt (default: false)" },
-                "include_base_markdown": { "type": "boolean", "description": "Include MEMORY.md content when not skipped by injection state (default: true)" },
-                "include_operator_profile_json": { "type": "boolean", "description": "Include structured operator profile JSON (default: true)" },
-                "include_operator_model_summary": { "type": "boolean", "description": "Include operator-model prompt summary when available (default: true)" },
-                "include_thread_structural_memory": { "type": "boolean", "description": "Include thread structural memory summaries when available (default: true)" },
-                "limit_per_layer": { "type": "integer", "description": "Maximum items returned for list-style layers (default: 5, max: 25)" }
+                "include_already_injected": { "type": "boolean", "description": "Include base markdown even if already injected (default: false)" },
+                "include_base_markdown": { "type": "boolean", "description": "Include MEMORY.md (default: true)" },
+                "include_operator_profile_json": { "type": "boolean", "description": "Include operator profile JSON (default: true)" },
+                "include_operator_model_summary": { "type": "boolean", "description": "Include operator-model summary (default: true)" },
+                "include_thread_structural_memory": { "type": "boolean", "description": "Include thread structural memory (default: true)" },
+                "limit_per_layer": { "type": "integer", "description": "Max items per list layer (default: 5, max: 25)" }
             }
         }),
     ));
 
     tools.push(tool_def(
         tool_names::READ_USER,
-        "Read persistent USER.md plus related structured operator layers. This response is injection-aware and avoids re-sending already injected fresh base markdown unless explicitly requested.",
+        "Read USER.md plus structured operator layers; skips base markdown already injected in the prompt.",
         serde_json::json!({
             "type": "object",
             "properties": {
-                "include_already_injected": { "type": "boolean", "description": "Force inclusion of base markdown even when a fresh copy is already injected in the prompt (default: false)" },
-                "include_base_markdown": { "type": "boolean", "description": "Include USER.md content when not skipped by injection state (default: true)" },
-                "include_operator_profile_json": { "type": "boolean", "description": "Include structured operator profile JSON (default: true)" },
-                "include_operator_model_summary": { "type": "boolean", "description": "Include operator-model prompt summary when available (default: true)" },
-                "include_thread_structural_memory": { "type": "boolean", "description": "Include thread structural memory summaries when available (default: false)" },
-                "limit_per_layer": { "type": "integer", "description": "Maximum items returned for list-style layers (default: 5, max: 25)" }
+                "include_already_injected": { "type": "boolean", "description": "Include base markdown even if already injected (default: false)" },
+                "include_base_markdown": { "type": "boolean", "description": "Include USER.md (default: true)" },
+                "include_operator_profile_json": { "type": "boolean", "description": "Include operator profile JSON (default: true)" },
+                "include_operator_model_summary": { "type": "boolean", "description": "Include operator-model summary (default: true)" },
+                "include_thread_structural_memory": { "type": "boolean", "description": "Include thread structural memory (default: false)" },
+                "limit_per_layer": { "type": "integer", "description": "Max items per list layer (default: 5, max: 25)" }
             }
         }),
     ));
 
     tools.push(tool_def(
         tool_names::READ_SOUL,
-        "Read persistent SOUL.md plus related structured context layers. This response is injection-aware and avoids re-sending already injected fresh base markdown unless explicitly requested.",
+        "Read SOUL.md plus structured context layers; skips base markdown already injected in the prompt.",
         serde_json::json!({
             "type": "object",
             "properties": {
-                "include_already_injected": { "type": "boolean", "description": "Force inclusion of base markdown even when a fresh copy is already injected in the prompt (default: false)" },
-                "include_base_markdown": { "type": "boolean", "description": "Include SOUL.md content when not skipped by injection state (default: true)" },
-                "include_operator_profile_json": { "type": "boolean", "description": "Include structured operator profile JSON (default: true)" },
-                "include_operator_model_summary": { "type": "boolean", "description": "Include operator-model prompt summary when available (default: true)" },
-                "include_thread_structural_memory": { "type": "boolean", "description": "Include thread structural memory summaries when available (default: false)" },
-                "limit_per_layer": { "type": "integer", "description": "Maximum items returned for list-style layers (default: 5, max: 25)" }
+                "include_already_injected": { "type": "boolean", "description": "Include base markdown even if already injected (default: false)" },
+                "include_base_markdown": { "type": "boolean", "description": "Include SOUL.md (default: true)" },
+                "include_operator_profile_json": { "type": "boolean", "description": "Include operator profile JSON (default: true)" },
+                "include_operator_model_summary": { "type": "boolean", "description": "Include operator-model summary (default: true)" },
+                "include_thread_structural_memory": { "type": "boolean", "description": "Include thread structural memory (default: false)" },
+                "limit_per_layer": { "type": "integer", "description": "Max items per list layer (default: 5, max: 25)" }
             }
         }),
     ));
 
     tools.push(tool_def(
         tool_names::SEARCH_MEMORY,
-        "Search MEMORY.md plus related structured memory layers. This response is injection-aware and skips already injected fresh base markdown unless explicitly requested.",
+        "Search MEMORY.md plus structured memory layers; skips base markdown already injected in the prompt.",
         serde_json::json!({
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "Search query" },
-                "limit": { "type": "integer", "description": "Maximum matches to return (default: 5, max: 25)" },
-                "include_already_injected": { "type": "boolean", "description": "Allow fresh injected MEMORY.md content to appear in search matches (default: false)" },
-                "include_base_markdown": { "type": "boolean", "description": "Search MEMORY.md when not skipped by injection state (default: true)" },
-                "include_operator_profile_json": { "type": "boolean", "description": "Search structured operator profile JSON (default: true)" },
-                "include_operator_model_summary": { "type": "boolean", "description": "Search operator-model prompt summary when available (default: true)" },
-                "include_thread_structural_memory": { "type": "boolean", "description": "Search thread structural memory summaries when available (default: true)" }
+                "limit": { "type": "integer", "description": "Max matches (default: 5, max: 25)" },
+                "include_already_injected": { "type": "boolean", "description": "Allow injected MEMORY.md content in matches (default: false)" },
+                "include_base_markdown": { "type": "boolean", "description": "Search MEMORY.md (default: true)" },
+                "include_operator_profile_json": { "type": "boolean", "description": "Search operator profile JSON (default: true)" },
+                "include_operator_model_summary": { "type": "boolean", "description": "Search operator-model summary (default: true)" },
+                "include_thread_structural_memory": { "type": "boolean", "description": "Search thread structural memory (default: true)" }
             },
             "required": ["query"]
         }),
@@ -218,17 +218,17 @@ pub(crate) fn add_available_tools_part_b(
 
     tools.push(tool_def(
         tool_names::SEARCH_USER,
-        "Search USER.md plus related structured operator layers. This response is injection-aware and skips already injected fresh base markdown unless explicitly requested.",
+        "Search USER.md plus structured operator layers; skips base markdown already injected in the prompt.",
         serde_json::json!({
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "Search query" },
-                "limit": { "type": "integer", "description": "Maximum matches to return (default: 5, max: 25)" },
-                "include_already_injected": { "type": "boolean", "description": "Allow fresh injected USER.md content to appear in search matches (default: false)" },
-                "include_base_markdown": { "type": "boolean", "description": "Search USER.md when not skipped by injection state (default: true)" },
-                "include_operator_profile_json": { "type": "boolean", "description": "Search structured operator profile JSON (default: true)" },
-                "include_operator_model_summary": { "type": "boolean", "description": "Search operator-model prompt summary when available (default: true)" },
-                "include_thread_structural_memory": { "type": "boolean", "description": "Search thread structural memory summaries when available (default: false)" }
+                "limit": { "type": "integer", "description": "Max matches (default: 5, max: 25)" },
+                "include_already_injected": { "type": "boolean", "description": "Allow injected USER.md content in matches (default: false)" },
+                "include_base_markdown": { "type": "boolean", "description": "Search USER.md (default: true)" },
+                "include_operator_profile_json": { "type": "boolean", "description": "Search operator profile JSON (default: true)" },
+                "include_operator_model_summary": { "type": "boolean", "description": "Search operator-model summary (default: true)" },
+                "include_thread_structural_memory": { "type": "boolean", "description": "Search thread structural memory (default: false)" }
             },
             "required": ["query"]
         }),
@@ -236,17 +236,17 @@ pub(crate) fn add_available_tools_part_b(
 
     tools.push(tool_def(
         tool_names::SEARCH_SOUL,
-        "Search SOUL.md plus related structured context layers. This response is injection-aware and skips already injected fresh base markdown unless explicitly requested.",
+        "Search SOUL.md plus structured context layers; skips base markdown already injected in the prompt.",
         serde_json::json!({
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "Search query" },
-                "limit": { "type": "integer", "description": "Maximum matches to return (default: 5, max: 25)" },
-                "include_already_injected": { "type": "boolean", "description": "Allow fresh injected SOUL.md content to appear in search matches (default: false)" },
-                "include_base_markdown": { "type": "boolean", "description": "Search SOUL.md when not skipped by injection state (default: true)" },
-                "include_operator_profile_json": { "type": "boolean", "description": "Search structured operator profile JSON (default: true)" },
-                "include_operator_model_summary": { "type": "boolean", "description": "Search operator-model prompt summary when available (default: true)" },
-                "include_thread_structural_memory": { "type": "boolean", "description": "Search thread structural memory summaries when available (default: false)" }
+                "limit": { "type": "integer", "description": "Max matches (default: 5, max: 25)" },
+                "include_already_injected": { "type": "boolean", "description": "Allow injected SOUL.md content in matches (default: false)" },
+                "include_base_markdown": { "type": "boolean", "description": "Search SOUL.md (default: true)" },
+                "include_operator_profile_json": { "type": "boolean", "description": "Search operator profile JSON (default: true)" },
+                "include_operator_model_summary": { "type": "boolean", "description": "Search operator-model summary (default: true)" },
+                "include_thread_structural_memory": { "type": "boolean", "description": "Search thread structural memory (default: false)" }
             },
             "required": ["query"]
         }),
@@ -254,7 +254,7 @@ pub(crate) fn add_available_tools_part_b(
 
     tools.push(tool_def(
         tool_names::LIST_SKILLS,
-        "List reusable local skills available to the zorai agent from ~/.zorai/skills (platform dependent). Includes built-in, generated, community, and plugin-bundled skills.",
+        "List local skills from ~/.zorai/skills (built-in, generated, community, plugin-bundled).",
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -275,27 +275,27 @@ pub(crate) fn add_available_tools_part_b(
 
     tools.push(tool_def(
         tool_names::SEMANTIC_QUERY,
-        "Query local workspace manifests, compose services, code import relationships, learned workspace conventions, and recent temporal workspace history.",
+        "Query local workspace manifests, compose services, import relationships, conventions, and temporal history.",
         serde_json::json!({
             "type": "object",
             "properties": {
-                "kind": { "type": "string", "enum": ["summary", "packages", "dependencies", "dependents", "services", "service_dependencies", "service_dependents", "imports", "imported_by", "conventions", "temporal"], "description": "Semantic query mode (default: summary)" },
-                "target": { "type": "string", "description": "Package, service, file path fragment, or module name depending on the selected semantic query mode" },
-                "path": { "type": "string", "description": "Optional workspace root directory; defaults to the active session cwd or current directory" },
-                "limit": { "type": "integer", "description": "Max results to list for list-oriented semantic modes (default: 20)" }
+                "kind": { "type": "string", "enum": ["summary", "packages", "dependencies", "dependents", "services", "service_dependencies", "service_dependents", "imports", "imported_by", "conventions", "temporal"], "description": "Query mode (default: summary)" },
+                "target": { "type": "string", "description": "Package, service, path fragment, or module name, per mode" },
+                "path": { "type": "string", "description": "Workspace root (default: active session cwd)" },
+                "limit": { "type": "integer", "description": "Max results for list modes (default: 20)" }
             }
         }),
     ));
 
     tools.push(tool_def(
         tool_names::SUMMARY,
-        "Backward-compatible alias for semantic_query with kind set to summary. Use this to get a workspace summary while preserving legacy tool callers.",
+        "Backward-compatible alias for semantic_query with kind=summary.",
         serde_json::json!({
             "type": "object",
             "properties": {
-                "target": { "type": "string", "description": "Optional package, service, file path fragment, or module name to focus the summary" },
-                "path": { "type": "string", "description": "Optional workspace root directory; defaults to the active session cwd or current directory" },
-                "limit": { "type": "integer", "description": "Max results to list for list-oriented summary output (default: 20)" }
+                "target": { "type": "string", "description": "Optional package, service, path fragment, or module to focus" },
+                "path": { "type": "string", "description": "Workspace root (default: active session cwd)" },
+                "limit": { "type": "integer", "description": "Max results for list output (default: 20)" }
             }
         }),
     ));
@@ -306,7 +306,7 @@ pub(crate) fn add_available_tools_part_b(
         serde_json::json!({
             "type": "object",
             "properties": {
-                "limit": { "type": "integer", "description": "Maximum number of tools to return (default: 20)" },
+                "limit": { "type": "integer", "description": "Max tools to return (default: 20)" },
                 "offset": { "type": "integer", "description": "Zero-based pagination offset (default: 0)" }
             }
         }),
@@ -318,11 +318,27 @@ pub(crate) fn add_available_tools_part_b(
         serde_json::json!({
             "type": "object",
             "properties": {
-                "query": { "type": "string", "description": "What capability or action you are looking for" },
-                "limit": { "type": "integer", "description": "Maximum number of matches to return (default: 10)" },
+                "query": { "type": "string", "description": "Capability or action you are looking for" },
+                "limit": { "type": "integer", "description": "Max matches (default: 10)" },
                 "offset": { "type": "integer", "description": "Zero-based pagination offset (default: 0)" }
             },
             "required": ["query"]
+        }),
+    ));
+
+    tools.push(tool_def(
+        tool_names::LOAD_TOOLS,
+        "Activate deferred tools so they become callable this turn. Only a core set is shown by default; use `tool_search` to find a tool, then `load_tools` with its exact name(s) before calling it.",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "names": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Exact tool names to activate (from tool_search results)"
+                }
+            },
+            "required": ["names"]
         }),
     ));
 
@@ -333,8 +349,8 @@ pub(crate) fn add_available_tools_part_b(
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "Brief intent query, 3-6 words." },
-                "limit": { "type": "integer", "description": "Maximum number of ranked guideline candidates to return (default: 3)" },
-                "session": { "type": "string", "description": "Optional live terminal session UUID for workspace-aware ranking" }
+                "limit": { "type": "integer", "description": "Max ranked candidates (default: 3)" },
+                "session": { "type": "string", "description": "Optional terminal session UUID for workspace-aware ranking" }
             },
             "required": ["query"]
         }),
@@ -346,7 +362,7 @@ pub(crate) fn add_available_tools_part_b(
         serde_json::json!({
             "type": "object",
             "properties": {
-                "guideline": { "type": "string", "description": "Guideline name, file stem, or relative path under the zorai guidelines directory" },
+                "guideline": { "type": "string", "description": "Guideline name, file stem, or relative path" },
                 "max_lines": { "type": "integer", "description": "Max lines to read (default: 200)" }
             },
             "required": ["guideline"]
@@ -372,8 +388,8 @@ pub(crate) fn add_available_tools_part_b(
             "type": "object",
             "properties": {
                 "query": { "type": "string", "description": "Brief intent query, 3-6 words." },
-                "limit": { "type": "integer", "description": "Maximum number of ranked skill candidates to return (default: 3)" },
-                "session": { "type": "string", "description": "Optional live terminal session UUID for workspace-aware ranking" }
+                "limit": { "type": "integer", "description": "Max ranked candidates (default: 3)" },
+                "session": { "type": "string", "description": "Optional terminal session UUID for workspace-aware ranking" }
             },
             "required": ["query"]
         }),
@@ -385,10 +401,10 @@ pub(crate) fn add_available_tools_part_b(
         serde_json::json!({
             "type": "object",
             "properties": {
-                "skill": { "type": "string", "description": "Skill name, file stem, or relative path under the zorai skills directory" },
+                "skill": { "type": "string", "description": "Skill name, file stem, or relative path" },
                 "skills": {
                     "type": "array",
-                    "description": "Skill names, file stems, or relative paths to read in one call",
+                    "description": "Multiple skill names or paths to read in one call",
                     "items": { "type": "string" }
                 },
                 "max_lines": { "type": "integer", "description": "Max lines to read (default: 200)" }
@@ -398,17 +414,17 @@ pub(crate) fn add_available_tools_part_b(
 
     tools.push(tool_def(
         tool_names::ASK_QUESTIONS,
-        "Show a blocking multiple-choice question to the operator in zorai clients and wait for one compact token answer. Put the full prompt and answer text in `content`; keep `options` limited to short ordered tokens like A/B/C/D or 1/2/3/4.",
+        "Show a blocking multiple-choice question to the operator and wait for one compact token answer. Full prompt and answer text go in `content`; `options` are short ordered tokens like A/B/C or 1/2/3.",
         serde_json::json!({
             "type": "object",
             "properties": {
-                "content": { "type": "string", "description": "Full question content including the detailed answer text for each option" },
+                "content": { "type": "string", "description": "Full question text including each option's answer text" },
                 "options": {
                     "type": "array",
-                    "description": "Compact button tokens only, such as [\"A\", \"B\", \"C\"] or [\"1\", \"2\"]",
+                    "description": "Compact button tokens, e.g. [\"A\", \"B\", \"C\"]",
                     "items": { "type": "string" }
                 },
-                "session": { "type": "string", "description": "Optional live terminal session UUID to bias the prompt toward one workspace surface" }
+                "session": { "type": "string", "description": "Optional terminal session UUID to target one surface" }
             },
             "required": ["content", "options"]
         }),
@@ -416,7 +432,7 @@ pub(crate) fn add_available_tools_part_b(
 
     tools.push(tool_def(
         tool_names::JUSTIFY_SKILL_SKIP,
-        "Record an explicit rationale for proceeding without a local skill recommendation when discovery confidence is weak or none.",
+        "Record a rationale for proceeding without a local skill recommendation.",
         serde_json::json!({
             "type": "object",
             "properties": {

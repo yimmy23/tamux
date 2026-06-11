@@ -1,29 +1,39 @@
 use super::*;
 impl TuiModel {
     pub(crate) fn mark_all_notifications_read(&mut self) {
-        let ids = self
+        let now = Self::current_unix_ms();
+        let unread = self
             .notifications
             .active_items()
             .into_iter()
             .filter(|item| item.read_at.is_none())
-            .map(|item| item.id.clone())
+            .cloned()
             .collect::<Vec<_>>();
-        for id in ids {
-            self.mark_notification_read(&id);
+        for mut notification in unread {
+            notification.read_at = Some(now);
+            notification.updated_at = now;
+            self.notifications
+                .reduce(crate::state::NotificationsAction::Upsert(notification));
         }
+        self.send_daemon_command(DaemonCommand::MarkAllNotificationsRead);
     }
 
     pub(crate) fn archive_read_notifications(&mut self) {
-        let ids = self
+        let now = Self::current_unix_ms();
+        let read = self
             .notifications
             .active_items()
             .into_iter()
             .filter(|item| item.read_at.is_some())
-            .map(|item| item.id.clone())
+            .cloned()
             .collect::<Vec<_>>();
-        for id in ids {
-            self.archive_notification(&id);
+        for mut notification in read {
+            notification.archived_at = Some(now);
+            notification.updated_at = now;
+            self.notifications
+                .reduce(crate::state::NotificationsAction::Upsert(notification));
         }
+        self.send_daemon_command(DaemonCommand::ArchiveReadNotifications);
     }
 
     pub(crate) fn execute_notification_row_action(

@@ -75,11 +75,19 @@ pub(crate) fn expanded_footer_action_at_x(
 pub(crate) fn toolbar_action_at_x(
     body_x: u16,
     position_x: u16,
+    operator: zorai_protocol::WorkspaceOperator,
 ) -> Option<WorkspaceBoardToolbarAction> {
+    use unicode_width::UnicodeWidthStr;
     let x = position_x.saturating_sub(body_x);
-    match x {
-        0..=9 => Some(WorkspaceBoardToolbarAction::NewTask),
-        11..=27 => Some(WorkspaceBoardToolbarAction::ToggleOperator),
-        _ => None,
+    let new_task_width = UnicodeWidthStr::width("[New task]") as u16;
+    let operator_label = format!("[operator: {operator:?}]");
+    let operator_start = new_task_width + 1;
+    let operator_width = UnicodeWidthStr::width(operator_label.as_str()) as u16;
+    if x < new_task_width {
+        Some(WorkspaceBoardToolbarAction::NewTask)
+    } else if x >= operator_start && x < operator_start + operator_width {
+        Some(WorkspaceBoardToolbarAction::ToggleOperator)
+    } else {
+        None
     }
 }

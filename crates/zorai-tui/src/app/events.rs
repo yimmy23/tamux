@@ -11,6 +11,11 @@ mod events_integrations;
 mod events_status;
 mod events_tasks;
 
+pub struct DaemonPumpOutcome {
+    pub processed: usize,
+    pub stopped_for_render: bool,
+}
+
 impl TuiModel {
     pub(in crate::app) fn is_internal_agent_thread(thread_id: &str, title: Option<&str>) -> bool {
         let normalized_id = thread_id.trim().to_ascii_lowercase();
@@ -40,8 +45,9 @@ impl TuiModel {
         }
     }
 
-    pub fn pump_daemon_events_budgeted(&mut self, limit: usize) -> usize {
+    pub fn pump_daemon_events_budgeted(&mut self, limit: usize) -> DaemonPumpOutcome {
         let mut processed = 0;
+        let mut stopped_for_render = false;
         while processed < limit {
             match self.daemon_events_rx.try_recv() {
                 Ok(event) => {
@@ -53,13 +59,17 @@ impl TuiModel {
                         > streaming_content_len_before
                         || self.chat.streaming_reasoning().len() > streaming_reasoning_len_before;
                     if streaming_grew {
+                        stopped_for_render = true;
                         break;
                     }
                 }
                 Err(_) => break,
             }
         }
-        processed
+        DaemonPumpOutcome {
+            processed,
+            stopped_for_render,
+        }
     }
 
     #[cfg(test)]
@@ -80,6 +90,8 @@ impl TuiModel {
         let input_notice_active_before = self.input_notice.is_some();
         let system_monitor_before = self.system_monitor;
         let image_preview_cache_revision_before = self.image_preview_cache_revision;
+        let status_line_before = self.status_line.clone();
+        let hidden_auto_response_count_before = self.hidden_auto_response_suggestion_ids.len();
 
         self.tick_counter = self.tick_counter.saturating_add(elapsed_ticks.max(1));
         self.maybe_refresh_system_monitor();
@@ -146,6 +158,8 @@ impl TuiModel {
             || self.input_notice.is_some() != input_notice_active_before
             || self.system_monitor != system_monitor_before
             || self.image_preview_cache_revision != image_preview_cache_revision_before
+            || self.status_line != status_line_before
+            || self.hidden_auto_response_suggestion_ids.len() != hidden_auto_response_count_before
             || queued_prompt_copy_feedback_changed
     }
 

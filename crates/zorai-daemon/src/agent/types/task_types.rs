@@ -123,6 +123,22 @@ pub enum TaskStatus {
     Cancelled,
 }
 
+impl TaskStatus {
+    /// Whether this status is terminal: the task will make no further progress
+    /// and blocked parents may resume. Single source of truth — coordination
+    /// paths (dispatch wakeup, supervision, internal events) must all use this.
+    pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Completed
+                | Self::Failed
+                | Self::Cancelled
+                | Self::BudgetExceeded
+                | Self::FailedAnalyzing
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskPriority {

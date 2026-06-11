@@ -160,6 +160,15 @@ impl AgentEngine {
             message,
             task: Some(task.clone()),
         });
+        if task.status.is_terminal() {
+            let _ = self.internal_event_tx.send(
+                super::internal_event::InternalAgentEvent::TaskTerminal {
+                    task_id: task.id.clone(),
+                    parent_task_id: task.parent_task_id.clone(),
+                    status: task.status,
+                },
+            );
+        }
     }
 
     pub(super) fn emit_goal_run_update(&self, goal_run: &GoalRun, message: Option<String>) {

@@ -22,16 +22,29 @@ struct TrackedThreadMemoryInjectionStateView {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+struct PromptToolInspection {
+    name: String,
+    serialized: String,
+    serialized_chars: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 struct PromptInspectionPayload {
     agent_id: String,
     agent_name: String,
     provider_id: String,
     model: String,
     timestamp_block: PromptTimestampBlock,
+    tracked_thread_memory_injection_state_count: usize,
     tracked_thread_memory_injection_states: Vec<TrackedThreadMemoryInjectionStateView>,
     sections: Vec<PromptInspectionSection>,
     final_prompt: String,
+    tool_count: usize,
+    tools_serialized_chars: usize,
+    tools: Vec<PromptToolInspection>,
 }
+
+const MAX_INSPECTED_INJECTION_STATES: usize = 16;
 
 #[derive(Debug, Clone)]
 struct PromptInspectionTarget {
@@ -174,6 +187,7 @@ fn render_prompt_timestamp_block_section(block: &PromptTimestampBlock) -> String
 }
 
 fn render_prompt_memory_injection_state_section(
+    total_count: usize,
     states: &[TrackedThreadMemoryInjectionStateView],
 ) -> String {
     if states.is_empty() {
@@ -181,7 +195,11 @@ fn render_prompt_memory_injection_state_section(
     }
 
     let mut lines = vec![
-        format!("- Tracked thread injection states: {}", states.len()),
+        format!(
+            "- Tracked thread injection states: {} (showing {} most recent)",
+            total_count,
+            states.len()
+        ),
         "- This inspection payload is thread-agnostic, so `final_prompt` excludes bootstrap-only structured memory.".to_string(),
     ];
     for entry in states {
@@ -602,6 +620,7 @@ impl AgentEngine {
     pub(crate) async fn inspect_prompt_json(
         &self,
         requested_agent_id: Option<&str>,
+        client_surface: Option<zorai_protocol::ClientSurface>,
     ) -> Result<String> {
         let config = self.config.read().await.clone();
         let sub_agents = self.list_sub_agents().await;
@@ -636,8 +655,9 @@ impl AgentEngine {
         let operator_model_summary = self.build_operator_model_prompt_summary().await;
         let operational_context = self.build_operational_context_summary().await;
         let causal_guidance = self.build_causal_guidance_summary().await;
-        let tracked_thread_memory_injection_states = {
+        let (tracked_thread_memory_injection_state_count, tracked_thread_memory_injection_states) = {
             let states = self.thread_memory_injection_states.read().await;
+            let total = states.len();
             let mut entries = states
                 .iter()
                 .map(|(thread_id, state)| TrackedThreadMemoryInjectionStateView {
@@ -645,8 +665,15 @@ impl AgentEngine {
                     state: state.clone(),
                 })
                 .collect::<Vec<_>>();
-            entries.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
-            entries
+            entries.sort_by(|left, right| {
+                right
+                    .state
+                    .base_markdown_injected_at_ms
+                    .cmp(&left.state.base_markdown_injected_at_ms)
+                    .then_with(|| left.thread_id.cmp(&right.thread_id))
+            });
+            entries.truncate(MAX_INSPECTED_INJECTION_STATES);
+            (total, entries)
         };
         let learned_patterns = {
             let store = self.heuristic_store.read().await;
@@ -716,7 +743,10 @@ impl AgentEngine {
             &mut sections,
             "prompt_memory_injection_state",
             "Prompt Memory Injection State",
-            render_prompt_memory_injection_state_section(&tracked_thread_memory_injection_states),
+            render_prompt_memory_injection_state_section(
+                tracked_thread_memory_injection_state_count,
+                &tracked_thread_memory_injection_states,
+            ),
         );
         let affinity_updates = self
             .load_morphogenesis_affinity_updates(&target.agent_id, None, 8)
@@ -739,15 +769,49 @@ impl AgentEngine {
             render_morphogenesis_soul_adaptations_section(&soul_adaptations),
         );
 
+        let tools_inspection = {
+            let mut tools = crate::agent::tool_executor::get_available_tools(
+                &config,
+                &super::agent_data_dir(),
+                true,
+            );
+            crate::agent::tool_executor::filter_tools_for_client_surface(&mut tools, client_surface);
+            if config.tools.deferred_tool_loading {
+                let _ = crate::agent::tool_executor::partition_deferred_tools(&mut tools);
+            }
+            let mut entries = tools
+                .iter()
+                .map(|tool| {
+                    let serialized = serde_json::to_string(tool).unwrap_or_default();
+                    PromptToolInspection {
+                        name: tool.function.name.clone(),
+                        serialized_chars: serialized.chars().count(),
+                        serialized,
+                    }
+                })
+                .collect::<Vec<_>>();
+            entries.sort_by(|left, right| right.serialized_chars.cmp(&left.serialized_chars));
+            entries
+        };
+        let tool_count = tools_inspection.len();
+        let tools_serialized_chars = tools_inspection
+            .iter()
+            .map(|tool| tool.serialized_chars)
+            .sum();
+
         let payload = PromptInspectionPayload {
             agent_id: target.agent_id,
             agent_name: target.agent_name,
             provider_id: target.provider_id,
             model: target.model,
             timestamp_block,
+            tracked_thread_memory_injection_state_count,
             tracked_thread_memory_injection_states,
             sections,
             final_prompt,
+            tool_count,
+            tools_serialized_chars,
+            tools: tools_inspection,
         };
 
         serde_json::to_string(&payload).map_err(Into::into)
@@ -787,6 +851,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn inspect_prompt_for_tui_surface_excludes_gui_only_terminal_tools() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+        let tool_names_for = |payload: &serde_json::Value| -> Vec<String> {
+            payload
+                .get("tools")
+                .and_then(|value| value.as_array())
+                .expect("payload should include tools")
+                .iter()
+                .filter_map(|tool| tool.get("name").and_then(|value| value.as_str()))
+                .map(ToOwned::to_owned)
+                .collect()
+        };
+        let gui_only = [
+            zorai_protocol::tool_names::RUN_TERMINAL_COMMAND,
+            zorai_protocol::tool_names::EXECUTE_MANAGED_COMMAND,
+            zorai_protocol::tool_names::TYPE_IN_TERMINAL,
+            zorai_protocol::tool_names::ALLOCATE_TERMINAL,
+            zorai_protocol::tool_names::READ_ACTIVE_TERMINAL_CONTENT,
+        ];
+
+        let tui_payload: serde_json::Value = serde_json::from_str(
+            &engine
+                .inspect_prompt_json(None, Some(zorai_protocol::ClientSurface::Tui))
+                .await
+                .expect("inspect prompt should succeed"),
+        )
+        .expect("inspect prompt should return json");
+        let tui_tools = tool_names_for(&tui_payload);
+        for name in gui_only {
+            assert!(
+                !tui_tools.iter().any(|tool| tool == name),
+                "TUI prompt inspection must not advertise GUI-only terminal tool `{name}`; the TUI cannot host managed terminal panes"
+            );
+        }
+        assert!(
+            tui_tools
+                .iter()
+                .any(|tool| tool == zorai_protocol::tool_names::BASH_COMMAND),
+            "headless bash must remain available to TUI clients"
+        );
+
+        let unfiltered_payload: serde_json::Value = serde_json::from_str(
+            &engine
+                .inspect_prompt_json(None, None)
+                .await
+                .expect("inspect prompt should succeed"),
+        )
+        .expect("inspect prompt should return json");
+        let unfiltered_tools = tool_names_for(&unfiltered_payload);
+        assert!(
+            unfiltered_tools
+                .iter()
+                .any(|tool| tool == zorai_protocol::tool_names::RUN_TERMINAL_COMMAND),
+            "surface-agnostic inspection should still report terminal tools for GUI clients"
+        );
+    }
+
+    #[tokio::test]
     async fn inspect_prompt_reports_structured_summary_without_claiming_it_is_always_injected() {
         let root = tempdir().expect("tempdir");
         let manager = SessionManager::new_test(root.path()).await;
@@ -794,7 +919,7 @@ mod tests {
 
         let payload: serde_json::Value = serde_json::from_str(
             &engine
-                .inspect_prompt_json(None)
+                .inspect_prompt_json(None, None)
                 .await
                 .expect("inspect prompt should succeed"),
         )
@@ -883,7 +1008,7 @@ mod tests {
 
         let payload: serde_json::Value = serde_json::from_str(
             &engine
-                .inspect_prompt_json(None)
+                .inspect_prompt_json(None, None)
                 .await
                 .expect("inspect prompt should succeed"),
         )
@@ -940,7 +1065,7 @@ mod tests {
 
         let payload: serde_json::Value = serde_json::from_str(
             &engine
-                .inspect_prompt_json(None)
+                .inspect_prompt_json(None, None)
                 .await
                 .expect("inspect prompt should succeed"),
         )

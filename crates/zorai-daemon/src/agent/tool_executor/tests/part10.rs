@@ -11,6 +11,46 @@ use tokio::sync::broadcast;
 use std::os::windows::process::ExitStatusExt;
 
 #[tokio::test]
+async fn deferred_tool_gate_withholds_niche_tools_but_keeps_core_and_meta() {
+    use super::super::partition_deferred_tools;
+    use zorai_protocol::tool_names as tn;
+
+    let config = AgentConfig::default();
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let mut tools = crate::agent::agent_identity::run_with_agent_scope(
+        crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),
+        async { get_available_tools(&config, temp_dir.path(), true) },
+    )
+    .await;
+
+    let full_count = tools.len();
+    let pool = partition_deferred_tools(&mut tools);
+
+    let has = |set: &[super::super::ToolDefinition], name: &str| {
+        set.iter().any(|tool| tool.function.name == name)
+    };
+
+    // Deferral must actually withhold a meaningful chunk of the catalog,
+    // otherwise the per-turn token saving this exists for does not happen.
+    assert!(!pool.is_empty(), "expected some tools to be deferred");
+    assert_eq!(full_count, tools.len() + pool.len());
+
+    // Discovery/activation meta-tools must always remain callable, or the
+    // agent could never reach a withheld tool.
+    for meta in [tn::TOOL_SEARCH, tn::LIST_TOOLS, tn::LOAD_TOOLS] {
+        assert!(has(&tools, meta), "meta tool {meta} must stay available");
+        assert!(!has(&pool, meta), "meta tool {meta} must not be deferred");
+    }
+
+    // Everyday tools stay; niche long-tail tools are withheld.
+    assert!(has(&tools, tn::READ_FILE), "read_file must stay core");
+    assert!(has(&tools, tn::BASH_COMMAND), "bash must stay core");
+    assert!(has(&tools, tn::SEARCH_FILES), "search_files must stay core");
+    assert!(has(&pool, tn::CREATE_ROUTINE), "create_routine should defer");
+    assert!(has(&pool, tn::RUN_DEBATE), "run_debate should defer");
+}
+
+#[tokio::test]
 async fn workspace_task_tools_are_exposed_to_all_agent_scopes() {
     let config = AgentConfig::default();
     let temp_dir = tempfile::tempdir().expect("tempdir");

@@ -237,6 +237,14 @@ impl DaemonClient {
         })
     }
 
+    pub fn mark_all_notifications_read(&self) -> Result<()> {
+        self.send(ClientMessage::MarkAllNotificationsRead)
+    }
+
+    pub fn archive_read_notifications(&self) -> Result<()> {
+        self.send(ClientMessage::ArchiveReadNotifications)
+    }
+
     pub fn request_git_diff(
         &self,
         repo_path: impl Into<String>,

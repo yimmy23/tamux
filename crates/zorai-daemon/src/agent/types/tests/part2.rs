@@ -829,6 +829,42 @@ fn xai_provider_exposes_fetchable_responses_defaults() {
 }
 
 #[test]
+fn xiaomi_mimo_exposes_static_openai_defaults() {
+    let provider = get_provider_definition("xiaomi-mimo").expect("xiaomi mimo provider");
+    assert_eq!(provider.default_base_url, "https://api.xiaomimimo.com/v1");
+    assert_eq!(
+        provider.anthropic_base_url,
+        Some("https://api.xiaomimimo.com/anthropic")
+    );
+    assert_eq!(provider.default_model, "mimo-v2.5-pro");
+    assert_eq!(provider.api_type, ApiType::OpenAI);
+    assert_eq!(provider.auth_method, AuthMethod::Bearer);
+    assert!(provider.supports_model_fetch);
+    assert_eq!(provider.default_transport, ApiTransport::ChatCompletions);
+    assert!(provider
+        .supported_transports
+        .contains(&ApiTransport::AnthropicMessages));
+    assert_eq!(provider.models.len(), 10);
+    assert_eq!(provider.models[0].id, "mimo-v2.5-pro");
+    assert_eq!(
+        get_provider_api_type(
+            "xiaomi-mimo",
+            "mimo-v2.5-pro",
+            "https://api.xiaomimimo.com/v1"
+        ),
+        ApiType::OpenAI
+    );
+    assert_eq!(
+        get_provider_api_type(
+            "xiaomi-mimo",
+            "mimo-v2.5-pro",
+            "https://api.xiaomimimo.com/anthropic"
+        ),
+        ApiType::Anthropic
+    );
+}
+
+#[test]
 fn xiaomi_mimo_token_plan_exposes_static_openai_defaults() {
     let provider = get_provider_definition("xiaomi-mimo-token-plan").expect("xiaomi mimo provider");
     assert_eq!(

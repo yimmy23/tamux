@@ -21,9 +21,9 @@ pub(crate) fn render_cached(
     tier: &TierState,
     recent_actions: &[RecentActionVm],
     snapshot: &CachedSidebarSnapshot,
-) {
+) -> Option<Rect> {
     if area.height < 3 {
-        return;
+        return None;
     }
 
     let gw_lines = if tier.show_gateway_config {
@@ -135,6 +135,8 @@ pub(crate) fn render_cached(
     if footer_height > 0 {
         frame.render_widget(Paragraph::new(footer_lines), chunks[body_idx + 4]);
     }
+
+    Some(chunks[body_idx])
 }
 
 pub(crate) fn body_item_count(
@@ -150,6 +152,7 @@ pub(crate) fn hit_test_cached(
     area: Rect,
     sidebar: &SidebarState,
     snapshot: &CachedSidebarSnapshot,
+    rendered_body: Option<Rect>,
     mouse: Position,
 ) -> Option<SidebarHitTarget> {
     if area.height < 3
@@ -187,13 +190,21 @@ pub(crate) fn hit_test_cached(
     if sidebar.active_tab() == SidebarTab::Files && mouse.y == chunks[1].y {
         return None;
     }
-    let body_idx = 2;
-    let scroll = resolved_scroll(
-        snapshot.item_count(),
-        sidebar,
-        chunks[body_idx].height as usize,
-    );
-    let row_idx = scroll + mouse.y.saturating_sub(chunks[body_idx].y) as usize;
+
+    let body = rendered_body
+        .filter(|body| {
+            body.x == area.x
+                && body.width == area.width
+                && body.y >= area.y
+                && body.y.saturating_add(body.height) <= area.y.saturating_add(area.height)
+        })
+        .unwrap_or(chunks[2]);
+
+    if mouse.y < body.y || mouse.y >= body.y.saturating_add(body.height) {
+        return None;
+    }
+    let scroll = resolved_scroll(snapshot.item_count(), sidebar, body.height as usize);
+    let row_idx = scroll + mouse.y.saturating_sub(body.y) as usize;
     snapshot.row_target(row_idx)
 }
 
@@ -207,7 +218,7 @@ pub(crate) fn hit_test(
     mouse: Position,
 ) -> Option<SidebarHitTarget> {
     let snapshot = build_cached_snapshot(area, chat, sidebar, tasks, thread_id);
-    hit_test_cached(area, sidebar, &snapshot, mouse)
+    hit_test_cached(area, sidebar, &snapshot, None, mouse)
 }
 
 #[cfg(test)]

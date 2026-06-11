@@ -170,7 +170,7 @@ pub enum ClientMessage {
     SkillExport { identifier: String, format: String, output_dir: String },
     SkillPublish { identifier: String },
     AgentStatusQuery,
-    AgentInspectPrompt { #[serde(default)] agent_id: Option<String> },
+    AgentInspectPrompt { #[serde(default)] agent_id: Option<String>, #[serde(default)] client_surface: Option<ClientSurface> },
     AgentSetTierOverride { tier: Option<String> },
     PluginList {},
     PluginGet { name: String },
@@ -259,4 +259,6 @@ pub enum ClientMessage {
         repo_monitor_exclude_dirs: Vec<String>,
     },
     AgentMessageFeedback { thread_id: String, message_id: String, #[serde(default)] reaction: Option<Reaction> },
+    MarkAllNotificationsRead,
+    ArchiveReadNotifications,
 }

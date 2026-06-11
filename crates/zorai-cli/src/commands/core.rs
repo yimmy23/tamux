@@ -802,26 +802,41 @@ fn format_prompt_output(prompt: &client::AgentPromptInspection, json: bool) -> R
         return serde_json::to_string_pretty(prompt).map_err(Into::into);
     }
 
-    let mut rendered = String::from("Agent Prompt\n============\n");
-    rendered.push_str(&format!(
-        "Agent:    {} ({})\n",
-        prompt.agent_name, prompt.agent_id
-    ));
-    rendered.push_str(&format!("Provider: {}\n", prompt.provider_id));
-    rendered.push_str(&format!("Model:    {}\n", prompt.model));
+    let final_prompt = prompt.final_prompt.trim();
+    let prompt_tokens = final_prompt.chars().count().div_ceil(4);
 
-    for section in &prompt.sections {
-        rendered.push_str("\n");
-        rendered.push_str(&format!("[{}]\n", section.title));
-        rendered.push_str(section.content.trim());
-        rendered.push('\n');
-    }
+    let mut rendered = String::from(final_prompt);
 
-    rendered.push_str("\nFinal Prompt\n------------\n");
-    rendered.push_str(prompt.final_prompt.trim());
-
-    while rendered.ends_with('\n') {
-        rendered.pop();
+    if !prompt.tools.is_empty() {
+        let tool_tokens: usize = prompt
+            .tools
+            .iter()
+            .map(|tool| tool.serialized_chars.div_ceil(4))
+            .sum();
+        rendered.push_str(&format!(
+            "\n\n=== Tool Schemas ({} tools, ~{} tokens, exact request payload, largest first) ===\n",
+            prompt.tools.len(),
+            tool_tokens,
+        ));
+        for tool in &prompt.tools {
+            rendered.push_str(&format!(
+                "\n[~{} tokens] {}\n{}\n",
+                tool.serialized_chars.div_ceil(4),
+                tool.name,
+                tool.serialized,
+            ));
+        }
+        rendered.push_str(&format!(
+            "\nEstimated tokens: ~{} (system prompt ~{} + {} tool schemas ~{}; chars/4 heuristic)",
+            prompt_tokens + tool_tokens,
+            prompt_tokens,
+            prompt.tools.len(),
+            tool_tokens,
+        ));
+    } else {
+        rendered.push_str(&format!(
+            "\n\nEstimated tokens: ~{prompt_tokens} (system prompt only; chars/4 heuristic)"
+        ));
     }
 
     Ok(rendered)
@@ -911,7 +926,8 @@ mod tests {
         AgentGoalResumeDecisionRecord, AgentGoalRunDossierRecord, AgentGoalRunEventRecord,
         AgentGoalRunModelUsageRecord, AgentGoalRunRecord, AgentGoalRunReportRecord,
         AgentGoalRunStepRecord, AgentPromptInspection, AgentPromptInspectionSection,
-        AgentStatusSnapshot, AgentThreadMessageRecord, AgentThreadRecord, DirectMessageResponse,
+        AgentPromptToolInspection, AgentStatusSnapshot, AgentThreadMessageRecord,
+        AgentThreadRecord, DirectMessageResponse,
     };
     use crate::setup_wizard::SetupProbe;
 
@@ -951,6 +967,24 @@ mod tests {
             final_prompt:
                 "Custom operator prompt\n\n## Runtime Identity\n- You are Svarog in zorai."
                     .to_string(),
+            tool_count: Some(2),
+            tools_serialized_chars: Some(180),
+            tools: vec![
+                AgentPromptToolInspection {
+                    name: "bash_command".to_string(),
+                    serialized:
+                        "{\"type\":\"function\",\"function\":{\"name\":\"bash_command\",\"description\":\"Run a shell command in the workspace and return stdout\"}}"
+                            .to_string(),
+                    serialized_chars: 120,
+                },
+                AgentPromptToolInspection {
+                    name: "read_memory".to_string(),
+                    serialized:
+                        "{\"type\":\"function\",\"function\":{\"name\":\"read_memory\"}}"
+                            .to_string(),
+                    serialized_chars: 60,
+                },
+            ],
         }
     }
 
@@ -1481,16 +1515,55 @@ mod tests {
     }
 
     #[test]
-    fn prompt_output_prints_sections_and_final_prompt() {
-        let rendered =
-            format_prompt_output(&sample_prompt_inspection(), false).expect("render prompt output");
+    fn prompt_output_prints_pure_final_prompt_with_exact_tool_schemas() {
+        let inspection = sample_prompt_inspection();
+        let prompt_tokens = inspection.final_prompt.trim().chars().count().div_ceil(4);
 
-        assert!(rendered.contains("Agent Prompt"));
-        assert!(rendered.contains("Agent:    Svarog (swarog)"));
-        assert!(rendered.contains("Provider: openai"));
-        assert!(rendered.contains("[Base Prompt]"));
-        assert!(rendered.contains("Custom operator prompt"));
-        assert!(rendered.contains("Final Prompt"));
+        let rendered = format_prompt_output(&inspection, false).expect("render prompt output");
+
+        assert!(rendered.starts_with("Custom operator prompt"));
+        assert!(rendered.contains("- You are Svarog in zorai."));
+        assert!(
+            !rendered.contains("[Base Prompt]") && !rendered.contains("Final Prompt"),
+            "non-JSON output must be the pure system prompt, not the section breakdown"
+        );
+        assert!(
+            rendered.contains("=== Tool Schemas (2 tools, ~45 tokens"),
+            "tool schema section must show count and token total: {rendered}"
+        );
+        assert!(
+            rendered.contains("[~30 tokens] bash_command"),
+            "each tool must show its own token cost: {rendered}"
+        );
+        assert!(
+            rendered.contains(
+                "\"description\":\"Run a shell command in the workspace and return stdout\""
+            ),
+            "the exact serialized schema must be printed verbatim: {rendered}"
+        );
+        assert!(
+            rendered.contains(&format!(
+                "Estimated tokens: ~{} (system prompt ~{} + 2 tool schemas ~45",
+                prompt_tokens + 45,
+                prompt_tokens,
+            )),
+            "token estimate must cover prompt and tool schemas: {rendered}"
+        );
+    }
+
+    #[test]
+    fn prompt_output_token_estimate_degrades_without_tool_stats() {
+        let mut inspection = sample_prompt_inspection();
+        inspection.tool_count = None;
+        inspection.tools_serialized_chars = None;
+        inspection.tools = Vec::new();
+        let prompt_tokens = inspection.final_prompt.trim().chars().count().div_ceil(4);
+
+        let rendered = format_prompt_output(&inspection, false).expect("render prompt output");
+
+        assert!(rendered.contains(&format!(
+            "Estimated tokens: ~{prompt_tokens} (system prompt only"
+        )));
     }
 
     #[test]

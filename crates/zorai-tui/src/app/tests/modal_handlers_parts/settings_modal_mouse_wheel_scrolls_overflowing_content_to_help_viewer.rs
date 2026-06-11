@@ -446,6 +446,7 @@ fn prompt_viewer_down_scrolls_prompt_body() {
             .map(|idx| format!("final-token-{idx}"))
             .collect::<Vec<_>>()
             .join(" "),
+        tools: Vec::new(),
     });
     model
         .modal

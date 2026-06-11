@@ -126,7 +126,7 @@ pub const ANTHROPIC_MODELS: &[ModelDefinition] = &[
     },
 ];
 
-pub const XIAOMI_MIMO_TOKEN_PLAN_MODELS: &[ModelDefinition] = &[
+pub const XIAOMI_MIMO_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
         id: "mimo-v2.5-pro",
         name: "MiMo V2.5 Pro",

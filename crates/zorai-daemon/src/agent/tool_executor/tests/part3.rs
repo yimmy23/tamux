@@ -1,4 +1,7 @@
-use super::super::{execute_fetch_url_with_runner, execute_search_files_with_runner};
+use super::super::{
+    execute_fetch_url, execute_fetch_url_with_python, execute_fetch_url_with_runner,
+    execute_search_files_with_runner,
+};
 use super::part1::successful_exit_status;
 use crate::agent::{types::AgentConfig, AgentEngine};
 use crate::session_manager::SessionManager;
@@ -8,6 +11,126 @@ use tokio::time::Duration;
 
 #[cfg(windows)]
 use std::os::windows::process::ExitStatusExt;
+
+async fn spawn_one_shot_http_server(content_type: &'static str, body: &'static str) -> u16 {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind local http server");
+    let port = listener.local_addr().expect("local addr").port();
+    tokio::spawn(async move {
+        if let Ok((mut socket, _)) = listener.accept().await {
+            let mut buf = [0u8; 2048];
+            let _ = socket.read(&mut buf).await;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len(),
+            );
+            let _ = socket.write_all(response.as_bytes()).await;
+            let _ = socket.shutdown().await;
+        }
+    });
+    port
+}
+
+#[tokio::test]
+async fn fetch_url_saves_markdown_into_thread_inventory_and_returns_path() {
+    let port = spawn_one_shot_http_server(
+        "text/html; charset=utf-8",
+        "<html><head><title>Sample Page</title></head><body><h1>Hello</h1><p>World <a href=\"https://example.com/doc\">docs</a></p></body></html>",
+    )
+    .await;
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let result = execute_fetch_url(
+        &serde_json::json!({ "url": format!("http://127.0.0.1:{port}/page"), "timeout_seconds": 30 }),
+        &engine,
+        &engine.http_client,
+        "none",
+        "thread-fetch-md",
+    )
+    .await
+    .expect("fetch_url should succeed via python and save the page");
+
+    let saved_path = result
+        .lines()
+        .find_map(|line| line.strip_prefix("- saved_to: "))
+        .expect("result must report the saved file path")
+        .to_string();
+    let inventory_dir =
+        zorai_protocol::thread_inventory_dir(engine.history.data_root(), "thread-fetch-md");
+    assert!(
+        saved_path.starts_with(&inventory_dir.display().to_string()),
+        "saved file {saved_path} must land inside the thread inventory dir {}",
+        inventory_dir.display(),
+    );
+    assert!(
+        saved_path.ends_with(".md"),
+        "html responses must be persisted as converted markdown, got {saved_path}"
+    );
+
+    let saved = std::fs::read_to_string(&saved_path).expect("saved file should exist");
+    assert!(
+        saved.contains("# Hello"),
+        "h1 must convert to a markdown heading so the agent reads cheap markdown instead of raw html: {saved}"
+    );
+    assert!(
+        saved.contains("(https://example.com/doc)"),
+        "links must keep their hrefs in markdown form: {saved}"
+    );
+    assert!(
+        !saved.contains("<body>"),
+        "raw html tags must not survive conversion: {saved}"
+    );
+    assert!(
+        result.contains("Preview:"),
+        "result should include a short inline preview: {result}"
+    );
+}
+
+#[tokio::test]
+async fn fetch_url_without_python_falls_back_to_legacy_fetch_and_still_saves_file() {
+    let port = spawn_one_shot_http_server(
+        "text/html; charset=utf-8",
+        "<html><body><p>fallback content</p></body></html>",
+    )
+    .await;
+    let root = tempdir().expect("tempdir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+
+    let result = execute_fetch_url_with_python(
+        &serde_json::json!({ "url": format!("http://127.0.0.1:{port}/page"), "timeout_seconds": 30 }),
+        &engine,
+        &engine.http_client,
+        "none",
+        "thread-fetch-fallback",
+        None,
+    )
+    .await
+    .expect("fetch_url should fall back to the legacy fetch path");
+
+    let saved_path = result
+        .lines()
+        .find_map(|line| line.strip_prefix("- saved_to: "))
+        .expect("fallback result must still report a saved file path")
+        .to_string();
+    let inventory_dir = zorai_protocol::thread_inventory_dir(
+        engine.history.data_root(),
+        "thread-fetch-fallback",
+    );
+    assert!(
+        saved_path.starts_with(&inventory_dir.display().to_string()),
+        "fallback file {saved_path} must land inside the thread inventory dir"
+    );
+    let saved = std::fs::read_to_string(&saved_path).expect("saved file should exist");
+    assert!(
+        saved.contains("fallback content"),
+        "legacy fetch content must be persisted to the inventory file: {saved}"
+    );
+}
 
 #[tokio::test]
 async fn fetch_url_runtime_uses_default_timeout_on_caller_path() {

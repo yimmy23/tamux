@@ -961,6 +961,7 @@ impl<'a> SendMessageRunner<'a> {
                 existing_memory_injection_state.as_ref(),
                 &structured_memory_summary,
                 false,
+                weles_runtime_override.is_none(),
             )
         {
             engine
@@ -1085,6 +1086,22 @@ impl<'a> SendMessageRunner<'a> {
                 preferred_tool_fallbacks.1,
             );
         }
+        let tools_were_filtered = task_tool_filter.is_some()
+            || direct_thread_responder
+                .as_ref()
+                .and_then(|responder| responder.tool_filter.as_ref())
+                .is_some();
+        let deferred_tool_pool = if config.tools.deferred_tool_loading && !tools_were_filtered {
+            super::tool_executor::partition_deferred_tools(&mut tools)
+        } else {
+            Vec::new()
+        };
+        if !deferred_tool_pool.is_empty() {
+            system_prompt.push_str(&format!(
+                "\n\n## Deferred Tools\n- Only your most-used tools are currently active. {} more niche tools (routines, triggers, debate, collaboration, model switching, media, compliance/provenance, workspace layout, external messaging, etc.) exist but are withheld to save context.\n- To use one: call `tool_search` with what you need, then `load_tools` with the exact name(s) from the results, then call the now-activated tool. Calling a withheld tool directly also activates it.",
+                deferred_tool_pool.len(),
+            ));
+        }
         if let Some(task) = current_task_snapshot.as_ref() {
             engine.ensure_subagent_runtime(task, Some(&tid)).await;
         }
@@ -1155,6 +1172,7 @@ impl<'a> SendMessageRunner<'a> {
             task_type_for_trace: task_type_for_trace.clone(),
             initial_copilot_initiator,
             tools,
+            deferred_tool_pool,
             retry_strategy,
             max_loops,
             stream_generation,

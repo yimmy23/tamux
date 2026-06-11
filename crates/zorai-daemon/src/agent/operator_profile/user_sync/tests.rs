@@ -47,6 +47,81 @@ async fn stage_legacy_append_marks_dirty() -> Result<()> {
 }
 
 #[tokio::test]
+async fn reconcile_flattens_nested_generated_legacy_wrappers() -> Result<()> {
+    let _guard = acquire_user_sync_test_guard();
+    let root = std::env::temp_dir().join(format!("zorai-user-sync-test-{}", uuid::Uuid::new_v4()));
+    let history = crate::history::HistoryStore::new_test_store(&root).await?;
+    let agent_data_dir = test_agent_data_dir(&root);
+    tokio::fs::create_dir_all(&agent_data_dir).await?;
+    let memory_dir = super::active_memory_dir(&agent_data_dir);
+    tokio::fs::create_dir_all(&memory_dir).await?;
+
+    let original = "## Operator\r\n\r\n- Background: ML scientist\r\n- Interests: agentic AI";
+    let inner_generated = format!(
+        "# User\n{}\n\n- legacy_user_md: {}\n- legacy_user_signal: {}",
+        GENERATED_PROFILE_HEADER,
+        serde_json::to_string(original)?,
+        serde_json::to_string("- Operator preference: concise deltas only")?,
+    );
+    history
+        .upsert_profile_field(
+            "legacy_user_md",
+            &serde_json::to_string(&inner_generated)?,
+            0.30,
+            "legacy_import",
+        )
+        .await?;
+    history
+        .upsert_profile_field("__legacy_user_import_done", "true", 1.0, "system")
+        .await?;
+    set_user_sync_state_for_test(UserProfileSyncState::Dirty);
+
+    reconcile_user_profile_from_db(&agent_data_dir, &history).await?;
+    let rendered = tokio::fs::read_to_string(memory_dir.join("USER.md")).await?;
+
+    assert!(rendered.contains("## Operator"));
+    assert!(rendered.contains("- Background: ML scientist"));
+    assert!(rendered.contains("- Operator preference: concise deltas only"));
+    assert!(
+        !rendered.contains("legacy_user_md"),
+        "nested generated wrappers must be flattened, not re-escaped: {rendered}"
+    );
+    assert!(
+        !rendered.contains("\\r\\n"),
+        "no escaped newlines may survive flattening: {rendered}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn bootstrap_skips_reimporting_generated_user_md() -> Result<()> {
+    let _guard = acquire_user_sync_test_guard();
+    let root = std::env::temp_dir().join(format!("zorai-user-sync-test-{}", uuid::Uuid::new_v4()));
+    let history = crate::history::HistoryStore::new_test_store(&root).await?;
+    let agent_data_dir = test_agent_data_dir(&root);
+    tokio::fs::create_dir_all(&agent_data_dir).await?;
+    let memory_dir = super::active_memory_dir(&agent_data_dir);
+    tokio::fs::create_dir_all(&memory_dir).await?;
+    tokio::fs::write(
+        memory_dir.join("USER.md"),
+        format!(
+            "# User\n{}\n\n- some_field: \"value\"\n",
+            GENERATED_PROFILE_HEADER
+        ),
+    )
+    .await?;
+    set_user_sync_state_for_test(UserProfileSyncState::Dirty);
+
+    reconcile_user_profile_from_db(&agent_data_dir, &history).await?;
+
+    assert!(
+        history.get_profile_field("legacy_user_md").await?.is_none(),
+        "a generated USER.md must never be re-imported as legacy content"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn reconcile_renders_deterministic_user_md() -> Result<()> {
     let _guard = acquire_user_sync_test_guard();
     let root = std::env::temp_dir().join(format!("zorai-user-sync-test-{}", uuid::Uuid::new_v4()));

@@ -286,8 +286,18 @@ async fn user_append_is_staged_then_rerendered_from_db() -> Result<()> {
     assert!(
         final_content.contains("Profile summary is generated from SQLite-backed operator profile.")
     );
-    assert!(final_content.contains("- legacy_user_signal: "));
-    assert!(final_content.contains("- legacy_user_md: "));
+    assert!(
+        final_content.contains("legacy note"),
+        "imported legacy USER.md content must survive the DB round-trip: {final_content}"
+    );
+    assert!(
+        final_content.contains("- prefers concise replies"),
+        "appended signal must survive the DB round-trip: {final_content}"
+    );
+    assert!(
+        !final_content.contains("\\n"),
+        "rendered profile must be plain markdown, not JSON-escaped blobs: {final_content}"
+    );
 
     let import_done = history
         .get_profile_field("__legacy_user_import_done")

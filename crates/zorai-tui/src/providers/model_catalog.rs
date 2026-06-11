@@ -221,7 +221,7 @@ pub(super) fn known_models_for_provider_auth(
             ("kimi-k2.5", "Kimi K2.5", 262_144),
             ("MiniMax-M2.5", "MiniMax M2.5", 205_000),
         ],
-        PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN => &[
+        PROVIDER_ID_XIAOMI_MIMO | PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN => &[
             ("mimo-v2.5-pro", "MiMo V2.5 Pro", 1_000_000),
             (
                 "mimo-v2.5-pro-ultraspeed",

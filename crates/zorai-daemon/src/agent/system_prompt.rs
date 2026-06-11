@@ -34,11 +34,18 @@ fn local_skill_workflow_prompt() -> String {
 fn build_time_context_prompt() -> String {
     let local_now = chrono::Local::now();
     let utc_now = chrono::Utc::now();
+    // Bucket to the minute. This block lives inside the cached system prompt, so
+    // sub-minute precision (seconds/millis) would change the prefix on every
+    // request and defeat prompt caching entirely. Rapid agentic tool loops run
+    // many requests within a single minute; minute granularity lets them share
+    // the cached prefix while keeping the operator-visible time accurate. The
+    // agent can shell `date` when it genuinely needs sub-minute precision.
+    let unix_minute_ms = (utc_now.timestamp() / 60) * 60 * 1000;
     format!(
-        "## Time Context\n- Current local timestamp: {}\n- Current UTC timestamp: {}\n- Unix timestamp (ms): {}\n- Use this when reasoning about today, freshness, and schedule-sensitive work.\n",
-        local_now.format("%A, %Y-%m-%d %H:%M:%S %Z"),
-        utc_now.format("%A, %Y-%m-%d %H:%M:%S UTC"),
-        utc_now.timestamp_millis()
+        "## Time Context\n- Current local timestamp: {}\n- Current UTC timestamp: {}\n- Unix timestamp (ms, minute precision): {}\n- Use this when reasoning about today, freshness, and schedule-sensitive work.\n",
+        local_now.format("%A, %Y-%m-%d %H:%M %Z"),
+        utc_now.format("%A, %Y-%m-%d %H:%M UTC"),
+        unix_minute_ms
     )
 }
 
@@ -612,7 +619,7 @@ mod tests {
         assert!(prompt.contains("## Time Context"));
         assert!(prompt.contains("Current local timestamp:"));
         assert!(prompt.contains("Current UTC timestamp:"));
-        assert!(prompt.contains("Unix timestamp (ms):"));
+        assert!(prompt.contains("Unix timestamp (ms, minute precision):"));
         assert!(prompt.contains(zorai_protocol::tool_names::READ_SKILL));
         assert!(prompt.contains(zorai_protocol::tool_names::READ_GUIDELINE));
         assert!(prompt.contains(zorai_protocol::tool_names::DISCOVER_GUIDELINES));
@@ -636,7 +643,7 @@ mod tests {
         assert!(prompt.contains("## Time Context"));
         assert!(prompt.contains("Current local timestamp:"));
         assert!(prompt.contains("Current UTC timestamp:"));
-        assert!(prompt.contains("Unix timestamp (ms):"));
+        assert!(prompt.contains("Unix timestamp (ms, minute precision):"));
         assert!(prompt.contains(zorai_protocol::tool_names::READ_SKILL));
         assert!(prompt.contains(zorai_protocol::tool_names::READ_GUIDELINE));
         assert!(prompt.contains(zorai_protocol::tool_names::DISCOVER_GUIDELINES));

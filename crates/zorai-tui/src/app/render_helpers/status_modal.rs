@@ -224,23 +224,43 @@ pub(super) fn format_status_modal_text(
 }
 
 pub(super) fn format_prompt_modal_text(prompt: &crate::client::AgentPromptInspectionVm) -> String {
-    let mut rendered = String::from("Agent Prompt\n============\n");
-    rendered.push_str(&format!(
-        "Agent:    {} ({})\n",
-        prompt.agent_name, prompt.agent_id
-    ));
-    rendered.push_str(&format!("Provider: {}\n", prompt.provider_id));
-    rendered.push_str(&format!("Model:    {}\n", prompt.model));
+    let final_prompt = prompt.final_prompt.trim();
+    let prompt_tokens = final_prompt.chars().count().div_ceil(4);
 
-    for section in &prompt.sections {
-        rendered.push_str("\n");
-        rendered.push_str(&format!("[{}]\n", section.title));
-        rendered.push_str(section.content.trim());
-        rendered.push('\n');
+    let mut rendered = String::from(final_prompt);
+
+    if !prompt.tools.is_empty() {
+        let tool_tokens: usize = prompt
+            .tools
+            .iter()
+            .map(|tool| tool.serialized_chars.div_ceil(4))
+            .sum();
+        rendered.push_str(&format!(
+            "\n\n=== Tool Schemas ({} tools, ~{} tokens, exact request payload, largest first) ===\n",
+            prompt.tools.len(),
+            tool_tokens,
+        ));
+        for tool in &prompt.tools {
+            rendered.push_str(&format!(
+                "\n[~{} tokens] {}\n{}\n",
+                tool.serialized_chars.div_ceil(4),
+                tool.name,
+                tool.serialized,
+            ));
+        }
+        rendered.push_str(&format!(
+            "\nEstimated tokens: ~{} (system prompt ~{} + {} tool schemas ~{}; chars/4 heuristic)",
+            prompt_tokens + tool_tokens,
+            prompt_tokens,
+            prompt.tools.len(),
+            tool_tokens,
+        ));
+    } else {
+        rendered.push_str(&format!(
+            "\n\nEstimated tokens: ~{prompt_tokens} (system prompt only; chars/4 heuristic)"
+        ));
     }
 
-    rendered.push_str("\nFinal Prompt\n------------\n");
-    rendered.push_str(prompt.final_prompt.trim());
     rendered.trim_end().to_string()
 }
 

@@ -62,6 +62,7 @@ impl<'a> SendMessageRunner<'a> {
                 existing_memory_injection_state.as_ref(),
                 &structured_memory_summary,
                 true,
+                true,
             )
         {
             self.engine

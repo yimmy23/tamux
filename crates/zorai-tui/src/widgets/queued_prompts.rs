@@ -239,17 +239,5 @@ fn action_label(
 
 fn truncate_preview(text: &str, max_chars: usize) -> String {
     let single_line = text.lines().next().unwrap_or("").trim();
-    if single_line.chars().count() <= max_chars {
-        return single_line.to_string();
-    }
-    if max_chars <= 3 {
-        return ".".repeat(max_chars);
-    }
-    format!(
-        "{}...",
-        single_line
-            .chars()
-            .take(max_chars.saturating_sub(3))
-            .collect::<String>()
-    )
+    crate::widgets::message::truncate_to_width(single_line, max_chars)
 }

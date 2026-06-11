@@ -475,11 +475,11 @@ pub(crate) fn task_card_at_position_with_scroll(
     let scroll = scroll.min(tasks.len().saturating_sub(1));
     for index in scroll..tasks.len() {
         let rect = task_card_rect_with_scroll(body, tasks, expanded_task_ids, scroll, index);
+        if rect.height < 3 || rect.y >= body.y.saturating_add(body.height) {
+            break;
+        }
         if contains(rect, position) {
             return Some((index, rect));
-        }
-        if rect.y >= body.y.saturating_add(body.height) {
-            break;
         }
     }
     None

@@ -2,6 +2,42 @@ use super::*;
 
 const OFFLOAD_SUMMARY_KEY_FINDING_LINES: usize = 3;
 const OFFLOAD_SUMMARY_LINE_CHAR_LIMIT: usize = 160;
+
+/// Clip an oversized tool result to a bounded head+tail window on char
+/// boundaries. Used only when persisting the payload (offload or preview file)
+/// failed: keeping the full payload inline would re-inflate the context window
+/// on every subsequent turn until compaction. The head preserves the primary
+/// output and the tail preserves trailing errors/summaries, with a marker
+/// noting the dropped bytes. Takes ownership so the no-clip path is zero-copy.
+fn clip_inline_tool_result(raw_payload: String, max_bytes: usize) -> String {
+    use zorai_shared::text::{ceil_char_boundary, floor_char_boundary};
+
+    let head_budget = max_bytes.saturating_mul(3) / 4;
+    let tail_budget = max_bytes.saturating_sub(head_budget);
+
+    let head_end = floor_char_boundary(&raw_payload, head_budget);
+    let tail_start =
+        ceil_char_boundary(&raw_payload, raw_payload.len().saturating_sub(tail_budget));
+    if tail_start <= head_end {
+        return raw_payload;
+    }
+    let dropped = tail_start - head_end;
+
+    let clipped = format!(
+        "{}\n\n...[tool result clipped: {} bytes dropped; persisting to disk failed]...\n\n{}",
+        &raw_payload[..head_end],
+        dropped,
+        &raw_payload[tail_start..]
+    );
+
+    // For pathologically small budgets the marker can exceed the savings; never
+    // emit something larger than what we started with.
+    if clipped.len() >= raw_payload.len() {
+        raw_payload
+    } else {
+        clipped
+    }
+}
 const TOOL_OUTPUT_PREVIEW_ALLOWLIST: &[&str] = &[
     zorai_protocol::tool_names::BASH_COMMAND,
     zorai_protocol::tool_names::PYTHON_EXECUTE,
@@ -224,10 +260,15 @@ pub(crate) async fn prepare_tool_result_thread_message_with_arguments(
                 thread_id = %thread_id,
                 tool_name = %result.name,
                 %error,
-                "failed to persist tool output preview file; keeping inline content"
+                "failed to persist tool output preview file; keeping inline content (clipped if over budget)"
             );
+            let content = if threshold_bytes != 0 && byte_size > threshold_bytes {
+                clip_inline_tool_result(raw_payload, threshold_bytes)
+            } else {
+                raw_payload
+            };
             return PreparedToolResultThreadMessage {
-                content: raw_payload,
+                content,
                 offloaded_payload_id: None,
                 tool_output_preview_path: None,
             };
@@ -295,10 +336,10 @@ pub(crate) async fn prepare_tool_result_thread_message_with_arguments(
             thread_id = %thread_id,
             tool_name = %result.name,
             %error,
-            "failed to offload tool result payload; keeping inline content"
+            "failed to offload tool result payload; clipping inline content to configured budget"
         );
         return PreparedToolResultThreadMessage {
-            content: raw_payload,
+            content: clip_inline_tool_result(raw_payload, threshold_bytes),
             offloaded_payload_id: None,
             tool_output_preview_path: None,
         };
@@ -666,5 +707,38 @@ impl<'a> SendMessageRunner<'a> {
         }
 
         Ok(ToolCallDisposition::ContinueTools)
+    }
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use super::*;
+
+    #[test]
+    fn clip_inline_tool_result_bounds_size_and_keeps_head_and_tail() {
+        let payload = "HEAD-START".to_string() + &"x".repeat(5000) + "TAIL-END";
+        let byte_size = payload.len();
+
+        let clipped = clip_inline_tool_result(payload, 1024);
+
+        assert!(clipped.len() < byte_size, "clipped output must be smaller");
+        assert!(clipped.starts_with("HEAD-START"), "head is preserved");
+        assert!(clipped.ends_with("TAIL-END"), "tail is preserved");
+        assert!(clipped.contains("bytes dropped"), "drop marker present");
+    }
+
+    #[test]
+    fn clip_inline_tool_result_respects_utf8_char_boundaries() {
+        // Multi-byte chars at both clip edges must not be split.
+        let payload = "é".repeat(4000);
+
+        let clipped = clip_inline_tool_result(payload, 500);
+
+        // Round-tripping through chars proves no byte split occurred.
+        assert_eq!(
+            clipped,
+            String::from_utf8(clipped.clone().into_bytes()).unwrap()
+        );
+        assert!(clipped.contains("bytes dropped"));
     }
 }

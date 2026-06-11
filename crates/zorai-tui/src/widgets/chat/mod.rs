@@ -236,11 +236,13 @@ mod tests {
             .expect("large loaded transcript should build a snapshot");
 
         reset_build_transcript_metrics_call_count();
-        let layout = scrollbar_layout_from_cached_snapshot(&snapshot, &chat)
+        let layout = scrollbar_layout_from_cached_snapshot(&snapshot, &chat, 0, false)
             .expect("cached snapshot should expose scrollbar geometry");
         let target = scrollbar_scroll_offset_for_pointer_from_cached_snapshot(
             &snapshot,
             &chat,
+            0,
+            false,
             layout.thumb.y.saturating_add(3),
             1,
         )
@@ -281,7 +283,7 @@ mod tests {
             .expect("loaded messages should build a snapshot");
 
         assert!(
-            scrollbar_layout_from_cached_snapshot(&snapshot, &chat).is_none(),
+            scrollbar_layout_from_cached_snapshot(&snapshot, &chat, 0, false).is_none(),
             "chat scrollbar must describe rendered rows only; unloaded older rows are fetched by scroll state, not painted as fake rows"
         );
     }

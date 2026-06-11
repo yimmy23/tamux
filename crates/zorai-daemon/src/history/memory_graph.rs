@@ -3,6 +3,21 @@ use rusqlite::{params, OptionalExtension};
 
 use super::HistoryStore;
 
+/// Shared insert shape for `memory_nodes` rows. The conflict policy differs per
+/// caller (upsert overwrites, stubs preserve existing rows), but the column
+/// list and value bindings must stay identical — append the ON CONFLICT clause.
+/// Params: ?1 id, ?2 label, ?3 node_type, ?4 created/accessed ms, ?5 summary.
+const MEMORY_NODE_INSERT: &str = "INSERT INTO memory_nodes (
+    id,
+    label,
+    node_type,
+    embedding_blob,
+    created_at_ms,
+    last_accessed_ms,
+    access_count,
+    summary_text
+) VALUES (?1, ?2, ?3, NULL, ?4, ?4, 1, ?5)";
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemoryNodeRow {
     pub id: String,
@@ -58,22 +73,15 @@ impl HistoryStore {
         self.conn
             .call(move |conn| {
                 conn.execute(
-                    "INSERT INTO memory_nodes (
-                        id,
-                        label,
-                        node_type,
-                        embedding_blob,
-                        created_at_ms,
-                        last_accessed_ms,
-                        access_count,
-                        summary_text
-                    ) VALUES (?1, ?2, ?3, NULL, ?4, ?4, 1, ?5)
-                    ON CONFLICT(id) DO UPDATE SET
-                        label = excluded.label,
-                        node_type = excluded.node_type,
-                        last_accessed_ms = MAX(memory_nodes.last_accessed_ms, excluded.last_accessed_ms),
-                        access_count = memory_nodes.access_count + 1,
-                        summary_text = COALESCE(excluded.summary_text, memory_nodes.summary_text)",
+                    &format!(
+                        "{MEMORY_NODE_INSERT}
+                        ON CONFLICT(id) DO UPDATE SET
+                            label = excluded.label,
+                            node_type = excluded.node_type,
+                            last_accessed_ms = MAX(memory_nodes.last_accessed_ms, excluded.last_accessed_ms),
+                            access_count = memory_nodes.access_count + 1,
+                            summary_text = COALESCE(excluded.summary_text, memory_nodes.summary_text)"
+                    ),
                     params![
                         id,
                         label,
@@ -149,6 +157,56 @@ impl HistoryStore {
                         weight,
                         updated_at_ms as i64,
                     ],
+                )?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    /// Record a `delegated_to` edge from a parent task to a subagent child task,
+    /// making cross-agent delegation queryable in the shared knowledge graph.
+    ///
+    /// Node stubs use `INSERT ... ON CONFLICT DO NOTHING` so they never clobber a
+    /// richer label/summary already written by the task's own graph record (the
+    /// `memory_nodes` upsert path overwrites labels unconditionally). Both nodes
+    /// are ensured before the edge because `foreign_keys` is enabled.
+    pub async fn record_task_delegation_edge(
+        &self,
+        parent_task_id: &str,
+        child_task_id: &str,
+        child_label: &str,
+        updated_at_ms: u64,
+    ) -> Result<()> {
+        let parent_node_id = format!("node:task:{parent_task_id}");
+        let child_node_id = format!("node:task:{child_task_id}");
+        let parent_label = parent_task_id.to_string();
+        let child_label = child_label.to_string();
+
+        self.conn
+            .call(move |conn| {
+                let ensure_node = |conn: &rusqlite::Connection, id: &str, label: &str| {
+                    conn.execute(
+                        &format!("{MEMORY_NODE_INSERT}\nON CONFLICT(id) DO NOTHING"),
+                        params![
+                            id,
+                            label,
+                            "task",
+                            updated_at_ms as i64,
+                            None::<String>,
+                        ],
+                    )
+                };
+                ensure_node(conn, &parent_node_id, &parent_label)?;
+                ensure_node(conn, &child_node_id, &child_label)?;
+                conn.execute(
+                    "INSERT INTO memory_edges (
+                        source_node_id, target_node_id, relation_type, weight, last_updated_ms
+                    ) VALUES (?1, ?2, 'delegated_to', 1.0, ?3)
+                    ON CONFLICT(source_node_id, target_node_id, relation_type) DO UPDATE SET
+                        weight = memory_edges.weight + excluded.weight,
+                        last_updated_ms = MAX(memory_edges.last_updated_ms, excluded.last_updated_ms)",
+                    params![parent_node_id, child_node_id, updated_at_ms as i64],
                 )?;
                 Ok(())
             })

@@ -318,21 +318,7 @@ pub(crate) fn sidebar_snapshot_key(
 }
 
 pub(crate) fn truncate_tail(text: &str, max_len: usize) -> String {
-    if text.chars().count() <= max_len {
-        return text.to_string();
-    }
-    if max_len <= 1 {
-        return "…".to_string();
-    }
-    let tail: String = text
-        .chars()
-        .rev()
-        .take(max_len.saturating_sub(1))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    format!("…{tail}")
+    crate::widgets::message::truncate_tail_to_width(text, max_len)
 }
 
 pub(crate) fn build_body_snapshot(
@@ -415,17 +401,10 @@ pub(crate) fn build_body_snapshot(
                             Some(crate::state::task::TodoStatus::Blocked) => "[!]",
                             _ => "[ ]",
                         },
-                        text: if todo.content.chars().count() > width.saturating_sub(8).max(8) {
-                            format!(
-                                "{}…",
-                                todo.content
-                                    .chars()
-                                    .take(width.saturating_sub(9).max(7))
-                                    .collect::<String>()
-                            )
-                        } else {
-                            todo.content.clone()
-                        },
+                        text: crate::widgets::message::truncate_to_width(
+                            &todo.content,
+                            width.saturating_sub(8).max(8),
+                        ),
                     })
                     .collect(),
             )

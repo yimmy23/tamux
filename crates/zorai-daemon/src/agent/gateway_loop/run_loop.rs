@@ -101,6 +101,7 @@ impl AgentEngine {
         let mut task_tick = tokio::time::interval(std::time::Duration::from_secs(
             config.task_poll_interval_secs,
         ));
+        let mut internal_events = self.internal_event_tx.subscribe();
 
         loop {
             tokio::select! {
@@ -111,6 +112,30 @@ impl AgentEngine {
                     self.clone().dispatch_goal_runs().await;
                     if let Err(error) = self.clone().dispatch_ready_tasks().await {
                         tracing::error!("agent task error: {error}");
+                    }
+                }
+                // Any task reaching a terminal status may unblock queued work
+                // (parents waiting on subagents, dependency chains); dispatch
+                // immediately instead of waiting for the next poll tick. Drain
+                // queued events first so a burst of completions costs one pass.
+                event = internal_events.recv() => {
+                    match event {
+                        Ok(_) => {
+                            while internal_events.try_recv().is_ok() {}
+                            self.clone().dispatch_goal_runs().await;
+                            if let Err(error) = self.clone().dispatch_ready_tasks().await {
+                                tracing::error!("agent task error: {error}");
+                            }
+                        }
+                        // Lagged: events were dropped, but a dispatch pass covers
+                        // whatever they signalled. Run one.
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            self.clone().dispatch_goal_runs().await;
+                            if let Err(error) = self.clone().dispatch_ready_tasks().await {
+                                tracing::error!("agent task error: {error}");
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     }
                 }
                 _ = shutdown.changed() => break,
@@ -368,11 +393,55 @@ impl AgentEngine {
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) {
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(SUPERVISOR_TICK_SECS));
+        let mut internal_events = self.internal_event_tx.subscribe();
 
         loop {
             tokio::select! {
                 _ = tick.tick() => {
                     self.run_subagent_supervision_tick().await;
+                }
+                event = internal_events.recv() => {
+                    match event {
+                        Ok(first) => {
+                            // A subagent reached a terminal status; reconcile its
+                            // parent immediately rather than waiting up to a full
+                            // supervision interval.
+                            let mut run_early_tick = match &first {
+                                crate::agent::internal_event::InternalAgentEvent::TaskTerminal {
+                                    task_id,
+                                    parent_task_id: Some(parent_task_id),
+                                    status,
+                                } => {
+                                    tracing::debug!(
+                                        %task_id,
+                                        %parent_task_id,
+                                        ?status,
+                                        "subagent reached terminal status; running supervision tick early"
+                                    );
+                                    true
+                                }
+                                _ => false,
+                            };
+                            // Coalesce a burst of completions into one tick: the
+                            // tick scans every supervised in-progress task, so a
+                            // single run covers all already-queued events.
+                            while let Ok(next) = internal_events.try_recv() {
+                                run_early_tick |= matches!(
+                                    next,
+                                    crate::agent::internal_event::InternalAgentEvent::TaskTerminal {
+                                        parent_task_id: Some(_),
+                                        ..
+                                    }
+                                );
+                            }
+                            if run_early_tick {
+                                self.run_subagent_supervision_tick().await;
+                            }
+                        }
+                        // Lagged or closed: the periodic tick is the safety net.
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
                 }
                 _ = shutdown.changed() => break,
             }

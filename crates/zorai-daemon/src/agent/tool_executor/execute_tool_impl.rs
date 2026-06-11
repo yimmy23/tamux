@@ -357,7 +357,16 @@ async fn maybe_emit_openapi_synthesis_proposal_notice(
         return;
     }
 
-    let body = if let Some((_, body)) = content.split_once("\n\n") {
+    let saved_to = content
+        .lines()
+        .find_map(|line| line.strip_prefix("- saved_to: "))
+        .map(str::trim);
+    let body = if let Some(saved_path) = saved_to {
+        match tokio::fs::read_to_string(saved_path).await {
+            Ok(saved) => saved.trim().to_string(),
+            Err(_) => return,
+        }
+    } else if let Some((_, body)) = content.split_once("\n\n") {
         body.trim().to_string()
     } else if content.starts_with("HTTP ") {
         content
@@ -2196,7 +2205,7 @@ async fn dispatch_tool_execution(
                 .unwrap_or("auto")
                 .to_string();
             drop(config);
-            execute_fetch_url(args, agent, http_client, &browse_provider).await
+            execute_fetch_url(args, agent, http_client, &browse_provider, thread_id).await
         }
         tool_names::SETUP_WEB_BROWSING => execute_setup_web_browsing(args, agent).await,
         tool_names::PLUGIN_API_CALL => {

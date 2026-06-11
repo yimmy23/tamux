@@ -421,6 +421,29 @@ fn deepseek_provider_uses_expected_defaults() {
 }
 
 #[test]
+fn xiaomi_mimo_platform_provider_uses_expected_defaults() {
+    let provider = find_by_id("xiaomi-mimo").unwrap();
+    assert_eq!(provider.name, "Xiaomi MiMo");
+    assert_eq!(provider.default_base_url, "https://api.xiaomimimo.com/v1");
+    assert_eq!(provider.default_model, "mimo-v2.5-pro");
+    assert_eq!(provider.default_auth_source, "api_key");
+    assert_eq!(provider.supported_auth_sources, API_KEY_ONLY_AUTH_SOURCES);
+    assert_eq!(provider.default_transport, "chat_completions");
+    assert_eq!(
+        provider.supported_transports,
+        &["chat_completions", "anthropic_messages"]
+    );
+    assert_eq!(
+        known_context_window_for("xiaomi-mimo", "mimo-v2.5-pro"),
+        Some(1_000_000)
+    );
+    assert!(!supports_model_fetch_for("xiaomi-mimo"));
+    let models = known_models_for_provider("xiaomi-mimo");
+    assert_eq!(models.len(), 10);
+    assert!(models.iter().any(|model| model.id == "mimo-v2.5-pro"));
+}
+
+#[test]
 fn xiaomi_mimo_provider_uses_expected_defaults() {
     let provider = find_by_id("xiaomi-mimo-token-plan").unwrap();
     assert_eq!(provider.name, "Xiaomi MiMo Token Plan");

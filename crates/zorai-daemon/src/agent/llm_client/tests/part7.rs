@@ -59,6 +59,128 @@ fn anthropic_request_defaults_to_top_level_ephemeral_cache_control() {
 }
 
 #[test]
+fn anthropic_request_pins_system_prefix_with_long_lived_cache_breakpoint_for_claude() {
+    let client = reqwest::Client::new();
+    let config = ProviderConfig {
+        base_url: "https://api.anthropic.com".to_string(),
+        model: "claude-sonnet-4-6".to_string(),
+        api_key: "secret".to_string(),
+        assistant_id: String::new(),
+        auth_source: AuthSource::ApiKey,
+        api_transport: ApiTransport::ChatCompletions,
+        reasoning_effort: "off".to_string(),
+        context_window_tokens: 0,
+        response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
+    };
+    let request = build_anthropic_request(
+        &client,
+        "anthropic",
+        &config,
+        "you are a stable system prompt",
+        &[ApiMessage {
+            role: "user".to_string(),
+            content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
+            tool_call_id: None,
+            name: None,
+            tool_calls: None,
+        }],
+        &[],
+        false,
+    )
+    .expect("request should build");
+
+    let body: serde_json::Value = serde_json::from_slice(
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
+    )
+    .expect("json body");
+
+    // Tools render before `system`, so a breakpoint here caches tools + system
+    // as one stable segment, separate from the volatile message tail.
+    let system_block = &body["system"][0];
+    assert_eq!(system_block["type"], "text");
+    assert_eq!(system_block["text"], "you are a stable system prompt");
+    assert_eq!(system_block["cache_control"]["type"], "ephemeral");
+}
+
+#[test]
+fn anthropic_request_keeps_string_system_for_non_claude_providers() {
+    let client = reqwest::Client::new();
+    let config = ProviderConfig {
+        base_url: "https://example.com".to_string(),
+        model: "some-other-model".to_string(),
+        api_key: "secret".to_string(),
+        assistant_id: String::new(),
+        auth_source: AuthSource::ApiKey,
+        api_transport: ApiTransport::ChatCompletions,
+        reasoning_effort: "off".to_string(),
+        context_window_tokens: 0,
+        response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
+    };
+    let request = build_anthropic_request(
+        &client,
+        "anthropic",
+        &config,
+        "system",
+        &[ApiMessage {
+            role: "user".to_string(),
+            content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
+            tool_call_id: None,
+            name: None,
+            tool_calls: None,
+        }],
+        &[],
+        false,
+    )
+    .expect("request should build");
+
+    let body: serde_json::Value = serde_json::from_slice(
+        request
+            .body()
+            .and_then(|body| body.as_bytes())
+            .expect("body bytes"),
+    )
+    .expect("json body");
+    assert_eq!(body["system"], "system");
+}
+
+#[test]
 fn anthropic_request_includes_sampling_and_stop_sequence_fields_when_configured() {
     let client = reqwest::Client::new();
     let config = ProviderConfig {

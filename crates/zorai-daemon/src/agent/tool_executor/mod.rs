@@ -14,6 +14,7 @@ mod part_b;
 mod part_c;
 #[path = "catalog/part_d.rs"]
 mod part_d;
+mod deferred_tools;
 mod prelude;
 mod result_metadata;
 mod search_runtime;
@@ -347,6 +348,7 @@ pub(crate) async fn execute_media_tool_for_ipc(
     }
 }
 
+pub(crate) use deferred_tools::*;
 pub use execute_tool_impl::*;
 pub(crate) use file_tools::*;
 pub(crate) use gateway_workspace::*;
@@ -378,3 +380,52 @@ pub(crate) use workspace_task_tools::*;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod schema_token_budget {
+    /// Every tool schema rides in every LLM request. This ceiling exists so a
+    /// new or expanded tool cannot silently inflate the per-turn fixed cost;
+    /// raise it only as a deliberate decision. Run with `--nocapture` to see
+    /// the per-tool size breakdown when it trips.
+    const MAX_TOTAL_SCHEMA_CHARS: usize = 95_000;
+    const MAX_SINGLE_SCHEMA_CHARS: usize = 2_600;
+
+    #[test]
+    fn tool_schemas_stay_within_token_budget() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = crate::agent::AgentConfig::default();
+        let tools = super::get_available_tools(&config, tmp.path(), true);
+        let mut sizes: Vec<(usize, String)> = tools
+            .iter()
+            .map(|t| {
+                (
+                    serde_json::to_string(t).unwrap().chars().count(),
+                    t.function.name.clone(),
+                )
+            })
+            .collect();
+        sizes.sort_by(|a, b| b.0.cmp(&a.0));
+        let total: usize = sizes.iter().map(|(s, _)| s).sum();
+        println!(
+            "TOTAL {} tools, {} chars (~{} tokens)",
+            sizes.len(),
+            total,
+            total / 4
+        );
+        for (size, name) in &sizes {
+            println!("{:>7} chars (~{:>5} tok)  {}", size, size / 4, name);
+        }
+        assert!(
+            total <= MAX_TOTAL_SCHEMA_CHARS,
+            "tool schemas total {total} chars (~{} tokens), over the {MAX_TOTAL_SCHEMA_CHARS}-char budget; trim descriptions or gate tools",
+            total / 4,
+        );
+        if let Some((size, name)) = sizes.first() {
+            assert!(
+                *size <= MAX_SINGLE_SCHEMA_CHARS,
+                "tool `{name}` serializes to {size} chars (~{} tokens); single-tool ceiling is {MAX_SINGLE_SCHEMA_CHARS}",
+                size / 4,
+            );
+        }
+    }
+}

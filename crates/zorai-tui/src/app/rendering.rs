@@ -1299,11 +1299,10 @@ impl TuiModel {
 
         let active_drag_selection = self.chat_drag_anchor.is_some() && mouse_selection.is_some();
         if active_drag_selection {
-            if let Some(snapshot) = self
-                .chat_selection_snapshot
-                .as_ref()
-                .filter(|snapshot| widgets::chat::cached_snapshot_matches_area(snapshot, area))
-            {
+            if let Some(snapshot) = self.chat_selection_snapshot.as_ref().filter(|snapshot| {
+                widgets::chat::cached_snapshot_matches_area(snapshot, area)
+                    && widgets::chat::cached_snapshot_covers_window(snapshot, &self.chat)
+            }) {
                 widgets::chat::render_cached(
                     frame,
                     area,
@@ -1409,6 +1408,9 @@ impl TuiModel {
     pub(crate) fn terminal_image_overlay_spec(
         &self,
     ) -> Option<crate::terminal_graphics::TerminalImageOverlaySpec> {
+        if self.modal.top().is_some() {
+            return None;
+        }
         let layout = self.pane_layout();
         match &self.main_pane_view {
             MainPaneView::FilePreview(target) => {
@@ -1666,7 +1668,7 @@ impl TuiModel {
                         self.sidebar_snapshot = Some(snapshot.clone());
                         snapshot
                     });
-                widgets::sidebar::render_cached(
+                self.sidebar_body_area = widgets::sidebar::render_cached(
                     frame,
                     sidebar_area,
                     &self.chat,
@@ -1677,7 +1679,8 @@ impl TuiModel {
                     &self.tier,
                     &self.recent_actions,
                     &sidebar_snapshot,
-                );
+                )
+                .map(|body| (sidebar_area, body));
             }
         } else {
             match &self.main_pane_view {

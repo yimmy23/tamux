@@ -5,17 +5,8 @@ impl TuiModel {
         self.pending_prompt_response_threads.remove(thread_id);
     }
 
-    pub(crate) fn should_preserve_pending_thinking_activity_on_reload(
-        &self,
-        thread_id: &str,
-    ) -> bool {
-        if self
-            .thread_agent_activity
-            .get(thread_id)
-            .map(String::as_str)
-            != Some("thinking")
-            || self.chat.is_streaming()
-        {
+    pub(crate) fn should_preserve_pending_activity_on_reload(&self, thread_id: &str) -> bool {
+        if !self.thread_agent_activity.contains_key(thread_id) || self.chat.is_streaming() {
             return false;
         }
 
@@ -24,6 +15,10 @@ impl TuiModel {
         }
 
         if self.bootstrap_pending_activity_threads.contains(thread_id) {
+            return true;
+        }
+
+        if self.chat.active_thread_id() == Some(thread_id) && self.chat.has_running_tool_calls() {
             return true;
         }
 

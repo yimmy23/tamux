@@ -185,18 +185,21 @@ pub(crate) fn build_rendered_lines(
             });
         }
         let wrap_width = content_width;
-        let wrapped_lines = render_streaming_markdown(content, wrap_width);
+        let mut wrapped_lines = render_streaming_markdown(content, wrap_width);
+        if wrapped_lines.is_empty() {
+            wrapped_lines.push(Line::default());
+        }
 
-        for md_line in wrapped_lines.into_iter() {
+        let last_idx = wrapped_lines.len().saturating_sub(1);
+        for (idx, mut md_line) in wrapped_lines.into_iter().enumerate() {
+            if idx == last_idx {
+                md_line.spans.push(Span::raw("\u{2588}"));
+            }
             all_lines.push(RenderedChatLine {
                 line: pad_message_line(md_line, inner_width, assistant_style),
                 message_index: None,
                 kind: RenderedLineKind::Streaming,
             });
-        }
-
-        if let Some(last) = all_lines.last_mut() {
-            last.line.spans.push(Span::raw("\u{2588}"));
         }
     }
 
@@ -939,16 +942,20 @@ pub(crate) fn render_streaming_retry_lines(
                 kind: RenderedLineKind::Streaming,
             });
         }
-        for md_line in render_streaming_markdown(content, content_width).into_iter() {
+        let mut md_lines = render_streaming_markdown(content, content_width);
+        if md_lines.is_empty() {
+            md_lines.push(Line::default());
+        }
+        let last_idx = md_lines.len().saturating_sub(1);
+        for (idx, mut md_line) in md_lines.into_iter().enumerate() {
+            if idx == last_idx {
+                md_line.spans.push(Span::raw("\u{2588}"));
+            }
             all_lines.push(RenderedChatLine {
                 line: pad_message_line(md_line, inner_width, assistant_style),
                 message_index: None,
                 kind: RenderedLineKind::Streaming,
             });
-        }
-
-        if let Some(last) = all_lines.last_mut() {
-            last.line.spans.push(Span::raw("\u{2588}"));
         }
     }
 
@@ -1154,6 +1161,28 @@ pub fn build_selection_snapshot(
         .map(CachedSelectionSnapshot)
 }
 
+pub fn build_selection_snapshot_covering(
+    area: Rect,
+    chat: &ChatState,
+    theme: &ThemeTokens,
+    current_tick: u64,
+    retry_wait_start_selected: bool,
+    start: SelectionPoint,
+    end: SelectionPoint,
+) -> Option<CachedSelectionSnapshot> {
+    let cover_start = start.row.min(end.row);
+    let cover_end = start.row.max(end.row).saturating_add(1);
+    selection_snapshot_windowed(
+        area,
+        chat,
+        theme,
+        current_tick,
+        retry_wait_start_selected,
+        Some((cover_start, cover_end)),
+    )
+    .map(CachedSelectionSnapshot)
+}
+
 pub fn cached_snapshot_matches_area(snapshot: &CachedSelectionSnapshot, area: Rect) -> bool {
     snapshot.0.inner == content_inner(area)
 }
@@ -1166,7 +1195,7 @@ pub fn cached_snapshot_matches_render(
     retry_wait_start_selected: bool,
 ) -> bool {
     snapshot.0.key == render_cache_key(area, chat, current_tick, retry_wait_start_selected)
-        && snapshot_covers_visible_window(&snapshot.0, chat)
+        && cached_snapshot_covers_window(snapshot, chat)
 }
 
 pub fn cached_snapshot_matches_render_key(
@@ -1178,6 +1207,10 @@ pub fn cached_snapshot_matches_render_key(
 ) -> bool {
     let _ = (current_tick, retry_wait_start_selected);
     snapshot.0.metrics_key == transcript_metrics_cache_key(area, chat)
+}
+
+pub fn cached_snapshot_covers_window(snapshot: &CachedSelectionSnapshot, chat: &ChatState) -> bool {
+    snapshot_covers_visible_window(&snapshot.0, chat)
 }
 
 pub(crate) fn snapshot_covers_visible_window(
@@ -1302,7 +1335,7 @@ pub fn selected_text_from_cached_snapshot(
     }
 
     let (start_point, end_point) =
-        if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+        if start.row < end.row || (start.row == end.row && start.col <= end.col) {
             (start, end)
         } else {
             (end, start)

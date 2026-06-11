@@ -34,7 +34,7 @@ pub fn status_bar_hit_test(
 
     if voice_playing {
         x = x.saturating_add(2);
-        x = x.saturating_add("🔊 PLAYING".chars().count() as u16);
+        x = x.saturating_add(unicode_width::UnicodeWidthStr::width("🔊 PLAYING") as u16);
     }
 
     let _ = connected;

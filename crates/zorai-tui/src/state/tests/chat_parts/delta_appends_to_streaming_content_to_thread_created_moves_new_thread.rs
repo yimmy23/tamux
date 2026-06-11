@@ -78,7 +78,7 @@ fn scroll_to_zero_unlocks() {
 }
 
 #[test]
-fn locked_scroll_offset_grows_with_streamed_newlines() {
+fn delta_leaves_locked_scroll_offset_to_viewport_anchoring() {
     let mut state = ChatState::new();
     state.reduce(ChatAction::ThreadCreated {
         thread_id: "t1".into(),
@@ -86,13 +86,25 @@ fn locked_scroll_offset_grows_with_streamed_newlines() {
     });
     state.reduce(ChatAction::ScrollChat(4));
 
+    let metrics_revision_before = state.transcript_metrics_revision();
     state.reduce(ChatAction::Delta {
         thread_id: "t1".into(),
         content: "\nnext\nchunk".into(),
     });
 
-    assert_eq!(state.scroll_offset(), 6);
+    assert_eq!(
+        state.scroll_offset(),
+        4,
+        "raw newline counts diverge from wrapped line counts; the app layer \
+         re-anchors the viewport from rendered metrics instead"
+    );
     assert!(state.scroll_locked());
+    assert_eq!(
+        state.transcript_metrics_revision(),
+        metrics_revision_before,
+        "deltas must keep cached stored-message metrics valid; only the streaming \
+         tail is recomputed on top of them"
+    );
 }
 
 #[test]

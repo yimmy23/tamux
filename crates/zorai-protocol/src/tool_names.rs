@@ -111,6 +111,7 @@ pub const LIST_TODOS: &str = "list_todos";
 pub const LIST_TRIGGER_FIRE_HISTORY: &str = "list_trigger_fire_history";
 pub const LIST_TRIGGERS: &str = "list_triggers";
 pub const LIST_WORKSPACES: &str = "list_workspaces";
+pub const LOAD_TOOLS: &str = "load_tools";
 pub const LOOKUP_EMERGENT_PROTOCOL: &str = "lookup_emergent_protocol";
 pub const MESSAGE_AGENT: &str = "message_agent";
 pub const NOTIFY_USER: &str = "notify_user";

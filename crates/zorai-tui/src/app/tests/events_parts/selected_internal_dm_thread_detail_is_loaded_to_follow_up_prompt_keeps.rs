@@ -437,3 +437,48 @@ fn follow_up_prompt_keeps_thinking_across_reload_after_stale_thread_detail_repla
         "reload should preserve thinking even if a stale thread detail temporarily drops the optimistic prompt tail"
     );
 }
+
+#[test]
+fn reload_preserves_activity_after_workflow_notice_replaces_thinking() {
+    let (mut model, _daemon_rx) = make_model_with_daemon_rx();
+    model.connected = true;
+    model.handle_client_event(ClientEvent::ThreadDetail(Some(crate::wire::AgentThread {
+        id: "thread-user".to_string(),
+        title: "User Thread".to_string(),
+        messages: vec![crate::wire::AgentMessage {
+            role: crate::wire::MessageRole::User,
+            content: "First question".to_string(),
+            timestamp: 1,
+            message_kind: "normal".to_string(),
+            ..Default::default()
+        }],
+        created_at: 1,
+        updated_at: 1,
+        ..Default::default()
+    })));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-user".to_string()));
+
+    model.submit_prompt("follow-up question".to_string());
+    assert_eq!(model.footer_activity_text().as_deref(), Some("thinking"));
+
+    model.handle_client_event(ClientEvent::WorkflowNotice {
+        thread_id: Some("thread-user".to_string()),
+        kind: "skill-discovery-recommended".to_string(),
+        message: "skill guidance ready".to_string(),
+        details: None,
+    });
+    assert_eq!(model.footer_activity_text().as_deref(), Some("skill review"));
+
+    model.handle_client_event(ClientEvent::ThreadReloadRequired {
+        thread_id: "thread-user".to_string(),
+    });
+
+    assert_eq!(
+        model.footer_activity_text().as_deref(),
+        Some("skill review"),
+        "reload must not blank the busy indicator while a prompt response is still in flight, \
+         even after a workflow notice replaced the thinking activity"
+    );
+}

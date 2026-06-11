@@ -32,7 +32,7 @@ pub(crate) fn selected_text(
         show_files,
     )?;
     let (start_point, end_point) =
-        if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+        if start.row < end.row || (start.row == end.row && start.col <= end.col) {
             (start, end)
         } else {
             (end, start)
@@ -113,7 +113,7 @@ pub(crate) fn render(
     if let Some(layout) = scrollbar_layout_from_metrics(inner, lines.len(), scroll) {
         if let Some((start, end)) = mouse_selection {
             let (start_point, end_point) =
-                if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+                if start.row < end.row || (start.row == end.row && start.col <= end.col) {
                     (start, end)
                 } else {
                     (end, start)
@@ -136,9 +136,12 @@ pub(crate) fn render(
                 }
             }
         }
-        let lines = lines.into_iter().map(|row| row.line).collect::<Vec<_>>();
-        let paragraph = Paragraph::new(lines).scroll((layout.scroll as u16, 0));
-        frame.render_widget(paragraph, layout.content);
+        let lines = lines
+            .into_iter()
+            .skip(layout.scroll)
+            .map(|row| row.line)
+            .collect::<Vec<_>>();
+        frame.render_widget(Paragraph::new(lines), layout.content);
 
         let scrollbar_lines = (0..layout.scrollbar.height)
             .map(|offset| {
@@ -163,7 +166,7 @@ pub(crate) fn render(
     // a second row-build pass).
     if let Some((start, end)) = mouse_selection {
         let (start_point, end_point) =
-            if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+            if start.row < end.row || (start.row == end.row && start.col <= end.col) {
                 (start, end)
             } else {
                 (end, start)
@@ -187,9 +190,12 @@ pub(crate) fn render(
         }
     }
     let max_scroll = lines.len().saturating_sub(inner.height as usize);
-    let lines = lines.into_iter().map(|row| row.line).collect::<Vec<_>>();
-    let paragraph = Paragraph::new(lines).scroll((scroll.min(max_scroll) as u16, 0));
-    frame.render_widget(paragraph, inner);
+    let lines = lines
+        .into_iter()
+        .skip(scroll.min(max_scroll))
+        .map(|row| row.line)
+        .collect::<Vec<_>>();
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 pub(crate) fn max_scroll(
@@ -206,62 +212,7 @@ pub(crate) fn max_scroll(
         return 0;
     }
 
-    scrollbar_layout(
-        area,
-        tasks,
-        target,
-        theme,
-        0,
-        show_live_todos,
-        show_timeline,
-        show_files,
-    )
-    .map(|layout| layout.max_scroll)
-    .unwrap_or_else(|| {
-        let rows = rows_for_width(
-            tasks,
-            target,
-            theme,
-            inner.width as usize,
-            show_live_todos,
-            show_timeline,
-            show_files,
-            None,
-        );
-        rows.len().saturating_sub(inner.height as usize)
-    })
-}
-
-pub(crate) fn scrollbar_layout(
-    area: Rect,
-    tasks: &TaskState,
-    target: &SidebarItemTarget,
-    theme: &ThemeTokens,
-    scroll: usize,
-    show_live_todos: bool,
-    show_timeline: bool,
-    show_files: bool,
-) -> Option<TaskViewScrollbarLayout> {
-    let inner = content_inner(area);
-    if inner.width <= SCROLLBAR_WIDTH || inner.height == 0 {
-        return None;
-    }
-
-    let full_rows = rows_for_width(
-        tasks,
-        target,
-        theme,
-        inner.width as usize,
-        show_live_todos,
-        show_timeline,
-        show_files,
-        None,
-    );
-    if full_rows.len() <= inner.height as usize {
-        return None;
-    }
-
-    let content_width = inner.width.saturating_sub(SCROLLBAR_WIDTH) as usize;
+    let content_width = inner.width.saturating_sub(SCROLLBAR_WIDTH).max(1) as usize;
     let rows = rows_for_width(
         tasks,
         target,
@@ -272,5 +223,7 @@ pub(crate) fn scrollbar_layout(
         show_files,
         None,
     );
-    scrollbar_layout_from_metrics(inner, rows.len(), scroll)
+    scrollbar_layout_from_metrics(inner, rows.len(), 0)
+        .map(|layout| layout.max_scroll)
+        .unwrap_or_else(|| rows.len().saturating_sub(inner.height as usize))
 }

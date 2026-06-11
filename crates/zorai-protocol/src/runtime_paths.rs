@@ -37,6 +37,10 @@ pub fn thread_artifacts_dir(root: &Path, thread_id: &str) -> PathBuf {
     thread_root_dir(root, thread_id).join("artifacts")
 }
 
+pub fn thread_inventory_dir(root: &Path, thread_id: &str) -> PathBuf {
+    thread_root_dir(root, thread_id).join("inventory")
+}
+
 pub fn thread_specs_dir(root: &Path, thread_id: &str) -> PathBuf {
     thread_artifacts_dir(root, thread_id).join("specs")
 }

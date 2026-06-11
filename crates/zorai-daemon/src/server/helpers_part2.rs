@@ -199,21 +199,7 @@ fn normalize_session_tag(value: &str) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
-fn utf8_prefix(input: &str, end: usize) -> &str {
-    let mut end = end.min(input.len());
-    while end > 0 && !input.is_char_boundary(end) {
-        end -= 1;
-    }
-    &input[..end]
-}
-
-fn utf8_suffix(input: &str, start: usize) -> &str {
-    let mut start = start.min(input.len());
-    while start < input.len() && !input.is_char_boundary(start) {
-        start += 1;
-    }
-    &input[start..]
-}
+use zorai_shared::text::{utf8_prefix, utf8_suffix};
 
 fn cap_vec_prefix_for_ipc<T, F>(items: Vec<T>, fits: F) -> (Vec<T>, bool)
 where

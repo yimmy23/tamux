@@ -720,6 +720,10 @@ impl<'a> SendMessageRunner<'a> {
     }
 
     async fn execute_tool_call(&mut self, tc: &ToolCall) -> ToolResult {
+        if tc.function.name == zorai_protocol::tool_names::LOAD_TOOLS {
+            return self.handle_load_tools(tc);
+        }
+        self.activate_deferred_tool(&tc.function.name);
         let current_tool_signature = normalized_tool_signature(tc);
         let has_active_subagents = self.current_task_has_active_subagents().await;
         if should_suppress_busy_wait_poll(
@@ -819,6 +823,82 @@ impl<'a> SendMessageRunner<'a> {
         };
         self.previous_tool_signature = Some(current_tool_signature);
         result
+    }
+
+    fn activate_deferred_tool(&mut self, name: &str) {
+        if self.tools.iter().any(|tool| tool.function.name == name) {
+            return;
+        }
+        if let Some(def) = self
+            .deferred_tool_pool
+            .iter()
+            .find(|tool| tool.function.name == name)
+            .cloned()
+        {
+            self.tools.push(def);
+        }
+    }
+
+    fn handle_load_tools(&mut self, tc: &ToolCall) -> ToolResult {
+        let names: Vec<String> = serde_json::from_str::<serde_json::Value>(&tc.function.arguments)
+            .ok()
+            .and_then(|value| {
+                value.get("names").and_then(|names| names.as_array()).map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().map(str::to_string))
+                        .collect()
+                })
+            })
+            .unwrap_or_default();
+
+        let mut loaded = Vec::new();
+        let mut already = Vec::new();
+        let mut unknown = Vec::new();
+        for name in &names {
+            if self.tools.iter().any(|tool| &tool.function.name == name) {
+                already.push(name.clone());
+            } else if let Some(def) = self
+                .deferred_tool_pool
+                .iter()
+                .find(|tool| &tool.function.name == name)
+                .cloned()
+            {
+                self.tools.push(def);
+                loaded.push(name.clone());
+            } else {
+                unknown.push(name.clone());
+            }
+        }
+
+        let mut parts = Vec::new();
+        if !loaded.is_empty() {
+            parts.push(format!(
+                "Activated and now callable: {}.",
+                loaded.join(", ")
+            ));
+        }
+        if !already.is_empty() {
+            parts.push(format!("Already active: {}.", already.join(", ")));
+        }
+        if !unknown.is_empty() {
+            parts.push(format!(
+                "Unknown or not deferrable: {}. Use tool_search to find exact names.",
+                unknown.join(", ")
+            ));
+        }
+        if parts.is_empty() {
+            parts.push("No tool names provided.".to_string());
+        }
+
+        ToolResult {
+            tool_call_id: tc.id.clone(),
+            name: tc.function.name.clone(),
+            content: parts.join(" "),
+            is_error: loaded.is_empty() && already.is_empty(),
+            weles_review: tc.weles_review.clone(),
+            pending_approval: None,
+        }
     }
 
     fn record_tool_trace(&mut self, tc: &ToolCall, result: &ToolResult) {

@@ -154,6 +154,75 @@ async fn archive_notifications_by_source_except_ids_updates_matching_active_rows
 }
 
 #[tokio::test]
+async fn mark_all_notifications_read_updates_every_unread_active_row_in_sql() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let unread = sample_notification("unread", 100, None, None);
+    let mut already_read = sample_notification("already-read", 110, None, None);
+    already_read.read_at = Some(115);
+    let archived = sample_notification("archived", 120, Some(125), None);
+    let deleted = sample_notification("deleted", 130, None, Some(135));
+
+    store.upsert_notification(&unread).await?;
+    store.upsert_notification(&already_read).await?;
+    store.upsert_notification(&archived).await?;
+    store.upsert_notification(&deleted).await?;
+
+    let updated = store.mark_all_notifications_read(500).await?;
+
+    assert_eq!(updated, 1);
+    let loaded = store.list_notifications(true, Some(10)).await?;
+    let by_id = loaded
+        .into_iter()
+        .map(|notification| (notification.id.clone(), notification))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    assert_eq!(by_id["unread"].read_at, Some(500));
+    assert_eq!(by_id["unread"].updated_at, 500);
+    assert_eq!(by_id["already-read"].read_at, Some(115));
+    assert_eq!(by_id["already-read"].updated_at, 110);
+    assert_eq!(by_id["archived"].read_at, None);
+    assert_eq!(by_id["deleted"].read_at, None);
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn archive_read_notifications_archives_read_rows_and_keeps_unread_visible() -> Result<()> {
+    let (store, root) = make_test_store().await?;
+    let mut read = sample_notification("read", 100, None, None);
+    read.read_at = Some(105);
+    let unread = sample_notification("unread", 110, None, None);
+    let mut already_archived = sample_notification("already-archived", 120, Some(125), None);
+    already_archived.read_at = Some(122);
+
+    store.upsert_notification(&read).await?;
+    store.upsert_notification(&unread).await?;
+    store.upsert_notification(&already_archived).await?;
+
+    let updated = store.archive_read_notifications(600).await?;
+
+    assert_eq!(updated, 1);
+    let loaded = store.list_notifications(true, Some(10)).await?;
+    let by_id = loaded
+        .into_iter()
+        .map(|notification| (notification.id.clone(), notification))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    assert_eq!(by_id["read"].archived_at, Some(600));
+    assert_eq!(by_id["read"].updated_at, 600);
+    assert_eq!(by_id["unread"].archived_at, None);
+    assert_eq!(by_id["already-archived"].archived_at, Some(125));
+
+    let active = store.list_notifications(false, Some(10)).await?;
+    assert_eq!(active.len(), 1);
+    assert_eq!(active[0].id, "unread");
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn upsert_notification_preserves_existing_read_and_archive_state() -> Result<()> {
     let (store, root) = make_test_store().await?;
     let mut archived = sample_notification("notif_1", 100, None, None);

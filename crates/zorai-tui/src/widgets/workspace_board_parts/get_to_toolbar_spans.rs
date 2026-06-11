@@ -236,7 +236,8 @@ pub(crate) fn hit_test_with_scroll(
         return None;
     }
     if position.y == inner.y {
-        return toolbar_action_at_x(inner.x, position.x).map(WorkspaceBoardHitTarget::Toolbar);
+        return toolbar_action_at_x(inner.x, position.x, workspace.projection().operator.clone())
+            .map(WorkspaceBoardHitTarget::Toolbar);
     }
     let board = board_area(inner);
     let columns = workspace_column_areas(board);

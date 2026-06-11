@@ -668,7 +668,10 @@ where
         }
         AgentBridgeCommand::InspectPrompt { agent_id } => {
             framed
-                .send(ClientMessage::AgentInspectPrompt { agent_id })
+                .send(ClientMessage::AgentInspectPrompt {
+                    agent_id,
+                    client_surface: Some(zorai_protocol::ClientSurface::Tui),
+                })
                 .await?;
         }
         AgentBridgeCommand::SetTierOverride { tier } => {

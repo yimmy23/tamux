@@ -56,17 +56,7 @@ pub(crate) fn pinned_message_role_label(role: MessageRole) -> &'static str {
 pub(crate) fn pinned_message_snippet(content: &str, width: usize) -> String {
     let compact = content.split_whitespace().collect::<Vec<_>>().join(" ");
     let max_len = width.saturating_sub(18).max(8);
-    if compact.chars().count() > max_len {
-        format!(
-            "{}…",
-            compact
-                .chars()
-                .take(max_len.saturating_sub(1))
-                .collect::<String>()
-        )
-    } else {
-        compact
-    }
+    crate::widgets::message::truncate_to_width(&compact, max_len)
 }
 
 pub(crate) fn active_thread_pinned_rows(chat: &ChatState) -> PinnedSidebarRows {
@@ -356,10 +346,7 @@ pub(crate) fn recent_actions_lines(
             "morning_brief" => "\u{2600}",
             _ => "\u{25CB}",
         };
-        let mut summary = action.summary.clone();
-        if summary.chars().count() > 40 {
-            summary = format!("{}...", summary.chars().take(37).collect::<String>());
-        }
+        let summary = crate::widgets::message::truncate_to_width(&action.summary, 40);
         lines.push(Line::from(vec![
             Span::styled("  ", theme.fg_dim),
             Span::styled(icon.to_string(), theme.fg_dim),

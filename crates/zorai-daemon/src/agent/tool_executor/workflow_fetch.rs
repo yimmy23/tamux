@@ -293,13 +293,440 @@ pub(crate) async fn resolve_skill_context_tags(
         .unwrap_or_default()
 }
 
+const FETCH_URL_PYTHON_SCRIPT: &str = r##"
+import json, mimetypes, re, sys, urllib.error, urllib.request
+from html.parser import HTMLParser
+
+
+class MarkdownExtractor(HTMLParser):
+    SKIP = {"script", "style", "noscript", "template", "head", "svg", "iframe"}
+    HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out = []
+        self.skip_depth = 0
+        self.title = ""
+        self.in_title = False
+        self.in_pre = False
+        self.href = None
+        self.list_stack = []
+        self.no_space = False
+
+    def open_inline(self, marker):
+        if self.out and not self.out[-1].endswith((" ", "\n", "(")):
+            self.out.append(" ")
+        self.out.append(marker)
+        self.no_space = True
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "title":
+            self.in_title = True
+            return
+        if tag in self.SKIP:
+            self.skip_depth += 1
+            return
+        if self.skip_depth:
+            return
+        a = dict(attrs)
+        if tag in self.HEADINGS:
+            self.out.append("\n\n" + "#" * int(tag[1]) + " ")
+        elif tag == "p":
+            self.out.append("\n\n")
+        elif tag == "br":
+            self.out.append("\n")
+        elif tag in ("ul", "ol"):
+            self.list_stack.append(tag)
+            self.out.append("\n")
+        elif tag == "li":
+            marker = "1." if self.list_stack and self.list_stack[-1] == "ol" else "-"
+            indent = "  " * max(len(self.list_stack) - 1, 0)
+            self.out.append("\n" + indent + marker + " ")
+        elif tag == "a":
+            self.href = a.get("href")
+        elif tag in ("strong", "b"):
+            self.open_inline("**")
+        elif tag in ("em", "i"):
+            self.open_inline("*")
+        elif tag == "code" and not self.in_pre:
+            self.open_inline("`")
+        elif tag == "pre":
+            self.in_pre = True
+            self.out.append("\n\n```\n")
+        elif tag == "blockquote":
+            self.out.append("\n\n> ")
+        elif tag in ("td", "th"):
+            self.out.append(" | ")
+        elif tag == "img":
+            alt = a.get("alt") or ""
+            src = a.get("src") or ""
+            if src:
+                self.out.append("![" + alt + "](" + src + ")")
+        elif tag in ("div", "section", "article", "header", "footer", "table", "tr"):
+            self.out.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag == "title":
+            self.in_title = False
+            return
+        if tag in self.SKIP:
+            self.skip_depth = max(self.skip_depth - 1, 0)
+            return
+        if self.skip_depth:
+            return
+        if tag in ("ul", "ol"):
+            if self.list_stack:
+                self.list_stack.pop()
+            self.out.append("\n")
+        elif tag == "a":
+            if self.href:
+                self.out.append(" (" + self.href + ")")
+            self.href = None
+        elif tag in ("strong", "b"):
+            self.out.append("**")
+        elif tag in ("em", "i"):
+            self.out.append("*")
+        elif tag == "code" and not self.in_pre:
+            self.out.append("`")
+        elif tag == "pre":
+            self.in_pre = False
+            self.out.append("\n```\n")
+        elif tag in self.HEADINGS or tag in ("p", "blockquote"):
+            self.out.append("\n")
+
+    def handle_data(self, data):
+        if self.in_title:
+            self.title += data.strip()
+            return
+        if self.skip_depth:
+            return
+        if self.in_pre:
+            self.out.append(data)
+            return
+        text = " ".join(data.split())
+        if not text:
+            return
+        if self.no_space:
+            self.no_space = False
+        elif self.out and not self.out[-1].endswith((" ", "\n", "(", "#", ">")):
+            self.out.append(" ")
+        self.out.append(text)
+
+
+def main():
+    url, out_base, timeout_s, preview_cap = (
+        sys.argv[1],
+        sys.argv[2],
+        float(sys.argv[3]),
+        int(sys.argv[4]),
+    )
+    if not url.lower().startswith(("http://", "https://")):
+        print(json.dumps({"error": "only http(s) URLs are supported"}))
+        return
+    request = urllib.request.Request(url, headers={"User-Agent": "zorai-agent/0.1"})
+    try:
+        response = urllib.request.urlopen(request, timeout=timeout_s)
+    except urllib.error.HTTPError as error:
+        response = error
+    with response:
+        status = getattr(response, "status", None) or getattr(response, "code", 0)
+        content_type = response.headers.get_content_type()
+        charset = response.headers.get_content_charset() or "utf-8"
+        data = response.read()
+
+    title = ""
+    converted = False
+    if content_type in ("text/html", "application/xhtml+xml"):
+        extractor = MarkdownExtractor()
+        extractor.feed(data.decode(charset, errors="replace"))
+        extractor.close()
+        text = re.sub(r"\n{3,}", "\n\n", "".join(extractor.out)).strip() + "\n"
+        title = extractor.title
+        header = "<!-- source: " + url + " -->\n\n"
+        if title:
+            header += "# " + title + "\n\n"
+        text = header + text
+        path = out_base + ".md"
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        converted = True
+        preview = text
+    elif content_type.startswith("text/") or "json" in content_type or "xml" in content_type or "javascript" in content_type:
+        text = data.decode(charset, errors="replace")
+        ext = ".json" if "json" in content_type else (".xml" if "xml" in content_type else ".txt")
+        path = out_base + ext
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        preview = text
+    else:
+        ext = mimetypes.guess_extension(content_type) or ".bin"
+        path = out_base + ext
+        with open(path, "wb") as handle:
+            handle.write(data)
+        preview = ""
+
+    print(
+        json.dumps(
+            {
+                "path": path,
+                "status": status,
+                "content_type": content_type,
+                "bytes": len(data),
+                "title": title,
+                "converted": converted,
+                "preview": preview[:preview_cap],
+            }
+        )
+    )
+
+
+main()
+"##;
+
+async fn resolve_fetch_python_binary() -> Option<&'static str> {
+    for candidate in ["python3", "python"] {
+        let available = tokio::process::Command::new(candidate)
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await
+            .is_ok_and(|status| status.success());
+        if available {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn fetch_inventory_file_base(inventory_dir: &std::path::Path, url: &str) -> std::path::PathBuf {
+    let stem: String = url
+        .trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let mut collapsed = String::with_capacity(stem.len());
+    for c in stem.chars() {
+        if c == '-' && collapsed.ends_with('-') {
+            continue;
+        }
+        collapsed.push(c);
+    }
+    let trimmed: String = collapsed.trim_matches('-').chars().take(60).collect();
+    let stem = if trimmed.is_empty() {
+        "page".to_string()
+    } else {
+        trimmed
+    };
+    inventory_dir.join(format!("fetch-{stem}-{}", crate::agent::now_millis()))
+}
+
+fn fetch_preview_cap(args: &serde_json::Value) -> usize {
+    args.get("max_length")
+        .and_then(|value| value.as_u64())
+        .map(|value| (value as usize).min(4_000))
+        .unwrap_or(800)
+}
+
+#[derive(serde::Deserialize)]
+struct PythonFetchOutcome {
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    path: String,
+    #[serde(default)]
+    status: u32,
+    #[serde(default)]
+    content_type: String,
+    #[serde(default)]
+    bytes: u64,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    converted: bool,
+    #[serde(default)]
+    preview: String,
+}
+
+fn format_saved_fetch_result(
+    url: &str,
+    path: &str,
+    status: Option<u32>,
+    content_type: &str,
+    bytes: u64,
+    title: &str,
+    converted: bool,
+    preview: &str,
+) -> String {
+    let mut lines = vec![format!("Fetched {url}"), format!("- saved_to: {path}")];
+    if let Some(status) = status {
+        lines.push(format!("- http_status: {status}"));
+    }
+    lines.push(format!(
+        "- content_type: {content_type}{}",
+        if converted {
+            " (converted to markdown)"
+        } else {
+            ""
+        }
+    ));
+    lines.push(format!("- bytes: {bytes}"));
+    if !title.is_empty() {
+        lines.push(format!("- title: {title}"));
+    }
+    let mut rendered = lines.join("\n");
+    if !preview.trim().is_empty() {
+        rendered.push_str(&format!("\n\nPreview:\n{}", preview.trim_end()));
+    }
+    rendered.push_str("\n\nUse read_file with offset/limit on saved_to for the full content.");
+    rendered
+}
+
+async fn run_python_fetch(
+    python_bin: &str,
+    request: &FetchUrlRequest,
+    out_base: &std::path::Path,
+    preview_cap: usize,
+) -> Result<String> {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(request.timeout_seconds.saturating_add(5)),
+        tokio::process::Command::new(python_bin)
+            .arg("-c")
+            .arg(FETCH_URL_PYTHON_SCRIPT)
+            .arg(&request.url)
+            .arg(out_base.as_os_str())
+            .arg(request.timeout_seconds.to_string())
+            .arg(preview_cap.to_string())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output(),
+    )
+    .await
+    .map_err(|_| {
+        anyhow::anyhow!(
+            "fetch_url timed out after {} seconds",
+            request.timeout_seconds
+        )
+    })??;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("python fetch failed: {}", stderr.trim());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let payload = stdout
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with('{'))
+        .ok_or_else(|| anyhow::anyhow!("python fetch produced no result payload"))?;
+    let outcome: PythonFetchOutcome = serde_json::from_str(payload.trim())?;
+    if let Some(error) = outcome.error {
+        anyhow::bail!("python fetch failed: {error}");
+    }
+    Ok(format_saved_fetch_result(
+        &request.url,
+        &outcome.path,
+        Some(outcome.status),
+        &outcome.content_type,
+        outcome.bytes,
+        &outcome.title,
+        outcome.converted,
+        &outcome.preview,
+    ))
+}
+
 pub(crate) async fn execute_fetch_url(
     args: &serde_json::Value,
     agent: &AgentEngine,
     http_client: &reqwest::Client,
     browse_provider: &str,
+    thread_id: &str,
+) -> Result<String> {
+    let python_bin = resolve_fetch_python_binary().await;
+    execute_fetch_url_with_python(
+        args,
+        agent,
+        http_client,
+        browse_provider,
+        thread_id,
+        python_bin,
+    )
+    .await
+}
+
+pub(crate) async fn execute_fetch_url_with_python(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    http_client: &reqwest::Client,
+    browse_provider: &str,
+    thread_id: &str,
+    python_bin: Option<&str>,
 ) -> Result<String> {
     let request = fetch_url_request(args)?;
+    let preview_cap = fetch_preview_cap(args);
+    let inventory_dir =
+        zorai_protocol::thread_inventory_dir(agent.history.data_root(), thread_id);
+    tokio::fs::create_dir_all(&inventory_dir).await.map_err(|error| {
+        anyhow::anyhow!(
+            "create thread inventory dir {}: {error}",
+            inventory_dir.display()
+        )
+    })?;
+    let out_base = fetch_inventory_file_base(&inventory_dir, &request.url);
+
+    if request.profile_id.is_none() {
+        if let Some(python_bin) = python_bin {
+            match run_python_fetch(python_bin, &request, &out_base, preview_cap).await {
+                Ok(result) => return Ok(result),
+                Err(error) => {
+                    if is_fetch_url_timeout_error(&error) {
+                        return Err(error);
+                    }
+                    tracing::warn!(
+                        "python fetch_url failed, falling back to legacy fetch: {error}"
+                    );
+                }
+            }
+        }
+    }
+
+    let content =
+        execute_fetch_url_legacy(agent, http_client, browse_provider, &request).await?;
+    let path = out_base.with_extension("txt");
+    tokio::fs::write(&path, &content).await.map_err(|error| {
+        anyhow::anyhow!("write fetch result {}: {error}", path.display())
+    })?;
+    let preview: String = content.chars().take(preview_cap).collect();
+    Ok(format_saved_fetch_result(
+        &request.url,
+        &path.display().to_string(),
+        None,
+        "text (legacy fetch, tags stripped)",
+        content.len() as u64,
+        "",
+        false,
+        &preview,
+    ))
+}
+
+async fn execute_fetch_url_legacy(
+    agent: &AgentEngine,
+    http_client: &reqwest::Client,
+    browse_provider: &str,
+    request: &FetchUrlRequest,
+) -> Result<String> {
+    let mut request = request.clone();
+    request.max_length = usize::MAX;
     let profile = match request.profile_id.as_deref() {
         Some(profile_id) => Some(resolve_fetch_browser_profile(agent, profile_id).await?),
         None => None,

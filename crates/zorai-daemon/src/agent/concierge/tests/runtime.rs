@@ -574,6 +574,92 @@ async fn generate_welcome_reuses_persisted_welcome_when_only_heartbeat_ran_after
 }
 
 #[tokio::test]
+async fn initialize_preserves_recent_welcome_so_restart_reuses_it_without_regenerating() {
+    let mut config_value = AgentConfig::default();
+    config_value.concierge.detail_level = ConciergeDetailLevel::Minimal;
+    let config = Arc::new(RwLock::new(config_value));
+    let (event_tx, _) = broadcast::channel(8);
+    let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
+        std::iter::empty(),
+    ));
+    let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+    let now = test_now_millis();
+    let welcome_timestamp = now - 60_000;
+    let threads = RwLock::new(HashMap::from([(
+        CONCIERGE_THREAD_ID.to_string(),
+        concierge_thread(vec![
+            user_message("leftover hydrated message", now - 120_000),
+            AgentMessage {
+                provider: Some("concierge".into()),
+                ..assistant_message("persisted welcome", welcome_timestamp)
+            },
+        ]),
+    )]));
+
+    engine.initialize(&threads).await;
+
+    {
+        let threads_guard = threads.read().await;
+        let thread = threads_guard.get(CONCIERGE_THREAD_ID).unwrap();
+        assert_eq!(
+            thread.messages.len(),
+            1,
+            "initialize should keep only the recent welcome from the hydrated thread"
+        );
+        assert_eq!(thread.messages[0].content, "persisted welcome");
+    }
+
+    let root = tempdir().unwrap();
+    let history = crate::history::HistoryStore::new_test_store(root.path())
+        .await
+        .unwrap();
+    let result = engine
+        .generate_welcome(&threads, &history)
+        .await
+        .expect("welcome should be returned");
+    assert_eq!(
+        result.0, "persisted welcome",
+        "a welcome younger than the reuse window must survive a daemon restart instead of triggering a fresh generation"
+    );
+
+    let threads_guard = threads.read().await;
+    let thread = threads_guard.get(CONCIERGE_THREAD_ID).unwrap();
+    assert_eq!(
+        thread.messages[0].timestamp, welcome_timestamp,
+        "reuse must keep the original creation timestamp so the reuse window measures real age, not last reconnect"
+    );
+}
+
+#[tokio::test]
+async fn initialize_clears_welcome_older_than_reuse_window() {
+    let mut config_value = AgentConfig::default();
+    config_value.concierge.detail_level = ConciergeDetailLevel::Minimal;
+    let config = Arc::new(RwLock::new(config_value));
+    let (event_tx, _) = broadcast::channel(8);
+    let circuit_breakers = Arc::new(CircuitBreakerRegistry::from_provider_keys(
+        std::iter::empty(),
+    ));
+    let engine = ConciergeEngine::new(config, event_tx, reqwest::Client::new(), circuit_breakers);
+    let now = test_now_millis();
+    let threads = RwLock::new(HashMap::from([(
+        CONCIERGE_THREAD_ID.to_string(),
+        concierge_thread(vec![AgentMessage {
+            provider: Some("concierge".into()),
+            ..assistant_message("stale welcome", now - WELCOME_REUSE_WINDOW_MS - 1)
+        }]),
+    )]));
+
+    engine.initialize(&threads).await;
+
+    let threads_guard = threads.read().await;
+    let thread = threads_guard.get(CONCIERGE_THREAD_ID).unwrap();
+    assert!(
+        thread.messages.is_empty(),
+        "a welcome past the reuse window is stale and must not be offered for reuse after restart"
+    );
+}
+
+#[tokio::test]
 async fn generate_welcome_regenerates_when_persisted_welcome_is_stale() {
     let mut config_value = AgentConfig::default();
     config_value.concierge.detail_level = ConciergeDetailLevel::Minimal;

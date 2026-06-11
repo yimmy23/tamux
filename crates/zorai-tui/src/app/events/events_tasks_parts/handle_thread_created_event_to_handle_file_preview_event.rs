@@ -144,7 +144,7 @@ impl TuiModel {
                 self.chat.reduce(chat::ChatAction::ResetStreaming);
             }
             if !has_live_text_stream
-                && !self.should_preserve_pending_thinking_activity_on_reload(thread_id.as_str())
+                && !self.should_preserve_pending_activity_on_reload(thread_id.as_str())
             {
                 self.clear_agent_activity_for(Some(thread_id.as_str()));
             }
