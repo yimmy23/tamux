@@ -22,6 +22,8 @@ pub(crate) async fn dispatch_part3(
             | ClientMessage::ListSnapshotIndex { .. }
             | ClientMessage::UpsertAgentEvent { .. }
             | ClientMessage::ListAgentEvents { .. }
+            | ClientMessage::MarkAllNotificationsRead
+            | ClientMessage::ArchiveReadNotifications
             | ClientMessage::ListDatabaseTables
             | ClientMessage::QueryDatabaseRows { .. }
             | ClientMessage::UpdateDatabaseRows { .. }
@@ -283,6 +285,62 @@ pub(crate) async fn dispatch_part3(
                     framed
                         .send(DaemonMessage::AgentEventRows { events_json })
                         .await?;
+                }
+                Err(e) => {
+                    framed
+                        .send(DaemonMessage::Error {
+                            message: e.to_string(),
+                        })
+                        .await?;
+                }
+            }
+        }
+
+        ClientMessage::MarkAllNotificationsRead | ClientMessage::ArchiveReadNotifications => {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_millis() as i64)
+                .unwrap_or(0);
+            let update_result = match msg {
+                ClientMessage::MarkAllNotificationsRead => {
+                    manager.mark_all_notifications_read(now).await
+                }
+                _ => manager.archive_read_notifications(now).await,
+            };
+            match update_result {
+                Ok(updated) => {
+                    tracing::info!(updated, "bulk notification update applied");
+                    let events_result = manager.list_notifications(false, None).await.map(
+                        |notifications| {
+                            notifications
+                                .into_iter()
+                                .filter_map(|notification| {
+                                    crate::notifications::notification_event_row(&notification)
+                                        .ok()
+                                })
+                                .collect::<Vec<_>>()
+                        },
+                    );
+                    match events_result {
+                        Ok(events) => {
+                            let (events_json, truncated) = cap_agent_event_rows_for_ipc(events);
+                            if truncated {
+                                tracing::warn!(
+                                    "truncated agent event rows to fit IPC frame limit"
+                                );
+                            }
+                            framed
+                                .send(DaemonMessage::AgentEventRows { events_json })
+                                .await?;
+                        }
+                        Err(e) => {
+                            framed
+                                .send(DaemonMessage::Error {
+                                    message: e.to_string(),
+                                })
+                                .await?;
+                        }
+                    }
                 }
                 Err(e) => {
                     framed

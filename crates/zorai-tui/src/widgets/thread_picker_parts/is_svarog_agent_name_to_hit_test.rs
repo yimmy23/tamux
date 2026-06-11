@@ -421,17 +421,11 @@ pub fn render_for_workspace(
                             Some(&goal_index),
                             Some(&workspace_index),
                         );
-                        let max_title = inner_w
-                            .saturating_sub(28)
-                            .saturating_sub(status_label.chars().count());
-                        let title = if display_title.chars().count() > max_title && max_title > 3 {
-                            format!(
-                                "{}...",
-                                display_title
-                                    .chars()
-                                    .take(max_title - 3)
-                                    .collect::<String>()
-                            )
+                        let max_title = inner_w.saturating_sub(28).saturating_sub(
+                            unicode_width::UnicodeWidthStr::width(status_label.as_str()),
+                        );
+                        let title = if max_title > 3 {
+                            crate::widgets::message::truncate_to_width(&display_title, max_title)
                         } else {
                             display_title
                         };

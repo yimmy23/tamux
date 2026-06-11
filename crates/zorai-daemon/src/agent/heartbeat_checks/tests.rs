@@ -150,6 +150,7 @@ async fn make_test_engine(
         inflight_goal_runs: Mutex::new(HashSet::new()),
         heartbeat_items: RwLock::new(Vec::new()),
         event_tx,
+        internal_event_tx: crate::agent::internal_event::new_internal_event_channel(),
         memory: RwLock::new(HashMap::new()),
         recent_policy_decisions: RwLock::new(HashMap::new()),
         retry_guards: RwLock::new(HashMap::new()),

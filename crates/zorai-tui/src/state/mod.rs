@@ -355,6 +355,8 @@ pub enum DaemonCommand {
     PluginOAuthStart(String),
     ListNotifications,
     UpsertNotification(zorai_protocol::InboxNotification),
+    MarkAllNotificationsRead,
+    ArchiveReadNotifications,
 }
 
 #[allow(unused_imports)]

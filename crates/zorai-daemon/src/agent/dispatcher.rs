@@ -111,6 +111,16 @@ fn terminal_task_notification_excerpt(value: Option<&str>) -> Option<String> {
     Some(excerpt)
 }
 
+fn terminal_task_notification_id(task: &AgentTask, kind: &str) -> String {
+    if task.source == "event_trigger" {
+        use sha2::Digest;
+        let digest = format!("{:x}", sha2::Sha256::digest(task.title.as_bytes()));
+        format!("task-terminal:trigger:{}:{kind}", &digest[..16])
+    } else {
+        format!("task-terminal:{}:{kind}", task.id)
+    }
+}
+
 fn append_subagent_outcome_log_to_parent(
     parent: &mut AgentTask,
     child_task: &AgentTask,
@@ -464,7 +474,7 @@ impl AgentEngine {
             .into_iter()
             .collect::<Vec<_>>();
         let notification = zorai_protocol::InboxNotification {
-            id: format!("task-terminal:{}:{kind}", task.id),
+            id: terminal_task_notification_id(task, kind),
             source: "task".to_string(),
             kind: kind.to_string(),
             title: title.clone(),
@@ -2462,6 +2472,54 @@ mod tests {
             supervisor_config: None,
             sub_agent_def_id: None,
         }
+    }
+
+    #[test]
+    fn event_trigger_terminal_notifications_share_one_id_per_trigger_title() {
+        let mut first = terminal_notification_test_task(
+            "task-fire-1",
+            "Handle trigger: File changed: /tmp/watched",
+            TaskStatus::Completed,
+            vec!["in-app".to_string()],
+        );
+        first.source = "event_trigger".to_string();
+        let mut second = first.clone();
+        second.id = "task-fire-2".to_string();
+
+        let first_id = terminal_task_notification_id(&first, "task_completed");
+        assert_eq!(
+            first_id,
+            terminal_task_notification_id(&second, "task_completed"),
+            "re-fires of the same trigger must upsert one inbox row instead of stacking duplicates"
+        );
+        assert!(first_id.starts_with("task-terminal:trigger:"));
+
+        let mut other_trigger = first.clone();
+        other_trigger.title = "Handle trigger: File changed: /tmp/other".to_string();
+        assert_ne!(
+            terminal_task_notification_id(&other_trigger, "task_completed"),
+            first_id,
+            "distinct triggers must keep distinct inbox rows"
+        );
+        assert_ne!(
+            terminal_task_notification_id(&first, "task_failed"),
+            first_id,
+            "a failure must not overwrite the completion notification for the same trigger"
+        );
+    }
+
+    #[test]
+    fn non_trigger_terminal_notifications_keep_per_task_ids() {
+        let task = terminal_notification_test_task(
+            "task-user-1",
+            "Ship release",
+            TaskStatus::Completed,
+            vec!["in-app".to_string()],
+        );
+        assert_eq!(
+            terminal_task_notification_id(&task, "task_completed"),
+            "task-terminal:task-user-1:task_completed"
+        );
     }
 
     #[tokio::test]

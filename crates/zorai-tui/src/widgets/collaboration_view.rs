@@ -70,18 +70,22 @@ pub fn hit_test(
     }
 
     if let Some(disagreement) = collaboration.selected_disagreement() {
-        let action_y = detail_area.y + 5;
+        let session_lines = collaboration
+            .selected_session()
+            .map_or(0, |session| 1 + u16::from(session.escalation.is_some()));
+        let action_y = detail_area.y + session_lines + 3;
         if position.y == action_y
             && position.x >= detail_area.x
             && position.x < detail_area.x + detail_area.width
         {
-            let mut current_x = detail_area.x + 1;
+            let mut current_x = detail_area.x;
             for (index, position_label) in disagreement.positions.iter().enumerate() {
-                let width = position_label.len() as u16 + 8;
+                let width =
+                    unicode_width::UnicodeWidthStr::width(position_label.as_str()) as u16 + 8;
                 if position.x >= current_x && position.x < current_x + width {
                     return Some(CollaborationHitTarget::DetailAction(index));
                 }
-                current_x = current_x.saturating_add(width + 1);
+                current_x = current_x.saturating_add(width);
             }
         }
     }

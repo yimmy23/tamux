@@ -90,6 +90,41 @@ pub(crate) fn build_anthropic_request(
     build_anthropic_post_request(client, provider, config, &url, body, force_connection_close)
 }
 
+/// Build the `system` request field.
+///
+/// For native Claude models the system prompt is the stablest, most-reused span
+/// in the request (it changes far less often than the conversation tail), so we
+/// emit it as a content-block array with an explicit `cache_control` breakpoint.
+/// Tools render before `system`, so this single breakpoint caches tools + system
+/// as one segment that survives turns where only the message tail changes — a
+/// dedicated cache prefix the body-root breakpoint can't independently provide.
+///
+/// TTL is left at the ephemeral default: the time-context section refreshes each
+/// minute, so a longer TTL would only pay the higher cache-write multiplier
+/// without extending the window the entry stays valid.
+///
+/// Non-Claude providers on this code path keep the plain-string form to avoid
+/// any compatibility surprise with Anthropic-compatible third-party endpoints.
+fn anthropic_system_field(config: &ProviderConfig, system_prompt: &str) -> serde_json::Value {
+    if system_prompt.is_empty() || !is_native_claude_model(&config.model) {
+        return serde_json::json!(system_prompt);
+    }
+    serde_json::json!([{
+        "type": "text",
+        "text": system_prompt,
+        "cache_control": { "type": "ephemeral" },
+    }])
+}
+
+/// Single gate for "this model speaks the native Claude request dialect"
+/// (system content blocks with cache_control, the `thinking` field, ...).
+/// Every Claude-only request feature must use this predicate rather than
+/// scattering `starts_with("claude")` checks, so a future capability flag or
+/// naming change lands in one place.
+pub(crate) fn is_native_claude_model(model: &str) -> bool {
+    model.starts_with("claude")
+}
+
 pub(crate) fn build_anthropic_base_body(
     provider: &str,
     config: &ProviderConfig,
@@ -101,7 +136,7 @@ pub(crate) fn build_anthropic_base_body(
 
     let mut body = serde_json::json!({
         "model": config.model,
-        "system": system_prompt,
+        "system": anthropic_system_field(config, system_prompt),
         "messages": anthropic_messages,
     });
 
@@ -140,7 +175,7 @@ pub(crate) fn build_anthropic_base_body(
     apply_anthropic_optional_request_fields(&mut body, config);
 
     if let Some(budget_tokens) = anthropic_thinking_budget(&config.reasoning_effort) {
-        if config.model.starts_with("claude")
+        if is_native_claude_model(&config.model)
             || (provider == zorai_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN
                 && dashscope_openai_uses_enable_thinking(provider, &config.model))
         {

@@ -108,7 +108,11 @@ fn process_is_running(target: ProcessTarget) -> Result<bool> {
         let stdout = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
         Ok(stdout.contains(&process_binary_name(target, true).to_ascii_lowercase()))
     } else if output.status.success() {
-        Ok(true)
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(stdout
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+            .any(|pid| !process_is_zombie(pid)))
     } else if output.status.code() == Some(1) {
         Ok(false)
     } else {
@@ -117,6 +121,20 @@ fn process_is_running(target: ProcessTarget) -> Result<bool> {
             process_label(target),
             String::from_utf8_lossy(&output.stderr).trim()
         ))
+    }
+}
+
+fn state_is_zombie(state: &str) -> bool {
+    state.trim().starts_with('Z')
+}
+
+fn process_is_zombie(pid: u32) -> bool {
+    match Command::new("ps")
+        .args(["-o", "state=", "-p", &pid.to_string()])
+        .output()
+    {
+        Ok(output) => state_is_zombie(&String::from_utf8_lossy(&output.stdout)),
+        Err(_) => false,
     }
 }
 
@@ -584,6 +602,16 @@ mod tests {
         assert_eq!(daemon_probe.args, vec!["-x", "zorai-daemon"]);
         assert_eq!(gateway_probe.program, "pgrep");
         assert_eq!(gateway_probe.args, vec!["-x", "zorai-gateway"]);
+    }
+
+    #[test]
+    fn zombie_states_are_not_treated_as_running() {
+        assert!(state_is_zombie("Z"));
+        assert!(state_is_zombie("Z+"));
+        assert!(state_is_zombie("Z+\n"));
+        assert!(!state_is_zombie("S"));
+        assert!(!state_is_zombie("Ssl"));
+        assert!(!state_is_zombie("R+"));
     }
 
     #[test]

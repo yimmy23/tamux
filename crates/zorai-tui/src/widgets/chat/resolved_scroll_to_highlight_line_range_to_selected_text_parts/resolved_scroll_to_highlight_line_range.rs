@@ -135,14 +135,23 @@ pub(crate) fn scrollbar_layout(
 pub(crate) fn scrollbar_layout_from_cached_snapshot(
     snapshot: &CachedSelectionSnapshot,
     chat: &ChatState,
+    current_tick: u64,
+    retry_wait_start_selected: bool,
 ) -> Option<ChatScrollbarLayout> {
+    let metrics = cached_transcript_metrics(
+        &snapshot.0,
+        chat,
+        padded_content_width(snapshot.0.inner.width as usize),
+        current_tick,
+        retry_wait_start_selected,
+    );
     let scroll = resolved_scroll(
         chat,
-        snapshot.0.total_lines,
+        metrics.total_lines,
         snapshot.0.inner.height as usize,
-        &snapshot.0.message_line_ranges,
+        &metrics.message_line_ranges,
     );
-    scrollbar_layout_from_metrics(snapshot.0.inner, snapshot.0.total_lines, scroll)
+    scrollbar_layout_from_metrics(snapshot.0.inner, metrics.total_lines, scroll)
 }
 
 pub(crate) fn scrollbar_scroll_offset_for_pointer(
@@ -179,10 +188,17 @@ pub(crate) fn scrollbar_scroll_offset_for_pointer(
 pub(crate) fn scrollbar_scroll_offset_for_pointer_from_cached_snapshot(
     snapshot: &CachedSelectionSnapshot,
     chat: &ChatState,
+    current_tick: u64,
+    retry_wait_start_selected: bool,
     pointer_row: u16,
     grab_offset: u16,
 ) -> Option<usize> {
-    let layout = scrollbar_layout_from_cached_snapshot(snapshot, chat)?;
+    let layout = scrollbar_layout_from_cached_snapshot(
+        snapshot,
+        chat,
+        current_tick,
+        retry_wait_start_selected,
+    )?;
     let track_span = layout.scrollbar.height.saturating_sub(layout.thumb.height);
     let clamped_row = pointer_row.clamp(
         layout.scrollbar.y,
@@ -307,6 +323,24 @@ pub(crate) fn selection_snapshot(
     current_tick: u64,
     retry_wait_start_selected: bool,
 ) -> Option<SelectionSnapshot> {
+    selection_snapshot_windowed(
+        area,
+        chat,
+        theme,
+        current_tick,
+        retry_wait_start_selected,
+        None,
+    )
+}
+
+pub(crate) fn selection_snapshot_windowed(
+    area: Rect,
+    chat: &ChatState,
+    theme: &ThemeTokens,
+    current_tick: u64,
+    retry_wait_start_selected: bool,
+    cover: Option<(usize, usize)>,
+) -> Option<SelectionSnapshot> {
     let inner = content_inner(area);
     if inner.width == 0 || inner.height == 0 {
         return None;
@@ -334,8 +368,12 @@ pub(crate) fn selection_snapshot(
     let (padding, start_idx, end_idx) =
         visible_window_bounds(metrics.total_lines, inner.height as usize, scroll);
     let overscan = (inner.height as usize).div_ceil(10).max(1);
-    let rendered_start_idx = start_idx.saturating_sub(overscan);
-    let rendered_end_idx = end_idx.saturating_add(overscan).min(metrics.total_lines);
+    let mut rendered_start_idx = start_idx.saturating_sub(overscan);
+    let mut rendered_end_idx = end_idx.saturating_add(overscan).min(metrics.total_lines);
+    if let Some((cover_start, cover_end)) = cover {
+        rendered_start_idx = rendered_start_idx.min(cover_start.min(metrics.total_lines));
+        rendered_end_idx = rendered_end_idx.max(cover_end.min(metrics.total_lines));
+    }
     let all_lines = build_rendered_line_window(
         chat,
         theme,

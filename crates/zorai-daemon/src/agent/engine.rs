@@ -139,6 +139,9 @@ pub struct AgentEngine {
     pub inflight_goal_runs: Mutex<HashSet<String>>,
     pub heartbeat_items: RwLock<Vec<HeartbeatItem>>,
     pub event_tx: broadcast::Sender<AgentEvent>,
+    /// Daemon-internal coordination bus (never serialized to clients). Lets
+    /// background workers react to lifecycle changes instead of polling.
+    pub(super) internal_event_tx: broadcast::Sender<super::internal_event::InternalAgentEvent>,
     pub memory: RwLock<HashMap<String, AgentMemory>>,
     pub(super) recent_policy_decisions:
         RwLock<super::orchestrator_policy::ShortLivedRecentPolicyDecisions>,
@@ -322,6 +325,7 @@ impl AgentEngine {
         workspace_root: Option<PathBuf>,
     ) -> Arc<Self> {
         let (event_tx, _) = broadcast::channel(config.agent_event_channel_capacity);
+        let internal_event_tx = super::internal_event::new_internal_event_channel();
         let (watcher_refresh_tx, watcher_refresh_rx) = mpsc::unbounded_channel();
         let (skill_discovery_result_tx, skill_discovery_result_rx) = mpsc::unbounded_channel();
 
@@ -387,6 +391,7 @@ impl AgentEngine {
             inflight_goal_runs: Mutex::new(HashSet::new()),
             heartbeat_items: RwLock::new(Vec::new()),
             event_tx,
+            internal_event_tx,
             memory: RwLock::new(HashMap::new()),
             recent_policy_decisions: RwLock::new(HashMap::new()),
             retry_guards: RwLock::new(HashMap::new()),

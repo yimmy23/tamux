@@ -37,6 +37,29 @@ fn clicking_footer_queue_indicator_opens_queued_prompts_modal() {
 }
 
 #[test]
+fn queue_prompt_is_bounded_and_refuses_when_full() {
+    let (mut model, _daemon_rx) = make_model();
+
+    // Fill well past any realistic depth; the queue must stop growing and the
+    // user's prompt must not be silently dropped (a refusal status is shown).
+    let mut last_status = String::new();
+    for i in 0..600 {
+        model.queue_prompt(format!("prompt {i}"));
+        last_status = model.status_line.clone();
+    }
+
+    assert!(
+        model.queued_prompts.len() <= 500,
+        "queue must be bounded, got {}",
+        model.queued_prompts.len()
+    );
+    assert!(
+        last_status.contains("QUEUE FULL"),
+        "a refused prompt should surface a QUEUE FULL status, got {last_status:?}"
+    );
+}
+
+#[test]
 fn clicking_participant_summary_opens_thread_participants_modal() {
     let (mut model, _daemon_rx) = make_model();
     model.width = 120;
@@ -298,16 +321,14 @@ pub(super) fn sample_notification(read_at: Option<i64>) -> zorai_protocol::Inbox
     }
 }
 
-fn drain_upsert_notifications(
+fn drain_daemon_commands(
     daemon_rx: &mut tokio::sync::mpsc::UnboundedReceiver<DaemonCommand>,
-) -> Vec<zorai_protocol::InboxNotification> {
-    let mut notifications = Vec::new();
+) -> Vec<DaemonCommand> {
+    let mut commands = Vec::new();
     while let Ok(command) = daemon_rx.try_recv() {
-        if let DaemonCommand::UpsertNotification(notification) = command {
-            notifications.push(notification);
-        }
+        commands.push(command);
     }
-    notifications
+    commands
 }
 
 #[test]
@@ -332,11 +353,21 @@ fn notifications_modal_shift_r_lowercase_marks_all_read() {
 
     assert!(!handled);
     assert_eq!(model.notifications.unread_count(), 0);
-    let persisted = drain_upsert_notifications(&mut daemon_rx);
-    assert_eq!(persisted.len(), 1);
-    assert_eq!(persisted[0].id, "n-unread");
-    assert!(persisted[0].read_at.is_some());
-    assert_eq!(persisted[0].archived_at, None);
+    let commands = drain_daemon_commands(&mut daemon_rx);
+    assert_eq!(
+        commands
+            .iter()
+            .filter(|command| matches!(command, DaemonCommand::MarkAllNotificationsRead))
+            .count(),
+        1,
+        "mark-all must run as one daemon-side bulk update so rows beyond the loaded window are covered"
+    );
+    assert!(
+        !commands
+            .iter()
+            .any(|command| matches!(command, DaemonCommand::UpsertNotification(_))),
+        "mark-all must not fan out per-item upserts"
+    );
 }
 
 #[test]
@@ -369,11 +400,21 @@ fn notifications_modal_shift_a_lowercase_archives_read() {
         .map(|item| item.id.clone())
         .collect::<Vec<_>>();
     assert_eq!(active_ids, vec!["n-unread".to_string()]);
-    let persisted = drain_upsert_notifications(&mut daemon_rx);
-    assert_eq!(persisted.len(), 1);
-    assert_eq!(persisted[0].id, "n-read");
-    assert_eq!(persisted[0].read_at, Some(5));
-    assert!(persisted[0].archived_at.is_some());
+    let commands = drain_daemon_commands(&mut daemon_rx);
+    assert_eq!(
+        commands
+            .iter()
+            .filter(|command| matches!(command, DaemonCommand::ArchiveReadNotifications))
+            .count(),
+        1,
+        "archive-read must run as one daemon-side bulk update so rows beyond the loaded window are covered"
+    );
+    assert!(
+        !commands
+            .iter()
+            .any(|command| matches!(command, DaemonCommand::UpsertNotification(_))),
+        "archive-read must not fan out per-item upserts"
+    );
 }
 
 #[test]

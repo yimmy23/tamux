@@ -429,7 +429,7 @@ pub fn selected_text(
 ) -> Option<String> {
     let rows = plan::build_rows(tasks, goal_run_id, state, &ThemeTokens::default());
     let (start_point, end_point) =
-        if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+        if start.row < end.row || (start.row == end.row && start.col <= end.col) {
             (start, end)
         } else {
             (end, start)
@@ -549,7 +549,7 @@ fn render_plan(
     let mut plan_rows = plan::build_rows(tasks, goal_run_id, state, theme);
     if let Some((start, end)) = mouse_selection {
         let (start_point, end_point) =
-            if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+            if start.row < end.row || (start.row == end.row && start.col <= end.col) {
                 (start, end)
             } else {
                 (end, start)
@@ -2872,22 +2872,7 @@ fn normalized_goal_relative_path(path: &Path) -> String {
 }
 
 fn truncate_tail(text: &str, max_len: usize) -> String {
-    let char_count = text.chars().count();
-    if char_count <= max_len {
-        return text.to_string();
-    }
-    if max_len <= 1 {
-        return "…".to_string();
-    }
-    let tail: String = text
-        .chars()
-        .rev()
-        .take(max_len.saturating_sub(1))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    format!("…{tail}")
+    crate::widgets::message::truncate_tail_to_width(text, max_len)
 }
 
 fn goal_files_for_selected_step<'a>(

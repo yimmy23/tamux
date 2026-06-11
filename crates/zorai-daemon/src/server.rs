@@ -228,6 +228,8 @@ fn client_message_variant_name(msg: &ClientMessage) -> &'static str {
         AgentHeartbeatGetItems => "AgentHeartbeatGetItems",
         ListAgentEvents { .. } => "ListAgentEvents",
         UpsertAgentEvent { .. } => "UpsertAgentEvent",
+        MarkAllNotificationsRead => "MarkAllNotificationsRead",
+        ArchiveReadNotifications => "ArchiveReadNotifications",
         PluginList { .. } => "PluginList",
         PluginListCommands { .. } => "PluginListCommands",
         _ => "<other>",

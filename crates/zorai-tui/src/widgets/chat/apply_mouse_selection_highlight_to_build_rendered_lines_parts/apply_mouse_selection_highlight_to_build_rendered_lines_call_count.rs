@@ -19,7 +19,7 @@ pub(crate) fn apply_mouse_selection_highlight(
         return;
     };
     let (start_point, end_point) =
-        if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+        if start.row < end.row || (start.row == end.row && start.col <= end.col) {
             (start, end)
         } else {
             (end, start)

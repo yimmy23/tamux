@@ -55,12 +55,12 @@ pub(crate) fn add_available_tools_part_c(
     if config.tools.web_browse {
         tools.push(tool_def(
             tool_names::FETCH_URL,
-            "Browse a URL and return its text content for browser-readable pages or APIs that return text/JSON. Uses a headless browser (Lightpanda or Chrome) when available for JS-rendered pages, falls back to raw HTTP.",
+            "Download a URL into the thread inventory directory and return the saved file path plus a short preview. HTML is auto-converted to Markdown to cut tokens; JSON/text saved as-is; binaries saved raw. Read the saved file with read_file for full content.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "url": { "type": "string", "description": "URL to fetch" },
-                    "max_length": { "type": "integer", "description": "Max characters to return (default: 10000)" },
+                    "max_length": { "type": "integer", "description": "Max inline preview characters (default: 800, max: 4000); full content is in the saved file" },
                     "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 300, max: 600)" },
                     "profile_id": { "type": "string", "description": "Optional named browser profile for authenticated browsing reuse" }
                 },
@@ -71,23 +71,19 @@ pub(crate) fn add_available_tools_part_c(
 
     tools.push(tool_def(
         tool_names::SETUP_WEB_BROWSING,
-        "Detect, install, and configure a headless browser for web browsing. \
-         action=detect: check what browsers are on PATH (always safe). \
-         action=install: install Lightpanda via npm (requires approval); Chrome/Chromium must be installed manually. \
-         action=configure: set the browse_provider in agent config, and require Chrome/Chromium to already be on PATH when provider=chrome. \
-         Call with detect first, then install if needed, then configure.",
+        "Detect, install, or configure a headless browser for web browsing. Run detect first; install adds Lightpanda via npm (Chrome must be installed manually); configure sets browse_provider (chrome requires Chrome on PATH).",
         serde_json::json!({
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
                     "enum": ["detect", "install", "configure"],
-                    "description": "detect: check available browsers. install: install Lightpanda via npm. configure: set browse_provider."
+                    "description": "detect: check browsers. install: Lightpanda via npm. configure: set browse_provider."
                 },
                 "provider": {
                     "type": "string",
                     "enum": ["auto", "lightpanda", "chrome", "none"],
-                    "description": "For configure action: which browse_provider to set (default: auto)"
+                    "description": "browse_provider for configure (default: auto)"
                 }
             },
             "required": ["action"]
@@ -369,34 +365,34 @@ pub(crate) fn add_available_tools_part_c(
             "required": ["agent", "provider", "model"]
         })));
     }
-    tools.push(tool_def(tool_names::SPAWN_SUBAGENT, "Spawn a bounded child task under the current task or thread. Use this to split a large task into parallel subagents with dedicated runtime/session metadata. Keep each child narrowly scoped and monitor it with list_subagents. Do not busy-wait after spawning; if nothing else is actionable, stop and let zorai resume you when children finish. If you want a specific provider/model, call `list_providers` first and `list_models` for the chosen provider before setting the optional override fields.", serde_json::json!({
+    tools.push(tool_def(tool_names::SPAWN_SUBAGENT, "Spawn a bounded child task under the current task or thread for parallel, narrowly scoped work.", serde_json::json!({
         "type": "object",
         "properties": {
             "title": { "type": "string", "description": "Short subagent title" },
             "description": { "type": "string", "description": "Detailed instructions for the child task" },
-            "runtime": { "type": "string", "enum": ["daemon", "hermes", "openclaw"], "description": "Preferred runtime for the child agent (default: daemon)" },
-            "provider": { "type": "string", "description": "Optional authenticated provider override. Use `list_providers` first." },
-            "model": { "type": "string", "description": "Optional model override for the chosen provider. Requires `provider`; use `list_models` first." },
-            "reasoning_effort": { "type": "string", "description": "Optional reasoning-effort override for the spawned child, such as `off`, `low`, `medium`, or `high` when supported by the selected provider/model." },
+            "runtime": { "type": "string", "enum": ["daemon", "hermes", "openclaw"], "description": "Child runtime (default: daemon)" },
+            "provider": { "type": "string", "description": "Optional authenticated provider override" },
+            "model": { "type": "string", "description": "Optional model override; requires `provider`" },
+            "reasoning_effort": { "type": "string", "description": "Optional override: off, low, medium, or high" },
             "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Child task priority" },
             "command": { "type": "string", "description": "Optional preferred entrypoint or command" },
-            "session": { "type": "string", "description": "Optional explicit session ID or unique substring. If omitted, zorai allocates a fresh lane in the same workspace when possible." },
-            "cwd": { "type": "string", "description": "Optional working directory hint for any newly allocated lane" },
+            "session": { "type": "string", "description": "Optional session ID or substring; defaults to a fresh lane" },
+            "cwd": { "type": "string", "description": "Optional working directory hint" },
             "dependencies": { "type": "array", "items": { "type": "string" }, "description": "Optional additional task dependencies" },
-            "max_depth": { "type": "integer", "description": "Optional maximum recursive delegation depth for this child subtree. Default: 1 (flat delegation). Hard cap: 3." },
+            "max_depth": { "type": "integer", "description": "Max recursive delegation depth (default: 1, hard cap: 3)" },
             "budget": {
                 "type": "object",
                 "properties": {
-                    "max_tokens": { "type": "integer", "description": "Optional explicit visible output-token budget for the spawned child. Input prompt tokens and hidden reasoning tokens are not counted." },
-                    "max_wall_time_secs": { "type": "integer", "description": "Optional explicit wall-clock time budget in seconds" },
-                    "max_tool_calls": { "type": "integer", "description": "Optional explicit tool-call budget; enforced via termination conditions" }
+                    "max_tokens": { "type": "integer", "description": "Visible output-token budget; input/reasoning tokens not counted" },
+                    "max_wall_time_secs": { "type": "integer", "description": "Wall-clock budget in seconds" },
+                    "max_tool_calls": { "type": "integer", "description": "Tool-call budget" }
                 },
-                "description": "Optional explicit child budget. When omitted, zorai derives a stricter budget from delegation depth."
+                "description": "Optional child budget; when omitted, derived from delegation depth."
             }
         },
         "required": ["title", "description"]
     })));
-    tools.push(tool_def(tool_names::LIST_SUBAGENTS, "List child tasks spawned under the current parent task or thread, including runtime, status, thread/session metadata, delegation depth, and remaining budget info when available.", serde_json::json!({
+    tools.push(tool_def(tool_names::LIST_SUBAGENTS, "List child tasks spawned under the current parent task or thread, with status, delegation depth, and budget info.", serde_json::json!({
         "type": "object",
         "properties": {
             "status": { "type": "string", "enum": ["queued", "in_progress", "awaiting_approval", "blocked", "failed_analyzing", "budget_exceeded", "completed", "failed", "cancelled"], "description": "Optional status filter" },
@@ -405,51 +401,51 @@ pub(crate) fn add_available_tools_part_c(
             "limit": { "type": "integer", "description": "Maximum subagents to return (default: 20)" }
         }
     })));
-    tools.push(tool_def(tool_names::MESSAGE_AGENT, &format!("Send a concise private internal DM to another zorai agent and get the reply. This is for behind-the-scenes coordination only: it does not switch the active responder for the current operator thread, and future operator turns do not route to the target agent. If the target is an active participant on the current visible operator thread and `request_visible_thread_continuation` is omitted, zorai treats the message as a request for that participant to continue visibly on the thread. If the operator should talk directly to another agent, use `handoff_thread_agent` instead. You can coordinate with {} (concierge), {} (main agent), or any other built-in persona without asking the operator to relay messages.", CONCIERGE_AGENT_NAME, MAIN_AGENT_NAME), serde_json::json!({
+    tools.push(tool_def(tool_names::MESSAGE_AGENT, "Send a private internal DM to another zorai agent and get the reply; it does not switch the visible thread responder. Use `handoff_thread_agent` when the operator should talk to another agent directly.", serde_json::json!({
         "type": "object",
         "properties": {
-            "target": { "type": "string", "description": "Which agent should receive the internal message. Use a built-in agent id or persona name such as `svarog`, `rarog`, or `weles`." },
+            "target": { "type": "string", "description": "Receiving agent id or persona name, e.g. `svarog`, `rarog`, `weles`" },
             "message": { "type": "string", "description": "Message to send" },
-            "request_visible_thread_continuation": { "type": "boolean", "description": "When true, the internal DM stays discussion-only and the target agent is asked to continue the current visible operator thread after this turn finishes. When omitted while targeting an active participant on a visible operator thread, this defaults to true." }
+            "request_visible_thread_continuation": { "type": "boolean", "description": "Ask target to continue the visible thread afterward; defaults true when targeting an active participant" }
         },
         "required": ["target", "message"]
     })));
-    tools.push(tool_def(tool_names::HANDOFF_THREAD_AGENT, "Switch the active responder for the current thread. Use this when the operator wants to talk directly to another agent persona or when another agent should own future replies. push_handoff moves responsibility to another agent with a structured summary; return_handoff returns responsibility to the previous responder on the thread handoff stack. On participant-managed threads, push_handoff may target only active thread participants. Agent-initiated push handoffs require approval outside yolo mode.", serde_json::json!({
+    tools.push(tool_def(tool_names::HANDOFF_THREAD_AGENT, "Switch the active responder for the current thread. On participant-managed threads push_handoff may target only active participants, and agent-initiated push handoffs require approval outside yolo mode.", serde_json::json!({
         "type": "object",
         "properties": {
-            "action": { "type": "string", "enum": ["push_handoff", "return_handoff"], "description": "push_handoff moves the thread to another agent; return_handoff pops back to the previous responder." },
-            "target_agent_id": { "type": "string", "description": "Required for push_handoff. Agent id or persona name that should take over the thread. On participant-managed threads, this must be an active participant from `list_participants`." },
+            "action": { "type": "string", "enum": ["push_handoff", "return_handoff"], "description": "push_handoff moves the thread; return_handoff pops back to the previous responder." },
+            "target_agent_id": { "type": "string", "description": "Required for push_handoff: agent id or persona to take over" },
             "reason": { "type": "string", "description": "Why the handoff is happening." },
-            "summary": { "type": "string", "description": "Compact summary the receiving agent should use to continue." },
-            "requested_by": { "type": "string", "enum": ["user", "agent"], "description": "Whether this handoff reflects an operator request or the current agent's own judgment." }
+            "summary": { "type": "string", "description": "Compact summary for the receiving agent." },
+            "requested_by": { "type": "string", "enum": ["user", "agent"], "description": "Whether the operator or the agent requested this." }
         },
         "required": ["action", "reason", "summary", "requested_by"]
     })));
-    tools.push(tool_def(tool_names::ROUTE_TO_SPECIALIST, "Route a task to a specialist subagent with structured handoff. The broker matches capability tags to specialist profiles, assembles a context bundle with episodic refs and negative constraints, and dispatches the work.", serde_json::json!({
+    tools.push(tool_def(tool_names::ROUTE_TO_SPECIALIST, "Route a task to a specialist subagent matched by capability tags, with a structured context handoff.", serde_json::json!({
         "type": "object",
         "properties": {
-            "task_description": { "type": "string", "description": "Detailed description of the work to hand off to a specialist" },
-            "capability_tags": { "type": "array", "items": { "type": "string" }, "description": "Required capability tags for specialist matching (e.g., [\"rust\", \"backend\", \"api-design\"])" },
-            "acceptance_criteria": { "type": "string", "description": "Structural checks for output validation (e.g., \"non_empty\", \"min_length:100\"). Defaults to \"non_empty\"." }
+            "task_description": { "type": "string", "description": "Work to hand off to a specialist" },
+            "capability_tags": { "type": "array", "items": { "type": "string" }, "description": "Capability tags for matching, e.g. [\"rust\", \"backend\"]" },
+            "acceptance_criteria": { "type": "string", "description": "Output checks, e.g. \"min_length:100\" (default: \"non_empty\")" }
         },
         "required": ["task_description", "capability_tags"]
     })));
-    tools.push(tool_def(tool_names::RUN_DIVERGENT, "Start a divergent session: spawn 2-3 parallel framings of the same problem with different perspectives, detect disagreements, and surface tensions as the valuable output. Returns a session ID and framing labels. Use this when a problem benefits from multiple viewpoints (e.g., architectural decisions, tradeoff analysis).", serde_json::json!({
+    tools.push(tool_def(tool_names::RUN_DIVERGENT, "Spawn 2-3 parallel framings of one problem, detect disagreements, and surface tensions as the output. Returns a session ID and framing labels.", serde_json::json!({
         "type": "object",
         "properties": {
-            "problem_statement": { "type": "string", "description": "The problem to analyze from multiple perspectives" },
-            "mode": { "type": "string", "enum": ["divergent", "debate"], "description": "Execution mode. `divergent` (default) runs tension-mapping. `debate` runs the multi-round debate protocol on the same statement." },
+            "problem_statement": { "type": "string", "description": "Problem to analyze from multiple perspectives" },
+            "mode": { "type": "string", "enum": ["divergent", "debate"], "description": "divergent (default) maps tensions; debate runs the debate protocol" },
             "custom_framings": {
                 "type": "array",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "label": { "type": "string", "description": "Short name for this perspective (e.g., 'performance-lens')" },
-                        "system_prompt_override": { "type": "string", "description": "System prompt directing this framing's perspective" }
+                        "label": { "type": "string", "description": "Short name for this perspective" },
+                        "system_prompt_override": { "type": "string", "description": "System prompt for this framing" }
                     },
                     "required": ["label", "system_prompt_override"]
                 },
-                "description": "Optional custom framings (2-3). If omitted, default analytical + pragmatic lenses are used."
+                "description": "Optional 2-3 custom framings; defaults to analytical + pragmatic lenses."
             }
         },
         "required": ["problem_statement"]
@@ -461,7 +457,7 @@ pub(crate) fn add_available_tools_part_c(
         },
         "required": ["session_id"]
     })));
-    tools.push(tool_def(tool_names::RUN_DEBATE, "Start a structured debate session with 2-3 framings and rotating roles. Returns a session ID for follow-up retrieval and lifecycle actions.", serde_json::json!({
+    tools.push(tool_def(tool_names::RUN_DEBATE, "Start a structured debate session with 2-3 framings and rotating roles; returns a session ID.", serde_json::json!({
         "type": "object",
         "properties": {
             "topic": { "type": "string", "description": "The topic to debate" },
@@ -471,11 +467,11 @@ pub(crate) fn add_available_tools_part_c(
                     "type": "object",
                     "properties": {
                         "label": { "type": "string", "description": "Short name for this perspective" },
-                        "system_prompt_override": { "type": "string", "description": "System prompt directing this framing's perspective" }
+                        "system_prompt_override": { "type": "string", "description": "System prompt for this framing" }
                     },
                     "required": ["label", "system_prompt_override"]
                 },
-                "description": "Optional custom framings (2-3). If omitted, default analytical + pragmatic lenses are used."
+                "description": "Optional 2-3 custom framings; defaults to analytical + pragmatic lenses."
             }
         },
         "required": ["topic"]
@@ -494,8 +490,8 @@ pub(crate) fn add_available_tools_part_c(
             "role": { "type": "string", "enum": ["proponent", "skeptic", "synthesizer"], "description": "Debate role for this argument" },
             "agent_id": { "type": "string", "description": "Framing/agent label submitting the argument" },
             "content": { "type": "string", "description": "Argument content" },
-            "evidence_refs": { "type": "array", "items": { "type": "string" }, "description": "Evidence references supporting the argument" },
-            "responds_to": { "type": "string", "description": "Optional prior argument ID this argument responds to" }
+            "evidence_refs": { "type": "array", "items": { "type": "string" }, "description": "Supporting evidence references" },
+            "responds_to": { "type": "string", "description": "Optional prior argument ID being answered" }
         },
         "required": ["session_id", "role", "agent_id", "content"]
     })));
@@ -528,14 +524,14 @@ pub(crate) fn add_available_tools_part_c(
         },
         "required": ["session_id"]
     })));
-    tools.push(tool_def(tool_names::LOOKUP_EMERGENT_PROTOCOL, "Look up an accepted emergent protocol registry entry for the current thread by token and optionally record a usage or fallback outcome.", serde_json::json!({
+    tools.push(tool_def(tool_names::LOOKUP_EMERGENT_PROTOCOL, "Look up an accepted emergent protocol for the current thread by token; optionally record a usage or fallback outcome.", serde_json::json!({
         "type": "object",
         "properties": {
-            "token": { "type": "string", "description": "Protocol token to resolve, such as @proto_deadbeef" },
-            "record_usage": { "type": "boolean", "description": "When true, record usage/fallback against the registry entry" },
+            "token": { "type": "string", "description": "Protocol token, e.g. @proto_deadbeef" },
+            "record_usage": { "type": "boolean", "description": "Record usage/fallback against the entry" },
             "success": { "type": "boolean", "description": "Usage outcome when record_usage=true" },
-            "fallback_reason": { "type": "string", "description": "Fallback reason when lookup succeeded but the protocol could not be applied cleanly" },
-            "execution_time_ms": { "type": "integer", "description": "Optional execution time for the attempted protocol application" }
+            "fallback_reason": { "type": "string", "description": "Why the protocol could not be applied" },
+            "execution_time_ms": { "type": "integer", "description": "Optional execution time in ms" }
         },
         "required": ["token"]
     })));
@@ -555,13 +551,13 @@ pub(crate) fn add_available_tools_part_c(
         "type": "object",
         "properties": {}
     })));
-    tools.push(tool_def(tool_names::DECODE_EMERGENT_PROTOCOL, "Resolve an accepted emergent protocol token in the current thread, validate the stored context signature, and return either a structured fallback or expanded intent payload. This does not execute the decoded steps automatically.", serde_json::json!({
+    tools.push(tool_def(tool_names::DECODE_EMERGENT_PROTOCOL, "Decode an accepted emergent protocol token for the current thread, validating the stored context signature. Does not execute the decoded steps.", serde_json::json!({
         "type": "object",
         "properties": {
-            "token": { "type": "string", "description": "Protocol token to decode, such as @proto_deadbeef" },
-            "current_role": { "type": "string", "description": "Current sender role for context validation (for example: user or assistant)" },
-            "target_role": { "type": "string", "description": "Expected receiver role for context validation (for example: assistant or user)" },
-            "normalized_pattern": { "type": "string", "description": "Observed normalized pattern in the current context to validate against the stored signature" }
+            "token": { "type": "string", "description": "Protocol token, e.g. @proto_deadbeef" },
+            "current_role": { "type": "string", "description": "Sender role for validation, e.g. user" },
+            "target_role": { "type": "string", "description": "Receiver role for validation, e.g. assistant" },
+            "normalized_pattern": { "type": "string", "description": "Observed normalized pattern to validate against the signature" }
         },
         "required": ["token"]
     })));

@@ -38,7 +38,7 @@ fn collaboration_mouse_clicks_select_rows_and_vote_actions() {
     assert_eq!(model.collaboration.selected_row_index(), 1);
 
     let right_x = chat_area.x + (chat_area.width / 2);
-    let action_y = chat_area.y + 6;
+    let action_y = chat_area.y + 5;
     model.handle_mouse(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
         column: right_x,

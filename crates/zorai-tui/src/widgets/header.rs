@@ -153,6 +153,12 @@ pub fn render(
             Paragraph::new(context_usage_line(usage, theme)).alignment(Alignment::Center),
             bottom_line_area,
         );
+        if let Some(gpu_label) = system_monitor.and_then(build_gpu_monitor_label) {
+            frame.render_widget(
+                Paragraph::new(Line::from(Span::styled(gpu_label, theme.fg_dim))),
+                bottom_line_area,
+            );
+        }
     }
 
     let approval_render_area = Rect::new(approval_area.x, approval_area.y, approval_area.width, 1);
@@ -230,24 +236,26 @@ fn format_session_duration(duration_secs: u64) -> String {
 fn build_system_monitor_label(system_monitor: &SystemMonitorDisplay) -> String {
     let used_gib = bytes_to_gib(system_monitor.memory_used_bytes);
     let total_gib = bytes_to_gib(system_monitor.memory_total_bytes);
-    let mut label = format!(
+    format!(
         "CPU {:.0}%  MEM {:.1}/{:.0}G",
         system_monitor.cpu_percent, used_gib, total_gib
-    );
-    if let Some(gpu_percent) = system_monitor.gpu_percent {
-        label.push_str(&format!("  GPU {:.0}%", gpu_percent));
-        if let (Some(gpu_used_bytes), Some(gpu_total_bytes)) = (
-            system_monitor.gpu_memory_used_bytes,
-            system_monitor.gpu_memory_total_bytes,
-        ) {
-            label.push_str(&format!(
-                " {:.1}/{:.0}G",
-                bytes_to_gib(gpu_used_bytes),
-                bytes_to_gib(gpu_total_bytes)
-            ));
-        }
+    )
+}
+
+fn build_gpu_monitor_label(system_monitor: &SystemMonitorDisplay) -> Option<String> {
+    let gpu_percent = system_monitor.gpu_percent?;
+    let mut label = format!("GPU {gpu_percent:.0}%");
+    if let (Some(gpu_used_bytes), Some(gpu_total_bytes)) = (
+        system_monitor.gpu_memory_used_bytes,
+        system_monitor.gpu_memory_total_bytes,
+    ) {
+        label.push_str(&format!(
+            " {:.1}/{:.0}G",
+            bytes_to_gib(gpu_used_bytes),
+            bytes_to_gib(gpu_total_bytes)
+        ));
     }
-    label
+    Some(label)
 }
 
 fn bytes_to_gib(bytes: u64) -> f64 {
@@ -637,7 +645,7 @@ mod tests {
     }
 
     #[test]
-    fn system_monitor_label_formats_cpu_memory_and_gpu_when_present() {
+    fn system_monitor_label_formats_cpu_and_memory_without_gpu() {
         let label = build_system_monitor_label(&SystemMonitorDisplay {
             cpu_percent: 12.4,
             memory_used_bytes: 8 * 1024 * 1024 * 1024,
@@ -647,7 +655,35 @@ mod tests {
             gpu_memory_total_bytes: Some(24 * 1024 * 1024 * 1024),
         });
 
-        assert_eq!(label, "CPU 12%  MEM 8.0/32G  GPU 48% 3.2/24G");
+        assert_eq!(label, "CPU 12%  MEM 8.0/32G");
+    }
+
+    #[test]
+    fn gpu_monitor_label_is_separate_so_it_renders_on_the_second_row() {
+        let label = build_gpu_monitor_label(&SystemMonitorDisplay {
+            cpu_percent: 12.4,
+            memory_used_bytes: 8 * 1024 * 1024 * 1024,
+            memory_total_bytes: 32 * 1024 * 1024 * 1024,
+            gpu_percent: Some(47.6),
+            gpu_memory_used_bytes: Some(3277 * 1024 * 1024),
+            gpu_memory_total_bytes: Some(24 * 1024 * 1024 * 1024),
+        });
+
+        assert_eq!(label.as_deref(), Some("GPU 48% 3.2/24G"));
+    }
+
+    #[test]
+    fn gpu_monitor_label_absent_when_no_gpu() {
+        let label = build_gpu_monitor_label(&SystemMonitorDisplay {
+            cpu_percent: 4.0,
+            memory_used_bytes: 512 * 1024 * 1024,
+            memory_total_bytes: 2 * 1024 * 1024 * 1024,
+            gpu_percent: None,
+            gpu_memory_used_bytes: None,
+            gpu_memory_total_bytes: None,
+        });
+
+        assert_eq!(label, None);
     }
 
     #[test]

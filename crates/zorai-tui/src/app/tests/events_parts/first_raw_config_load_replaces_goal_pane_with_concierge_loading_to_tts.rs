@@ -274,12 +274,12 @@ fn pump_daemon_events_budgeted_stops_after_limit() {
         .send(ClientEvent::Error("third".to_string()))
         .expect("third event should send");
 
-    let processed = model.pump_daemon_events_budgeted(2);
+    let processed = model.pump_daemon_events_budgeted(2).processed;
 
     assert_eq!(processed, 2);
     assert_eq!(model.last_error.as_deref(), Some("second"));
 
-    let remaining = model.pump_daemon_events_budgeted(usize::MAX);
+    let remaining = model.pump_daemon_events_budgeted(usize::MAX).processed;
 
     assert_eq!(remaining, 1);
     assert_eq!(model.last_error.as_deref(), Some("third"));
@@ -304,7 +304,7 @@ fn concierge_loading_state_is_visible_before_full_startup_burst_is_drained() {
         .send(ClientEvent::Error("startup follow-up".to_string()))
         .expect("follow-up event should send");
 
-    let processed = model.pump_daemon_events_budgeted(1);
+    let processed = model.pump_daemon_events_budgeted(1).processed;
 
     assert_eq!(processed, 1);
     assert!(
@@ -316,7 +316,7 @@ fn concierge_loading_state_is_visible_before_full_startup_burst_is_drained() {
         "the loading hero should stay on the conversation view until later startup events are processed"
     );
 
-    let remaining = model.pump_daemon_events_budgeted(usize::MAX);
+    let remaining = model.pump_daemon_events_budgeted(usize::MAX).processed;
     assert_eq!(remaining, 1);
     assert!(
         !model.concierge.loading,

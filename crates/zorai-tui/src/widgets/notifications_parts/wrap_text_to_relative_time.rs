@@ -39,13 +39,7 @@ pub(super) fn wrap_text(text: &str, width: usize, max_lines: usize) -> Vec<Strin
 }
 
 pub(super) fn truncate_display(text: &str, width: usize) -> String {
-    if text.chars().count() <= width {
-        return text.to_string();
-    }
-    text.chars()
-        .take(width.saturating_sub(1))
-        .collect::<String>()
-        + "…"
+    crate::widgets::message::truncate_to_width(text, width)
 }
 
 pub(super) fn severity_style(severity: &str, theme: &ThemeTokens) -> Style {

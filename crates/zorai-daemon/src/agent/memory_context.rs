@@ -202,33 +202,6 @@ pub(crate) fn build_structured_memory_summary(
         collect_summary_lines(negative_constraints.unwrap_or_default(), 4),
     );
 
-    let freshness_lines = vec![
-        format!("- Summary built at (ms): {built_at_ms}"),
-        format!(
-            "- SOUL.md updated at (ms): {}",
-            soul_updated_at_ms
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "unknown".to_string())
-        ),
-        format!(
-            "- MEMORY.md updated at (ms): {}",
-            memory_updated_at_ms
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "unknown".to_string())
-        ),
-        format!(
-            "- USER.md updated at (ms): {}",
-            user_updated_at_ms
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "unknown".to_string())
-        ),
-    ];
-    push_section(
-        &mut rendered_markdown,
-        "## Freshness Summary",
-        freshness_lines,
-    );
-
     StructuredMemorySummary {
         rendered_markdown,
         built_at_ms,
@@ -284,18 +257,28 @@ pub(crate) fn should_inject_memory_context(
     }
 }
 
+/// Append the compact summary only when the prompt does not already carry the
+/// full base memory layers inline (`build_system_prompt` embeds SOUL, MEMORY,
+/// USER, continuity, and constraints verbatim — duplicating their first lines
+/// as a "summary" in the same context window is pure token waste). Prompts
+/// without the base layers (e.g. Weles governance) still get the summary as
+/// their only memory context. The injection state is refreshed either way so
+/// staleness diagnostics keep working.
 pub(crate) fn append_structured_memory_summary_if_needed(
     prompt: &mut String,
     existing_state: Option<&PromptMemoryInjectionState>,
     summary: &StructuredMemorySummary,
     injected_after_compaction: bool,
+    base_memory_already_in_prompt: bool,
 ) -> Option<PromptMemoryInjectionState> {
     if !should_inject_memory_context(existing_state, summary) {
         return None;
     }
 
-    prompt.push_str("\n\n");
-    prompt.push_str(&summary.rendered_markdown);
+    if !base_memory_already_in_prompt {
+        prompt.push_str("\n\n");
+        prompt.push_str(&summary.rendered_markdown);
+    }
     Some(build_prompt_memory_injection_state(
         summary,
         injected_after_compaction,

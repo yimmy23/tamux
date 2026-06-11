@@ -334,6 +334,17 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
+        id: PROVIDER_ID_XIAOMI_MIMO,
+        name: "Xiaomi MiMo",
+        default_base_url: "https://api.xiaomimimo.com/v1",
+        default_model: "mimo-v2.5-pro",
+        supported_transports: &["chat_completions", "anthropic_messages"],
+        default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
+        native_base_url: None,
+    },
+    ProviderDef {
         id: PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
         name: "Xiaomi MiMo Token Plan",
         default_base_url: "https://token-plan-ams.xiaomimimo.com/v1",
@@ -491,6 +502,7 @@ pub fn supports_model_fetch_for(provider: &str) -> bool {
             | PROVIDER_ID_HUGGINGFACE
             | PROVIDER_ID_ANTHROPIC
             | PROVIDER_ID_ALIBABA_CODING_PLAN
+            | PROVIDER_ID_XIAOMI_MIMO
             | PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN
     )
 }

@@ -404,14 +404,7 @@ fn task_status_label(status: Option<crate::state::task::TaskStatus>) -> &'static
 }
 
 fn truncate_tail(text: &str, max_len: usize) -> String {
-    if text.chars().count() <= max_len {
-        return text.to_string();
-    }
-
-    let take = max_len.saturating_sub(1);
-    let mut truncated = text.chars().take(take).collect::<String>();
-    truncated.push('…');
-    truncated
+    crate::widgets::message::truncate_to_width(text, max_len)
 }
 
 fn resolved_scroll(rows: &[GoalSidebarRow], state: &GoalSidebarState, body_height: usize) -> usize {

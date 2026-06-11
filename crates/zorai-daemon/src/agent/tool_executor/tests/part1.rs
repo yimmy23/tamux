@@ -285,7 +285,11 @@ fn web_and_terminal_tool_descriptions_distinguish_text_reads_from_binary_downloa
         .find(|tool| tool.function.name == "execute_managed_command")
         .expect("execute_managed_command tool should be available");
 
-    assert!(fetch_url.function.description.contains("text content"));
+    assert!(
+        fetch_url.function.description.contains("Markdown")
+            && fetch_url.function.description.contains("inventory"),
+        "fetch_url must advertise that it saves to the thread inventory and converts html to markdown so the model picks it for cheap page reads"
+    );
     assert!(run_terminal_command
         .function
         .description

@@ -46,6 +46,7 @@ pub const PROVIDER_ID_OPENROUTER: &str = "openrouter";
 pub const PROVIDER_ID_QWEN: &str = "qwen";
 pub const PROVIDER_ID_QWEN_DEEPINFRA: &str = "qwen-deepinfra";
 pub const PROVIDER_ID_TOGETHER: &str = "together";
+pub const PROVIDER_ID_XIAOMI_MIMO: &str = "xiaomi-mimo";
 pub const PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN: &str = "xiaomi-mimo-token-plan";
 pub const PROVIDER_ID_XAI: &str = "xai";
 pub const PROVIDER_ID_Z_AI: &str = "z.ai";
@@ -98,6 +99,9 @@ pub const OPENROUTER_PROVIDER: ProviderRef = ProviderRef {
 };
 pub const QWEN_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_QWEN,
+};
+pub const XIAOMI_MIMO_PROVIDER: ProviderRef = ProviderRef {
+    id: PROVIDER_ID_XIAOMI_MIMO,
 };
 pub const XIAOMI_MIMO_TOKEN_PLAN_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
@@ -214,6 +218,7 @@ pub fn provider_supports_audio_tool(provider_id: &str, kind: AudioToolKind) -> b
                 | PROVIDER_ID_GROQ
                 | PROVIDER_ID_OPENROUTER
                 | PROVIDER_ID_XAI
+                | PROVIDER_ID_XIAOMI_MIMO
                 | PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN
         ),
         AudioToolKind::TextToSpeech => matches!(
@@ -227,6 +232,7 @@ pub fn provider_supports_audio_tool(provider_id: &str, kind: AudioToolKind) -> b
                 | PROVIDER_ID_MINIMAX_CODING_PLAN
                 | PROVIDER_ID_OPENROUTER
                 | PROVIDER_ID_XAI
+                | PROVIDER_ID_XIAOMI_MIMO
                 | PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN
         ),
     }

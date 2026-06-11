@@ -243,7 +243,7 @@ pub fn selected_text(
 ) -> Option<String> {
     let snapshot = selection_snapshot(area, tasks, target, theme, scroll)?;
     let (start_point, end_point) =
-        if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+        if start.row < end.row || (start.row == end.row && start.col <= end.col) {
             (start, end)
         } else {
             (end, start)
@@ -290,7 +290,7 @@ pub(super) fn apply_mouse_selection_highlight_to_line(
         return;
     };
     let (start_point, end_point) =
-        if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+        if start.row < end.row || (start.row == end.row && start.col <= end.col) {
             (start, end)
         } else {
             (end, start)

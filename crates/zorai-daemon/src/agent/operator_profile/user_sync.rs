@@ -92,7 +92,7 @@ async fn bootstrap_legacy_user_import(agent_data_dir: &Path, history: &HistorySt
     let path = user_memory_path(agent_data_dir);
     let existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
     let trimmed = existing.trim();
-    if !trimmed.is_empty() {
+    if !trimmed.is_empty() && !is_generated_profile_markdown(trimmed) {
         history
             .upsert_profile_field(
                 "legacy_user_md",
@@ -124,15 +124,71 @@ async fn bootstrap_legacy_user_import(agent_data_dir: &Path, history: &HistorySt
     Ok(())
 }
 
+const GENERATED_PROFILE_HEADER: &str =
+    "Profile summary is generated from SQLite-backed operator profile.";
+
+fn is_generated_profile_markdown(content: &str) -> bool {
+    content.contains(GENERATED_PROFILE_HEADER)
+}
+
+/// Legacy profile values are JSON-encoded markdown blobs. Earlier daemon
+/// versions could re-import an already-generated USER.md, nesting a full
+/// generated document (with its own escaped legacy fields) inside the value.
+/// Rendering that raw would re-escape it on every reconcile cycle. Unwrap
+/// generated wrappers recursively and emit only the innermost plain lines.
+fn append_flattened_legacy_value(value: &str, out: &mut Vec<String>) {
+    if is_generated_profile_markdown(value) {
+        for line in value.lines() {
+            let trimmed = line.trim();
+            let Some(rest) = trimmed.strip_prefix("- ") else {
+                continue;
+            };
+            let Some((_, raw_value)) = rest.split_once(": ") else {
+                continue;
+            };
+            match serde_json::from_str::<String>(raw_value.trim()) {
+                Ok(decoded) => append_flattened_legacy_value(&decoded, out),
+                Err(_) => out.push(trimmed.to_string()),
+            }
+        }
+        return;
+    }
+
+    for line in value.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed == "# User" {
+            continue;
+        }
+        if trimmed.starts_with('-') || trimmed.starts_with('#') {
+            out.push(trimmed.to_string());
+        } else {
+            out.push(format!("- {trimmed}"));
+        }
+    }
+}
+
 fn render_user_profile_markdown(fields: &[crate::history::OperatorProfileFieldRow]) -> String {
     let mut lines = vec![
         "# User".to_string(),
-        "Profile summary is generated from SQLite-backed operator profile.".to_string(),
+        GENERATED_PROFILE_HEADER.to_string(),
         "".to_string(),
     ];
 
+    let mut seen = std::collections::HashSet::new();
     for row in fields {
-        lines.push(format!("- {}: {}", row.field_key, row.field_value_json));
+        if row.field_key.starts_with("legacy_") {
+            let decoded = serde_json::from_str::<String>(&row.field_value_json)
+                .unwrap_or_else(|_| row.field_value_json.clone());
+            let mut flattened = Vec::new();
+            append_flattened_legacy_value(&decoded, &mut flattened);
+            for line in flattened {
+                if seen.insert(line.clone()) {
+                    lines.push(line);
+                }
+            }
+        } else {
+            lines.push(format!("- {}: {}", row.field_key, row.field_value_json));
+        }
     }
     lines.push(String::new());
     lines.join("\n")

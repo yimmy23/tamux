@@ -228,8 +228,10 @@ async fn run_unix(
 ) -> Result<()> {
     let shutdown = await_shutdown_signal_unix();
 
+    let owner_uid = daemon_socket_owner_uid(&path);
+
     tokio::select! {
-        _ = accept_loop_unix(listener, manager, agent, plugin_manager, startup_readiness) => {}
+        _ = accept_loop_unix(listener, owner_uid, manager, agent, plugin_manager, startup_readiness) => {}
         _ = shutdown => {}
     }
 
@@ -295,6 +297,7 @@ async fn await_shutdown_signal_unix() {
 fn bind_unix_listener(path: &std::path::Path) -> Result<tokio::net::UnixListener> {
     use std::io::ErrorKind;
     use std::os::unix::fs::FileTypeExt;
+    use std::os::unix::fs::PermissionsExt;
 
     if let Ok(metadata) = std::fs::symlink_metadata(path) {
         if !metadata.file_type().is_socket() {
@@ -331,7 +334,7 @@ fn bind_unix_listener(path: &std::path::Path) -> Result<tokio::net::UnixListener
         }
     }
 
-    tokio::net::UnixListener::bind(path).map_err(|error| {
+    let listener = tokio::net::UnixListener::bind(path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::AddrInUse {
             anyhow::anyhow!(
                 "daemon is already running on {}; stop the existing process before starting another instance",
@@ -341,12 +344,33 @@ fn bind_unix_listener(path: &std::path::Path) -> Result<tokio::net::UnixListener
             anyhow::Error::new(error)
                 .context(format!("failed to bind daemon Unix socket {}", path.display()))
         }
-    })
+    })?;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).with_context(|| {
+        format!(
+            "failed to restrict permissions on daemon socket {}",
+            path.display()
+        )
+    })?;
+
+    Ok(listener)
+}
+
+/// The uid that owns the daemon socket file is the uid that bound it, i.e. the
+/// daemon's own effective uid. We compare incoming peer credentials against it
+/// so a different local user cannot drive the control channel even if the socket
+/// mode is ever loosened. Returns `None` if the owner can't be determined, in
+/// which case peer filtering is skipped (the 0600 mode is still in force).
+#[cfg(unix)]
+fn daemon_socket_owner_uid(path: &std::path::Path) -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|metadata| metadata.uid())
 }
 
 #[cfg(unix)]
 async fn accept_loop_unix(
     listener: tokio::net::UnixListener,
+    owner_uid: Option<u32>,
     manager: Arc<SessionManager>,
     agent: Arc<AgentEngine>,
     plugin_manager: Arc<crate::plugin::PluginManager>,
@@ -355,6 +379,26 @@ async fn accept_loop_unix(
     loop {
         match listener.accept().await {
             Ok((stream, _addr)) => {
+                if let Some(expected_uid) = owner_uid {
+                    match stream.peer_cred() {
+                        Ok(cred) if cred.uid() != expected_uid => {
+                            tracing::warn!(
+                                peer_uid = cred.uid(),
+                                expected_uid,
+                                "rejecting daemon connection from foreign uid"
+                            );
+                            continue;
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            tracing::warn!(
+                                error = %error,
+                                "rejecting daemon connection: peer credentials unavailable"
+                            );
+                            continue;
+                        }
+                    }
+                }
                 let manager = manager.clone();
                 let agent = agent.clone();
                 let plugin_manager = plugin_manager.clone();
@@ -432,6 +476,28 @@ mod unix_socket_tests {
         assert!(path.exists(), "rebound daemon socket should exist");
 
         drop(rebound);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn bind_unix_listener_restricts_socket_to_owner() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("zorai-daemon.sock");
+
+        let listener = with_io_runtime(|| bind_unix_listener(&path).expect("bind daemon socket"));
+        let mode = std::fs::metadata(&path)
+            .expect("socket metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "daemon control socket must be owner-only; the channel has no authentication"
+        );
+
+        drop(listener);
         let _ = std::fs::remove_file(&path);
     }
 }

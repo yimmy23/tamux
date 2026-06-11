@@ -4573,6 +4573,51 @@ async fn allowlisted_tool_result_falls_back_to_inline_content_when_preview_write
 }
 
 #[tokio::test]
+async fn oversized_tool_result_is_clipped_when_preview_write_fails() {
+    let root = tempdir().expect("tempdir");
+    let blocked_thread_dir = root.path().join("threads").join("thread-preview-clip");
+    std::fs::create_dir_all(&blocked_thread_dir).expect("create thread preview parent");
+    std::fs::write(blocked_thread_dir.join("artifacts"), "blocked")
+        .expect("block preview artifacts directory creation");
+    let manager = SessionManager::new_test(root.path()).await;
+    let mut config = AgentConfig::default();
+    config.offload_tool_result_threshold_bytes = 1024;
+    let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+    // Oversized payload: with both preview persistence and offloading
+    // unavailable, the inline fallback must be bounded just like the
+    // offload-failure path, or it re-inflates the context window every turn.
+    let raw_payload = "HEAD".to_string() + &"x".repeat(8000) + "TAIL";
+    let prepared =
+        crate::agent::agent_loop::send_message::tool_results::prepare_tool_result_thread_message(
+            &engine,
+            "thread-preview-clip",
+            None,
+            &ToolResult {
+                tool_call_id: "tool-call-preview-clip".to_string(),
+                name: "bash_command".to_string(),
+                content: raw_payload.clone(),
+                is_error: false,
+                weles_review: None,
+                pending_approval: None,
+            },
+            1_700_000_457,
+        )
+        .await;
+
+    assert!(
+        prepared.content.len() < raw_payload.len(),
+        "oversized inline fallback must be clipped, got {} bytes",
+        prepared.content.len()
+    );
+    assert!(prepared.content.starts_with("HEAD"));
+    assert!(prepared.content.ends_with("TAIL"));
+    assert!(prepared.content.contains("bytes dropped"));
+    assert_eq!(prepared.offloaded_payload_id, None);
+    assert_eq!(prepared.tool_output_preview_path, None);
+}
+
+#[tokio::test]
 async fn offloaded_tool_result_cleans_up_payload_file_when_metadata_write_fails() {
     let root = tempdir().expect("tempdir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -4608,7 +4653,10 @@ async fn offloaded_tool_result_cleans_up_payload_file_when_metadata_write_fails(
         )
         .await;
 
-    assert_eq!(prepared.content, raw_payload);
+    // Offload failed; the inline fallback never grows the payload (here the
+    // budget is too small to clip, so it is returned unchanged).
+    assert!(prepared.content.len() <= raw_payload.len());
+    assert!(prepared.content.starts_with("payloa"));
     assert_eq!(prepared.offloaded_payload_id, None);
     assert_eq!(prepared.tool_output_preview_path, None);
 

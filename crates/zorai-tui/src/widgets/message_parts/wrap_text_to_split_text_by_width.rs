@@ -14,18 +14,32 @@ pub(crate) fn wrap_text(text: &str, width: usize) -> Vec<String> {
         }
         let mut current_line = String::new();
         for word in paragraph.split_whitespace() {
-            if current_line.is_empty() {
-                current_line = word.to_string();
-            } else if UnicodeWidthStr::width(current_line.as_str())
-                + 1
-                + UnicodeWidthStr::width(word)
-                <= width
+            let word_width = UnicodeWidthStr::width(word);
+            if !current_line.is_empty()
+                && UnicodeWidthStr::width(current_line.as_str()) + 1 + word_width > width
             {
-                current_line.push(' ');
-                current_line.push_str(word);
+                lines.push(std::mem::take(&mut current_line));
+            }
+            if word_width <= width {
+                if current_line.is_empty() {
+                    current_line = word.to_string();
+                } else {
+                    current_line.push(' ');
+                    current_line.push_str(word);
+                }
             } else {
-                lines.push(current_line);
-                current_line = word.to_string();
+                if !current_line.is_empty() {
+                    lines.push(std::mem::take(&mut current_line));
+                }
+                let chunks = split_text_by_width(word, width);
+                let last = chunks.len().saturating_sub(1);
+                for (idx, chunk) in chunks.into_iter().enumerate() {
+                    if idx == last {
+                        current_line = chunk;
+                    } else {
+                        lines.push(chunk);
+                    }
+                }
             }
         }
         if !current_line.is_empty() {
@@ -136,6 +150,50 @@ pub(crate) fn tokenize_styled_text(text: String, style: Style) -> Vec<(String, S
 
     tokens.push((text[start..].to_string(), style));
     tokens
+}
+
+pub(crate) fn truncate_to_width(text: &str, width: usize) -> String {
+    if UnicodeWidthStr::width(text) <= width {
+        return text.to_string();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let budget = width.saturating_sub(1);
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + ch_width > budget {
+            break;
+        }
+        out.push(ch);
+        used += ch_width;
+    }
+    out.push('…');
+    out
+}
+
+pub(crate) fn truncate_tail_to_width(text: &str, width: usize) -> String {
+    if UnicodeWidthStr::width(text) <= width {
+        return text.to_string();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let budget = width.saturating_sub(1);
+    let mut tail: Vec<char> = Vec::new();
+    let mut used = 0usize;
+    for ch in text.chars().rev() {
+        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + ch_width > budget {
+            break;
+        }
+        tail.push(ch);
+        used += ch_width;
+    }
+    let tail: String = tail.into_iter().rev().collect();
+    format!("…{tail}")
 }
 
 pub(crate) fn split_text_by_width(text: &str, width: usize) -> Vec<String> {

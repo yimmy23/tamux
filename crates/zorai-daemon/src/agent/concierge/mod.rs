@@ -23,7 +23,7 @@ mod triage;
 mod welcome;
 
 pub const CONCIERGE_THREAD_ID: &str = "concierge";
-const WELCOME_REUSE_WINDOW_MS: u64 = 2 * 60 * 60 * 1000;
+const WELCOME_REUSE_WINDOW_MS: u64 = 60 * 60 * 1000;
 const GATEWAY_TRIAGE_MAX_TOOL_ROUNDS: usize = 3;
 const GATEWAY_TRIAGE_SAFE_TOOL_NAMES: &[&str] = &[
     zorai_protocol::tool_names::SEARCH_HISTORY,

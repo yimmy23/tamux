@@ -25,7 +25,8 @@ pub use config::{
 pub use logging::{dated_log_file_name, dated_log_file_path, DailyLogWriter};
 pub use messages::*;
 pub use runtime_paths::{
-    legacy_agent_skills_dir, thread_artifacts_dir, thread_media_dir, thread_previews_dir,
-    thread_root_dir, thread_specs_dir, zorai_guidelines_dir, zorai_root_dir, zorai_skills_dir,
+    legacy_agent_skills_dir, thread_artifacts_dir, thread_inventory_dir, thread_media_dir,
+    thread_previews_dir, thread_root_dir, thread_specs_dir, zorai_guidelines_dir, zorai_root_dir,
+    zorai_skills_dir,
 };
 pub use update::*;

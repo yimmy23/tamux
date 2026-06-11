@@ -97,8 +97,24 @@ impl ConciergeEngine {
         let mut threads_guard = threads.write().await;
         if let Some(thread) = threads_guard.get_mut(CONCIERGE_THREAD_ID) {
             thread.agent_name = Some(CONCIERGE_AGENT_NAME.to_string());
+            let now = super::super::now_millis();
+            let recent_welcome = thread
+                .messages
+                .iter()
+                .rev()
+                .find(|msg| {
+                    msg.role == MessageRole::Assistant
+                        && msg.provider.as_deref() == Some("concierge")
+                        && now.saturating_sub(msg.timestamp) < WELCOME_REUSE_WINDOW_MS
+                })
+                .cloned();
             thread.messages.clear();
-            tracing::info!("concierge: cleared stale messages from existing thread");
+            if let Some(welcome) = recent_welcome {
+                thread.messages.push(welcome);
+                tracing::info!("concierge: preserved recent welcome message in existing thread");
+            } else {
+                tracing::info!("concierge: cleared stale messages from existing thread");
+            }
         } else {
             let now = super::super::now_millis();
             let thread = AgentThread {
@@ -158,10 +174,11 @@ impl ConciergeEngine {
             context.running_goal_total,
             context.paused_goal_total
         );
-        let (content, actions) = if let Some(existing) = self
+        let reused = self
             .reuse_welcome_from_history(threads, history, detail_level, &context)
-            .await
-        {
+            .await;
+        let is_reused = reused.is_some();
+        let (content, actions) = if let Some(existing) = reused {
             tracing::info!("concierge: reusing persisted welcome payload");
             existing
         } else {
@@ -173,7 +190,9 @@ impl ConciergeEngine {
             return;
         }
 
-        self.replace_welcome_message(threads, &content).await;
+        if !is_reused {
+            self.replace_welcome_message(threads, &content).await;
+        }
 
         let send_result = self.event_tx.send(AgentEvent::ConciergeWelcome {
             thread_id: CONCIERGE_THREAD_ID.to_string(),
@@ -201,10 +220,11 @@ impl ConciergeEngine {
         drop(config);
 
         let context = self.gather_context(history, detail_level, &[]).await;
-        let (content, actions) = if let Some(existing) = self
+        let reused = self
             .reuse_welcome_from_history(threads, history, detail_level, &context)
-            .await
-        {
+            .await;
+        let is_reused = reused.is_some();
+        let (content, actions) = if let Some(existing) = reused {
             existing
         } else {
             self.compose_welcome(detail_level, &context).await
@@ -214,7 +234,9 @@ impl ConciergeEngine {
             return None;
         }
 
-        self.replace_welcome_message(threads, &content).await;
+        if !is_reused {
+            self.replace_welcome_message(threads, &content).await;
+        }
         Some((content, detail_level, actions))
     }
 

@@ -318,11 +318,13 @@ fn render_detail(
         Line::from(vec![
             Span::styled("Task: ", theme.fg_dim),
             Span::styled(
-                selected
-                    .task_title
-                    .as_deref()
-                    .unwrap_or(selected.task_id.as_str())
-                    .to_string(),
+                crate::widgets::message::truncate_to_width(
+                    selected
+                        .task_title
+                        .as_deref()
+                        .unwrap_or(selected.task_id.as_str()),
+                    inner.width.saturating_sub(6) as usize,
+                ),
                 theme.fg_active,
             ),
         ]),

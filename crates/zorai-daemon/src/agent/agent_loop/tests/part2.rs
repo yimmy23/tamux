@@ -103,14 +103,14 @@ async fn first_turn_runner_bootstrap_includes_structured_memory_summary() {
     assert!(
         recorded
             .iter()
-            .any(|body| body.contains("## Structured Memory Summary")),
-        "expected first-turn prompt bootstrap to include structured memory summary"
+            .any(|body| body.contains("## Persistent Memory File Paths")),
+        "expected first-turn prompt bootstrap to carry the base memory layer"
     );
     assert!(
-        recorded
+        !recorded
             .iter()
-            .any(|body| body.contains("## Freshness Summary")),
-        "expected first-turn prompt bootstrap to include freshness summary"
+            .any(|body| body.contains("## Structured Memory Summary")),
+        "the base memory layers are already inline; duplicating them as a summary wastes tokens"
     );
 }
 
@@ -242,10 +242,10 @@ async fn post_compaction_prompt_rebuild_refreshes_memory_summary_and_injection_s
         "expected the rebuild path to execute the pre-compaction memory flush request"
     );
     assert!(
-        recorded
+        !recorded
             .iter()
             .any(|body| body.contains("## Structured Memory Summary")),
-        "expected post-compaction rebuild to keep structured memory summary"
+        "post-compaction rebuild carries the base memory layers inline; no duplicate summary"
     );
     assert!(
         recorded

@@ -14,7 +14,10 @@ impl DaemonClient {
     }
 
     pub fn request_prompt_inspection(&self, agent_id: Option<String>) -> Result<()> {
-        self.send(ClientMessage::AgentInspectPrompt { agent_id })
+        self.send(ClientMessage::AgentInspectPrompt {
+            agent_id,
+            client_surface: Some(zorai_protocol::ClientSurface::Tui),
+        })
     }
 
     pub fn request_file_preview(

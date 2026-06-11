@@ -1,5 +1,10 @@
 use super::*;
 use crate::widgets;
+
+/// Upper bound on locally queued prompts. Well above any realistic manual queue
+/// depth; exists only to bound memory against a runaway producer.
+const MAX_QUEUED_PROMPTS: usize = 500;
+
 impl TuiModel {
     pub(crate) fn go_back_thread(&mut self) {
         if !self.chat.can_go_back_thread() {
@@ -314,6 +319,15 @@ impl TuiModel {
     }
 
     pub(crate) fn queue_prompt(&mut self, prompt: String) {
+        // Bound the queue so a runaway loop (or accidental hold-to-send) can't
+        // grow it without limit. The cap is far above any realistic manual use;
+        // refuse rather than drop so a user-authored prompt is never lost
+        // silently.
+        if self.queued_prompts.len() >= MAX_QUEUED_PROMPTS {
+            self.status_line =
+                format!("QUEUE FULL ({MAX_QUEUED_PROMPTS}); send or clear queued messages first");
+            return;
+        }
         self.queued_prompts.push(QueuedPrompt::new(prompt));
         self.status_line = format!("QUEUED ({})", self.queued_prompts.len());
         self.sync_queued_prompt_modal_state();

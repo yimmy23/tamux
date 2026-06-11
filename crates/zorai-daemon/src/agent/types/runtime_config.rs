@@ -538,6 +538,8 @@ pub struct ToolsConfig {
     pub file_operations: bool,
     #[serde(default = "default_true")]
     pub system_info: bool,
+    #[serde(default = "default_true")]
+    pub deferred_tool_loading: bool,
 }
 
 pub(crate) fn default_true() -> bool {
@@ -562,6 +564,7 @@ impl Default for ToolsConfig {
             gateway_messaging: true,
             file_operations: true,
             system_info: true,
+            deferred_tool_loading: true,
         }
     }
 }

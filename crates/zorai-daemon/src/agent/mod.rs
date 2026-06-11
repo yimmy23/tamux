@@ -61,6 +61,7 @@ mod heartbeat;
 mod heartbeat_checks;
 mod honcho;
 mod import_report;
+mod internal_event;
 mod memory;
 mod memory_context;
 mod memory_distillation;

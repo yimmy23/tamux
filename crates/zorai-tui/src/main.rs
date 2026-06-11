@@ -26,6 +26,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use crossterm::{
+    cursor::Show,
     event::{
         self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
         Event, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
@@ -187,8 +188,60 @@ fn best_effort_restore_stdio_terminal() {
     let _ = stdout.execute(DisableMouseCapture);
     let _ = stdout.execute(PopKeyboardEnhancementFlags);
     let _ = stdout.execute(LeaveAlternateScreen);
+    // The Terminal-based restore path shows the cursor via `show_cursor`, but
+    // this raw-stdout path (panic hook / signal handler) must do it explicitly,
+    // or a panic mid-render leaves the user with an invisible cursor.
+    let _ = stdout.execute(Show);
     let _ = stdout.flush();
 }
+
+/// The signals that should restore the terminal before the process dies.
+/// Ctrl+C/Ctrl+\ don't reach us as signals while raw mode is on (ISIG is off —
+/// they arrive as key bytes), but `kill`, a closed terminal (SIGHUP), and a
+/// dying parent still terminate us; without this the user is left in the
+/// alternate screen with raw mode on.
+#[cfg(unix)]
+const TERMINAL_RESTORE_SIGNALS: [libc::c_int; 4] =
+    [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGQUIT];
+
+#[cfg(unix)]
+fn build_restore_signal_set() -> libc::sigset_t {
+    use std::mem::MaybeUninit;
+    unsafe {
+        let mut set = MaybeUninit::<libc::sigset_t>::uninit();
+        libc::sigemptyset(set.as_mut_ptr());
+        let mut set = set.assume_init();
+        for signal in TERMINAL_RESTORE_SIGNALS {
+            libc::sigaddset(&mut set, signal);
+        }
+        set
+    }
+}
+
+/// Block the restore signals process-wide and hand them to a dedicated thread
+/// that waits with `sigwait`. Restoration then runs in normal thread context
+/// (not an async-signal handler), so it can safely use crossterm. Must be called
+/// before any other thread is spawned so the block is inherited.
+#[cfg(unix)]
+fn install_terminal_signal_restore() {
+    let mut set = build_restore_signal_set();
+    unsafe {
+        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+    }
+
+    thread::spawn(move || {
+        let mut signo: libc::c_int = 0;
+        let rc = unsafe { libc::sigwait(&mut set, &mut signo) };
+        best_effort_restore_stdio_terminal();
+        write_runtime_marker(&format!("terminated by signal {signo}"));
+        // 128 + signo is the conventional shell exit status for signal death.
+        let code = if rc == 0 { 128 + signo } else { 1 };
+        std::process::exit(code);
+    });
+}
+
+#[cfg(not(unix))]
+fn install_terminal_signal_restore() {}
 
 fn install_terminal_panic_hook() {
     panic::set_hook(Box::new(|info| {
@@ -321,27 +374,43 @@ fn main() -> Result<()> {
     tracing::info!(path = %log_path.display(), "tui log file initialized");
     write_runtime_marker("startup: logging initialized");
     install_terminal_panic_hook();
+    install_terminal_signal_restore();
 
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    stdout.execute(EnterAlternateScreen)?;
-    stdout.execute(EnableMouseCapture)?;
-    stdout.execute(EnableBracketedPaste)?;
-    let supports_keyboard_enhancement = matches!(
-        crossterm::terminal::supports_keyboard_enhancement(),
-        Ok(true)
-    );
-    if supports_keyboard_enhancement {
-        let _ = stdout.execute(PushKeyboardEnhancementFlags(
-            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-                | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
-                | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
-                | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
-        ));
+    // Past this point raw mode is on, so any early failure must restore the
+    // terminal — `restore_terminal` below only runs if we reach the run loop.
+    let setup_result = (|| -> io::Result<(Terminal<CrosstermBackend<io::Stdout>>, bool)> {
+        let mut stdout = io::stdout();
+        stdout.execute(EnterAlternateScreen)?;
+        stdout.execute(EnableMouseCapture)?;
+        stdout.execute(EnableBracketedPaste)?;
+        let supports_keyboard_enhancement = matches!(
+            crossterm::terminal::supports_keyboard_enhancement(),
+            Ok(true)
+        );
+        if supports_keyboard_enhancement {
+            let _ = stdout.execute(PushKeyboardEnhancementFlags(
+                KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                    | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                    | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+                    | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES,
+            ));
+        }
+        let backend = CrosstermBackend::new(stdout);
+        let terminal = Terminal::new(backend)?;
+        Ok((terminal, supports_keyboard_enhancement))
+    })();
+    let (mut terminal, supports_keyboard_enhancement) = match setup_result {
+        Ok(value) => value,
+        Err(error) => {
+            best_effort_restore_stdio_terminal();
+            return Err(error.into());
+        }
+    };
+    if let Err(error) = terminal.clear() {
+        let _ = restore_terminal(&mut terminal, supports_keyboard_enhancement);
+        return Err(error.into());
     }
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    terminal.clear()?;
     write_runtime_marker("startup: terminal initialized");
 
     let app_result = panic::catch_unwind(AssertUnwindSafe(|| {
@@ -411,8 +480,8 @@ fn run_loop(
             next_tick = now + loop_tick_rate(model, tick_rate);
         }
 
-        let processed_daemon_events =
-            model.pump_daemon_events_budgeted(MAX_DAEMON_EVENTS_PER_FRAME);
+        let pump_outcome = model.pump_daemon_events_budgeted(MAX_DAEMON_EVENTS_PER_FRAME);
+        let processed_daemon_events = pump_outcome.processed;
         if processed_daemon_events > 0 {
             needs_draw = true;
         }
@@ -461,7 +530,11 @@ fn run_loop(
                 }
             }
 
-            graphics_renderer.render(terminal, model.terminal_image_overlay_spec())?;
+            if let Err(err) =
+                graphics_renderer.render(terminal, model.terminal_image_overlay_spec())
+            {
+                tracing::warn!(error = %err, "terminal image overlay render failed");
+            }
             needs_draw = false;
             last_drawn_at = now;
             input_pending = false;
@@ -473,7 +546,9 @@ fn run_loop(
             next_tick = now + preferred_tick_rate;
         }
         let until_tick = next_tick.saturating_duration_since(now);
-        let wait_for = if processed_daemon_events == MAX_DAEMON_EVENTS_PER_FRAME {
+        let wait_for = if processed_daemon_events == MAX_DAEMON_EVENTS_PER_FRAME
+            || pump_outcome.stopped_for_render
+        {
             Duration::ZERO
         } else {
             until_tick
@@ -1238,6 +1313,12 @@ fn start_daemon_bridge(
                             }
                             DaemonCommand::UpsertNotification(notification) => {
                                 let _ = client.upsert_notification(notification);
+                            }
+                            DaemonCommand::MarkAllNotificationsRead => {
+                                let _ = client.mark_all_notifications_read();
+                            }
+                            DaemonCommand::ArchiveReadNotifications => {
+                                let _ = client.archive_read_notifications();
                             }
                             DaemonCommand::WhatsAppLinkStart => {
                                 let _ = client.whatsapp_link_start();

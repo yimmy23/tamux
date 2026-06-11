@@ -431,13 +431,32 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
+        id: PROVIDER_ID_XIAOMI_MIMO,
+        name: "Xiaomi MiMo",
+        default_base_url: "https://api.xiaomimimo.com/v1",
+        default_model: "mimo-v2.5-pro",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: XIAOMI_MIMO_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: Some("https://api.xiaomimimo.com/anthropic"),
+        supported_transports: &[
+            ApiTransport::ChatCompletions,
+            ApiTransport::AnthropicMessages,
+        ],
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
         id: PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
         name: "Xiaomi MiMo Token Plan",
         default_base_url: "https://token-plan-ams.xiaomimimo.com/v1",
         default_model: "mimo-v2.5-pro",
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
-        models: XIAOMI_MIMO_TOKEN_PLAN_MODELS,
+        models: XIAOMI_MIMO_MODELS,
         supports_model_fetch: true,
         anthropic_base_url: Some("https://token-plan-ams.xiaomimimo.com/anthropic"),
         supported_transports: &[
@@ -575,6 +594,14 @@ fn is_xiaomi_mimo_token_plan_anthropic_url(base_url: &str) -> bool {
         || lower.starts_with("http://token-plan-ams.xiaomimimo.com/anthropic/")
 }
 
+fn is_xiaomi_mimo_anthropic_url(base_url: &str) -> bool {
+    let lower = base_url.trim().to_ascii_lowercase();
+    lower == "https://api.xiaomimimo.com/anthropic"
+        || lower == "http://api.xiaomimimo.com/anthropic"
+        || lower.starts_with("https://api.xiaomimimo.com/anthropic/")
+        || lower.starts_with("http://api.xiaomimimo.com/anthropic/")
+}
+
 fn is_direct_anthropic_url(base_url: &str) -> bool {
     let lower = base_url.trim().to_ascii_lowercase();
     lower == "https://api.anthropic.com"
@@ -599,6 +626,10 @@ pub fn get_provider_api_type(provider_id: &str, model: &str, configured_url: &st
     if provider_id == PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN
         && is_xiaomi_mimo_token_plan_anthropic_url(configured_url)
     {
+        return ApiType::Anthropic;
+    }
+
+    if provider_id == PROVIDER_ID_XIAOMI_MIMO && is_xiaomi_mimo_anthropic_url(configured_url) {
         return ApiType::Anthropic;
     }
 

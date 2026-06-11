@@ -369,6 +369,13 @@ pub struct AgentPromptInspectionSection {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentPromptToolInspection {
+    pub name: String,
+    pub serialized: String,
+    pub serialized_chars: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AgentPromptInspection {
     pub agent_id: String,
     pub agent_name: String,
@@ -376,6 +383,12 @@ pub struct AgentPromptInspection {
     pub model: String,
     pub sections: Vec<AgentPromptInspectionSection>,
     pub final_prompt: String,
+    #[serde(default)]
+    pub tool_count: Option<usize>,
+    #[serde(default)]
+    pub tools_serialized_chars: Option<usize>,
+    #[serde(default)]
+    pub tools: Vec<AgentPromptToolInspection>,
 }
 
 pub async fn send_direct_message(
@@ -632,7 +645,12 @@ pub async fn send_goal_delete(goal_run_id: String) -> Result<DeleteGoalRunRespon
 }
 
 pub async fn send_prompt_query(agent_id: Option<String>) -> Result<AgentPromptInspection> {
-    match roundtrip(ClientMessage::AgentInspectPrompt { agent_id }).await? {
+    match roundtrip(ClientMessage::AgentInspectPrompt {
+        agent_id,
+        client_surface: Some(zorai_protocol::ClientSurface::Tui),
+    })
+    .await?
+    {
         DaemonMessage::AgentPromptInspection { prompt_json } => {
             Ok(serde_json::from_str(&prompt_json)?)
         }

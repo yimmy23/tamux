@@ -938,3 +938,72 @@ fn repeated_sidebar_renders_reuse_cached_snapshot_when_history_is_unchanged() {
         "unchanged sidebar renders should reuse the cached sidebar snapshot"
     );
 }
+
+#[test]
+fn streaming_delta_keeps_scrolled_up_viewport_anchored() {
+    let mut model = build_model();
+    model.connected = true;
+    model.agent_config_loaded = true;
+    model.show_sidebar_override = Some(false);
+    model.focus = FocusArea::Chat;
+    model.chat.reduce(chat::ChatAction::ThreadCreated {
+        thread_id: "thread-1".to_string(),
+        title: "Thread".to_string(),
+    });
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+    for index in 0..120 {
+        model.chat.reduce(chat::ChatAction::AppendMessage {
+            thread_id: "thread-1".to_string(),
+            message: chat::AgentMessage {
+                role: chat::MessageRole::Assistant,
+                id: Some(format!("msg-{index}")),
+                content: format!("message {index} line one\nmessage {index} line two"),
+                ..Default::default()
+            },
+        });
+    }
+
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("initial render should build a cached transcript snapshot");
+
+    model.chat.reduce(chat::ChatAction::ScrollChat(40));
+    model.handle_delta_event("thread-1".to_string(), "streaming has begun ".to_string());
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("scrolled mid-stream render should succeed");
+
+    let before = model
+        .chat_scrollbar_layout()
+        .expect("long transcript should expose a scrollbar");
+    let lines_above_viewport_before = before.max_scroll - before.scroll;
+
+    model.handle_delta_event(
+        "thread-1".to_string(),
+        "and continues with a long sentence without any explicit newline characters that \
+         is wide enough to wrap across several rendered rows of the chat transcript"
+            .to_string(),
+    );
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("streaming render should succeed");
+
+    let after = model
+        .chat_scrollbar_layout()
+        .expect("long transcript should still expose a scrollbar");
+
+    assert!(
+        after.max_scroll > before.max_scroll,
+        "wrapped streaming content must grow the transcript for this test to be meaningful"
+    );
+    assert_eq!(
+        after.max_scroll - after.scroll,
+        lines_above_viewport_before,
+        "a scrolled-up reader must stay anchored to the same content while wrapped \
+         streaming lines append below; raw newline counting cannot track wrapped growth"
+    );
+}

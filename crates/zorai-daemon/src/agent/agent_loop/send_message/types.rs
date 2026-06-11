@@ -36,6 +36,7 @@ pub(super) struct SendMessageRunner<'a> {
     pub(super) task_type_for_trace: String,
     pub(super) initial_copilot_initiator: crate::agent::llm_client::CopilotInitiator,
     pub(super) tools: Vec<ToolDefinition>,
+    pub(super) deferred_tool_pool: Vec<ToolDefinition>,
     pub(super) retry_strategy: RetryStrategy,
     pub(super) max_loops: u32,
     pub(super) stream_generation: u64,

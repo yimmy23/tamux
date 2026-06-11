@@ -508,11 +508,7 @@ pub(crate) fn render_tools_only(
         let args_preview = msg.tool_arguments.as_deref().unwrap_or("");
         let tool_icon = tool_icon_for(name, msg.tool_arguments.as_deref());
         let max_args = width.saturating_sub(30);
-        let args_short = if args_preview.len() > max_args {
-            &args_preview[..max_args]
-        } else {
-            args_preview
-        };
+        let args_short = truncate_to_width(args_preview, max_args);
 
         let mut spans = vec![
             Span::styled(tool_icon.marker, theme.accent_assistant),

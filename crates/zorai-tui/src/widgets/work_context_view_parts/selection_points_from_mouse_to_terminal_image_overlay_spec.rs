@@ -79,7 +79,7 @@ pub(crate) fn selected_text(
         scroll,
     )?;
     let (start_point, end_point) =
-        if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+        if start.row < end.row || (start.row == end.row && start.col <= end.col) {
             (start, end)
         } else {
             (end, start)
@@ -204,7 +204,7 @@ pub(crate) fn render(
 
         if let Some((start, end)) = mouse_selection {
             let (start_point, end_point) =
-                if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+                if start.row < end.row || (start.row == end.row && start.col <= end.col) {
                     (start, end)
                 } else {
                     (end, start)
@@ -299,7 +299,7 @@ pub(crate) fn render(
 
     if let Some((start, end)) = mouse_selection {
         let (start_point, end_point) =
-            if start.row <= end.row || (start.row == end.row && start.col <= end.col) {
+            if start.row < end.row || (start.row == end.row && start.col <= end.col) {
                 (start, end)
             } else {
                 (end, start)

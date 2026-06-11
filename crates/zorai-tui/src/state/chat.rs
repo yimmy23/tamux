@@ -1465,13 +1465,6 @@ impl ChatState {
                 {
                     self.active_thread_id = Some(thread_id.clone());
                 }
-                if self.scroll_locked
-                    && self.active_thread_id.as_deref() == Some(thread_id.as_str())
-                {
-                    self.scroll_offset = self
-                        .scroll_offset
-                        .saturating_add(content.matches('\n').count());
-                }
                 self.activity_for_thread_mut(&thread_id)
                     .streaming_content
                     .push_str(&content);

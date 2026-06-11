@@ -193,8 +193,14 @@ pub(crate) async fn dispatch_part9(
             }
         }
 
-        ClientMessage::AgentInspectPrompt { agent_id } => {
-            match agent.inspect_prompt_json(agent_id.as_deref()).await {
+        ClientMessage::AgentInspectPrompt {
+            agent_id,
+            client_surface,
+        } => {
+            match agent
+                .inspect_prompt_json(agent_id.as_deref(), client_surface)
+                .await
+            {
                 Ok(prompt_json) => {
                     framed
                         .send(DaemonMessage::AgentPromptInspection { prompt_json })

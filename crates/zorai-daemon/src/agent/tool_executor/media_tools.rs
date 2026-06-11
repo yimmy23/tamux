@@ -811,7 +811,11 @@ fn audio_tool_route(
         };
     }
 
-    if provider_id == zorai_shared::providers::PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN {
+    if matches!(
+        provider_id,
+        zorai_shared::providers::PROVIDER_ID_XIAOMI_MIMO
+            | zorai_shared::providers::PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN
+    ) {
         return match audio_tool_kind {
             zorai_shared::providers::AudioToolKind::SpeechToText => {
                 AudioToolRoute::OpenAiCompatibleDirect

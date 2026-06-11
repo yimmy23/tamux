@@ -440,6 +440,13 @@ pub struct AgentPromptInspectionSectionVm {
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct AgentPromptToolInspectionVm {
+    pub name: String,
+    pub serialized: String,
+    pub serialized_chars: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct AgentPromptInspectionVm {
     pub agent_id: String,
     pub agent_name: String,
@@ -447,6 +454,8 @@ pub struct AgentPromptInspectionVm {
     pub model: String,
     pub sections: Vec<AgentPromptInspectionSectionVm>,
     pub final_prompt: String,
+    #[serde(default)]
+    pub tools: Vec<AgentPromptToolInspectionVm>,
 }
 
 pub struct DaemonClient {

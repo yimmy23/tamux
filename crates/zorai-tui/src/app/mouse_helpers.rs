@@ -1246,9 +1246,14 @@ impl TuiModel {
                     if mouse.row >= chunks[2].y
                         && mouse.row < chunks[2].y.saturating_add(chunks[2].height)
                     {
-                        let idx = mouse.row.saturating_sub(chunks[2].y) as usize;
-                        if idx < self.modal.filtered_items().len() {
-                            self.modal_navigate_to(idx);
+                        let row_idx = mouse.row.saturating_sub(chunks[2].y) as usize;
+                        let (visible_start, visible_len) = widgets::thread_picker::visible_window(
+                            self.modal.picker_cursor(),
+                            self.modal.filtered_items().len(),
+                            chunks[2].height as usize,
+                        );
+                        if row_idx < visible_len {
+                            self.modal_navigate_to(visible_start + row_idx);
                             self.handle_modal_enter(kind);
                         }
                     }

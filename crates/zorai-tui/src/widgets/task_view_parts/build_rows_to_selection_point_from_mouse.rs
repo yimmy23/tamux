@@ -340,32 +340,25 @@ pub(crate) fn hit_test(
     position: Position,
 ) -> Option<TaskViewHitTarget> {
     let inner = content_inner(area);
-    let layout = scrollbar_layout(
-        area,
-        tasks,
-        target,
-        theme,
-        scroll,
-        show_live_todos,
-        show_timeline,
-        show_files,
-    );
-    let content = layout.map(|layout| layout.content).unwrap_or(inner);
-    if !content.contains(position) {
-        return None;
-    }
-
+    let content_width = inner.width.saturating_sub(SCROLLBAR_WIDTH).max(1) as usize;
     let rows = rows_for_width(
         tasks,
         target,
         theme,
-        content.width as usize,
+        content_width,
         show_live_todos,
         show_timeline,
         show_files,
         None,
     );
-    let resolved_scroll = layout.map(|layout| layout.scroll).unwrap_or(scroll);
+    let layout = scrollbar_layout_from_metrics(inner, rows.len(), scroll);
+    let content = layout.map(|layout| layout.content).unwrap_or(inner);
+    if !content.contains(position) {
+        return None;
+    }
+    let resolved_scroll = layout
+        .map(|layout| layout.scroll)
+        .unwrap_or_else(|| scroll.min(rows.len().saturating_sub(inner.height as usize)));
     let row_index = resolved_scroll + position.y.saturating_sub(content.y) as usize;
     rows.get(row_index).and_then(|row| {
         if row.close_preview {
@@ -394,30 +387,23 @@ pub(crate) fn selection_snapshot(
     show_timeline: bool,
     show_files: bool,
 ) -> Option<SelectionSnapshot> {
-    let layout = scrollbar_layout(
-        area,
-        tasks,
-        target,
-        theme,
-        scroll,
-        show_live_todos,
-        show_timeline,
-        show_files,
-    );
-    let content = layout
-        .map(|layout| layout.content)
-        .unwrap_or(content_inner(area));
-    let resolved_scroll = layout.map(|layout| layout.scroll).unwrap_or(scroll);
+    let inner = content_inner(area);
+    let content_width = inner.width.saturating_sub(SCROLLBAR_WIDTH).max(1) as usize;
     let rows = rows_for_width(
         tasks,
         target,
         theme,
-        content.width as usize,
+        content_width,
         show_live_todos,
         show_timeline,
         show_files,
         None,
     );
+    let layout = scrollbar_layout_from_metrics(inner, rows.len(), scroll);
+    let content = layout.map(|layout| layout.content).unwrap_or(inner);
+    let resolved_scroll = layout
+        .map(|layout| layout.scroll)
+        .unwrap_or_else(|| scroll.min(rows.len().saturating_sub(inner.height as usize)));
     if rows.is_empty() || content.width == 0 || content.height == 0 {
         return None;
     }

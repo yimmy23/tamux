@@ -181,21 +181,7 @@ pub(crate) fn work_kind_label(kind: Option<WorkContextEntryKind>) -> &'static st
 }
 
 pub(crate) fn truncate_tail(text: &str, max_len: usize) -> String {
-    if text.chars().count() <= max_len {
-        return text.to_string();
-    }
-    if max_len <= 1 {
-        return "…".to_string();
-    }
-    let tail: String = text
-        .chars()
-        .rev()
-        .take(max_len.saturating_sub(1))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    format!("…{tail}")
+    crate::widgets::message::truncate_tail_to_width(text, max_len)
 }
 
 pub(crate) fn push_wrapped_text(

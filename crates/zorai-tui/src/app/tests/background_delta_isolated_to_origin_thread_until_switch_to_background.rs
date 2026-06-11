@@ -376,7 +376,7 @@ fn pumping_daemon_events_stops_after_first_active_streaming_delta() {
         })
         .expect("done should enqueue");
 
-    let processed = model.pump_daemon_events_budgeted(32);
+    let processed = model.pump_daemon_events_budgeted(32).processed;
 
     assert_eq!(
         processed, 1,
@@ -384,7 +384,7 @@ fn pumping_daemon_events_stops_after_first_active_streaming_delta() {
     );
     assert_eq!(model.chat.streaming_content(), "Hel");
 
-    let processed_after = model.pump_daemon_events_budgeted(32);
+    let processed_after = model.pump_daemon_events_budgeted(32).processed;
     assert_eq!(
         processed_after, 1,
         "next frame should advance the stream incrementally"
@@ -417,7 +417,7 @@ fn pumping_daemon_events_does_not_pause_on_background_event_during_active_stream
         })
         .expect("foreground delta should enqueue");
 
-    let processed = model.pump_daemon_events_budgeted(32);
+    let processed = model.pump_daemon_events_budgeted(32).processed;
 
     assert_eq!(
         processed, 2,

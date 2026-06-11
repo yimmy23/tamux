@@ -169,6 +169,14 @@ impl SessionManager {
             .await
     }
 
+    pub async fn mark_all_notifications_read(&self, read_at: i64) -> Result<usize> {
+        self.history.mark_all_notifications_read(read_at).await
+    }
+
+    pub async fn archive_read_notifications(&self, archived_at: i64) -> Result<usize> {
+        self.history.archive_read_notifications(archived_at).await
+    }
+
     pub(crate) async fn agent_event_recall_matches(
         &self,
         category: &str,

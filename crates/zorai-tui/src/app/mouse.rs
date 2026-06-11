@@ -853,10 +853,14 @@ impl TuiModel {
                                 self.sidebar_snapshot = Some(snapshot.clone());
                                 snapshot
                             });
+                        let rendered_body = self
+                            .sidebar_body_area
+                            .and_then(|(area, body)| (area == sidebar_area).then_some(body));
                         match widgets::sidebar::hit_test_cached(
                             sidebar_area,
                             &self.sidebar,
                             &sidebar_snapshot,
+                            rendered_body,
                             Position::new(mouse.column, mouse.row),
                         ) {
                             Some(widgets::sidebar::SidebarHitTarget::Tab(tab)) => {
@@ -1182,13 +1186,35 @@ impl TuiModel {
                     };
 
                     if anchor_point != current_point {
-                        if let Some(text) = snapshot.as_ref().and_then(|snapshot| {
-                            widgets::chat::selected_text_from_cached_snapshot(
-                                snapshot,
-                                anchor_point,
-                                current_point,
-                            )
-                        }) {
+                        let text = snapshot
+                            .as_ref()
+                            .and_then(|snapshot| {
+                                widgets::chat::selected_text_from_cached_snapshot(
+                                    snapshot,
+                                    anchor_point,
+                                    current_point,
+                                )
+                            })
+                            .or_else(|| {
+                                widgets::chat::build_selection_snapshot_covering(
+                                    conversation_chat_area,
+                                    &self.chat,
+                                    &self.theme,
+                                    self.tick_counter,
+                                    self.retry_wait_start_selected,
+                                    anchor_point,
+                                    current_point,
+                                )
+                                .as_ref()
+                                .and_then(|covering| {
+                                    widgets::chat::selected_text_from_cached_snapshot(
+                                        covering,
+                                        anchor_point,
+                                        current_point,
+                                    )
+                                })
+                            });
+                        if let Some(text) = text {
                             conversion::copy_to_clipboard(&text);
                             self.status_line = "Copied selection to clipboard".to_string();
                         }

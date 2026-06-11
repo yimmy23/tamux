@@ -17,7 +17,12 @@ impl TuiModel {
                 self.retry_wait_start_selected,
             )
         }) {
-            return widgets::chat::scrollbar_layout_from_cached_snapshot(snapshot, &self.chat);
+            return widgets::chat::scrollbar_layout_from_cached_snapshot(
+                snapshot,
+                &self.chat,
+                self.tick_counter,
+                self.retry_wait_start_selected,
+            );
         }
 
         widgets::chat::scrollbar_layout(
@@ -47,6 +52,8 @@ impl TuiModel {
             return widgets::chat::scrollbar_scroll_offset_for_pointer_from_cached_snapshot(
                 snapshot,
                 &self.chat,
+                self.tick_counter,
+                self.retry_wait_start_selected,
                 pointer_row,
                 grab_offset,
             );

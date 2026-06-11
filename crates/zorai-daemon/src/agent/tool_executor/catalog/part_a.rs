@@ -8,20 +8,20 @@ pub(crate) fn add_available_tools_part_a(
     if config.tools.bash {
         tools.push(tool_def(
             tool_names::BASH_COMMAND,
-            "Execute a shell command. TUI-originated turns run headless by default; Electron-originated turns may use a managed terminal when the command needs terminal state or interactivity. Only known quick commands wait for a direct result; scripts, test/build commands, and other non-quick shell work are accepted as background operations and return `background_task_id`/`operation_id` for polling. Omit `session` in normal TUI/chat turns unless you intentionally target a known live terminal. For large or awkward file writes, prefer a minimal Python writer over fragile shell escaping, but inspect the Python carefully so it only performs the intended write.",
+            "Execute a shell command. Non-quick work (scripts, builds, tests) runs in background and returns `background_task_id`/`operation_id` for polling.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "command": { "type": "string", "description": "Shell command to execute in a managed terminal session" },
+                    "command": { "type": "string", "description": "Shell command to execute" },
                     "rationale": { "type": "string", "description": "Why this command should run" },
-                    "session": { "type": "string", "description": "Optional terminal session ID or unique substring. Leave this unset in normal TUI/chat turns unless you deliberately target a currently live session." },
+                    "session": { "type": "string", "description": "Optional terminal session ID or unique substring" },
                     "cwd": { "type": "string", "description": "Optional working directory" },
                     "allow_network": { "type": "boolean", "description": "Whether network access is expected" },
                     "sandbox_enabled": { "type": "boolean", "description": "Whether sandboxing should be requested" },
                     "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
                     "language_hint": { "type": "string", "description": "Optional language hint for validation" },
-                    "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary only for known quick commands (default: true). Non-quick commands run in background and return `background_task_id`/`operation_id`." },
-                    "timeout_seconds": { "type": "integer", "description": "Wait timeout for known quick commands (default: 30, max: 600). Values above 600 always auto-run in background and return `background_task_id`/`operation_id` for polling." }
+                    "wait_for_completion": { "type": "boolean", "description": "Wait for quick-command result (default: true); non-quick commands always background" },
+                    "timeout_seconds": { "type": "integer", "description": "Quick-command wait timeout (default: 30, max: 600); larger values force background" }
                 },
                 "required": ["command"]
             }),
@@ -31,13 +31,13 @@ pub(crate) fn add_available_tools_part_a(
     if config.tools.file_operations {
         tools.push(tool_def(
             tool_names::LIST_FILES,
-            "List files and directories at a given path through a zorai-managed terminal session.",
+            "List files and directories at a given path.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Directory path to list" },
                     "session": { "type": "string", "description": "Optional terminal session ID or unique substring" },
-                    "timeout_seconds": { "type": "integer", "description": "Max time to wait for completion (default: 30, max: 600)" }
+                    "timeout_seconds": { "type": "integer", "description": "Max wait (default: 30, max: 600)" }
                 },
                 "required": ["path"]
             }),
@@ -45,13 +45,13 @@ pub(crate) fn add_available_tools_part_a(
 
         tools.push(tool_def(
             tool_names::READ_FILE,
-            "Read the contents of a file. Always prefer bounded reads with offset/limit windows instead of dumping entire files.",
+            "Read file contents. Prefer bounded offset/limit windows over whole-file dumps.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "File path to read" },
                     "offset": { "type": "integer", "description": "0-based starting line offset (default: 0)" },
-                    "limit": { "type": "integer", "description": "Maximum lines to read in this window (default: 250)" },
+                    "limit": { "type": "integer", "description": "Max lines to read (default: 250)" },
                     "max_lines": { "type": "integer", "description": "Deprecated alias for limit" }
                 },
                 "required": ["path"]
@@ -60,13 +60,13 @@ pub(crate) fn add_available_tools_part_a(
 
         tools.push(tool_def(
             tool_names::GET_GIT_LINE_STATUSES,
-            "Report git statuses for the current file lines in a bounded window. Use this when you need to know which current lines are unchanged, modified, or added without parsing a full diff.",
+            "Report git line statuses (unchanged/modified/added) for a bounded window of a file, without parsing a full diff.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "File path to inspect inside a git repository" },
                     "start_line": { "type": "integer", "description": "1-based starting line number for the window (default: 1)" },
-                    "limit": { "type": "integer", "description": "Maximum number of current lines to inspect (default: 250, max: 500)" }
+                    "limit": { "type": "integer", "description": "Max current lines to inspect (default: 250, max: 500)" }
                 },
                 "required": ["path"]
             }),
@@ -74,14 +74,14 @@ pub(crate) fn add_available_tools_part_a(
 
         tools.push(tool_def(
             tool_names::WRITE_FILE,
-            "Write content to a file. Supports JSON args or a multipart-style payload with path/file parts so larger content does not have to fit inside one giant JSON string.",
+            "Write content to a file. Accepts JSON args or a multipart-style payload (path/file parts) for large content.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "File path to write" },
                     "content": { "type": "string", "description": "File content to write" },
-                    "session": { "type": "string", "description": "Optional terminal session ID or unique substring. Leave this unset in normal TUI/chat turns unless you deliberately target a currently live session." },
-                    "timeout_seconds": { "type": "integer", "description": "Max time to wait for completion (default: 30, max: 600)" }
+                    "session": { "type": "string", "description": "Optional terminal session ID or unique substring" },
+                    "timeout_seconds": { "type": "integer", "description": "Max wait (default: 30, max: 600)" }
                 },
                 "required": ["path", "content"]
             }),
@@ -89,7 +89,7 @@ pub(crate) fn add_available_tools_part_a(
 
         tools.push(tool_def(
             tool_names::CREATE_FILE,
-            "Create a new file directly from the daemon filesystem context. Supports JSON args or a multipart-style payload with filename/cwd/file parts. Fails if the file already exists unless overwrite=true. Prefer multipart-style payloads for larger content instead of giant JSON strings.",
+            "Create a new file; fails if it exists unless overwrite=true. Accepts JSON args or a multipart-style payload (filename/cwd/file parts) for large content.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -119,7 +119,7 @@ pub(crate) fn add_available_tools_part_a(
 
         tools.push(tool_def(
             tool_names::REPLACE_IN_FILE,
-            "Replace a specific fragment inside a file. Use this for targeted edits instead of rewriting the full file.",
+            "Replace a specific text fragment inside a file; prefer this over rewriting the whole file.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -134,7 +134,7 @@ pub(crate) fn add_available_tools_part_a(
 
         tools.push(tool_def(
             tool_names::APPLY_FILE_PATCH,
-            "Apply one or more exact text replacements to a file in order. Use this for multi-hunk targeted edits. Patch must start with '*** Begin Patch' and end with '*** End Patch'",
+            "Apply one or more exact text replacements to a file in order, for multi-hunk targeted edits.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -158,30 +158,30 @@ pub(crate) fn add_available_tools_part_a(
 
         tools.push(tool_def(
             tool_names::APPLY_PATCH,
-            "Apply a harness-style patch with `*** Begin Patch` / `*** End Patch` markers, supporting Add/Update/Delete file actions. Update hunks must include `@@` and at least one `-old` / `+new` line pair. Use `input` or legacy alias `patch` for the full patch text. For exact text replacements, use `apply_file_patch` instead.",
+            "Apply a harness-style patch wrapped in `*** Begin Patch`/`*** End Patch` with Add/Update/Delete File actions; Update hunks need `@@` plus `-old`/`+new` lines. For plain text replacements use `apply_file_patch`.",
             serde_json::json!({
                 "type": "object",
                 "minProperties": 1,
                 "properties": {
-                    "input": { "type": "string", "description": "Harness-style patch text in the apply_patch format. Prefer this form for provider compatibility." },
-                    "patch": { "type": "string", "description": "Legacy alias for `input` containing the same harness-style patch text." },
-                    "explanation": { "type": "string", "description": "Optional short explanation for why the patch is being applied." }
+                    "input": { "type": "string", "description": "Harness-style patch text (preferred)" },
+                    "patch": { "type": "string", "description": "Legacy alias for `input`" },
+                    "explanation": { "type": "string", "description": "Optional reason for the patch" }
                 }
             }),
         ));
 
         tools.push(tool_def(
             tool_names::SEARCH_FILES,
-            "Search for a pattern in files using ripgrep. Returns matching lines with file paths and line numbers.",
+            "Search files with ripgrep; returns matching lines with paths and line numbers.",
             serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "pattern": { "type": "string", "description": "Literal text to search for by default; set regex=true to use a regex" },
-                    "path": { "type": "string", "description": "Directory to search in (default: current directory)" },
-                    "file_pattern": { "type": "string", "description": "Glob pattern to filter files (e.g. '*.rs', '*.ts')" },
-                    "regex": { "type": "boolean", "description": "Treat pattern as a regex instead of literal text (default: false)" },
-                    "max_results": { "type": "integer", "description": "Max results to return (default: 50, max: 200)" },
-                    "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max time to wait for completion (default: 120, max: 600)" }
+                    "pattern": { "type": "string", "description": "Literal text by default; set regex=true for regex" },
+                    "path": { "type": "string", "description": "Directory to search (default: current directory)" },
+                    "file_pattern": { "type": "string", "description": "Glob filter, e.g. '*.rs'" },
+                    "regex": { "type": "boolean", "description": "Treat pattern as regex (default: false)" },
+                    "max_results": { "type": "integer", "description": "Max results (default: 50, max: 200)" },
+                    "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Max wait (default: 120, max: 600)" }
                 },
                 "required": ["pattern"]
             }),

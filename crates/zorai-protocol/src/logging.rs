@@ -118,10 +118,14 @@ impl Write for DailyLogWriter {
 }
 
 fn open_dated_log_file(log_dir: &Path, file_name: &str, date: NaiveDate) -> io::Result<File> {
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dated_log_file_path(log_dir, file_name, date))
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(dated_log_file_path(log_dir, file_name, date))
 }
 
 #[cfg(test)]
@@ -185,5 +189,22 @@ mod tests {
         let path = dated_log_file_path(dir, "zorai-gateway.log", date);
 
         assert_eq!(path, dir.join("zorai-gateway-2026-04-02.log"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_dated_log_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let date = NaiveDate::from_ymd_opt(2026, 4, 2).expect("valid date");
+
+        let file = open_dated_log_file(tempdir.path(), "zorai-daemon.log", date).expect("open");
+        let mode = file.metadata().expect("metadata").permissions().mode() & 0o777;
+
+        assert_eq!(
+            mode, 0o600,
+            "logs hold thread ids and gateway message content; they must not be world-readable"
+        );
     }
 }

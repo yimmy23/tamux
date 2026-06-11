@@ -9,11 +9,11 @@ pub(crate) fn add_available_tools_part_d(
         tools.push(tool_def(tool_names::BROADCAST_CONTRIBUTION, "Publish a structured subagent contribution into the shared collaboration session for the current parent task.", serde_json::json!({
             "type": "object",
             "properties": {
-                "parent_task_id": { "type": "string", "description": "Optional explicit parent task scope for parent/operator-originated contributions" },
+                "parent_task_id": { "type": "string", "description": "Optional explicit parent task scope" },
                 "topic": { "type": "string", "description": "Short topic under discussion" },
-                "position": { "type": "string", "description": "Your current stance or recommendation" },
+                "position": { "type": "string", "description": "Your stance or recommendation" },
                 "evidence": { "type": "array", "items": { "type": "string" }, "description": "Supporting evidence bullets" },
-                "confidence": { "type": "number", "description": "Confidence in the range 0.0-1.0" }
+                "confidence": { "type": "number", "description": "Confidence 0.0-1.0" }
             },
             "required": ["topic", "position"]
         })));
@@ -32,19 +32,19 @@ pub(crate) fn add_available_tools_part_d(
             },
             "required": ["disagreement_id", "position"]
         })));
-        tools.push(tool_def(tool_names::DISPATCH_VIA_BID_PROTOCOL, "Dispatch a collaboration task through the minimal bid protocol and return the resolved primary/reviewer assignment.", serde_json::json!({
+        tools.push(tool_def(tool_names::DISPATCH_VIA_BID_PROTOCOL, "Dispatch a collaboration task through the bid protocol and return the resolved primary/reviewer assignment.", serde_json::json!({
             "type": "object",
             "properties": {
                 "parent_task_id": { "type": "string", "description": "Parent collaboration task scope" },
                 "bids": {
                     "type": "array",
-                    "description": "Typed bid submissions to resolve",
+                    "description": "Bid submissions to resolve",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "task_id": { "type": "string", "description": "Collaborative task submitting the bid" },
-                            "confidence": { "type": "number", "description": "Bid confidence in the range 0.0-1.0" },
-                            "availability": { "type": "string", "enum": ["available", "busy", "unavailable"], "description": "Availability state for ranking" }
+                            "task_id": { "type": "string", "description": "Task submitting the bid" },
+                            "confidence": { "type": "number", "description": "Bid confidence 0.0-1.0" },
+                            "availability": { "type": "string", "enum": ["available", "busy", "unavailable"], "description": "Availability for ranking" }
                         },
                         "required": ["task_id", "confidence", "availability"]
                     }
@@ -120,28 +120,28 @@ pub(crate) fn add_available_tools_part_d(
             "limit": { "type": "integer", "description": "Maximum number of tasks to return" }
         }
     })));
-    tools.push(tool_def(tool_names::START_GOAL_RUN, "Start a durable goal run for a long-running objective. The goal always executes on a dedicated thread; thread_id only contributes source-context lineage for the new goal thread.", serde_json::json!({
+    tools.push(tool_def(tool_names::START_GOAL_RUN, "Start a durable goal run for a long-running objective; it always executes on its own dedicated thread.", serde_json::json!({
         "type": "object",
         "properties": {
             "goal": { "type": "string", "description": "The durable objective to pursue" },
-            "title": { "type": "string", "description": "Optional short title for the goal run" },
-            "thread_id": { "type": "string", "description": "Optional source thread id for lineage/context; the goal still gets a fresh dedicated execution thread" },
-            "session_id": { "type": "string", "description": "Optional explicit session id override; defaults to the current session when available" },
+            "title": { "type": "string", "description": "Optional short title" },
+            "thread_id": { "type": "string", "description": "Optional source thread for lineage; goal still gets a fresh thread" },
+            "session_id": { "type": "string", "description": "Optional session override; defaults to current session" },
             "priority": { "type": "string", "enum": ["low", "normal", "high", "urgent"], "description": "Goal priority" },
-            "autonomy_level": { "type": "string", "enum": ["supervised", "aware", "autonomous"], "description": "Optional autonomy level override for the goal run" },
-            "requires_approval": { "type": "boolean", "default": false, "description": "Whether this agent-created goal should wait for normal operator approval gates. Defaults to false so the responsible agent can auto-approve its own goal." },
+            "autonomy_level": { "type": "string", "enum": ["supervised", "aware", "autonomous"], "description": "Optional autonomy override" },
+            "requires_approval": { "type": "boolean", "default": false, "description": "Wait for operator approval gates (default: false, self-approved)" },
             "launch_assignments": {
                 "type": "array",
-                "description": "Optional visible goal-local assignment snapshot. Include every role/persona the goal runner should be able to choose, such as swarog, reviewer, researcher, mokosh, or a configured subagent role.",
+                "description": "Optional goal-local assignment snapshot; include every role/persona the goal runner may choose.",
                 "items": {
                     "type": "object",
                     "properties": {
-                        "role_id": { "type": "string", "description": "Visible role or persona id, for example swarog, reviewer, researcher, mokosh, or a subagent role id" },
-                        "enabled": { "type": "boolean", "description": "Whether this assignment is available to the goal runner" },
+                        "role_id": { "type": "string", "description": "Role or persona id, e.g. swarog, reviewer, researcher, mokosh" },
+                        "enabled": { "type": "boolean", "description": "Whether this assignment is available" },
                         "provider": { "type": "string", "description": "Provider id for this role" },
                         "model": { "type": "string", "description": "Model id for this role" },
-                        "reasoning_effort": { "type": "string", "description": "Optional reasoning effort for this role" },
-                        "inherit_from_main": { "type": "boolean", "description": "Whether the row semantically inherits from the main assignment" }
+                        "reasoning_effort": { "type": "string", "description": "Optional reasoning effort" },
+                        "inherit_from_main": { "type": "boolean", "description": "Inherits from the main assignment" }
                     },
                     "required": ["role_id", "provider", "model"]
                 }
@@ -156,30 +156,30 @@ pub(crate) fn add_available_tools_part_d(
             "offset": { "type": "integer", "minimum": 0, "description": "Zero-based pagination offset over goal runs sorted by updated_at descending (default: 0)" }
         }
     })));
-    tools.push(tool_def(tool_names::SUBMIT_GOAL_STEP_VERDICT, "Submit the structured pass/fail verdict for the current goal-step verification task. This is the authoritative gate used to advance or requeue the current goal step.", serde_json::json!({
+    tools.push(tool_def(tool_names::SUBMIT_GOAL_STEP_VERDICT, "Submit the authoritative pass/fail verdict that advances or requeues the current goal step.", serde_json::json!({
         "type": "object",
         "properties": {
-            "verdict": { "type": "string", "enum": ["pass", "fail"], "description": "Use pass only when the current step satisfies all instructions, success criteria, todos, artifacts, and proof checks." },
-            "explanation": { "type": "string", "description": "Concrete verdict explanation. For fail, describe the fixes required before the step can advance." },
-            "task_id": { "type": "string", "description": "Optional current verification task ID. Use this when the prompt provides a Current task ID and hidden task context is unavailable." },
-            "goal_run_id": { "type": "string", "description": "Optional guard; if provided it must match the current verification task's goal_run_id." },
-            "goal_step_id": { "type": "string", "description": "Optional guard; if provided it must match the current verification task's goal_step_id." }
+            "verdict": { "type": "string", "enum": ["pass", "fail"], "description": "pass only when all instructions, criteria, todos, artifacts, and proofs are satisfied" },
+            "explanation": { "type": "string", "description": "Concrete explanation; for fail, list required fixes" },
+            "task_id": { "type": "string", "description": "Optional verification task ID when hidden task context is unavailable" },
+            "goal_run_id": { "type": "string", "description": "Optional guard; must match the verification task" },
+            "goal_step_id": { "type": "string", "description": "Optional guard; must match the verification task" }
         },
         "required": ["verdict", "explanation"]
     })));
-    tools.push(tool_def(tool_names::CREATE_ROUTINE, "Create a durable routine definition with a schedule expression and target payload. This only defines the routine object; it does not execute it immediately.", serde_json::json!({
+    tools.push(tool_def(tool_names::CREATE_ROUTINE, "Create a durable routine definition with a schedule and target payload; it does not execute immediately.", serde_json::json!({
         "type": "object",
         "properties": {
             "id": { "type": "string", "description": "Optional explicit routine id" },
             "title": { "type": "string", "description": "Routine title" },
             "description": { "type": "string", "description": "What the routine is for" },
-            "enabled": { "type": "boolean", "description": "Whether the routine starts enabled (default: true)" },
-            "paused_at": { "type": ["integer", "null"], "description": "Optional paused timestamp in Unix ms" },
-            "schedule_expression": { "type": "string", "description": "Cron-like schedule expression for the routine" },
-            "target_kind": { "type": "string", "enum": ["task", "goal", "tool"], "description": "What the routine should materialize into when executed" },
-            "target_payload": { "type": "object", "description": "JSON payload describing the target work to materialize later" },
-            "next_run_at": { "type": ["integer", "null"], "description": "Optional next scheduled run in Unix ms" },
-            "last_run_at": { "type": ["integer", "null"], "description": "Optional last completed run in Unix ms" }
+            "enabled": { "type": "boolean", "description": "Starts enabled (default: true)" },
+            "paused_at": { "type": ["integer", "null"], "description": "Optional paused timestamp, Unix ms" },
+            "schedule_expression": { "type": "string", "description": "Cron-like schedule expression" },
+            "target_kind": { "type": "string", "enum": ["task", "goal", "tool"], "description": "What the routine materializes when executed" },
+            "target_payload": { "type": "object", "description": "JSON payload describing the target work" },
+            "next_run_at": { "type": ["integer", "null"], "description": "Optional next run, Unix ms" },
+            "last_run_at": { "type": ["integer", "null"], "description": "Optional last run, Unix ms" }
         },
         "required": ["title", "description", "schedule_expression", "target_kind", "target_payload"]
     })));
@@ -202,19 +202,19 @@ pub(crate) fn add_available_tools_part_d(
         },
         "required": ["routine_id"]
     })));
-    tools.push(tool_def(tool_names::UPDATE_ROUTINE, "Update a durable routine definition in place with validation and recomputed schedule state.", serde_json::json!({
+    tools.push(tool_def(tool_names::UPDATE_ROUTINE, "Update a durable routine definition in place; validates and recomputes schedule state.", serde_json::json!({
         "type": "object",
         "properties": {
             "routine_id": { "type": "string", "description": "Routine definition id" },
-            "title": { "type": "string", "description": "Updated routine title" },
-            "description": { "type": "string", "description": "Updated routine description" },
+            "title": { "type": "string", "description": "Updated title" },
+            "description": { "type": "string", "description": "Updated description" },
             "enabled": { "type": "boolean", "description": "Whether the routine remains enabled" },
-            "paused_at": { "type": ["integer", "null"], "description": "Optional paused timestamp in Unix ms, or null to clear" },
+            "paused_at": { "type": ["integer", "null"], "description": "Paused timestamp Unix ms, or null to clear" },
             "schedule_expression": { "type": "string", "description": "Updated cron-like schedule expression" },
-            "target_kind": { "type": "string", "enum": ["task", "goal", "tool"], "description": "Updated materialization target kind" },
+            "target_kind": { "type": "string", "enum": ["task", "goal", "tool"], "description": "Updated target kind" },
             "target_payload": { "type": "object", "description": "Updated target payload" },
-            "next_run_at": { "type": ["integer", "null"], "description": "Optional explicit next scheduled run in Unix ms, or null to clear" },
-            "last_run_at": { "type": ["integer", "null"], "description": "Optional explicit last completed run in Unix ms, or null to clear" }
+            "next_run_at": { "type": ["integer", "null"], "description": "Next run Unix ms, or null to clear" },
+            "last_run_at": { "type": ["integer", "null"], "description": "Last run Unix ms, or null to clear" }
         },
         "required": ["routine_id"]
     })));
@@ -269,19 +269,19 @@ pub(crate) fn add_available_tools_part_d(
             "required": ["routine_id"]
         }),
     ));
-    tools.push(tool_def(tool_names::RUN_WORKFLOW_PACK, "Execute one canonical workflow pack with prerequisite-aware, approval-aware runtime behavior. Supports Wave 1 and Wave 2 packs: Daily Brief, PR/Issue Triage, Inbox + Calendar Triage, Watch/Monitor, Standup (status report with task/routine/connector/trigger/browser summary), and Approval-Checkpoint Long Task.", serde_json::json!({
+    tools.push(tool_def(tool_names::RUN_WORKFLOW_PACK, "Execute one canonical workflow pack with prerequisite- and approval-aware behavior. Packs: daily-brief, pr-issue-triage, inbox-calendar-triage, watch-monitor, standup, approval-checkpoint-long-task.", serde_json::json!({
         "type": "object",
         "properties": {
-            "pack_name": { "type": "string", "description": "Canonical pack name, such as daily-brief, pr-issue-triage, inbox-calendar-triage, watch-monitor, standup, or approval-checkpoint-long-task" },
-            "mode": { "type": "string", "description": "Optional pack mode such as standard, quiet, or executive" },
-            "workspace_id": { "type": "string", "description": "Optional workspace id for workspace-backed packs; defaults to main" },
-            "delivery_channel": { "type": "string", "description": "Optional delivery channel such as in-app, slack, discord, telegram, or whatsapp" },
-            "deliver_now": { "type": "boolean", "description": "When true, request immediate external delivery instead of in-app output only" },
-            "repo_connector": { "type": "string", "description": "Optional repo connector override such as github or gitlab" },
-            "tracker_connector": { "type": "string", "description": "Optional tracker connector override such as linear, jira, or none" },
-            "task_kind": { "type": "string", "enum": ["task", "goal"], "description": "For approval-checkpoint-long-task, whether to materialize a task or goal" },
-            "watch_source": { "type": "string", "description": "For watch-monitor, the source type such as event, repo, webpage, or connector resource" },
-            "payload": { "type": "object", "description": "Optional event or source payload forwarded into pack execution" }
+            "pack_name": { "type": "string", "description": "Canonical pack name" },
+            "mode": { "type": "string", "description": "Optional mode: standard, quiet, or executive" },
+            "workspace_id": { "type": "string", "description": "Optional workspace id (default: main)" },
+            "delivery_channel": { "type": "string", "description": "Optional channel: in-app, slack, discord, telegram, or whatsapp" },
+            "deliver_now": { "type": "boolean", "description": "Deliver externally now instead of in-app only" },
+            "repo_connector": { "type": "string", "description": "Optional repo connector: github or gitlab" },
+            "tracker_connector": { "type": "string", "description": "Optional tracker: linear, jira, or none" },
+            "task_kind": { "type": "string", "enum": ["task", "goal"], "description": "approval-checkpoint-long-task: materialize task or goal" },
+            "watch_source": { "type": "string", "description": "watch-monitor source: event, repo, webpage, or connector resource" },
+            "payload": { "type": "object", "description": "Optional event/source payload forwarded into execution" }
         },
         "required": ["pack_name"]
     })));
@@ -289,35 +289,35 @@ pub(crate) fn add_available_tools_part_d(
         "type": "object",
         "properties": {}
     })));
-    tools.push(tool_def(tool_names::INGEST_WEBHOOK_EVENT, "Validate a webhook-style event payload and route it through the trigger engine. This is the narrow ingest foundation for Pack 1 webhook/event flows. On a fresh engine, packaged defaults are seeded automatically before routing.", serde_json::json!({
+    tools.push(tool_def(tool_names::INGEST_WEBHOOK_EVENT, "Validate a webhook-style event payload and route it through the trigger engine. On a fresh engine, packaged defaults are seeded automatically before routing.", serde_json::json!({
         "type": "object",
         "properties": {
-            "event_family": { "type": "string", "description": "High-level event family, e.g. filesystem or system" },
-            "event_kind": { "type": "string", "description": "Specific event kind within the family, e.g. file_changed or disk_pressure" },
-            "state": { "type": "string", "description": "Optional state filter such as detected or critical" },
-            "thread_id": { "type": "string", "description": "Optional thread scope for the ingested event" },
-            "payload": { "type": "object", "description": "Optional webhook payload forwarded into trigger template rendering and event logging" }
+            "event_family": { "type": "string", "description": "Event family, e.g. filesystem or system" },
+            "event_kind": { "type": "string", "description": "Event kind, e.g. file_changed or disk_pressure" },
+            "state": { "type": "string", "description": "Optional state filter, e.g. detected or critical" },
+            "thread_id": { "type": "string", "description": "Optional thread scope" },
+            "payload": { "type": "object", "description": "Optional payload for template rendering and logging" }
         },
         "required": ["event_family", "event_kind"]
     })));
-    tools.push(tool_def(tool_names::ADD_TRIGGER, "Create a new runtime event trigger, validate it, and persist it to the trigger registry. Pack 1 defaults already cover health/weles_health, health/subagent_health, filesystem/file_changed, and system/disk_pressure. Successful creations return trigger metadata with source: custom.", serde_json::json!({
+    tools.push(tool_def(tool_names::ADD_TRIGGER, "Create, validate, and persist a runtime event trigger; successful creations return metadata with source: custom. Pack 1 defaults already cover common health, filesystem, and system events.", serde_json::json!({
         "type": "object",
         "properties": {
             "id": { "type": "string", "description": "Optional explicit trigger id" },
-            "event_family": { "type": "string", "description": "High-level event family, e.g. health, filesystem, or system" },
-            "event_kind": { "type": "string", "description": "Specific event kind within the family, e.g. weles_health, subagent_health, file_changed, or disk_pressure" },
-            "agent_id": { "type": "string", "description": "Background agent/subagent that should handle the trigger. Defaults to weles." },
-            "target_state": { "type": "string", "description": "Optional state filter, e.g. degraded, stuck, detected, or critical" },
+            "event_family": { "type": "string", "description": "Event family, e.g. health, filesystem, or system" },
+            "event_kind": { "type": "string", "description": "Event kind, e.g. weles_health, file_changed, or disk_pressure" },
+            "agent_id": { "type": "string", "description": "Handling agent/subagent (default: weles)" },
+            "target_state": { "type": "string", "description": "Optional state filter, e.g. degraded or critical" },
             "thread_id": { "type": "string", "description": "Optional thread scope filter" },
-            "enabled": { "type": "boolean", "description": "Whether the trigger starts enabled (default: true)" },
+            "enabled": { "type": "boolean", "description": "Starts enabled (default: true)" },
             "cooldown_secs": { "type": "integer", "description": "Per-trigger cooldown in seconds" },
-            "risk_label": { "type": "string", "enum": ["low", "medium", "high"], "description": "Risk label used for routing/approval posture" },
-            "notification_kind": { "type": "string", "description": "WorkflowNotice kind emitted when the trigger fires" },
-            "prompt_template": { "type": "string", "description": "Optional background task prompt template. When set, the daemon queues real work instead of only emitting a notice." },
-            "tool_name": { "type": "string", "description": "Optional daemon tool to execute directly when the trigger fires, for example run_workflow_pack" },
-            "tool_payload": { "type": "object", "description": "Optional static JSON payload merged into direct trigger tool execution" },
-            "title_template": { "type": "string", "description": "Rendered notice title template" },
-            "body_template": { "type": "string", "description": "Rendered notice body/details template" }
+            "risk_label": { "type": "string", "enum": ["low", "medium", "high"], "description": "Risk label for routing/approval posture" },
+            "notification_kind": { "type": "string", "description": "WorkflowNotice kind emitted on fire" },
+            "prompt_template": { "type": "string", "description": "Optional task prompt template; when set, queues real work" },
+            "tool_name": { "type": "string", "description": "Optional daemon tool to run on fire, e.g. run_workflow_pack" },
+            "tool_payload": { "type": "object", "description": "Optional static JSON merged into tool execution" },
+            "title_template": { "type": "string", "description": "Notice title template" },
+            "body_template": { "type": "string", "description": "Notice body template" }
         },
         "required": ["event_family", "event_kind", "notification_kind", "title_template", "body_template"]
     })));
@@ -334,25 +334,25 @@ pub(crate) fn add_available_tools_part_d(
             "workspace_id": { "type": "string", "description": "Optional workspace scope filter" }
         }
     })));
-    tools.push(tool_def(tool_names::CREATE_BROWSER_PROFILE, "Create or update a named browser profile for reuse across browsing and automation tasks. Returns the persisted profile metadata.", serde_json::json!({
+    tools.push(tool_def(tool_names::CREATE_BROWSER_PROFILE, "Create or update a named browser profile for reuse across browsing tasks; returns persisted metadata.", serde_json::json!({
         "type": "object",
         "properties": {
             "profile_id": { "type": "string", "description": "Stable profile identifier, e.g. 'main-work'" },
-            "label": { "type": "string", "description": "Human-readable label such as 'Work Chrome'" },
-            "profile_dir": { "type": "string", "description": "Filesystem path to the browser profile directory" },
-            "browser_kind": { "type": "string", "description": "Optional browser kind such as chrome or chromium" },
-            "workspace_id": { "type": "string", "description": "Optional workspace scope for this profile" }
+            "label": { "type": "string", "description": "Human-readable label" },
+            "profile_dir": { "type": "string", "description": "Path to the browser profile directory" },
+            "browser_kind": { "type": "string", "description": "Optional: chrome or chromium" },
+            "workspace_id": { "type": "string", "description": "Optional workspace scope" }
         },
         "required": ["profile_id", "label", "profile_dir"]
     })));
-    tools.push(tool_def(tool_names::UPDATE_BROWSER_PROFILE_HEALTH, "Set the health state of a named browser profile to signal freshness, expiry, corruption, or repair progress.", serde_json::json!({
+    tools.push(tool_def(tool_names::UPDATE_BROWSER_PROFILE_HEALTH, "Set a named browser profile's health state to signal freshness, expiry, corruption, or repair progress.", serde_json::json!({
         "type": "object",
         "properties": {
             "profile_id": { "type": "string", "description": "Stable profile identifier" },
             "health_state": { "type": "string", "enum": ["healthy", "stale", "expired", "corrupted", "repair_needed", "repair_in_progress", "retired"], "description": "New health state" },
-            "last_auth_success_at": { "type": "integer", "description": "Optional Unix-ms timestamp of last successful authenticated use" },
-            "last_auth_failure_at": { "type": "integer", "description": "Optional Unix-ms timestamp of last auth failure" },
-            "last_auth_failure_reason": { "type": "string", "description": "Optional human-readable failure reason" }
+            "last_auth_success_at": { "type": "integer", "description": "Last successful auth, Unix ms" },
+            "last_auth_failure_at": { "type": "integer", "description": "Last auth failure, Unix ms" },
+            "last_auth_failure_reason": { "type": "string", "description": "Optional failure reason" }
         },
         "required": ["profile_id", "health_state"]
     })));
@@ -370,22 +370,22 @@ pub(crate) fn add_available_tools_part_d(
             "limit": { "type": "integer", "description": "Maximum number of recent dream hints/cycles to return" }
         }
     })));
-    tools.push(tool_def(tool_names::SHOW_HARNESS_STATE, "Show the persisted state-transition harness projection for a thread/goal/task scope, including beliefs, tensions, commitments, effects, verification results, and learned procedures.", serde_json::json!({
+    tools.push(tool_def(tool_names::SHOW_HARNESS_STATE, "Show the persisted state-transition harness projection (beliefs, tensions, commitments, effects, verifications, procedures) for a thread/goal/task scope.", serde_json::json!({
         "type": "object",
         "properties": {
-            "thread_id": { "type": "string", "description": "Optional thread scope; defaults to the current thread" },
+            "thread_id": { "type": "string", "description": "Optional; defaults to the current thread" },
             "goal_run_id": { "type": "string", "description": "Optional goal-run scope" },
-            "task_id": { "type": "string", "description": "Optional task scope; defaults to the current task when available" },
-            "limit": { "type": "integer", "description": "Maximum number of recent items per harness section to include" }
+            "task_id": { "type": "string", "description": "Optional; defaults to the current task" },
+            "limit": { "type": "integer", "description": "Max recent items per section" }
         }
     })));
-    tools.push(tool_def(tool_names::IMPORT_EXTERNAL_RUNTIME, "Import Hermes/OpenClaw migration data into persisted import sessions and asset records. Supports dry-run and real imports with conflict policy provenance.", serde_json::json!({
+    tools.push(tool_def(tool_names::IMPORT_EXTERNAL_RUNTIME, "Import Hermes/OpenClaw migration data into persisted import sessions and assets; supports dry-run and conflict policies.", serde_json::json!({
         "type": "object",
         "properties": {
-            "runtime": { "type": "string", "description": "Runtime to import, such as hermes or openclaw" },
+            "runtime": { "type": "string", "description": "Runtime to import: hermes or openclaw" },
             "config_path": { "type": "string", "description": "Optional config path override" },
-            "dry_run": { "type": "boolean", "description": "When true, return a projected import without mutating state" },
-            "conflict_policy": { "type": "string", "enum": ["skip", "merge", "replace", "stage_for_review"], "description": "Conflict handling policy for imported assets" }
+            "dry_run": { "type": "boolean", "description": "Project the import without mutating state" },
+            "conflict_policy": { "type": "string", "enum": ["skip", "merge", "replace", "stage_for_review"], "description": "Conflict handling for imported assets" }
         },
         "required": ["runtime"]
     })));
@@ -542,14 +542,14 @@ pub(crate) fn add_available_tools_part_d(
     })));
 
     if config.tool_synthesis.enabled {
-        tools.push(tool_def(tool_names::SYNTHESIZE_TOOL, "Generate a guarded runtime tool from a conservative CLI --help surface or a GET OpenAPI operation, then register it in the local generated-tool registry.", serde_json::json!({
+        tools.push(tool_def(tool_names::SYNTHESIZE_TOOL, "Generate a guarded runtime tool from a CLI --help surface or GET OpenAPI operation and register it locally.", serde_json::json!({
             "type": "object",
             "properties": {
-                "kind": { "type": "string", "enum": ["cli", "openapi"], "description": "Generation source kind (default: cli)" },
+                "kind": { "type": "string", "enum": ["cli", "openapi"], "description": "Source kind (default: cli)" },
                 "target": { "type": "string", "description": "CLI invocation or OpenAPI spec URL" },
-                "name": { "type": "string", "description": "Optional generated tool name override" },
-                "operation_id": { "type": "string", "description": "Optional OpenAPI operationId to select" },
-                "activate": { "type": "boolean", "description": "Activate immediately when policy allows it" }
+                "name": { "type": "string", "description": "Optional tool name override" },
+                "operation_id": { "type": "string", "description": "Optional OpenAPI operationId" },
+                "activate": { "type": "boolean", "description": "Activate immediately when policy allows" }
             },
             "required": ["target"]
         })));

@@ -880,6 +880,28 @@ impl AgentEngine {
     pub(crate) async fn record_memory_graph_from_task(&self, task: &AgentTask) {
         self.apply_memory_graph_updates(build_memory_graph_updates_for_task(task))
             .await;
+        // Subagents carry a parent task; record the delegation edge so the shared
+        // knowledge graph captures who delegated what across agents. Done after
+        // the task's own node is upserted above so both edge endpoints exist.
+        if let Some(parent_task_id) = task.parent_task_id.as_deref() {
+            if let Err(error) = self
+                .history
+                .record_task_delegation_edge(
+                    parent_task_id,
+                    &task.id,
+                    &task.title,
+                    crate::agent::now_millis(),
+                )
+                .await
+            {
+                tracing::warn!(
+                    parent_task_id = %parent_task_id,
+                    child_task_id = %task.id,
+                    %error,
+                    "failed to record subagent delegation edge"
+                );
+            }
+        }
         if let Some(error) = task.error.as_deref().or(task.last_error.as_deref()) {
             self.apply_memory_graph_updates(build_memory_graph_updates_for_task_error(task, error))
                 .await;

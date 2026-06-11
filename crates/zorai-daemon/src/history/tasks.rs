@@ -631,6 +631,46 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub async fn mark_all_notifications_read(&self, read_at: i64) -> Result<usize> {
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "UPDATE agent_events
+                     SET payload_json = json_set(payload_json, '$.read_at', ?1, '$.updated_at', ?1),
+                         timestamp = ?1
+                     WHERE category = ?2
+                       AND json_valid(payload_json)
+                       AND json_extract(payload_json, '$.read_at') IS NULL
+                       AND json_extract(payload_json, '$.archived_at') IS NULL
+                       AND json_extract(payload_json, '$.deleted_at') IS NULL",
+                    params![read_at, crate::notifications::NOTIFICATION_CATEGORY],
+                )
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
+    pub async fn archive_read_notifications(&self, archived_at: i64) -> Result<usize> {
+        self.conn
+            .call(move |conn| {
+                conn.execute(
+                    "UPDATE agent_events
+                     SET payload_json = json_set(payload_json, '$.archived_at', ?1, '$.updated_at', ?1),
+                         timestamp = ?1
+                     WHERE category = ?2
+                       AND json_valid(payload_json)
+                       AND json_extract(payload_json, '$.read_at') IS NOT NULL
+                       AND json_extract(payload_json, '$.archived_at') IS NULL
+                       AND json_extract(payload_json, '$.deleted_at') IS NULL",
+                    params![archived_at, crate::notifications::NOTIFICATION_CATEGORY],
+                )
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub async fn upsert_agent_event(&self, entry: &AgentEventRow) -> Result<()> {
         let mut entry = entry.clone();
         if let Some(mut notification) = crate::notifications::parse_notification_row(&entry) {
