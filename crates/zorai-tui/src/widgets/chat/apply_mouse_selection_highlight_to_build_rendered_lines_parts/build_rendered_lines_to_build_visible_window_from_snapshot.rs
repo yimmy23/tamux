@@ -302,8 +302,10 @@ pub(crate) fn build_transcript_metrics(
     let mut responder_labels = Vec::new();
     if let Some(thread) = chat.active_thread() {
         responder_labels = assistant_responder_labels(thread);
-        let exact_message_metrics = thread.messages.len() <= 20;
+        let message_count = thread.messages.len();
+        let estimate_offscreen_messages = message_count > 20;
         for (idx, msg) in thread.messages.iter().enumerate() {
+            let exact_message_metrics = !estimate_offscreen_messages || idx + 1 == message_count;
             let start = total_lines;
             total_lines = total_lines.saturating_add(estimated_message_block_line_count(
                 chat,

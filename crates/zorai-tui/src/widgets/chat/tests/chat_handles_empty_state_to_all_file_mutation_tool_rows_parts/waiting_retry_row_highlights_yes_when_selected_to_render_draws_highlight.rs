@@ -423,6 +423,41 @@ fn expanded_tool_metrics_cover_full_rendered_payload() {
 }
 
 #[test]
+fn last_message_metrics_cover_rendered_lines_in_long_threads() {
+    let mut messages: Vec<AgentMessage> = (0..24)
+        .map(|idx| AgentMessage {
+            role: MessageRole::User,
+            content: format!("ping {idx}"),
+            ..Default::default()
+        })
+        .collect();
+    messages.push(AgentMessage {
+        role: MessageRole::Assistant,
+        content: "text before\n# Heading\ntext after".into(),
+        ..Default::default()
+    });
+    let chat = chat_with_messages(messages);
+    let last_idx = chat.active_thread().expect("thread").messages.len() - 1;
+    assert!(last_idx >= 20, "long-thread estimate path requires >20 messages");
+
+    let (_, rendered_ranges) = build_rendered_lines(&chat, &ThemeTokens::default(), 60, 0, false);
+    let metrics = build_transcript_metrics(&chat, &ThemeTokens::default(), 60, 0, false);
+    let rendered_count = rendered_ranges[last_idx].1 - rendered_ranges[last_idx].0;
+    let estimated_count =
+        metrics.message_line_ranges[last_idx].1 - metrics.message_line_ranges[last_idx].0;
+
+    assert_eq!(
+        estimated_count, rendered_count,
+        "the newest message must be measured exactly so its last line is not clipped by the bottom-anchored window"
+    );
+    assert_eq!(
+        metrics.total_lines,
+        rendered_ranges[last_idx].1,
+        "total transcript height must reach the end of the newest message"
+    );
+}
+
+#[test]
 fn selected_expanded_reasoning_message_action_bar_shows_collapse() {
     let mut chat = chat_with_messages(vec![AgentMessage {
         role: MessageRole::Assistant,
