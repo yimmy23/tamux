@@ -824,59 +824,21 @@ pub(crate) fn overlay_intersecting_lines(
         return;
     }
 
-    let estimated_len = block_end.saturating_sub(block_start).max(1);
+    let trailing_padding = block
+        .iter()
+        .rev()
+        .find(|line| matches!(line.kind, RenderedLineKind::Padding))
+        .cloned()
+        .unwrap_or_else(RenderedChatLine::padding);
     for absolute_row in start..end {
-        let local_estimated = absolute_row.saturating_sub(block_start);
-        let mut actual_idx =
-            actual_row_for_estimated_row(local_estimated, estimated_len, block.len());
-        if estimated_len > block.len()
-            && matches!(block[actual_idx].kind, RenderedLineKind::Padding)
-        {
-            actual_idx = nearest_non_padding_line(block, actual_idx).unwrap_or(actual_idx);
-        }
+        let local = absolute_row.saturating_sub(block_start);
         if let Some(slot) = output.get_mut(absolute_row.saturating_sub(window_start)) {
-            *slot = block[actual_idx].clone();
+            *slot = block
+                .get(local)
+                .cloned()
+                .unwrap_or_else(|| trailing_padding.clone());
         }
     }
-}
-
-pub(crate) fn actual_row_for_estimated_row(
-    local_estimated: usize,
-    estimated_len: usize,
-    actual_len: usize,
-) -> usize {
-    if actual_len <= 1 {
-        return 0;
-    }
-    if estimated_len <= actual_len {
-        return local_estimated.min(actual_len - 1);
-    }
-
-    local_estimated
-        .saturating_mul(actual_len)
-        .checked_div(estimated_len)
-        .unwrap_or(0)
-        .min(actual_len - 1)
-}
-
-pub(crate) fn nearest_non_padding_line(block: &[RenderedChatLine], from: usize) -> Option<usize> {
-    if !matches!(block.get(from)?.kind, RenderedLineKind::Padding) {
-        return Some(from);
-    }
-
-    let max_distance = from.max(block.len().saturating_sub(from + 1));
-    for distance in 1..=max_distance {
-        if let Some(prev) = from.checked_sub(distance) {
-            if !matches!(block[prev].kind, RenderedLineKind::Padding) {
-                return Some(prev);
-            }
-        }
-        let next = from.saturating_add(distance);
-        if next < block.len() && !matches!(block[next].kind, RenderedLineKind::Padding) {
-            return Some(next);
-        }
-    }
-    None
 }
 
 pub(crate) fn render_streaming_retry_lines(

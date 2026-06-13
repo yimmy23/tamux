@@ -1,6 +1,8 @@
 use super::*;
 use crate::app::tests::goal_sidebar_tab_cycling_stays_to_collaboration_mouse_clicks_select_rows::goal_sidebar_tab_cycling_stays_mod::*;
 use super::super::{rendered_chat_area, unbounded_channel};
+use ratatui::backend::TestBackend;
+use ratatui::Terminal;
 use std::sync::mpsc;
 #[test]
 fn threads_return_to_goal_banner_keeps_conversation_mouse_targets_aligned() {
@@ -38,6 +40,58 @@ fn threads_return_to_goal_banner_keeps_conversation_mouse_targets_aligned() {
     });
 
     assert_eq!(model.chat_drag_anchor_point, Some(expected_point));
+}
+
+#[test]
+fn thread_participants_panel_keeps_conversation_mouse_targets_aligned() {
+    let mut model = mission_control_thread_router_model(Some("thread-active"), Some("thread-root"));
+
+    let handled = model.handle_key(KeyCode::Char('o'), KeyModifiers::CONTROL);
+    assert!(!handled);
+
+    model
+        .chat
+        .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+            id: "thread-active".to_string(),
+            title: "Thread thread-active".to_string(),
+            messages: vec![chat::AgentMessage {
+                id: Some("message-thread-active".to_string()),
+                role: chat::MessageRole::Assistant,
+                content: "Conversation for thread-active".to_string(),
+                ..Default::default()
+            }],
+            loaded_message_end: 1,
+            total_message_count: 1,
+            thread_participants: vec![chat::ThreadParticipantState {
+                agent_id: "agent-1".to_string(),
+                agent_name: "speedy-gonzales".to_string(),
+                status: "active".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }));
+    assert!(
+        model.thread_participants_panel_height().is_some(),
+        "participants panel should be visible for this thread"
+    );
+
+    let backend = TestBackend::new(model.width, model.height);
+    let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+    terminal
+        .draw(|frame| model.render(frame))
+        .expect("render should succeed");
+
+    let snapshot = model
+        .chat_selection_snapshot
+        .as_ref()
+        .expect("rendering the conversation should cache a chat snapshot");
+    let conversation_area = model
+        .conversation_content_area()
+        .expect("conversation content area should be available");
+    assert!(
+        widgets::chat::cached_snapshot_matches_area(snapshot, conversation_area),
+        "mouse hit-testing must target the same chat area the renderer used while the participants panel is visible"
+    );
 }
 
 #[test]

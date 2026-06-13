@@ -314,6 +314,8 @@ pub struct AgentTask {
     pub awaiting_approval_id: Option<String>,
     #[serde(default)]
     pub blocked_reason: Option<String>,
+    #[serde(default)]
+    pub sub_agent_def_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

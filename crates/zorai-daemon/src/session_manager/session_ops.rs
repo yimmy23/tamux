@@ -777,6 +777,22 @@ impl SessionManager {
         Ok(None)
     }
 
+    pub async fn cancel_queued_managed_command(&self, execution_id: &str) -> bool {
+        let sessions: Vec<Arc<Mutex<PtySession>>> = self
+            .sessions
+            .read()
+            .await
+            .values()
+            .cloned()
+            .collect();
+        for session in sessions {
+            if session.lock().await.cancel_queued_managed_command(execution_id) {
+                return true;
+            }
+        }
+        false
+    }
+
     pub async fn reap_dead(&self) {
         let mut sessions = self.sessions.write().await;
         let mut dead: Vec<SessionId> = Vec::new();

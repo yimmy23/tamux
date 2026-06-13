@@ -203,6 +203,7 @@ pub(crate) fn convert_task(t: crate::wire::AgentTask) -> task::AgentTask {
         command: t.command,
         awaiting_approval_id: t.awaiting_approval_id,
         blocked_reason: t.blocked_reason,
+        sub_agent_def_id: t.sub_agent_def_id,
     }
 }
 

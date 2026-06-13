@@ -349,6 +349,7 @@ impl DaemonClient {
                         command: None,
                         awaiting_approval_id: None,
                         blocked_reason: get_string(&event, "message"),
+                        sub_agent_def_id: None,
                     });
                 let _ = event_tx.send(ClientEvent::TaskUpdate(task)).await;
             }

@@ -143,6 +143,7 @@ fn on_tick_does_not_refresh_spawned_sidebar_tasks_while_thread_is_loading() {
             command: None,
             awaiting_approval_id: None,
             blocked_reason: None,
+            sub_agent_def_id: None,
         }]));
     model.activate_sidebar_tab(SidebarTab::Spawned);
     model.thread_loading_id = Some("thread-parent".to_string());

@@ -1678,9 +1678,88 @@ pub(crate) async fn execute_cancel_task(
         .and_then(|value| value.as_str())
         .ok_or_else(|| anyhow::anyhow!("missing 'task_id' argument"))?;
     let cancelled = agent.cancel_task(task_id).await;
+    if cancelled {
+        return Ok(serde_json::json!({
+            "task_id": task_id,
+            "cancelled": true,
+        })
+        .to_string());
+    }
+
+    if cancel_headless_operation(task_id) {
+        return Ok(serde_json::json!({
+            "task_id": task_id,
+            "cancelled": true,
+            "kind": "background_operation",
+            "detail": "no task with this id; killed the background operation process instead",
+        })
+        .to_string());
+    }
+
+    if let Ok(Some(status)) = agent.session_manager.get_background_task_status(task_id).await {
+        match status.state {
+            crate::session_manager::BackgroundTaskState::Queued
+            | crate::session_manager::BackgroundTaskState::Running => {
+                if agent
+                    .session_manager
+                    .cancel_queued_managed_command(task_id)
+                    .await
+                {
+                    return Ok(serde_json::json!({
+                        "task_id": task_id,
+                        "cancelled": true,
+                        "kind": "managed_command",
+                        "detail": "removed the queued command before it started",
+                    })
+                    .to_string());
+                }
+                if let Some(session_id) = status
+                    .session_id
+                    .as_deref()
+                    .and_then(|value| uuid::Uuid::parse_str(value).ok())
+                {
+                    let _ = agent.session_manager.write_input(session_id, &[3]).await;
+                    return Ok(serde_json::json!({
+                        "task_id": task_id,
+                        "cancelled": true,
+                        "kind": "managed_command",
+                        "detail": "sent interrupt to the terminal session running this command",
+                    })
+                    .to_string());
+                }
+            }
+            crate::session_manager::BackgroundTaskState::Completed
+            | crate::session_manager::BackgroundTaskState::Failed => {
+                return Ok(serde_json::json!({
+                    "task_id": task_id,
+                    "cancelled": false,
+                    "kind": "managed_command",
+                    "detail": "operation already finished",
+                })
+                .to_string());
+            }
+        }
+    }
+
+    if let Some(snapshot) = crate::server::operation_registry().snapshot(task_id) {
+        let detail = match snapshot.state {
+            zorai_protocol::OperationLifecycleState::Completed
+            | zorai_protocol::OperationLifecycleState::Failed => "operation already finished",
+            _ => "operation exists but its kind does not support cancellation",
+        };
+        return Ok(serde_json::json!({
+            "task_id": task_id,
+            "cancelled": false,
+            "kind": snapshot.kind,
+            "detail": detail,
+        })
+        .to_string());
+    }
+
     Ok(serde_json::json!({
         "task_id": task_id,
-        "cancelled": cancelled,
+        "cancelled": false,
+        "detail": "no task or operation found with this id",
     })
     .to_string())
 }

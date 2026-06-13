@@ -16,6 +16,14 @@ pub(crate) struct SpawnedSidebarItem {
     pub(crate) live: bool,
 }
 
+fn is_internal_governance_task(task: &AgentTask) -> bool {
+    let thread_id = task.thread_id.as_deref().unwrap_or_default();
+    let title = Some(task.title.as_str());
+    task.sub_agent_def_id.as_deref() == Some("weles_builtin")
+        || crate::app::TuiModel::is_internal_agent_thread(thread_id, title)
+        || crate::app::TuiModel::is_hidden_agent_thread(thread_id, title)
+}
+
 fn branch_target_thread_id(
     node: &SpawnedAgentTreeNode<AgentTask>,
     active_thread_id: &str,
@@ -58,7 +66,13 @@ pub(super) fn flattened_items(
     #[cfg(test)]
     FLATTENED_ITEMS_CALLS.with(|calls| calls.set(calls.get() + 1));
 
-    let Some(tree) = derive_spawned_agent_tree(tasks.spawned_tree_items(), thread_id) else {
+    let visible_tasks: Vec<AgentTask> = tasks
+        .spawned_tree_items()
+        .iter()
+        .filter(|task| !is_internal_governance_task(task))
+        .cloned()
+        .collect();
+    let Some(tree) = derive_spawned_agent_tree(&visible_tasks, thread_id) else {
         return Vec::new();
     };
 
@@ -82,8 +96,9 @@ pub(super) fn has_content(tasks: &TaskState, thread_id: Option<&str>) -> bool {
     };
 
     tasks.spawned_tree_items().iter().any(|task| {
-        task.thread_id.as_deref() == Some(active_thread_id)
-            || task.parent_thread_id.as_deref() == Some(active_thread_id)
+        !is_internal_governance_task(task)
+            && (task.thread_id.as_deref() == Some(active_thread_id)
+                || task.parent_thread_id.as_deref() == Some(active_thread_id))
     })
 }
 

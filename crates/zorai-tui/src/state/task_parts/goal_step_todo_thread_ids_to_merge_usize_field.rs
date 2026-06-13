@@ -162,6 +162,9 @@ pub(super) fn merge_task_update(existing: &AgentTask, mut updated: AgentTask) ->
     if updated.blocked_reason.is_none() {
         updated.blocked_reason = existing.blocked_reason.clone();
     }
+    if updated.sub_agent_def_id.is_none() {
+        updated.sub_agent_def_id = existing.sub_agent_def_id.clone();
+    }
 
     updated
 }
