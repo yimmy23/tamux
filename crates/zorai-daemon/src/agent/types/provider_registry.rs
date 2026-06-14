@@ -12,6 +12,8 @@ pub const RESPONSES_CHAT_AND_ANTHROPIC_TRANSPORTS: &[ApiTransport] = &[
 ];
 pub const NATIVE_AND_CHAT_TRANSPORTS: &[ApiTransport] =
     &[ApiTransport::NativeAssistant, ApiTransport::ChatCompletions];
+pub const CHAT_AND_ANTHROPIC_TRANSPORTS: &[ApiTransport] =
+    &[ApiTransport::ChatCompletions, ApiTransport::AnthropicMessages];
 
 pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
     ProviderDefinition {
@@ -214,7 +216,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: KIMI_CODING_MODELS,
-        supports_model_fetch: false,
+        supports_model_fetch: true,
         anthropic_base_url: None,
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: ApiTransport::ChatCompletions,
@@ -431,6 +433,22 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         supports_response_continuity: false,
     },
     ProviderDefinition {
+        id: PROVIDER_ID_ALIBABA_TOKEN_PLAN,
+        name: "Alibaba Token Plan",
+        default_base_url: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+        default_model: "qwen3.7-max",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: ALIBABA_TOKEN_MODELS,
+        supports_model_fetch: false,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
         id: PROVIDER_ID_XIAOMI_MIMO,
         name: "Xiaomi MiMo",
         default_base_url: "https://api.xiaomimimo.com/v1",
@@ -510,7 +528,23 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         models: OPENCODE_ZEN_MODELS,
         supports_model_fetch: true,
         anthropic_base_url: None,
-        supported_transports: CHAT_ONLY_TRANSPORTS,
+        supported_transports: CHAT_AND_ANTHROPIC_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: PROVIDER_ID_OPENCODE_GO,
+        name: "OpenCode Go",
+        default_base_url: "https://opencode.ai/zen/go/v1",
+        default_model: "glm-5.1",
+        api_type: ApiType::Anthropic,
+        auth_method: AuthMethod::Bearer,
+        models: OPENCODE_GO_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: CHAT_AND_ANTHROPIC_TRANSPORTS,
         default_transport: ApiTransport::ChatCompletions,
         native_transport_kind: None,
         native_base_url: None,
@@ -586,6 +620,11 @@ fn is_alibaba_coding_plan_anthropic_url(base_url: &str) -> bool {
     lower.contains("dashscope.aliyuncs.com") && lower.contains("/apps/anthropic")
 }
 
+fn is_alibaba_token_plan_anthropic_url(base_url: &str) -> bool {
+    let lower = base_url.trim().to_ascii_lowercase();
+    lower.contains("maas.aliyuncs.com") && lower.contains("/apps/anthropic")
+}
+
 fn is_xiaomi_mimo_token_plan_anthropic_url(base_url: &str) -> bool {
     let lower = base_url.trim().to_ascii_lowercase();
     lower == "https://token-plan-ams.xiaomimimo.com/anthropic"
@@ -623,6 +662,12 @@ pub fn get_provider_api_type(provider_id: &str, model: &str, configured_url: &st
         return ApiType::Anthropic;
     }
 
+    if provider_id == PROVIDER_ID_ALIBABA_TOKEN_PLAN
+        && is_alibaba_token_plan_anthropic_url(configured_url)
+    {
+        return ApiType::Anthropic;
+    }
+
     if provider_id == PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN
         && is_xiaomi_mimo_token_plan_anthropic_url(configured_url)
     {
@@ -643,7 +688,10 @@ pub fn get_provider_api_type(provider_id: &str, model: &str, configured_url: &st
                 } else {
                     ApiType::OpenAI
                 }
-            } else if provider_id == PROVIDER_ID_OPENCODE_ZEN && !model.starts_with("claude") {
+            } else if (provider_id == PROVIDER_ID_OPENCODE_ZEN
+                || provider_id == PROVIDER_ID_OPENCODE_GO)
+                && !model.starts_with("claude")
+            {
                 ApiType::OpenAI
             } else {
                 d.api_type

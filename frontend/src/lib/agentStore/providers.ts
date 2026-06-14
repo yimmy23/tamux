@@ -135,6 +135,7 @@ const ZAI_MODELS: ModelDefinition[] = [
 
 const ZAI_CODING_MODELS: ModelDefinition[] = [
   { id: "glm-5", name: "GLM-5", contextWindow: 128000 },
+  { id: "glm-5.2", name: "GLM-5.2", contextWindow: 204800 },
   { id: "glm-5.1", name: "GLM-5.1", contextWindow: 204800 },
   { id: "glm-4-plus", name: "GLM-4 Plus", contextWindow: 128000 },
   { id: "glm-4", name: "GLM-4", contextWindow: 128000 },
@@ -158,6 +159,7 @@ const KIMI_MODELS: ModelDefinition[] = [
 
 const KIMI_CODING_MODELS: ModelDefinition[] = [
   { id: "kimi-for-coding", name: "Kimi for Coding", contextWindow: 262144 },
+  { id: "kimi-k2.7-code", name: "Kimi K2.7 Code", contextWindow: 262144 },
   { id: "kimi-k2.6", name: "Kimi K2.6", contextWindow: 262144 },
   { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144 },
   { id: "kimi-k2-turbo-preview", name: "Kimi K2 Turbo Preview", contextWindow: 262144 },
@@ -165,7 +167,7 @@ const KIMI_CODING_MODELS: ModelDefinition[] = [
 
 const MINIMAX_MODELS: ModelDefinition[] = [
   { id: "MiniMax-M3", name: "MiniMax M3", contextWindow: 1_000_000 },
-  { id: "MiniMax-M2.7", name: "MiniMax M2.7", contextWindow: 204_800 },
+  { id: "MiniMax-M2.7", name: "MiniMax M2.7", contextWindow: 205_000 },
   { id: "MiniMax-M2.7-highspeed", name: "MiniMax M2.7 Highspeed", contextWindow: 204_800 },
   { id: "MiniMax-M2.5", name: "MiniMax M2.5", contextWindow: 204_800 },
   { id: "MiniMax-M2.5-highspeed", name: "MiniMax M2.5 Highspeed", contextWindow: 204_800 },
@@ -186,6 +188,25 @@ const ALIBABA_CODING_MODELS: ModelDefinition[] = [
 
 const ALIBABA_CODING_COMPAT_MODELS: ModelDefinition[] = [
   { id: "qwen3.5-plus", name: "Qwen3.5 Plus", contextWindow: 983616 },
+];
+
+const ALIBABA_TOKEN_MODELS: ModelDefinition[] = [
+  { id: "qwen3.7-max", name: "Qwen3.7 Max", contextWindow: 1_000_000 },
+  { id: "qwen3.7-plus", name: "Qwen3.7 Plus", contextWindow: 1_000_000, modalities: M_TI },
+  { id: "qwen3.6-plus", name: "Qwen3.6 Plus", contextWindow: 983_616, modalities: M_TI },
+  { id: "qwen3.6-flash", name: "Qwen3.6 Flash", contextWindow: 1_000_000, modalities: M_TI },
+  { id: "qwen-image-2.0", name: "Qwen Image 2.0", contextWindow: 32_768, modalities: M_TI },
+  { id: "qwen-image-2.0-pro", name: "Qwen Image 2.0 Pro", contextWindow: 32_768, modalities: M_TI },
+  { id: "wan2.7-image", name: "Wan2.7 Image", contextWindow: 32_768, modalities: M_TI },
+  { id: "wan2.7-image-pro", name: "Wan2.7 Image Pro", contextWindow: 32_768, modalities: M_TI },
+  { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", contextWindow: 1_000_000 },
+  { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", contextWindow: 1_000_000 },
+  { id: "deepseek-v3.2", name: "DeepSeek V3.2", contextWindow: 1_000_000 },
+  { id: "kimi-k2.6", name: "Kimi K2.6", contextWindow: 262_144, modalities: M_TI },
+  { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262_144, modalities: M_TI },
+  { id: "glm-5.1", name: "GLM-5.1", contextWindow: 202_752 },
+  { id: "glm-5", name: "GLM-5", contextWindow: 202_752 },
+  { id: "MiniMax-M2.5", name: "MiniMax M2.5", contextWindow: 205_000 },
 ];
 
 const XIAOMI_MIMO_TOKEN_PLAN_MODELS: ModelDefinition[] = [
@@ -224,6 +245,23 @@ const OPENCODE_ZEN_MODELS: ModelDefinition[] = [
   { id: "kimi-k2.5", name: "Kimi K2.5", contextWindow: 262144 },
 ];
 
+const OPENCODE_GO_MODELS: ModelDefinition[] = [
+  { id: "glm-5.1", name: "GLM-5.1", contextWindow: 204_800 },
+  { id: "glm-5", name: "GLM-5", contextWindow: 202_752 },
+  { id: "kimi-k2.7-code", name: "Kimi K2.7 Code", contextWindow: 262_144 },
+  { id: "kimi-k2.6", name: "Kimi K2.6", contextWindow: 262_144 },
+  { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", contextWindow: 1_000_000 },
+  { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", contextWindow: 1_000_000 },
+  { id: "mimo-v2.5", name: "MiMo V2.5", contextWindow: 1_000_000 },
+  { id: "mimo-v2.5-pro", name: "MiMo V2.5 Pro", contextWindow: 1_000_000 },
+  { id: "minimax-m3", name: "MiniMax M3", contextWindow: 1_000_000 },
+  { id: "minimax-m2.7", name: "MiniMax M2.7", contextWindow: 205_000 },
+  { id: "minimax-m2.5", name: "MiniMax M2.5", contextWindow: 205_000 },
+  { id: "qwen3.7-max", name: "Qwen3.7 Max", contextWindow: 1_000_000 },
+  { id: "qwen3.7-plus", name: "Qwen3.7 Plus", contextWindow: 1_000_000, modalities: M_TI },
+  { id: "qwen3.6-plus", name: "Qwen3.6 Plus", contextWindow: 983_616, modalities: M_TI },
+];
+
 const GROQ_MODELS: ModelDefinition[] = [
   { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B Versatile", contextWindow: 128000 },
   { id: "llama-3.1-8b-instant", name: "Llama 3.1 8B", contextWindow: 128000 },
@@ -245,6 +283,7 @@ const RESPONSES_CHAT_AND_ANTHROPIC_TRANSPORTS: ApiTransportMode[] = [
   "anthropic_messages",
 ];
 const NATIVE_AND_CHAT_TRANSPORTS: ApiTransportMode[] = ["native_assistant", "chat_completions"];
+const CHAT_AND_ANTHROPIC_TRANSPORTS: ApiTransportMode[] = ["chat_completions", "anthropic_messages"];
 export const DEFAULT_PROVIDER_CONTEXT_WINDOW = 128_000;
 export const DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW = 264_000;
 
@@ -415,8 +454,10 @@ export const PROVIDER_DEFINITIONS: ProviderDefinition[] = [
   { id: "minimax", name: "MiniMax", defaultBaseUrl: "https://api.minimax.io/anthropic", defaultModel: "MiniMax-M3", apiType: "anthropic", authMethod: "x-api-key", models: MINIMAX_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "minimax-coding-plan", name: "MiniMax Coding Plan", defaultBaseUrl: "https://api.minimax.io/anthropic", defaultModel: "MiniMax-M3", apiType: "anthropic", authMethod: "x-api-key", models: MINIMAX_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "alibaba-coding-plan", name: "Alibaba Coding Plan", defaultBaseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1", defaultModel: "qwen3.6-plus", apiType: "openai", authMethod: "bearer", models: ALIBABA_CODING_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "alibaba-token-plan", name: "Alibaba Token Plan", defaultBaseUrl: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen3.7-max", apiType: "openai", authMethod: "bearer", models: ALIBABA_TOKEN_MODELS, supportsModelFetch: false, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "xiaomi-mimo-token-plan", name: "Xiaomi MiMo Token Plan", defaultBaseUrl: "https://token-plan-ams.xiaomimimo.com/v1", defaultModel: "mimo-v2.5-pro", apiType: "openai", authMethod: "bearer", models: XIAOMI_MIMO_TOKEN_PLAN_MODELS, supportsModelFetch: false, anthropicBaseUrl: "https://token-plan-ams.xiaomimimo.com/anthropic", supportedTransports: ["chat_completions", "anthropic_messages"], defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
-  { id: "opencode-zen", name: "OpenCode Zen", defaultBaseUrl: "https://opencode.ai/zen/v1", defaultModel: "claude-sonnet-4-5", apiType: "anthropic", authMethod: "bearer", models: OPENCODE_ZEN_MODELS, supportsModelFetch: true, supportedTransports: CHAT_ONLY_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "opencode-zen", name: "OpenCode Zen", defaultBaseUrl: "https://opencode.ai/zen/v1", defaultModel: "claude-sonnet-4-5", apiType: "anthropic", authMethod: "bearer", models: OPENCODE_ZEN_MODELS, supportsModelFetch: true, supportedTransports: CHAT_AND_ANTHROPIC_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
+  { id: "opencode-go", name: "OpenCode Go", defaultBaseUrl: "https://opencode.ai/zen/go/v1", defaultModel: "glm-5.1", apiType: "anthropic", authMethod: "bearer", models: OPENCODE_GO_MODELS, supportsModelFetch: true, supportedTransports: CHAT_AND_ANTHROPIC_TRANSPORTS, defaultTransport: "chat_completions", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: false },
   { id: "custom", name: "Custom", defaultBaseUrl: "", defaultModel: "", apiType: "openai", authMethod: "bearer", models: EMPTY_MODELS, supportsModelFetch: false, supportedTransports: RESPONSES_AND_CHAT_TRANSPORTS, defaultTransport: "responses", supportedAuthSources: API_KEY_ONLY_AUTH_SOURCES, defaultAuthSource: "api_key", supportsResponseContinuity: true },
 ];
 
@@ -643,6 +684,11 @@ function isAlibabaCodingPlanAnthropicBaseUrl(baseUrl: string): boolean {
   return lower.includes("dashscope.aliyuncs.com") && lower.includes("/apps/anthropic");
 }
 
+function isAlibabaTokenPlanAnthropicBaseUrl(baseUrl: string): boolean {
+  const lower = (baseUrl || "").trim().toLowerCase();
+  return lower.includes("maas.aliyuncs.com") && lower.includes("/apps/anthropic");
+}
+
 export function getProviderApiType(
   providerId: AgentProviderId,
   model: string,
@@ -655,10 +701,13 @@ export function getProviderApiType(
   if (providerId === "alibaba-coding-plan" && isAlibabaCodingPlanAnthropicBaseUrl(configuredUrl)) {
     return "anthropic";
   }
+  if (providerId === "alibaba-token-plan" && isAlibabaTokenPlanAnthropicBaseUrl(configuredUrl)) {
+    return "anthropic";
+  }
   if (definition.anthropicBaseUrl && model.startsWith("claude")) {
     return "anthropic";
   }
-  if (providerId === "opencode-zen" && !model.startsWith("claude")) {
+  if ((providerId === "opencode-zen" || providerId === "opencode-go") && !model.startsWith("claude")) {
     return "openai";
   }
   return definition.apiType;

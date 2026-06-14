@@ -46,6 +46,29 @@ impl TuiModel {
                 self.settings_picker_target = Some(SettingsPickerTarget::ConciergeReasoningEffort);
                 self.execute_command("effort");
             }
+            "concierge_api_transport" => {
+                let provider_id = self
+                    .concierge
+                    .provider
+                    .clone()
+                    .unwrap_or_else(|| self.config.provider.clone());
+                let supported = crate::providers::supported_transports_for(&provider_id);
+                let mut options: Vec<&str> = vec![""];
+                options.extend_from_slice(supported);
+                let current = self.concierge.api_transport.clone().unwrap_or_default();
+                let current_idx = options
+                    .iter()
+                    .position(|transport| *transport == current)
+                    .unwrap_or(0);
+                let next_idx = (current_idx + 1) % options.len().max(1);
+                let next = options.get(next_idx).copied().unwrap_or("");
+                self.concierge.api_transport = if next.is_empty() {
+                    None
+                } else {
+                    Some(next.to_string())
+                };
+                self.send_concierge_config();
+            }
             "concierge_openrouter_provider_order" => self
                 .open_concierge_openrouter_provider_picker(
                     SettingsPickerTarget::ConciergeOpenRouterPreferredProviders,

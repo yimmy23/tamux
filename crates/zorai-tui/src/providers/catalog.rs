@@ -6,6 +6,7 @@ pub const RESPONSES_AND_CHAT_TRANSPORTS: &[&str] = &["responses", "chat_completi
 pub const RESPONSES_CHAT_AND_ANTHROPIC_TRANSPORTS: &[&str] =
     &["responses", "chat_completions", "anthropic_messages"];
 pub const NATIVE_AND_CHAT_TRANSPORTS: &[&str] = &["native_assistant", "chat_completions"];
+pub const CHAT_AND_ANTHROPIC_TRANSPORTS: &[&str] = &["chat_completions", "anthropic_messages"];
 pub const API_KEY_ONLY_AUTH_SOURCES: &[&str] = &["api_key"];
 pub const OPENAI_AUTH_SOURCES: &[&str] = &["chatgpt_subscription", "api_key"];
 pub const GITHUB_COPILOT_AUTH_SOURCES: &[&str] = &["github_copilot", "api_key"];
@@ -210,6 +211,17 @@ pub const PROVIDERS: &[ProviderDef] = &[
         native_base_url: None,
     },
     ProviderDef {
+        id: PROVIDER_ID_ALIBABA_TOKEN_PLAN,
+        name: "Alibaba Token Plan",
+        default_base_url: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+        default_model: "qwen3.7-max",
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
+        native_base_url: None,
+    },
+    ProviderDef {
         id: PROVIDER_ID_QWEN_DEEPINFRA,
         name: "Qwen (DeepInfra)",
         default_base_url: "https://api.deepinfra.com/v1/openai",
@@ -269,7 +281,18 @@ pub const PROVIDERS: &[ProviderDef] = &[
         name: "OpenCode Zen",
         default_base_url: "https://opencode.ai/zen/v1",
         default_model: "claude-sonnet-4-6",
-        supported_transports: CHAT_ONLY_TRANSPORTS,
+        supported_transports: CHAT_AND_ANTHROPIC_TRANSPORTS,
+        default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
+        native_base_url: None,
+    },
+    ProviderDef {
+        id: PROVIDER_ID_OPENCODE_GO,
+        name: "OpenCode Go",
+        default_base_url: "https://opencode.ai/zen/go/v1",
+        default_model: "glm-5.1",
+        supported_transports: CHAT_AND_ANTHROPIC_TRANSPORTS,
         default_transport: "chat_completions",
         supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
         default_auth_source: "api_key",

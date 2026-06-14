@@ -1,10 +1,10 @@
 use super::*;
 
 use zorai_shared::providers::{
-    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_MINIMAX,
-    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENCODE_ZEN,
-    PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN, PROVIDER_ID_QWEN_DEEPINFRA, PROVIDER_ID_Z_AI,
-    PROVIDER_ID_Z_AI_CODING_PLAN,
+    PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_ALIBABA_TOKEN_PLAN, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_KIMI_CODING_PLAN, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN,
+    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENCODE_ZEN, PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN,
+    PROVIDER_ID_QWEN_DEEPINFRA, PROVIDER_ID_Z_AI, PROVIDER_ID_Z_AI_CODING_PLAN,
 };
 
 const OPENROUTER_ATTRIBUTION_URL: &str = "https://zorai.app";
@@ -198,11 +198,13 @@ pub(crate) fn openai_reasoning_supported(provider: &str, model: &str) -> bool {
 }
 
 pub(crate) fn dashscope_openai_uses_enable_thinking(provider: &str, model: &str) -> bool {
-    matches!(provider, PROVIDER_ID_QWEN | PROVIDER_ID_ALIBABA_CODING_PLAN)
-        && matches!(
-            model,
-            "qwen3.6-plus" | "qwen3.5-plus" | "qwen3-max-2026-01-23" | "glm-4.7" | "glm-5"
-        )
+    matches!(
+        provider,
+        PROVIDER_ID_QWEN | PROVIDER_ID_ALIBABA_CODING_PLAN | PROVIDER_ID_ALIBABA_TOKEN_PLAN
+    ) && matches!(
+        model,
+        "qwen3.6-plus" | "qwen3.5-plus" | "qwen3-max-2026-01-23" | "glm-4.7" | "glm-5"
+    )
 }
 
 pub(crate) fn is_dashscope_coding_plan_anthropic_base_url(base_url: &str) -> bool {
@@ -215,7 +217,10 @@ pub(crate) fn is_dashscope_coding_plan_anthropic_base_url(base_url: &str) -> boo
 pub(crate) fn needs_coding_plan_sdk_headers(provider: &str) -> bool {
     matches!(
         provider,
-        PROVIDER_ID_ALIBABA_CODING_PLAN | PROVIDER_ID_MINIMAX | PROVIDER_ID_MINIMAX_CODING_PLAN
+        PROVIDER_ID_ALIBABA_CODING_PLAN
+            | PROVIDER_ID_KIMI_CODING_PLAN
+            | PROVIDER_ID_MINIMAX
+            | PROVIDER_ID_MINIMAX_CODING_PLAN
     )
 }
 
@@ -233,10 +238,7 @@ pub(crate) fn apply_dashscope_coding_plan_sdk_headers(
         ApiType::Anthropic => "0.73.0",
         ApiType::OpenAI => "4.3.0",
     };
-    req.header(
-        "User-Agent",
-        format!("{} {}", api_type.sdk_user_agent(), sdk_version),
-    )
+    req.header("User-Agent", api_type.sdk_user_agent())
     .header("x-stainless-lang", "js")
     .header("x-stainless-package-version", sdk_version)
     .header("x-stainless-os", std::env::consts::OS)

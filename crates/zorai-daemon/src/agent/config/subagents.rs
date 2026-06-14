@@ -109,6 +109,7 @@ pub(super) fn apply_weles_allowed_overrides(
         },
         openrouter_allow_fallbacks: def.openrouter_allow_fallbacks,
         max_concurrent_reviews: None,
+        api_transport: def.api_transport,
     };
     Ok(())
 }

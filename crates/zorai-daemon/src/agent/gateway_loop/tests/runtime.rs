@@ -405,6 +405,7 @@ async fn gateway_approval_reply_fast_path_resolves_pending_task_and_notifies_cha
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -734,6 +735,7 @@ async fn gateway_approval_reply_rejects_cross_platform_reply_when_other_thread_i
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -895,6 +897,7 @@ async fn slack_gateway_approval_reply_fast_path_resolves_pending_task_and_notifi
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -1064,6 +1067,7 @@ async fn telegram_gateway_approval_reply_fast_path_resolves_pending_task_and_not
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -1230,6 +1234,7 @@ async fn gateway_approval_reply_fast_path_accepts_approve_once_phrase_and_notifi
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -1392,6 +1397,7 @@ async fn gateway_approval_reply_fast_path_accepts_approve_session_phrase_and_not
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -1554,6 +1560,7 @@ async fn gateway_approval_reply_fast_path_resolves_pending_task_with_session_gra
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -1716,6 +1723,7 @@ async fn gateway_approval_reply_fast_path_accepts_allow_session_alias_and_notifi
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -1877,6 +1885,7 @@ async fn gateway_approval_reply_fast_path_accepts_reject_alias_and_notifies_chan
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -2037,6 +2046,7 @@ async fn gateway_approval_reply_fast_path_accepts_allow_once_alias_and_notifies_
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -2199,6 +2209,7 @@ async fn gateway_approval_reply_fast_path_accepts_denied_alias_and_notifies_chan
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -2363,6 +2374,7 @@ async fn gateway_approval_reply_fast_path_denies_pending_task_and_notifies_chann
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -6229,6 +6241,7 @@ async fn gateway_pending_approval_lookup_prefers_task_owned_approval_for_thread(
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -6373,6 +6386,7 @@ async fn mark_task_awaiting_approval_emits_gateway_prompt_for_same_channel() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });

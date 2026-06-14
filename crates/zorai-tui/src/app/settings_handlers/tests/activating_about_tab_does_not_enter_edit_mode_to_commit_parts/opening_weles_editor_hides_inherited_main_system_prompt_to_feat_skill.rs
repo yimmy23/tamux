@@ -28,6 +28,7 @@ fn opening_weles_editor_hides_inherited_main_system_prompt() {
         delete_allowed: false,
         protected_reason: Some("Daemon-owned WELES registry entry".to_string()),
         reasoning_effort: Some("medium".to_string()),
+        api_transport: None,
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,

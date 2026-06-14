@@ -235,6 +235,26 @@ impl TuiModel {
                         crate::state::subagents::SubAgentEditorField::ReasoningEffort => {
                             self.open_subagent_effort_picker();
                         }
+                        crate::state::subagents::SubAgentEditorField::ApiTransport => {
+                            if let Some(editor) = self.subagents.editor.as_mut() {
+                                let supported =
+                                    crate::providers::supported_transports_for(&editor.provider);
+                                let mut options: Vec<&str> = vec![""];
+                                options.extend_from_slice(supported);
+                                let current = editor.api_transport.clone().unwrap_or_default();
+                                let current_idx = options
+                                    .iter()
+                                    .position(|transport| *transport == current)
+                                    .unwrap_or(0);
+                                let next_idx = (current_idx + 1) % options.len().max(1);
+                                let next = options.get(next_idx).copied().unwrap_or("");
+                                editor.api_transport = if next.is_empty() {
+                                    None
+                                } else {
+                                    Some(next.to_string())
+                                };
+                            }
+                        }
                         crate::state::subagents::SubAgentEditorField::Role => {
                             self.open_subagent_role_picker();
                         }

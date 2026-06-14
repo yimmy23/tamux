@@ -397,3 +397,64 @@ fn spawned_sidebar_renders_disabled_rows_dimmed() {
         "disabled spawned rows should render with the dim foreground"
     );
 }
+
+#[test]
+fn spawned_sidebar_hides_weles_governance_tasks_attributed_to_thread() {
+    let mut tasks = TaskState::new();
+    let mut weles_by_def_id = spawned_sidebar_task(
+        "weles-task",
+        "Subagent review",
+        10,
+        None,
+        None,
+        Some("thread-root"),
+        Some(crate::state::task::TaskStatus::Completed),
+    );
+    weles_by_def_id.sub_agent_def_id = Some("weles_builtin".to_string());
+    tasks.reduce(TaskAction::TaskListReceived(vec![
+        weles_by_def_id,
+        spawned_sidebar_task(
+            "weles-legacy",
+            "WELES",
+            20,
+            Some("dm:swarog:weles"),
+            None,
+            Some("thread-root"),
+            Some(crate::state::task::TaskStatus::Completed),
+        ),
+        spawned_sidebar_task(
+            "child-task",
+            "Child worker",
+            30,
+            Some("thread-child"),
+            None,
+            Some("thread-root"),
+            Some(crate::state::task::TaskStatus::InProgress),
+        ),
+    ]));
+
+    let items = spawned_agents::flattened_items(&tasks, Some("thread-root"));
+    assert_eq!(
+        items
+            .iter()
+            .map(|item| item.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Child worker"],
+        "WELES governance tasks must not surface as spawned agents on the threads they reviewed"
+    );
+
+    let mut only_weles = TaskState::new();
+    only_weles.reduce(TaskAction::TaskListReceived(vec![spawned_sidebar_task(
+        "weles-only",
+        "WELES",
+        10,
+        Some("dm:swarog:weles"),
+        None,
+        Some("thread-root"),
+        Some(crate::state::task::TaskStatus::Completed),
+    )]));
+    assert!(
+        !spawned_agents::has_content(&only_weles, Some("thread-root")),
+        "spawned tab should not appear when a thread only has WELES governance reviews"
+    );
+}

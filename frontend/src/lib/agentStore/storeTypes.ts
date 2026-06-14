@@ -12,6 +12,7 @@ import type {
   AgentMessage,
   AgentThread,
   AgentTodoItem,
+  ApiTransportMode,
   ProviderAuthState,
   SubAgentDefinition,
 } from "./types";
@@ -23,6 +24,7 @@ export interface ConciergeConfig {
   provider?: string;
   model?: string;
   reasoning_effort?: string;
+  api_transport?: ApiTransportMode | null;
   openrouter_provider_order?: string[];
   openrouter_provider_ignore?: string[];
   openrouter_allow_fallbacks?: boolean | null;

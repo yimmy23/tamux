@@ -81,6 +81,57 @@ async fn headless_shell_command_can_be_cancelled() {
     assert!(error.to_string().contains("cancelled"));
 }
 
+#[tokio::test]
+async fn cancel_headless_operation_kills_backgrounded_command_by_operation_id() {
+    let root = tempfile::tempdir().unwrap();
+    let session_manager = SessionManager::new_test(root.path()).await;
+
+    let (output, _) = execute_headless_shell_command(
+        &serde_json::json!({
+            "command": "sleep 30",
+            "timeout_seconds": 30,
+            "wait_for_completion": false
+        }),
+        &session_manager,
+        None,
+        "bash_command",
+        None,
+        None,
+    )
+    .await
+    .expect("background headless command should spawn");
+
+    let operation_id = output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("operation_id: "))
+        .expect("background spawn should report an operation_id")
+        .to_string();
+
+    assert!(!cancel_headless_operation("missing-operation"));
+    assert!(cancel_headless_operation(&operation_id));
+
+    let snapshot = timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(snapshot) = crate::server::operation_registry().snapshot(&operation_id) {
+                if matches!(
+                    snapshot.state,
+                    zorai_protocol::OperationLifecycleState::Failed
+                ) {
+                    return snapshot;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .expect("cancelled operation should reach a terminal failed state instead of sleeping out");
+
+    let terminal = crate::server::operation_registry()
+        .terminal_result(&snapshot.operation_id)
+        .expect("cancelled operation should record a terminal result");
+    assert_eq!(terminal.get("cancelled"), Some(&serde_json::json!(true)));
+}
+
 #[test]
 fn resolve_skill_path_finds_generated_skill_by_stem() {
     let root = std::env::temp_dir().join(format!("zorai-skill-test-{}", uuid::Uuid::new_v4()));

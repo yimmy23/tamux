@@ -124,6 +124,11 @@ impl DaemonClient {
                                 .get("reasoning_effort")
                                 .and_then(|s| s.as_str())
                                 .map(String::from),
+                            api_transport: v
+                                .get("api_transport")
+                                .and_then(|s| s.as_str())
+                                .filter(|s| !s.is_empty())
+                                .map(String::from),
                             openrouter_provider_order:
                                 crate::state::subagents::openrouter_provider_list_from_json(
                                     v,
@@ -190,6 +195,11 @@ impl DaemonClient {
                     reasoning_effort: v
                         .get("reasoning_effort")
                         .and_then(|s| s.as_str())
+                        .map(String::from),
+                    api_transport: v
+                        .get("api_transport")
+                        .and_then(|s| s.as_str())
+                        .filter(|s| !s.is_empty())
                         .map(String::from),
                     openrouter_provider_order:
                         crate::state::subagents::openrouter_provider_list_from_json(

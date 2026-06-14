@@ -514,6 +514,7 @@ impl<'a> SendMessageRunner<'a> {
                     t.override_model.clone(),
                     t.override_system_prompt.clone(),
                     t.sub_agent_def_id.clone(),
+                    t.override_api_transport,
                 ));
             }
 
@@ -524,6 +525,7 @@ impl<'a> SendMessageRunner<'a> {
                 Some(def.model.clone()),
                 t.override_system_prompt.clone(),
                 Some(def.id.clone()),
+                def.api_transport,
             ))
         });
         let thread_execution_profile = engine
@@ -552,7 +554,7 @@ impl<'a> SendMessageRunner<'a> {
             .flatten();
         let active_provider_id = task_provider_override
             .as_ref()
-            .map(|(provider_id, _, _, _)| provider_id.as_str())
+            .map(|(provider_id, _, _, _, _)| provider_id.as_str())
             .or_else(|| {
                 direct_thread_responder
                     .as_ref()
@@ -561,11 +563,18 @@ impl<'a> SendMessageRunner<'a> {
             .unwrap_or(config.provider.as_str())
             .to_string();
         let provider_config =
-            match if let Some((ref sub_provider, ref sub_model, _, _)) = task_provider_override {
+            match if let Some((ref sub_provider, ref sub_model, _, _, sub_transport)) =
+                task_provider_override
+            {
                 let mut pc = engine.resolve_sub_agent_provider_config(&config, sub_provider)?;
                 if let Some(model) = sub_model {
                     apply_provider_model_override(sub_provider, &mut pc, model);
                 }
+                crate::agent::provider_resolution::apply_role_transport_override(
+                    sub_provider,
+                    &mut pc,
+                    sub_transport,
+                );
                 if let Some(reasoning_effort) = task_execution_profile_reasoning.as_ref() {
                     pc.reasoning_effort = reasoning_effort.clone();
                 }
@@ -686,7 +695,8 @@ impl<'a> SendMessageRunner<'a> {
         }
         let memory = engine.current_memory_snapshot().await;
         let memory_paths = memory_paths_for_scope(&engine.data_dir, &agent_scope_id);
-        let base_prompt = if let Some((_, _, Some(ref override_prompt), _)) = task_provider_override
+        let base_prompt = if let Some((_, _, Some(ref override_prompt), _, _)) =
+            task_provider_override
         {
             format!("{}\n\n{}", override_prompt, config.system_prompt)
         } else if let Some(responder) = direct_thread_responder.as_ref() {
@@ -908,7 +918,7 @@ impl<'a> SendMessageRunner<'a> {
         };
         let runtime_agent_name = task_provider_override
             .as_ref()
-            .and_then(|(_, _, prompt, sub_agent_def_id)| {
+            .and_then(|(_, _, prompt, sub_agent_def_id, _)| {
                 if sub_agent_def_id.as_deref()
                     == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
                 {
@@ -1656,6 +1666,7 @@ mod tests {
             delete_allowed: true,
             protected_reason: None,
             reasoning_effort: Some("medium".to_string()),
+            api_transport: None,
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
@@ -2005,6 +2016,7 @@ mod tests {
             supervisor_config: None,
             override_provider: Some("openai".to_string()),
             override_model: Some("gpt-5.4-mini".to_string()),
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
@@ -2091,6 +2103,7 @@ mod tests {
             supervisor_config: None,
             override_provider: Some("openai".to_string()),
             override_model: Some("gpt-5.4-mini".to_string()),
+            override_api_transport: None,
             override_system_prompt: Some(build_spawned_persona_prompt("qa")),
             sub_agent_def_id: None,
         });
@@ -2184,6 +2197,7 @@ mod tests {
             supervisor_config: None,
             override_provider: Some("openai".to_string()),
             override_model: Some("gpt-5.4-mini".to_string()),
+            override_api_transport: None,
             override_system_prompt: Some(build_spawned_persona_prompt("qa")),
             sub_agent_def_id: None,
         });
@@ -2253,6 +2267,7 @@ mod tests {
             delete_allowed: true,
             protected_reason: None,
             reasoning_effort: Some("medium".to_string()),
+            api_transport: None,
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
@@ -2658,6 +2673,7 @@ mod tests {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
@@ -2897,6 +2913,7 @@ mod tests {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });

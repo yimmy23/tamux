@@ -144,20 +144,45 @@ mod tests {
             80,
             0,
             false,
-            40,
+            0,
             60,
             &metrics,
         );
 
         assert_eq!(
             lines.len(),
-            20,
+            60,
             "virtual window should preserve one row per requested transcript row"
         );
+        let plain = |line: &RenderedChatLine| {
+            line.line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        };
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| plain(line).contains(zorai_protocol::AGENT_NAME_SWAROG))
+                .count(),
+            1,
+            "overestimated metrics must not duplicate the responder header"
+        );
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|line| plain(line).contains("short answer"))
+                .count(),
+            1,
+            "overestimated metrics must not duplicate message content"
+        );
         assert!(
-            lines.iter().any(|line| line.message_index == Some(0)
-                && !matches!(line.kind, RenderedLineKind::Padding)),
-            "overestimated metric gaps should still map to rendered message content"
+            lines[10..].iter().all(|line| matches!(
+                line.kind,
+                RenderedLineKind::Padding
+            ) && line.message_index == Some(0)),
+            "overestimated metric gaps should render as padding still attributed to the message"
         );
     }
 

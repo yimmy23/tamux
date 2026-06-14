@@ -151,6 +151,7 @@ pub(super) fn sample_task_with_scope(
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: Some(format!(
             "Agent persona: Test Persona\nAgent persona id: {scope_id}\nYou are Test Persona ({scope_id}) operating as a spawned zorai agent."
         )),

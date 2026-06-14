@@ -66,6 +66,9 @@ function normalizeConciergeConfig(
     provider: typeof value.provider === "string" ? value.provider : undefined,
     model: typeof value.model === "string" ? value.model : undefined,
     reasoning_effort: typeof value.reasoning_effort === "string" ? value.reasoning_effort : undefined,
+    api_transport: typeof value.api_transport === "string"
+      ? (value.api_transport as ConciergeConfig["api_transport"])
+      : undefined,
     openrouter_provider_order: Array.isArray(value.openrouter_provider_order)
       ? value.openrouter_provider_order
       : undefined,

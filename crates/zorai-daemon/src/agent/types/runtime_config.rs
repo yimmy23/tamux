@@ -375,6 +375,8 @@ pub struct SubAgentDefinition {
     pub protected_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_transport: Option<ApiTransport>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub openrouter_provider_order: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -496,6 +498,8 @@ pub struct ConciergeConfig {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_transport: Option<ApiTransport>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub openrouter_provider_order: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -514,6 +518,7 @@ impl Default for ConciergeConfig {
             provider: None,
             model: None,
             reasoning_effort: None,
+            api_transport: None,
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,

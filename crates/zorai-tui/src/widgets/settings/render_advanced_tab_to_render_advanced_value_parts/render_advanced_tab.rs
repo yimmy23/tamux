@@ -268,7 +268,22 @@ pub(crate) fn render_advanced_tab<'a>(
                 "  [Enter/Space: cycle]",
                 theme,
             );
-            20
+            render_advanced_value(
+                &mut lines,
+                settings,
+                config,
+                20,
+                "WELES Transport:",
+                if config.compaction_weles_api_transport.trim().is_empty() {
+                    "(inherit)".to_string()
+                } else {
+                    config.compaction_weles_api_transport.clone()
+                },
+                "compaction_weles_api_transport",
+                "  [Enter/Space: cycle]",
+                theme,
+            );
+            21
         }
         "custom_model" => {
             render_advanced_value(

@@ -52,6 +52,30 @@ fn alibaba_coding_plan_switches_to_anthropic_for_anthropic_base_url() {
 }
 
 #[test]
+fn alibaba_token_plan_uses_openai_by_default() {
+    assert_eq!(
+        get_provider_api_type(
+            "alibaba-token-plan",
+            "qwen3.7-max",
+            "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+        ),
+        ApiType::OpenAI
+    );
+}
+
+#[test]
+fn alibaba_token_plan_switches_to_anthropic_for_anthropic_base_url() {
+    assert_eq!(
+        get_provider_api_type(
+            "alibaba-token-plan",
+            "qwen3.7-max",
+            "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic"
+        ),
+        ApiType::Anthropic
+    );
+}
+
+#[test]
 fn github_copilot_claude_models_stay_openai_without_explicit_transport_override() {
     assert_eq!(
         get_provider_api_type(

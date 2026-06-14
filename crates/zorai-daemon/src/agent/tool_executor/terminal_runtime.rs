@@ -1012,6 +1012,27 @@ fn spawn_headless_shell_command_background(
     }
 }
 
+fn headless_operation_cancel_tokens(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, CancellationToken>> {
+    static TOKENS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, CancellationToken>>,
+    > = std::sync::OnceLock::new();
+    TOKENS.get_or_init(Default::default)
+}
+
+pub(crate) fn cancel_headless_operation(operation_id: &str) -> bool {
+    let tokens = headless_operation_cancel_tokens()
+        .lock()
+        .expect("headless operation cancel mutex poisoned");
+    match tokens.get(operation_id) {
+        Some(token) => {
+            token.cancel();
+            true
+        }
+        None => false,
+    }
+}
+
 fn spawn_headless_shell_monitor(
     operation_id: String,
     command: String,
@@ -1022,8 +1043,24 @@ fn spawn_headless_shell_monitor(
 ) {
     let cwd_for_task = cwd.as_ref().map(|path| path.display().to_string());
     let started_at = std::time::Instant::now();
+    let kill_token = CancellationToken::new();
+    headless_operation_cancel_tokens()
+        .lock()
+        .expect("headless operation cancel mutex poisoned")
+        .insert(operation_id.clone(), kill_token.clone());
     tokio::spawn(async move {
-        let outcome = child.wait().await;
+        let outcome = tokio::select! {
+            outcome = child.wait() => outcome,
+            _ = kill_token.cancelled() => {
+                let _ = child.start_kill();
+                child.wait().await
+            }
+        };
+        let was_cancelled = kill_token.is_cancelled();
+        headless_operation_cancel_tokens()
+            .lock()
+            .expect("headless operation cancel mutex poisoned")
+            .remove(&operation_id);
         let stdout = collect_headless_output_capture(
             stdout_capture,
             4000,
@@ -1039,7 +1076,7 @@ fn spawn_headless_shell_monitor(
         let duration_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
 
         match outcome {
-            Ok(status) if status.success() => {
+            Ok(status) if status.success() && !was_cancelled => {
                 crate::server::operation_registry().mark_completed_with_terminal_result(
                     &operation_id,
                     serde_json::json!({
@@ -1060,6 +1097,7 @@ fn spawn_headless_shell_monitor(
                         "cwd": cwd_for_task,
                         "exit_code": status.code(),
                         "duration_ms": duration_ms,
+                        "cancelled": was_cancelled,
                         "stdout": stdout,
                         "stderr": stderr,
                     }),
@@ -1072,6 +1110,7 @@ fn spawn_headless_shell_monitor(
                         "command": command,
                         "cwd": cwd_for_task,
                         "duration_ms": duration_ms,
+                        "cancelled": was_cancelled,
                         "spawn_error": error.to_string(),
                         "stdout": stdout,
                         "stderr": stderr,

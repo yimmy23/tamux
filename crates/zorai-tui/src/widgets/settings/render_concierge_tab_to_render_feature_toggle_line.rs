@@ -157,6 +157,33 @@ pub(crate) fn render_concierge_tab<'a>(
         ]));
     }
 
+    {
+        let is_selected = settings.field_cursor() == 5;
+        let marker = if is_selected { "> " } else { "  " };
+        lines.push(Line::from(vec![
+            Span::styled(
+                marker,
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
+            Span::styled("Transport:    ", theme.fg_dim),
+            Span::styled(
+                concierge
+                    .api_transport
+                    .clone()
+                    .unwrap_or_else(|| "(inherit)".to_string()),
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
+        ]));
+    }
+
     if concierge.provider.as_deref() == Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER) {
         let openrouter_fields = [
             (

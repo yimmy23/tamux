@@ -22,6 +22,7 @@ fn header_profile_uses_thread_owner_not_latest_participant_author() {
         delete_allowed: false,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        api_transport: None,
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,

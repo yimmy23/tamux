@@ -21,6 +21,7 @@ pub const RESPONSES_AND_CHAT_TRANSPORTS: &[&str] = &["responses", "chat_completi
 pub const RESPONSES_CHAT_AND_ANTHROPIC_TRANSPORTS: &[&str] =
     &["responses", "chat_completions", "anthropic_messages"];
 pub const NATIVE_AND_CHAT_TRANSPORTS: &[&str] = &["native_assistant", "chat_completions"];
+pub const CHAT_AND_ANTHROPIC_TRANSPORTS: &[&str] = &["chat_completions", "anthropic_messages"];
 pub const API_KEY_ONLY_AUTH_SOURCES: &[&str] = &["api_key"];
 pub const OPENAI_AUTH_SOURCES: &[&str] = &["chatgpt_subscription", "api_key"];
 pub const GITHUB_COPILOT_AUTH_SOURCES: &[&str] = &["github_copilot", "api_key"];
@@ -425,8 +426,19 @@ pub const PROVIDERS: &[ProviderDef] = &[
         id: PROVIDER_ID_OPENCODE_ZEN,
         name: "OpenCode Zen",
         default_base_url: "https://opencode.ai/zen/v1",
-        default_model: "claude-sonnet-4-5",
-        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_model: "claude-sonnet-4-6",
+        supported_transports: CHAT_AND_ANTHROPIC_TRANSPORTS,
+        default_transport: "chat_completions",
+        supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
+        default_auth_source: "api_key",
+        native_base_url: None,
+    },
+    ProviderDef {
+        id: PROVIDER_ID_OPENCODE_GO,
+        name: "OpenCode Go",
+        default_base_url: "https://opencode.ai/zen/go/v1",
+        default_model: "glm-5.1",
+        supported_transports: CHAT_AND_ANTHROPIC_TRANSPORTS,
         default_transport: "chat_completions",
         supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
         default_auth_source: "api_key",
@@ -476,7 +488,8 @@ pub fn uses_fixed_anthropic_messages(provider: &str, model: &str) -> bool {
     matches!(
         provider,
         PROVIDER_ID_ANTHROPIC | PROVIDER_ID_MINIMAX | PROVIDER_ID_MINIMAX_CODING_PLAN
-    ) || (provider == PROVIDER_ID_OPENCODE_ZEN && model.starts_with("claude"))
+    ) || ((provider == PROVIDER_ID_OPENCODE_ZEN || provider == PROVIDER_ID_OPENCODE_GO)
+        && model.starts_with("claude"))
 }
 
 pub fn supported_auth_sources_for(provider: &str) -> &'static [&'static str] {

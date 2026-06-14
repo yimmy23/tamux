@@ -274,7 +274,7 @@ pub const MINIMAX_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
         id: "MiniMax-M2.7",
         name: "MiniMax M2.7",
-        context_window: 204_800,
+        context_window: 205_000,
         modalities: TEXT_ONLY,
     },
     ModelDefinition {

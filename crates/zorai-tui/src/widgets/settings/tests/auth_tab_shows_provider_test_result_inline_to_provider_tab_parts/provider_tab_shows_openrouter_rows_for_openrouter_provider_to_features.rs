@@ -172,6 +172,7 @@ fn protected_weles_row_hides_delete_and_disable_actions() {
             delete_allowed: false,
             protected_reason: Some("Daemon-owned governance agent".to_string()),
             reasoning_effort: Some("medium".to_string()),
+            api_transport: None,
             openrouter_provider_order: String::new(),
             openrouter_provider_ignore: String::new(),
             openrouter_allow_fallbacks: true,

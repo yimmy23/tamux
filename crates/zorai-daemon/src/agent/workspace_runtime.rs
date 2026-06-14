@@ -33,6 +33,7 @@ impl AgentEngine {
         if let Some(def) = matched_def {
             agent_task.override_provider = Some(def.provider.clone());
             agent_task.override_model = Some(def.model.clone());
+            agent_task.override_api_transport = def.api_transport;
             agent_task.sub_agent_def_id = Some(def.id.clone());
             if def.tool_whitelist.is_some() {
                 agent_task.tool_whitelist = def.tool_whitelist.clone();

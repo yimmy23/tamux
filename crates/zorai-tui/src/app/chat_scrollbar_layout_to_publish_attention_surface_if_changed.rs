@@ -71,15 +71,10 @@ impl TuiModel {
     }
 
     pub(crate) fn clamp_chat_scroll_offset_for_area(&mut self, area: Rect) {
-        let max_scroll = widgets::chat::scrollbar_layout(
-            area,
-            &self.chat,
-            &self.theme,
-            self.tick_counter,
-            self.retry_wait_start_selected,
-        )
-        .map(|layout| layout.max_scroll)
-        .unwrap_or(0);
+        let max_scroll = self
+            .chat_scrollbar_layout_for_area(area)
+            .map(|layout| layout.max_scroll)
+            .unwrap_or(0);
         let current_scroll = self.chat.scroll_offset();
         if current_scroll <= max_scroll {
             return;

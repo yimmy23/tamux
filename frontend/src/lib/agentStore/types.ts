@@ -89,8 +89,10 @@ export type BuiltinAgentProviderId =
   | "minimax"
   | "minimax-coding-plan"
   | "alibaba-coding-plan"
+  | "alibaba-token-plan"
   | "xiaomi-mimo-token-plan"
   | "opencode-zen"
+  | "opencode-go"
   | "custom";
 
 export type AgentProviderId = BuiltinAgentProviderId | (string & {});
@@ -124,8 +126,10 @@ export const AGENT_PROVIDER_IDS: BuiltinAgentProviderId[] = [
   "minimax",
   "minimax-coding-plan",
   "alibaba-coding-plan",
+  "alibaba-token-plan",
   "xiaomi-mimo-token-plan",
   "opencode-zen",
+  "opencode-go",
   "custom",
 ];
 
@@ -178,6 +182,7 @@ export interface SubAgentDefinition {
   delete_allowed?: boolean;
   protected_reason?: string;
   reasoning_effort?: string;
+  api_transport?: ApiTransportMode | null;
   openrouter_provider_order?: string[];
   openrouter_provider_ignore?: string[];
   openrouter_allow_fallbacks?: boolean | null;

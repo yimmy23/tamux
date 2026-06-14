@@ -433,6 +433,7 @@ async fn sample_awaiting_task(
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -517,6 +518,7 @@ async fn approval_resolution_clears_thread_skill_gate_when_task_is_approved() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -616,6 +618,7 @@ async fn unrelated_task_approval_does_not_clear_thread_skill_gate() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -717,6 +720,7 @@ async fn denied_task_approval_converts_thread_skill_gate_to_bypassable_state() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -1119,6 +1123,7 @@ async fn create_and_revoke_task_approval_rule_tracks_pending_task_command() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -2315,6 +2320,7 @@ async fn list_tasks_capped_for_ipc_truncates_oversized_task_logs() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -2377,6 +2383,7 @@ async fn list_tasks_capped_for_ipc_truncates_oversized_task_logs() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -2833,6 +2840,7 @@ async fn delete_goal_run_removes_goal_and_related_tasks() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -2893,6 +2901,7 @@ async fn delete_goal_run_removes_goal_and_related_tasks() {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         })

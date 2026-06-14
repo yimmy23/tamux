@@ -25,24 +25,45 @@ fn finalize_resolved_provider(
     if resolved.context_window_tokens == 0 {
         resolved.context_window_tokens = top_level.context_window_tokens;
     }
-    if !provider_supports_transport(provider_id, resolved.api_transport) {
-        resolved.api_transport = default_api_transport_for_provider(provider_id);
+    normalize_provider_transport(provider_id, &mut resolved);
+    resolved
+}
+
+/// Validate and normalize `cfg.api_transport` for `provider_id`: fall back to the
+/// provider default when unsupported, force Responses for ChatGPT-subscription OpenAI,
+/// apply any model-fixed transport, and swap in the Anthropic base URL when the
+/// resolved transport is Anthropic. Shared by config resolution and per-role overrides.
+pub(super) fn normalize_provider_transport(provider_id: &str, cfg: &mut ProviderConfig) {
+    if !provider_supports_transport(provider_id, cfg.api_transport) {
+        cfg.api_transport = default_api_transport_for_provider(provider_id);
     }
-    if provider_id == PROVIDER_ID_OPENAI && resolved.auth_source == AuthSource::ChatgptSubscription
-    {
-        resolved.api_transport = ApiTransport::Responses;
+    if provider_id == PROVIDER_ID_OPENAI && cfg.auth_source == AuthSource::ChatgptSubscription {
+        cfg.api_transport = ApiTransport::Responses;
     }
-    if let Some(fixed_transport) = fixed_api_transport_for_model(provider_id, &resolved.model) {
-        resolved.api_transport = fixed_transport;
+    if let Some(fixed_transport) = fixed_api_transport_for_model(provider_id, &cfg.model) {
+        cfg.api_transport = fixed_transport;
     }
-    if resolved.api_transport == ApiTransport::AnthropicMessages {
+    if cfg.api_transport == ApiTransport::AnthropicMessages {
         if let Some(anthropic_base_url) = get_provider_definition(provider_id)
             .and_then(|definition| definition.anthropic_base_url)
         {
-            resolved.base_url = anthropic_base_url.to_string();
+            cfg.base_url = anthropic_base_url.to_string();
         }
     }
-    resolved
+}
+
+/// Apply a per-role transport override (e.g. from concierge/weles/subagent config)
+/// onto an already-resolved `ProviderConfig`, then re-normalize so model-fixed and
+/// unsupported-transport rules still win. A `None` override leaves the config untouched.
+pub(super) fn apply_role_transport_override(
+    provider_id: &str,
+    cfg: &mut ProviderConfig,
+    transport_override: Option<ApiTransport>,
+) {
+    if let Some(transport) = transport_override {
+        cfg.api_transport = transport;
+        normalize_provider_transport(provider_id, cfg);
+    }
 }
 
 pub(super) fn apply_provider_model_override(
@@ -366,6 +387,38 @@ providers:
         assert_eq!(resolved.model, "llama3.3");
         assert_eq!(resolved.api_key, "local-secret");
         assert_eq!(resolved.api_transport, ApiTransport::ChatCompletions);
+    }
+
+    #[test]
+    fn role_transport_override_selects_anthropic_on_opencode_provider() {
+        use zorai_shared::providers::PROVIDER_ID_OPENCODE_GO;
+        let mut config = AgentConfig::default();
+        config.provider = PROVIDER_ID_OPENCODE_GO.to_string();
+        config.model = "glm-5.1".to_string();
+        let mut resolved = resolve_provider_config_for(&config, PROVIDER_ID_OPENCODE_GO, None)
+            .expect("opencode-go resolves");
+        // Provider default lands on chat_completions (responses is unsupported here).
+        assert_eq!(resolved.api_transport, ApiTransport::ChatCompletions);
+        // An explicit, supported anthropic override sticks.
+        apply_role_transport_override(
+            PROVIDER_ID_OPENCODE_GO,
+            &mut resolved,
+            Some(ApiTransport::AnthropicMessages),
+        );
+        assert_eq!(resolved.api_transport, ApiTransport::AnthropicMessages);
+        // A `None` override preserves the already-resolved transport.
+        apply_role_transport_override(PROVIDER_ID_OPENCODE_GO, &mut resolved, None);
+        assert_eq!(resolved.api_transport, ApiTransport::AnthropicMessages);
+        // An unsupported override falls back to the provider default.
+        apply_role_transport_override(
+            PROVIDER_ID_OPENCODE_GO,
+            &mut resolved,
+            Some(ApiTransport::Responses),
+        );
+        assert_eq!(
+            resolved.api_transport,
+            default_api_transport_for_provider(PROVIDER_ID_OPENCODE_GO)
+        );
     }
 
     #[test]

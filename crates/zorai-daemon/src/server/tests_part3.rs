@@ -203,6 +203,7 @@ async fn seed_goal_plan_review_approval_fixture(
             last_error: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
             tool_whitelist: None,

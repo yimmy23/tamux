@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { CONCIERGE_AGENT_NAME, PRIMARY_AGENT_NAME } from "@/lib/agentNames";
-import { useAgentStore } from "../../lib/agentStore";
-import type { AgentProviderId } from "../../lib/agentStore";
+import { useAgentStore, getSupportedApiTransports, getDefaultApiTransport } from "../../lib/agentStore";
+import type { AgentProviderId, ConciergeConfig } from "../../lib/agentStore";
 import { selectableProviderAuthStates } from "./agentTabHelpers";
 import { Section, SettingRow, ModelSelector, inputStyle, smallBtnStyle } from "./shared";
 import { OpenRouterProviderRoutingControls } from "./OpenRouterProviderRoutingControls";
@@ -115,6 +115,23 @@ export function ConciergeSection() {
                     <option value="xhigh">Extra High</option>
                 </select>
             </SettingRow>
+            {config.provider && (
+                <SettingRow label="API Transport">
+                    <select
+                        value={config.api_transport
+                            ?? getDefaultApiTransport(config.provider as AgentProviderId)}
+                        onChange={(e) => update({
+                            ...config,
+                            api_transport: e.target.value as ConciergeConfig["api_transport"],
+                        })}
+                        style={{ ...inputStyle, width: 180 }}
+                    >
+                        {getSupportedApiTransports(config.provider as AgentProviderId).map((transport) => (
+                            <option key={transport} value={transport}>{transport}</option>
+                        ))}
+                    </select>
+                </SettingRow>
+            )}
             {!config.provider && (
                 <div style={{ fontSize: 11, color: "var(--text-secondary)", padding: "2px 0 4px" }}>
                     Model inherited from {PRIMARY_AGENT_NAME} when no provider is selected.

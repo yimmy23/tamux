@@ -1702,6 +1702,7 @@ async fn tui_bash_command_falls_back_to_goal_run_surface_when_thread_surface_is_
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
@@ -3982,6 +3983,7 @@ async fn list_agents_returns_effective_runtime_targets() {
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: None,
+        api_transport: None,
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
@@ -4216,6 +4218,7 @@ async fn switch_model_updates_targeted_agent_settings_from_svarog_scope() {
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: None,
+        api_transport: None,
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
@@ -4530,6 +4533,7 @@ async fn spawn_subagent_derives_budget_from_effective_subagent_provider_window()
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        api_transport: None,
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
@@ -4620,6 +4624,7 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("high".to_string()),
+        api_transport: None,
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
@@ -4777,6 +4782,7 @@ async fn spawn_subagent_bootstraps_todos_for_goal_run_tasks() {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
@@ -4896,6 +4902,7 @@ async fn spawn_subagent_rejects_recursive_spawn_beyond_default_flat_depth() {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
@@ -4979,6 +4986,7 @@ async fn spawn_subagent_allows_recursive_spawn_when_parent_scope_permits_and_der
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
@@ -5194,6 +5202,7 @@ async fn spawn_subagent_fragile_mode_constrains_inherited_max_depth_without_expl
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
@@ -7058,6 +7067,7 @@ async fn update_todo_for_goal_owned_main_task_requires_explicit_goal_binding() {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
@@ -7232,6 +7242,7 @@ async fn update_todo_for_goal_owned_main_task_pins_items_to_bound_goal_step() {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
@@ -7421,6 +7432,7 @@ async fn update_todo_for_goal_owned_main_task_allows_only_status_changes_within_
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
@@ -7715,6 +7727,7 @@ async fn update_todo_for_goal_owned_main_task_rejects_updates_after_goal_step_cl
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });
@@ -8007,6 +8020,7 @@ async fn submit_goal_step_verdict_records_structured_verdict_for_current_goal_ve
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         });

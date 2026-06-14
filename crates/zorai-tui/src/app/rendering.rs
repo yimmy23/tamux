@@ -342,21 +342,8 @@ impl TuiModel {
             return None;
         }
 
-        let thread = self.chat.active_thread()?;
-        let has_summary = !thread.thread_participants.is_empty()
-            || !thread.queued_participant_suggestions.is_empty();
-        if !has_summary {
-            return None;
-        }
-
-        let chat_area = self.conversation_content_area()?;
-        let summary_height = if self.active_auto_response_suggestion().is_some()
-            || self.active_always_auto_response_participant().is_some()
-        {
-            4
-        } else {
-            3
-        };
+        let summary_height = self.thread_participants_panel_height()?;
+        let chat_area = self.conversation_area_below_return_banner();
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(summary_height), Constraint::Min(1)])
@@ -364,20 +351,86 @@ impl TuiModel {
         Some(chunks[0])
     }
 
-    pub(super) fn conversation_content_area(&self) -> Option<Rect> {
-        if !matches!(self.main_pane_view, MainPaneView::Conversation) {
-            return None;
-        }
-
+    fn conversation_area_below_return_banner(&self) -> Rect {
         let chat_area = self.pane_layout().chat;
         if self.conversation_return_area().is_some() {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(3), Constraint::Min(1)])
                 .split(chat_area);
+            chunks[1]
+        } else {
+            chat_area
+        }
+    }
+
+    pub(super) fn conversation_content_area(&self) -> Option<Rect> {
+        if !matches!(self.main_pane_view, MainPaneView::Conversation) {
+            return None;
+        }
+
+        let area = self.conversation_area_below_return_banner();
+        if let Some(summary_height) = self.thread_participants_panel_height() {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(summary_height), Constraint::Min(1)])
+                .split(area);
             Some(chunks[1])
         } else {
-            Some(chat_area)
+            Some(area)
+        }
+    }
+
+    pub(super) fn thread_participants_summary(&self) -> Option<String> {
+        let has_auto_response = self.active_auto_response_suggestion().is_some()
+            || self.active_always_auto_response_participant().is_some();
+        self.chat.active_thread().and_then(|thread| {
+            let active: Vec<&str> = thread
+                .thread_participants
+                .iter()
+                .filter(|participant| participant.status.eq_ignore_ascii_case("active"))
+                .map(|participant| participant.agent_name.as_str())
+                .collect();
+            let inactive_count = thread
+                .thread_participants
+                .iter()
+                .filter(|participant| !participant.status.eq_ignore_ascii_case("active"))
+                .count();
+            let queued_count = thread
+                .queued_participant_suggestions
+                .iter()
+                .filter(|suggestion| {
+                    !suggestion
+                        .suggestion_kind
+                        .eq_ignore_ascii_case("auto_response")
+                })
+                .count();
+            if active.is_empty() && inactive_count == 0 && queued_count == 0 && !has_auto_response {
+                return None;
+            }
+
+            let active_summary = if active.is_empty() {
+                "active: none".to_string()
+            } else {
+                let names = active.into_iter().take(3).collect::<Vec<_>>().join(", ");
+                format!("active: {names}")
+            };
+
+            Some(format!(
+                "Participants  •  {}  •  inactive: {}  •  queued: {}  •  /participants",
+                active_summary, inactive_count, queued_count
+            ))
+        })
+    }
+
+    pub(super) fn thread_participants_panel_height(&self) -> Option<u16> {
+        self.thread_participants_summary()?;
+        if self.active_auto_response_countdown_secs().is_some()
+            || self.active_always_auto_response_participant().is_some()
+        {
+            Some(4)
+        } else {
+            Some(3)
         }
     }
 
@@ -1148,56 +1201,12 @@ impl TuiModel {
             area = chunks[1];
         }
 
-        let has_auto_response = self.active_auto_response_suggestion().is_some()
-            || self.active_always_auto_response_participant().is_some();
-        let participant_summary = self.chat.active_thread().and_then(|thread| {
-            let active: Vec<&str> = thread
-                .thread_participants
-                .iter()
-                .filter(|participant| participant.status.eq_ignore_ascii_case("active"))
-                .map(|participant| participant.agent_name.as_str())
-                .collect();
-            let inactive_count = thread
-                .thread_participants
-                .iter()
-                .filter(|participant| !participant.status.eq_ignore_ascii_case("active"))
-                .count();
-            let queued_count = thread
-                .queued_participant_suggestions
-                .iter()
-                .filter(|suggestion| {
-                    !suggestion
-                        .suggestion_kind
-                        .eq_ignore_ascii_case("auto_response")
-                })
-                .count();
-            if active.is_empty() && inactive_count == 0 && queued_count == 0 && !has_auto_response {
-                return None;
-            }
-
-            let active_summary = if active.is_empty() {
-                "active: none".to_string()
-            } else {
-                let names = active.into_iter().take(3).collect::<Vec<_>>().join(", ");
-                format!("active: {names}")
-            };
-
-            Some(format!(
-                "Participants  •  {}  •  inactive: {}  •  queued: {}  •  /participants",
-                active_summary, inactive_count, queued_count
-            ))
-        });
+        let participant_summary = self.thread_participants_summary();
         let auto_response_countdown_secs = self.active_auto_response_countdown_secs();
         let always_auto_response_participant = self.active_always_auto_response_participant();
 
         let area = if let Some(summary) = participant_summary.as_deref() {
-            let summary_height = if auto_response_countdown_secs.is_some()
-                || always_auto_response_participant.is_some()
-            {
-                4
-            } else {
-                3
-            };
+            let summary_height = self.thread_participants_panel_height().unwrap_or(3);
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Length(summary_height), Constraint::Min(1)])

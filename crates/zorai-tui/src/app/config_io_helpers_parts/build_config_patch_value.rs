@@ -209,6 +209,7 @@ impl TuiModel {
                 "model": self.config.compaction_weles_model,
                 "reasoning_effort": self.config.compaction_weles_reasoning_effort,
             },
+            // `weles.api_transport` is optional (inherit when unset); injected below.
             "custom_model": {
                 "provider": self.config.compaction_custom_provider,
                 "base_url": self.config.compaction_custom_base_url,
@@ -227,6 +228,15 @@ impl TuiModel {
                 "context_window_tokens": self.config.compaction_custom_context_window_tokens,
             },
         });
+        if self.config.compaction_weles_api_transport.trim().is_empty() {
+            patch["compaction"]["weles"]["api_transport"] = serde_json::Value::Null;
+        } else {
+            patch["compaction"]["weles"]["api_transport"] =
+                serde_json::Value::from(normalize_provider_transport(
+                    &self.config.compaction_weles_provider,
+                    &self.config.compaction_weles_api_transport,
+                ));
+        }
         patch["snapshot_retention"] = serde_json::json!({
             "max_snapshots": self.config.snapshot_max_count,
             "max_total_size_mb": self.config.snapshot_max_size_mb,

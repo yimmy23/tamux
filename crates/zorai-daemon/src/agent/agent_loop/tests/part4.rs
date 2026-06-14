@@ -102,6 +102,7 @@ async fn send_message_request_uses_spawned_persona_identity_in_continuity_summar
             tool_blacklist: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: Some(override_prompt),
             context_budget_tokens: None,
             context_overflow_action: None,

@@ -30,6 +30,7 @@ pub struct AgentTask {
     pub command: Option<String>,
     pub awaiting_approval_id: Option<String>,
     pub blocked_reason: Option<String>,
+    pub sub_agent_def_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

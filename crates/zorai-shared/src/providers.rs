@@ -18,6 +18,7 @@ pub struct ModelFeatureCapabilities {
 }
 
 pub const PROVIDER_ID_ALIBABA_CODING_PLAN: &str = "alibaba-coding-plan";
+pub const PROVIDER_ID_ALIBABA_TOKEN_PLAN: &str = "alibaba-token-plan";
 pub const PROVIDER_ID_ANTHROPIC: &str = "anthropic";
 pub const PROVIDER_ID_ARCEE: &str = "arcee";
 pub const PROVIDER_ID_AZURE_OPENAI: &str = "azure-openai";
@@ -42,6 +43,7 @@ pub const PROVIDER_ID_OLLAMA: &str = "ollama";
 pub const PROVIDER_ID_OPENAI: &str = "openai";
 pub const PROVIDER_ID_CHATGPT_SUBSCRIPTION: &str = "chatgpt_subscription";
 pub const PROVIDER_ID_OPENCODE_ZEN: &str = "opencode-zen";
+pub const PROVIDER_ID_OPENCODE_GO: &str = "opencode-go";
 pub const PROVIDER_ID_OPENROUTER: &str = "openrouter";
 pub const PROVIDER_ID_QWEN: &str = "qwen";
 pub const PROVIDER_ID_QWEN_DEEPINFRA: &str = "qwen-deepinfra";
@@ -54,6 +56,9 @@ pub const PROVIDER_ID_Z_AI_CODING_PLAN: &str = "z.ai-coding-plan";
 
 pub const ALIBABA_CODING_PLAN_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_ALIBABA_CODING_PLAN,
+};
+pub const ALIBABA_TOKEN_PLAN_PROVIDER: ProviderRef = ProviderRef {
+    id: PROVIDER_ID_ALIBABA_TOKEN_PLAN,
 };
 pub const ANTHROPIC_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_ANTHROPIC,

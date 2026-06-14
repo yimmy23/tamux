@@ -45,6 +45,105 @@ pub const ALIBABA_CODING_MODELS: &[ModelDefinition] = &[
     },
 ];
 
+pub const ALIBABA_TOKEN_MODELS: &[ModelDefinition] = &[
+    ModelDefinition {
+        id: "qwen3.7-max",
+        name: "Qwen3.7 Max",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "qwen3.7-plus",
+        name: "Qwen3.7 Plus",
+        context_window: 1_000_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "qwen3.6-plus",
+        name: "Qwen3.6 Plus",
+        context_window: 983_616,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "qwen3.6-flash",
+        name: "Qwen3.6 Flash",
+        context_window: 1_000_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "qwen-image-2.0",
+        name: "Qwen Image 2.0",
+        context_window: 32_768,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "qwen-image-2.0-pro",
+        name: "Qwen Image 2.0 Pro",
+        context_window: 32_768,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "wan2.7-image",
+        name: "Wan2.7 Image",
+        context_window: 32_768,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "wan2.7-image-pro",
+        name: "Wan2.7 Image Pro",
+        context_window: 32_768,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "deepseek-v3.2",
+        name: "DeepSeek V3.2",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "kimi-k2.6",
+        name: "Kimi K2.6",
+        context_window: 262_144,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "kimi-k2.5",
+        name: "Kimi K2.5",
+        context_window: 262_144,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "glm-5.1",
+        name: "GLM-5.1",
+        context_window: 202_752,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "glm-5",
+        name: "GLM-5",
+        context_window: 202_752,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "MiniMax-M2.5",
+        name: "MiniMax M2.5",
+        context_window: 205_000,
+        modalities: TEXT_ONLY,
+    },
+];
+
 pub const ANTHROPIC_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
         id: "claude-opus-4-7",
@@ -298,6 +397,93 @@ pub const OPENCODE_ZEN_MODELS: &[ModelDefinition] = &[
         name: "Kimi K2.5",
         context_window: 262144,
         modalities: TEXT_ONLY,
+    },
+];
+
+pub const OPENCODE_GO_MODELS: &[ModelDefinition] = &[
+    ModelDefinition {
+        id: "glm-5.1",
+        name: "GLM-5.1",
+        context_window: 204_800,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "glm-5",
+        name: "GLM-5",
+        context_window: 202_752,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "kimi-k2.7-code",
+        name: "Kimi K2.7 Code",
+        context_window: 262_144,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "kimi-k2.6",
+        name: "Kimi K2.6",
+        context_window: 262_144,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "mimo-v2.5",
+        name: "MiMo V2.5",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "mimo-v2.5-pro",
+        name: "MiMo V2.5 Pro",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "minimax-m3",
+        name: "MiniMax M3",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "minimax-m2.7",
+        name: "MiniMax M2.7",
+        context_window: 205_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "minimax-m2.5",
+        name: "MiniMax M2.5",
+        context_window: 205_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "qwen3.7-max",
+        name: "Qwen3.7 Max",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
+        id: "qwen3.7-plus",
+        name: "Qwen3.7 Plus",
+        context_window: 1_000_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "qwen3.6-plus",
+        name: "Qwen3.6 Plus",
+        context_window: 983_616,
+        modalities: TEXT_IMAGE,
     },
 ];
 

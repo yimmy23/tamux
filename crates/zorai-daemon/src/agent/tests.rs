@@ -163,6 +163,7 @@ fn sample_task(id: &str, goal_run_id: &str) -> AgentTask {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     }
@@ -219,6 +220,7 @@ fn sample_subagent(id: &str, parent_task_id: &str, status: TaskStatus) -> AgentT
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     }
@@ -702,6 +704,7 @@ fn refresh_task_queue_state_blocks_parent_while_subagents_are_active() {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         },
@@ -773,6 +776,7 @@ fn refresh_task_queue_state_requeues_parent_after_subagents_finish() {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         },
@@ -839,6 +843,7 @@ fn refresh_task_queue_state_requeues_stale_awaiting_approval_without_id() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     }]);

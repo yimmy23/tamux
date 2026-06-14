@@ -1304,6 +1304,24 @@ export function AgentTab({
                                 <option value="xhigh">xhigh</option>
                             </select>
                         </SettingRow>
+                        <SettingRow label="WELES Transport">
+                            <select
+                                value={settings.compaction.weles.api_transport
+                                    ?? getDefaultApiTransport(settings.compaction.weles.provider)}
+                                onChange={(e) => updateSetting("compaction", {
+                                    ...settings.compaction,
+                                    weles: {
+                                        ...settings.compaction.weles,
+                                        api_transport: e.target.value as AgentProviderConfig["api_transport"],
+                                    },
+                                })}
+                                style={inputStyle}
+                            >
+                                {getSupportedApiTransports(settings.compaction.weles.provider).map((transport) => (
+                                    <option key={transport} value={transport}>{transport}</option>
+                                ))}
+                            </select>
+                        </SettingRow>
                     </>
                 ) : null}
 

@@ -121,7 +121,7 @@ describe("frontend MiniMax provider catalog", () => {
         custom_model_name: "",
         context_window_tokens: null,
         auth_source: "api_key",
-      })).toBe(204_800);
+      })).toBe(205_000);
     }
   });
 });
@@ -413,6 +413,7 @@ describe("frontend curated media provider catalog", () => {
     expect(getDefaultModelForProvider("z.ai")).toBe("glm-4-plus");
     expect(getDefaultModelForProvider("z.ai-coding-plan")).toBe("glm-5");
     expect(getDefaultModelForProvider("alibaba-coding-plan")).toBe("qwen3.6-plus");
+    expect(getDefaultModelForProvider("alibaba-token-plan")).toBe("qwen3.7-max");
   });
 
   it("removes stale frontend catalog drift for z.ai, kimi coding, and alibaba coding", () => {
@@ -432,6 +433,7 @@ describe("frontend curated media provider catalog", () => {
     ]);
     expect(getProviderModels("z.ai-coding-plan").map((model) => model.id)).toEqual([
       "glm-5",
+      "glm-5.2",
       "glm-5.1",
       "glm-4-plus",
       "glm-4",
@@ -440,6 +442,7 @@ describe("frontend curated media provider catalog", () => {
     ]);
     expect(getProviderModels("kimi-coding-plan").map((model) => model.id)).toEqual([
       "kimi-for-coding",
+      "kimi-k2.7-code",
       "kimi-k2.6",
       "kimi-k2.5",
       "kimi-k2-turbo-preview",
@@ -453,6 +456,24 @@ describe("frontend curated media provider catalog", () => {
       "kimi-k2.5",
       "MiniMax-M2.5",
     ]);
+    expect(getProviderModels("alibaba-token-plan").map((model) => model.id)).toEqual([
+      "qwen3.7-max",
+      "qwen3.7-plus",
+      "qwen3.6-plus",
+      "qwen3.6-flash",
+      "qwen-image-2.0",
+      "qwen-image-2.0-pro",
+      "wan2.7-image",
+      "wan2.7-image-pro",
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+      "deepseek-v3.2",
+      "kimi-k2.6",
+      "kimi-k2.5",
+      "glm-5.1",
+      "glm-5",
+      "MiniMax-M2.5",
+    ]);
     expect(getProviderModels("opencode-zen").map((model) => model.id)).toEqual([
       "claude-opus-4-6",
       "claude-sonnet-4-5",
@@ -463,6 +484,22 @@ describe("frontend curated media provider catalog", () => {
       "glm-5",
       "kimi-k2.6",
       "kimi-k2.5",
+    ]);
+    expect(getProviderModels("opencode-go").map((model) => model.id)).toEqual([
+      "glm-5.1",
+      "glm-5",
+      "kimi-k2.7-code",
+      "kimi-k2.6",
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+      "mimo-v2.5",
+      "mimo-v2.5-pro",
+      "minimax-m3",
+      "minimax-m2.7",
+      "minimax-m2.5",
+      "qwen3.7-max",
+      "qwen3.7-plus",
+      "qwen3.6-plus",
     ]);
   });
 
@@ -512,6 +549,23 @@ describe("frontend GitHub Copilot provider routing", () => {
         "https://api.githubcopilot.com",
       ),
     ).toBe("openai");
+  });
+
+  it("switches the Alibaba token plan to anthropic only for its /apps/anthropic base url", () => {
+    expect(
+      getProviderApiType(
+        "alibaba-token-plan",
+        "qwen3.7-max",
+        "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+      ),
+    ).toBe("openai");
+    expect(
+      getProviderApiType(
+        "alibaba-token-plan",
+        "qwen3.7-max",
+        "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic",
+      ),
+    ).toBe("anthropic");
   });
 
   it("exposes anthropic_messages as an explicit selectable transport", () => {

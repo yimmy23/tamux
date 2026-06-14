@@ -446,6 +446,7 @@ async fn workspace_review_weles_task_uses_dedicated_review_thread() {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: Some(
                 crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID.to_string(),
@@ -613,6 +614,7 @@ async fn workspace_review_weles_task_rehomes_internal_dm_thread_to_dedicated_rev
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: Some(
                 crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID.to_string(),

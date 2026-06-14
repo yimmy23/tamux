@@ -405,11 +405,11 @@ pub(crate) fn add_available_tools_part_d(
     })));
     tools.push(tool_def(
         tool_names::CANCEL_TASK,
-        "Cancel a queued, blocked, running, approval-pending, or retrying background task by ID.",
+        "Cancel a queued, blocked, running, approval-pending, or retrying background task by ID. Also accepts an operation_id from a backgrounded command: kills the background process, removes the queued command, or interrupts the terminal session running it.",
         serde_json::json!({
             "type": "object",
             "properties": {
-                "task_id": { "type": "string", "description": "Task ID to cancel" }
+                "task_id": { "type": "string", "description": "Task ID or operation ID to cancel" }
             },
             "required": ["task_id"]
         }),

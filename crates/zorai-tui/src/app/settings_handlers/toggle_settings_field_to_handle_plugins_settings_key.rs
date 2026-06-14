@@ -139,6 +139,7 @@ impl TuiModel {
             "compaction_strategy"
             | "compaction_weles_provider"
             | "compaction_weles_reasoning_effort"
+            | "compaction_weles_api_transport"
             | "compaction_custom_provider"
             | "compaction_custom_auth_source"
             | "compaction_custom_api_transport"

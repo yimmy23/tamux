@@ -166,6 +166,17 @@ pub(crate) fn render_subagents_tab<'a>(
         lines.push(field_line(
             matches!(
                 editor.field,
+                crate::state::subagents::SubAgentEditorField::ApiTransport
+            ),
+            "Transport",
+            editor
+                .api_transport
+                .clone()
+                .unwrap_or_else(|| "(inherit)".to_string()),
+        ));
+        lines.push(field_line(
+            matches!(
+                editor.field,
                 crate::state::subagents::SubAgentEditorField::Role
             ),
             "Role",

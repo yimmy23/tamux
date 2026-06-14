@@ -281,6 +281,14 @@ impl PtySession {
         None
     }
 
+    pub(crate) fn cancel_queued_managed_command(&self, execution_id: &str) -> bool {
+        let mut lane = self.managed_lane.lock().unwrap();
+        let before = lane.queue.len();
+        lane.queue
+            .retain(|queued| queued.execution_id != execution_id);
+        lane.queue.len() != before
+    }
+
     /// Resize the PTY.
     pub fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
         self.cols = cols;

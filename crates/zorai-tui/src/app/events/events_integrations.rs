@@ -207,6 +207,11 @@ impl TuiModel {
                     .get("reasoning_effort")
                     .and_then(|value| value.as_str())
                     .map(str::to_string),
+                api_transport: raw
+                    .get("api_transport")
+                    .and_then(|value| value.as_str())
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string),
                 openrouter_provider_order:
                     crate::state::subagents::openrouter_provider_list_from_json(
                         &raw,
