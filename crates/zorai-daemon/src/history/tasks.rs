@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::types::ApiTransport;
 
 fn parse_string_vec_json(value: Option<String>) -> Option<Vec<String>> {
     value.and_then(|json| serde_json::from_str::<Vec<String>>(&json).ok())
@@ -54,8 +55,8 @@ fn upsert_agent_task_in_tx(
 
     transaction.execute(
         "INSERT OR REPLACE INTO agent_tasks \
-         (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json, deleted_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, NULL)",
+         (id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json, override_api_transport, deleted_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42, ?43, ?44, ?45, ?46, ?47, ?48, ?49, ?50, NULL)",
         params![
             &task.id,
             &task.title,
@@ -106,6 +107,7 @@ fn upsert_agent_task_in_tx(
             &task.success_criteria,
             task.max_duration_secs.map(|value| value as i64),
             supervisor_config_json,
+            task.override_api_transport.map(|value| value.as_snake_str()),
         ],
     )?;
 
@@ -264,7 +266,7 @@ fn append_agent_task_query_filters(
     }
 }
 
-const AGENT_TASK_SELECT_SQL: &str = "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json FROM agent_tasks WHERE deleted_at IS NULL";
+const AGENT_TASK_SELECT_SQL: &str = "SELECT id, title, description, status, priority, progress, created_at, started_at, completed_at, error, result, thread_id, source, notify_on_complete, notify_channels_json, command, session_id, goal_run_id, goal_run_title, goal_step_id, goal_step_title, parent_task_id, parent_thread_id, runtime, retry_count, max_retries, next_retry_at, scheduled_at, blocked_reason, awaiting_approval_id, policy_fingerprint, approval_expires_at, containment_scope, compensation_status, compensation_summary, lane_id, last_error, override_provider, override_model, override_system_prompt, sub_agent_def_id, tool_whitelist_json, tool_blacklist_json, context_budget_tokens, context_overflow_action, termination_conditions, success_criteria, max_duration_secs, supervisor_config_json, override_api_transport FROM agent_tasks WHERE deleted_at IS NULL";
 
 fn append_agent_task_order_and_limit(
     task_sql: &mut String,
@@ -359,6 +361,9 @@ fn map_agent_task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentTask> {
         success_criteria: row.get(46)?,
         max_duration_secs: row.get::<_, Option<i64>>(47)?.map(|value| value as u64),
         supervisor_config: parse_supervisor_config_json(row.get(48)?),
+        override_api_transport: row
+            .get::<_, Option<String>>(49)?
+            .and_then(|value| ApiTransport::from_snake_str(&value)),
     })
 }
 

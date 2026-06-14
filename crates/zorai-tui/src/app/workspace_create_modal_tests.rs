@@ -212,6 +212,7 @@ fn create_modal_displays_subagent_names_and_builtin_persona_labels() {
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: None,
+        api_transport: None,
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,

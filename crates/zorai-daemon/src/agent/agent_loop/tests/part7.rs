@@ -579,6 +579,7 @@ async fn metacognitive_warning_repeated_tool_calls_remain_advisory() {
             tool_blacklist: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             context_budget_tokens: None,
             context_overflow_action: None,

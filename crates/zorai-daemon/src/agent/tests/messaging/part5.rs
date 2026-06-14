@@ -622,6 +622,7 @@ async fn participant_follow_up_ignores_stale_task_scope_on_visible_thread() {
         tool_blacklist: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: Some(crate::agent::agent_identity::build_weles_persona_prompt(
             "weles",
         )),
@@ -1750,6 +1751,7 @@ async fn internal_delegate_rejects_budget_exceeded_thread() {
         tool_blacklist: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         context_budget_tokens: None,
         context_overflow_action: None,

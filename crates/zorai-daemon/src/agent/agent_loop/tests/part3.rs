@@ -96,6 +96,7 @@ async fn post_tool_policy_checkpoint_pivots_for_non_error_stuckness_with_runtime
             tool_blacklist: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             context_budget_tokens: None,
             context_overflow_action: None,

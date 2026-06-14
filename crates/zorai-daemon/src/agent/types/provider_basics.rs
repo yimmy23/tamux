@@ -10,12 +10,9 @@ pub enum ApiType {
 }
 
 impl ApiType {
-    /// The SDK-style User-Agent string used by coding-plan providers.
+    /// The client User-Agent string used by coding-plan providers.
     pub fn sdk_user_agent(self) -> &'static str {
-        match self {
-            Self::Anthropic => "Anthropic/JS zorai",
-            Self::OpenAI => "OpenAI/JS zorai",
-        }
+        "Zorai"
     }
 }
 
@@ -27,6 +24,29 @@ pub enum ApiTransport {
     Responses,
     AnthropicMessages,
     ChatCompletions,
+}
+
+impl ApiTransport {
+    /// The snake_case wire/storage string for this transport (matches serde).
+    pub fn as_snake_str(self) -> &'static str {
+        match self {
+            Self::NativeAssistant => "native_assistant",
+            Self::Responses => "responses",
+            Self::AnthropicMessages => "anthropic_messages",
+            Self::ChatCompletions => "chat_completions",
+        }
+    }
+
+    /// Parse a snake_case transport string (DB/config), returning `None` if unknown.
+    pub fn from_snake_str(value: &str) -> Option<Self> {
+        match value.trim() {
+            "native_assistant" => Some(Self::NativeAssistant),
+            "responses" => Some(Self::Responses),
+            "anthropic_messages" => Some(Self::AnthropicMessages),
+            "chat_completions" => Some(Self::ChatCompletions),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

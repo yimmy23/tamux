@@ -10,7 +10,7 @@ use zorai_shared::providers::{
 
 #[test]
 fn provider_count_is_30() {
-    assert_eq!(PROVIDERS.len(), 31);
+    assert_eq!(PROVIDERS.len(), 33);
 }
 
 #[test]
@@ -194,7 +194,7 @@ fn minimax_static_catalog_uses_current_models_and_fetch_support() {
         );
         assert_eq!(
             known_context_window_for(provider_id, "MiniMax-M2.7"),
-            Some(204_800)
+            Some(205_000)
         );
     }
 }

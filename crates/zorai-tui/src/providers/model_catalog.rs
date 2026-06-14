@@ -144,6 +144,7 @@ pub(super) fn known_models_for_provider_auth(
         ],
         PROVIDER_ID_Z_AI => &[
             ("glm-4-plus", "GLM-4 Plus", 128_000),
+            ("glm-5.2", "GLM-5.2", 204_800),
             ("glm-5.1", "GLM-5.1", 204_800),
             ("glm-5", "GLM-5", 128_000),
             ("glm-4", "GLM-4", 128_000),
@@ -153,6 +154,7 @@ pub(super) fn known_models_for_provider_auth(
         PROVIDER_ID_Z_AI_CODING_PLAN => &[
             ("glm-5", "GLM-5", 128_000),
             ("glm-5.1", "GLM-5.1", 204_800),
+            ("glm-5.2", "GLM-5.2", 204_800),
             ("glm-4-plus", "GLM-4 Plus", 128_000),
             ("glm-4", "GLM-4", 128_000),
             ("glm-4-air", "GLM-4 Air", 128_000),
@@ -165,6 +167,7 @@ pub(super) fn known_models_for_provider_auth(
         ],
         PROVIDER_ID_KIMI_CODING_PLAN => &[
             ("kimi-for-coding", "Kimi for Coding", 262_144),
+            ("kimi-k2.7-code", "Kimi K2.7 Code", 262_144),
             ("kimi-k2.6", "Kimi K2.6", 262_144),
             ("kimi-k2.5", "Kimi K2.5", 262_144),
             ("kimi-k2-turbo-preview", "Kimi K2 Turbo Preview", 262_144),
@@ -194,7 +197,7 @@ pub(super) fn known_models_for_provider_auth(
         PROVIDER_ID_CEREBRAS => &[("llama-3.3-70b", "Llama 3.3 70B", 128_000)],
         PROVIDER_ID_MINIMAX => &[
             ("MiniMax-M3", "MiniMax M3", 1_000_000),
-            ("MiniMax-M2.7", "MiniMax M2.7", 204_800),
+            ("MiniMax-M2.7", "MiniMax M2.7", 205_000),
             ("MiniMax-M2.7-highspeed", "MiniMax M2.7 Highspeed", 204_800),
             ("MiniMax-M2.5", "MiniMax M2.5", 204_800),
             ("MiniMax-M2.5-highspeed", "MiniMax M2.5 Highspeed", 204_800),
@@ -204,7 +207,7 @@ pub(super) fn known_models_for_provider_auth(
         ],
         PROVIDER_ID_MINIMAX_CODING_PLAN => &[
             ("MiniMax-M3", "MiniMax M3", 1_000_000),
-            ("MiniMax-M2.7", "MiniMax M2.7", 204_800),
+            ("MiniMax-M2.7", "MiniMax M2.7", 205_000),
             ("MiniMax-M2.7-highspeed", "MiniMax M2.7 Highspeed", 204_800),
             ("MiniMax-M2.5", "MiniMax M2.5", 204_800),
             ("MiniMax-M2.5-highspeed", "MiniMax M2.5 Highspeed", 204_800),
@@ -219,6 +222,24 @@ pub(super) fn known_models_for_provider_auth(
             ("glm-5", "GLM-5", 202_752),
             ("kimi-k2.6", "Kimi K2.6", 262_144),
             ("kimi-k2.5", "Kimi K2.5", 262_144),
+            ("MiniMax-M2.5", "MiniMax M2.5", 205_000),
+        ],
+        PROVIDER_ID_ALIBABA_TOKEN_PLAN => &[
+            ("qwen3.7-max", "Qwen3.7 Max", 1_000_000),
+            ("qwen3.7-plus", "Qwen3.7 Plus", 1_000_000),
+            ("qwen3.6-plus", "Qwen3.6 Plus", 983_616),
+            ("qwen3.6-flash", "Qwen3.6 Flash", 1_000_000),
+            ("qwen-image-2.0", "Qwen Image 2.0", 32_768),
+            ("qwen-image-2.0-pro", "Qwen Image 2.0 Pro", 32_768),
+            ("wan2.7-image", "Wan2.7 Image", 32_768),
+            ("wan2.7-image-pro", "Wan2.7 Image Pro", 32_768),
+            ("deepseek-v4-pro", "DeepSeek V4 Pro", 1_000_000),
+            ("deepseek-v4-flash", "DeepSeek V4 Flash", 1_000_000),
+            ("deepseek-v3.2", "DeepSeek V3.2", 163_840),
+            ("kimi-k2.6", "Kimi K2.6", 262_144),
+            ("kimi-k2.5", "Kimi K2.5", 262_144),
+            ("glm-5.1", "GLM-5.1", 202_752),
+            ("glm-5", "GLM-5", 202_752),
             ("MiniMax-M2.5", "MiniMax M2.5", 205_000),
         ],
         PROVIDER_ID_XIAOMI_MIMO | PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN => &[

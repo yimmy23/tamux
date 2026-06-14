@@ -104,6 +104,7 @@ impl ConfigState {
             compaction_weles_provider: PROVIDER_ID_OPENAI.to_string(),
             compaction_weles_model: "gpt-5.4-mini".to_string(),
             compaction_weles_reasoning_effort: "medium".to_string(),
+            compaction_weles_api_transport: String::new(),
             compaction_custom_provider: PROVIDER_ID_OPENAI.to_string(),
             compaction_custom_base_url: "https://api.openai.com/v1".to_string(),
             compaction_custom_model: "gpt-5.4-mini".to_string(),

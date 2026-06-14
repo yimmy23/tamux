@@ -323,6 +323,7 @@ async fn hydrate_restores_user_defined_subagent_thread_identity() {
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: Some("medium".to_string()),
+        api_transport: None,
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
@@ -567,6 +568,7 @@ async fn hydrate_restores_full_persisted_task_log_history() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });
@@ -1020,6 +1022,7 @@ async fn force_compact_reuses_task_provider_override_for_builtin_persona_threads
             supervisor_config: None,
             override_provider: Some(PROVIDER_ID_OPENAI.to_string()),
             override_model: Some("gpt-5.4-mini".to_string()),
+            override_api_transport: None,
             override_system_prompt: Some(
                 "Agent persona: Dazhbog\nAgent persona id: dazhbog\nTask-owned builtin persona."
                     .to_string(),

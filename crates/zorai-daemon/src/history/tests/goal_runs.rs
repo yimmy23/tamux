@@ -152,6 +152,7 @@ fn sample_agent_task_record(id: &str, status: TaskStatus, created_at: u64) -> Ag
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     }
@@ -349,6 +350,7 @@ async fn agent_task_subagent_metadata_round_trips() -> Result<()> {
         }),
         override_provider: Some("github-copilot".to_string()),
         override_model: Some("gpt-5.4".to_string()),
+        override_api_transport: None,
         override_system_prompt: Some("You are a focused subagent".to_string()),
         sub_agent_def_id: Some("weles_builtin".to_string()),
     };

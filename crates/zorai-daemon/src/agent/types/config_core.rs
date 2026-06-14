@@ -308,6 +308,8 @@ pub struct WelesCompactionConfig {
     pub model: String,
     #[serde(default = "default_weles_compaction_reasoning_effort")]
     pub reasoning_effort: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_transport: Option<ApiTransport>,
 }
 
 impl Default for WelesCompactionConfig {
@@ -316,6 +318,7 @@ impl Default for WelesCompactionConfig {
             provider: String::new(),
             model: String::new(),
             reasoning_effort: default_weles_compaction_reasoning_effort(),
+            api_transport: None,
         }
     }
 }
@@ -400,6 +403,8 @@ pub struct WelesBuiltinOverrides {
     pub supervisor_config: Option<SupervisorConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_transport: Option<ApiTransport>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub openrouter_provider_order: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

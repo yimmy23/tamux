@@ -52,6 +52,7 @@ fn awaiting_approval_task(id: &str, approval_expires_at: Option<u64>) -> AgentTa
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     }

@@ -350,6 +350,7 @@ fn commit_subagent_editor_persists_existing_provider_model_and_effort_changes() 
         delete_allowed: false,
         protected_reason: Some("Protected builtin".to_string()),
         reasoning_effort: Some("medium".to_string()),
+        api_transport: None,
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,

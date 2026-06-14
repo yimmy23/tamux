@@ -531,6 +531,7 @@ async fn sync_goal_run_with_task_advances_active_thread_and_execution_thread_lis
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: Some("android-verifier".to_string()),
     };
@@ -1021,6 +1022,7 @@ async fn handle_goal_run_step_failure_preserves_planner_owner_profile_when_repla
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -1133,6 +1135,7 @@ async fn sync_goal_run_with_task_emits_owner_only_changes_and_persists_them() {
         supervisor_config: None,
         override_provider: Some("anthropic".to_string()),
         override_model: Some("claude-3.5-sonnet".to_string()),
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -1211,6 +1214,7 @@ async fn sync_goal_run_with_task_preserves_captured_subagent_owner_profile_after
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: None,
+        api_transport: None,
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
@@ -1305,6 +1309,7 @@ async fn sync_goal_run_with_task_preserves_captured_subagent_owner_profile_after
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: Some("android-verifier".to_string()),
     };
@@ -1571,6 +1576,7 @@ fn sample_completed_goal_task(goal_run_id: &str, task_id: &str, source: &str) ->
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     }
@@ -1891,6 +1897,7 @@ async fn implementation_completion_queues_verifier_before_advancing_goal_step() 
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -2038,6 +2045,7 @@ async fn verification_binding_uses_goal_local_assignment_overrides() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -2177,6 +2185,7 @@ async fn verifier_completion_advances_goal_step_and_resolves_proof_checks() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -2358,6 +2367,7 @@ async fn verifier_fail_verdict_requeues_current_step() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -2580,6 +2590,7 @@ async fn handle_goal_run_step_completion_records_dossier_report_and_advance_deci
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -2741,6 +2752,7 @@ async fn handle_goal_run_step_completion_does_not_advance_with_incomplete_curren
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -2868,6 +2880,7 @@ async fn handle_goal_run_step_completion_requires_review_even_without_proof_chec
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -2981,6 +2994,7 @@ async fn handle_goal_run_step_completion_blocks_when_completion_marker_is_missin
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -3141,6 +3155,7 @@ async fn missing_completion_marker_requeue_updates_persisted_review_task_after_l
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -3296,6 +3311,7 @@ async fn exhausted_completion_marker_retries_require_human_approval() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -3417,6 +3433,7 @@ async fn handle_goal_run_step_completion_schedules_subagent_verification_before_
         delete_allowed: true,
         protected_reason: None,
         reasoning_effort: None,
+        api_transport: None,
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
@@ -3528,6 +3545,7 @@ async fn handle_goal_run_step_completion_schedules_subagent_verification_before_
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -3746,6 +3764,7 @@ async fn handle_goal_run_step_completion_resolves_builtin_verification_binding_t
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };
@@ -3946,6 +3965,7 @@ async fn handle_goal_run_step_failure_surfaces_strained_replan_summary_guidance(
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     };

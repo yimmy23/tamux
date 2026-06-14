@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useAgentStore } from "../../lib/agentStore";
+import { useAgentStore, getSupportedApiTransports } from "../../lib/agentStore";
 import type { SubAgentDefinition, AgentProviderId } from "../../lib/agentStore";
 import { getSubAgentCapabilities } from "../../lib/agentStore/providerActions";
 import { selectableProviderAuthStates } from "./agentTabHelpers";
@@ -20,6 +20,7 @@ type SubAgentForm = {
     context_budget_tokens: string;
     max_duration_secs: string;
     reasoning_effort: string;
+    api_transport: string;
     openrouter_provider_order: string[];
     openrouter_provider_ignore: string[];
     openrouter_allow_fallbacks: boolean | null;
@@ -38,6 +39,7 @@ const emptyForm: SubAgentForm = {
     context_budget_tokens: "",
     max_duration_secs: "",
     reasoning_effort: "",
+    api_transport: "",
     openrouter_provider_order: [],
     openrouter_provider_ignore: [],
     openrouter_allow_fallbacks: null,
@@ -76,6 +78,7 @@ export function SubAgentsTab() {
             context_budget_tokens: form.context_budget_tokens ? Number(form.context_budget_tokens) : undefined,
             max_duration_secs: form.max_duration_secs ? Number(form.max_duration_secs) : undefined,
             reasoning_effort: form.reasoning_effort || undefined,
+            api_transport: form.api_transport ? (form.api_transport as SubAgentDefinition["api_transport"]) : undefined,
             ...(form.provider === "openrouter"
                 ? {
                     openrouter_provider_order: form.openrouter_provider_order,
@@ -115,6 +118,7 @@ export function SubAgentsTab() {
             context_budget_tokens: sa.context_budget_tokens ? String(sa.context_budget_tokens) : "",
             max_duration_secs: sa.max_duration_secs ? String(sa.max_duration_secs) : "",
             reasoning_effort: sa.reasoning_effort || "",
+            api_transport: sa.api_transport ?? "",
             openrouter_provider_order: sa.openrouter_provider_order ?? [],
             openrouter_provider_ignore: sa.openrouter_provider_ignore ?? [],
             openrouter_allow_fallbacks: sa.openrouter_allow_fallbacks ?? null,
@@ -349,6 +353,20 @@ export function SubAgentsTab() {
                                 <option value="medium">Medium</option>
                                 <option value="high">High</option>
                                 <option value="xhigh">Extra High</option>
+                            </select>
+                        </SettingRow>
+                        <SettingRow label="API Transport">
+                            <select
+                                value={form.api_transport}
+                                onChange={(e) => setForm({ ...form, api_transport: e.target.value })}
+                                style={{ ...inputStyle, width: 220 }}
+                            >
+                                <option value="">Provider default</option>
+                                {form.provider
+                                    ? getSupportedApiTransports(form.provider as AgentProviderId).map((transport) => (
+                                        <option key={transport} value={transport}>{transport}</option>
+                                    ))
+                                    : null}
                             </select>
                         </SettingRow>
                         <div style={{ marginTop: 6 }}>

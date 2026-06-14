@@ -72,6 +72,7 @@ async fn reloaded_persisted_weles_task_cannot_restore_forged_internal_payload() 
         supervisor_config: None,
         override_provider: Some("openai".to_string()),
         override_model: Some("gpt-4o-mini".to_string()),
+        override_api_transport: None,
         override_system_prompt: Some(forged_override),
         sub_agent_def_id: Some("weles_builtin".to_string()),
     };
@@ -353,6 +354,7 @@ async fn untrusted_weles_task_without_runtime_payload_does_not_persist_empty_con
             supervisor_config: None,
             override_provider: Some("openai".to_string()),
             override_model: Some("gpt-4o-mini".to_string()),
+            override_api_transport: None,
             override_system_prompt: Some(crate::agent::agent_identity::build_weles_persona_prompt(
                 "governance",
             )),

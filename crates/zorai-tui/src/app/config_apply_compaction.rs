@@ -57,6 +57,19 @@ impl TuiModel {
             })
             .unwrap_or("medium")
             .to_string();
+        self.config.compaction_weles_api_transport = compaction
+            .and_then(|value| value.get("weles"))
+            .and_then(|value| value.get("api_transport"))
+            .and_then(|value| value.as_str())
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                builtin_weles
+                    .and_then(|value| value.get("api_transport"))
+                    .and_then(|value| value.as_str())
+                    .filter(|value| !value.is_empty())
+            })
+            .unwrap_or("")
+            .to_string();
 
         let custom_provider = compaction
             .and_then(|value| value.get("custom_model"))

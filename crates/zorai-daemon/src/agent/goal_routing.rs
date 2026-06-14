@@ -51,6 +51,7 @@ fn apply_goal_resolved_target_to_task_state(
         Some(GoalResolvedAgentTarget::GlobalSubagent(definition)) => {
             task.override_provider = Some(definition.provider.clone());
             task.override_model = Some(definition.model.clone());
+            task.override_api_transport = definition.api_transport;
             task.override_system_prompt = definition.system_prompt.clone();
             task.tool_whitelist = definition.tool_whitelist.clone();
             task.tool_blacklist = definition.tool_blacklist.clone();
@@ -516,6 +517,7 @@ mod tests {
             delete_allowed: true,
             protected_reason: None,
             reasoning_effort: Some("medium".to_string()),
+            api_transport: None,
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,

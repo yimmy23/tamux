@@ -396,6 +396,11 @@ pub(crate) fn resolve_concierge_provider(config: &AgentConfig) -> Result<Provide
         .unwrap_or(&config.provider);
     let mut resolved =
         resolve_provider_config_for(config, provider_id, config.concierge.model.as_deref())?;
+    crate::agent::provider_resolution::apply_role_transport_override(
+        provider_id,
+        &mut resolved,
+        config.concierge.api_transport,
+    );
     resolved.reasoning_effort = config
         .concierge
         .reasoning_effort

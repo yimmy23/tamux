@@ -123,6 +123,7 @@ pub(super) fn base_schema_sql() -> &'static str {
                 last_error           TEXT,
                 override_provider    TEXT,
                 override_model       TEXT,
+                override_api_transport TEXT,
                 override_system_prompt TEXT,
                 sub_agent_def_id     TEXT,
                 tool_whitelist_json  TEXT,

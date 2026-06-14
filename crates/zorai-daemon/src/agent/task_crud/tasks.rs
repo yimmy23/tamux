@@ -492,6 +492,7 @@ impl AgentEngine {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
             logs: vec![make_task_log_entry(

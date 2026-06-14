@@ -1,3 +1,4 @@
+use super::ApiTransport;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for sub-agent supervision — how often to check, when to
@@ -294,6 +295,9 @@ pub struct AgentTask {
     /// Override model for this task (from SubAgentDefinition).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub override_model: Option<String>,
+    /// Override API transport for this task (from SubAgentDefinition).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_api_transport: Option<ApiTransport>,
     /// Override system prompt for this task (from SubAgentDefinition).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub override_system_prompt: Option<String>,

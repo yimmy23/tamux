@@ -17,6 +17,30 @@ fn parse_retry_after_ms_from_value(value: &serde_json::Value) -> Option<u64> {
     None
 }
 
+fn moonshot_client_onboarding_required(provider: &str, raw_message: &str) -> bool {
+    if provider != zorai_shared::providers::PROVIDER_ID_KIMI_CODING_PLAN {
+        return false;
+    }
+
+    let lower = raw_message.to_ascii_lowercase();
+    lower.contains("only available for coding agents")
+        || lower.contains("client onboarding")
+        || lower.contains("allowlist")
+        || lower.contains("user-agent")
+}
+
+fn auth_configuration_summary(provider: &str, raw_message: &str) -> String {
+    if moonshot_client_onboarding_required(provider, raw_message) {
+        return format!(
+            "{provider} rejected the request because this client is not allowlisted by Moonshot yet: {raw_message}. Have the open-source maintainer or product owner email code@moonshot.ai with the client name and description, the repository URL or company use case, and the User-Agent to allowlist."
+        );
+    }
+
+    format!(
+        "{provider} rejected the request because authentication or provider configuration is invalid: {raw_message}"
+    )
+}
+
 pub(crate) fn extract_retry_after_ms(
     headers: Option<&reqwest::header::HeaderMap>,
     body_text: &str,
@@ -155,9 +179,7 @@ pub(crate) fn classify_http_failure_with_retry_after(
         UpstreamFailureClass::ContextWindowExceeded => {
             format!("{provider} rejected the request because the input exceeds the model context window: {raw_message}")
         }
-        UpstreamFailureClass::AuthConfiguration => {
-            format!("{provider} rejected the request because authentication or provider configuration is invalid: {raw_message}")
-        }
+        UpstreamFailureClass::AuthConfiguration => auth_configuration_summary(provider, &raw_message),
         UpstreamFailureClass::TransportIncompatible => {
             format!("The selected provider/transport combination is incompatible for {provider}: {raw_message}")
         }
@@ -272,9 +294,7 @@ pub(crate) fn classify_openai_responses_stream_failure(
     let message = error_message.unwrap_or("Responses API stream error");
     let summary = match class {
         UpstreamFailureClass::RateLimit => format!("{provider} Responses stream hit a rate limit: {message}"),
-        UpstreamFailureClass::AuthConfiguration => format!(
-            "{provider} Responses stream failed because authentication or provider configuration is invalid: {message}"
-        ),
+        UpstreamFailureClass::AuthConfiguration => auth_configuration_summary(provider, message),
         UpstreamFailureClass::RequestInvalid => {
             format!("{provider} Responses stream rejected the daemon request as invalid: {message}")
         }

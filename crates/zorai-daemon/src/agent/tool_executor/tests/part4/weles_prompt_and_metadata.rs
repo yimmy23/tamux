@@ -172,6 +172,7 @@ fn weles_governance_prompt_prepends_core_and_appends_operator_suffix() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: Some("weles_builtin".to_string()),
     };

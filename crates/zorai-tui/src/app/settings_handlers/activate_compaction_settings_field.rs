@@ -13,6 +13,20 @@ impl TuiModel {
                     Some(SettingsPickerTarget::CompactionWelesReasoningEffort);
                 self.execute_command("effort");
             }
+            "compaction_weles_api_transport" => {
+                let supported =
+                    providers::supported_transports_for(&self.config.compaction_weles_provider);
+                let mut options: Vec<&str> = vec![""];
+                options.extend_from_slice(supported);
+                let current_idx = options
+                    .iter()
+                    .position(|transport| *transport == self.config.compaction_weles_api_transport)
+                    .unwrap_or(0);
+                let next_idx = (current_idx + 1) % options.len().max(1);
+                self.config.compaction_weles_api_transport =
+                    options.get(next_idx).copied().unwrap_or("").to_string();
+                self.sync_config_to_daemon();
+            }
             "compaction_custom_provider" => {
                 self.open_provider_picker(SettingsPickerTarget::CompactionCustomProvider);
             }

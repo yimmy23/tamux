@@ -51,6 +51,7 @@ fn make_task(id: &str, status: TaskStatus, goal_run_id: Option<&str>) -> AgentTa
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     }

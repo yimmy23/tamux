@@ -21,7 +21,7 @@ The daemon is the source of truth. TUI and React request the hydrated provider c
 | Qwen | `qwen` | `qwen-max` | `qwen-max`, `qwen-plus`, `qwen-turbo`, `qwen-long` |
 | Qwen DeepInfra | `qwen-deepinfra` | `Qwen/Qwen2.5-72B-Instruct` | Qwen catalog defaults, remote fetch supported |
 | Kimi | `kimi` | `moonshot-v1-32k` | `moonshot-v1-32k`, `moonshot-v1-8k`, `moonshot-v1-128k` |
-| Kimi Coding Plan | `kimi-coding-plan` | `kimi-for-coding` | `kimi-for-coding`, `kimi-k2.6`, `kimi-k2.5`, `kimi-k2-turbo-preview` |
+| Kimi Coding Plan | `kimi-coding-plan` | `kimi-for-coding` | `kimi-k2.7-code`, `kimi-for-coding`, `kimi-k2.6`, `kimi-k2.5`, `kimi-k2-turbo-preview` |
 | Z.AI | `z.ai` | `glm-4-plus` | `glm-4-plus`, `glm-5.1`, `glm-5`, `glm-4`, `glm-4-air`, `glm-4-flash` |
 | Z.AI Coding Plan | `z.ai-coding-plan` | `glm-5` | `glm-5`, `glm-5.1`, `glm-4-plus`, `glm-4`, `glm-4-air`, `glm-4-flash` |
 | Arcee | `arcee` | `trinity-large-thinking` | `trinity-large-thinking` |
@@ -35,10 +35,12 @@ The daemon is the source of truth. TUI and React request the hydrated provider c
 | MiniMax | `minimax` | `MiniMax-M1-80k` | `MiniMax-M1-80k`, `MiniMax-M2.7`, `MiniMax-M2.5` |
 | MiniMax Coding Plan | `minimax-coding-plan` | `MiniMax-M2.7` | `MiniMax-M1-80k`, `MiniMax-M2.7`, `MiniMax-M2.5` |
 | Alibaba Coding Plan | `alibaba-coding-plan` | `qwen3.6-plus` | `qwen3.6-plus`, `qwen3-coder-plus`, `qwen3-coder-next`, `glm-5`, `kimi-k2.6`, `kimi-k2.5`, `MiniMax-M2.5` |
+| Alibaba Token Plan | `alibaba-token-plan` | `qwen3.7-max` | `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-plus`, `qwen3.6-flash`, `qwen-image-2.0`, `qwen-image-2.0-pro`, `wan2.7-image`, `wan2.7-image-pro`, `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-v3.2`, `kimi-k2.6`, `kimi-k2.5`, `glm-5.1`, `glm-5`, `MiniMax-M2.5` |
 | Xiaomi MiMo | `xiaomi-mimo` | `mimo-v2.5-pro` | `mimo-v2.5-pro`, `mimo-v2.5-pro-ultraspeed`, `mimo-v2.5`, `mimo-v2.5-asr`, `mimo-v2.5-tts-voiceclone`, `mimo-v2.5-tts-voicedesign`, `mimo-v2.5-tts`, `mimo-v2-pro`, `mimo-v2-omni`, `mimo-v2-tts` |
 | Xiaomi MiMo Token Plan | `xiaomi-mimo-token-plan` | `mimo-v2.5-pro` | `mimo-v2.5-pro`, `mimo-v2.5-pro-ultraspeed`, `mimo-v2.5`, `mimo-v2.5-asr`, `mimo-v2.5-tts-voiceclone`, `mimo-v2.5-tts-voicedesign`, `mimo-v2.5-tts`, `mimo-v2-pro`, `mimo-v2-omni`, `mimo-v2-tts` |
 | Nous Portal | `nous-portal` | `nousresearch/hermes-4-70b` | `nousresearch/hermes-4-70b`, `nousresearch/hermes-4-405b`, `nousresearch/hermes-3-llama-3.1-70b`, `nousresearch/hermes-3-llama-3.1-405b` |
-| OpenCode Zen | `opencode-zen` | `claude-sonnet-4-6` | `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-sonnet-4`, `gpt-5.4`, `gpt-5.3-codex`, `minimax-m2.5`, `glm-5`, `kimi-k2.6`, `kimi-k2.5` |
+| OpenCode Zen | `opencode-zen` | `claude-sonnet-4-6` | `claude-opus-4-6`, `claude-sonnet-4-5`, `claude-sonnet-4`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`, `minimax-m2.5`, `glm-5`, `kimi-k2.6`, `kimi-k2.5`; remote fetch supported |
+| OpenCode Go | `opencode-go` | `glm-5.1` | `glm-5.1`, `glm-5`, `kimi-k2.7-code`, `kimi-k2.6`, `deepseek-v4-pro`, `deepseek-v4-flash`, `mimo-v2.5`, `mimo-v2.5-pro`, `minimax-m3`, `minimax-m2.7`, `minimax-m2.5`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-plus`; remote fetch supported |
 | Custom | `custom` | user-defined | user-defined single-provider fallback |
 
 Providers marked with remote fetch support can load additional models from their `/models` endpoint when the provider exposes one.

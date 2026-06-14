@@ -7,6 +7,7 @@ pub enum SubAgentEditorField {
     OpenRouterProviderIgnore,
     OpenRouterAllowFallbacks,
     ReasoningEffort,
+    ApiTransport,
     Role,
     SystemPrompt,
     Save,
@@ -14,7 +15,7 @@ pub enum SubAgentEditorField {
 }
 
 impl SubAgentEditorField {
-    pub const ALL: [SubAgentEditorField; 11] = [
+    pub const ALL: [SubAgentEditorField; 12] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
@@ -22,16 +23,18 @@ impl SubAgentEditorField {
         SubAgentEditorField::OpenRouterProviderIgnore,
         SubAgentEditorField::OpenRouterAllowFallbacks,
         SubAgentEditorField::ReasoningEffort,
+        SubAgentEditorField::ApiTransport,
         SubAgentEditorField::Role,
         SubAgentEditorField::SystemPrompt,
         SubAgentEditorField::Save,
         SubAgentEditorField::Cancel,
     ];
-    const NON_OPENROUTER: [SubAgentEditorField; 8] = [
+    const NON_OPENROUTER: [SubAgentEditorField; 9] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
         SubAgentEditorField::ReasoningEffort,
+        SubAgentEditorField::ApiTransport,
         SubAgentEditorField::Role,
         SubAgentEditorField::SystemPrompt,
         SubAgentEditorField::Save,
@@ -350,6 +353,7 @@ pub struct SubAgentEditorState {
     pub delete_allowed: bool,
     pub protected_reason: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub api_transport: Option<String>,
     pub openrouter_provider_order: String,
     pub openrouter_provider_ignore: String,
     pub openrouter_allow_fallbacks: bool,
@@ -375,6 +379,7 @@ impl SubAgentEditorState {
             delete_allowed: true,
             protected_reason: None,
             reasoning_effort: None,
+            api_transport: None,
             openrouter_provider_order: String::new(),
             openrouter_provider_ignore: String::new(),
             openrouter_allow_fallbacks: true,

@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
+use zorai_shared::providers::PROVIDER_ID_KIMI_CODING_PLAN;
 
 const STRUCTURED_ERROR_MARKER: &str = "\n\n[zorai-upstream-diagnostics]";
 
@@ -104,6 +105,33 @@ fn anthropic_http_402_is_auth_configuration_even_without_typed_body() {
     let envelope = failure.structured();
     assert_eq!(envelope.class, "auth_configuration");
     assert_eq!(envelope.diagnostics["status"], 402);
+}
+
+#[test]
+fn kimi_coding_plan_auth_failure_surfaces_moonshot_onboarding_steps() {
+    let err = classify_http_failure_with_retry_after(
+        reqwest::StatusCode::FORBIDDEN,
+        PROVIDER_ID_KIMI_CODING_PLAN,
+        r#"{
+            "error": {
+                "message": "Kimi For Coding is currently only available for Coding Agents. Contact the open-source community or product owner and have them submit a client onboarding request including the User-Agent to be added to the allowlist."
+            }
+        }"#,
+        None,
+    );
+
+    let failure = upstream_failure_error(&err).expect("structured upstream failure");
+    assert_eq!(failure.class, UpstreamFailureClass::AuthConfiguration);
+
+    let envelope = failure.structured();
+    assert_eq!(envelope.class, "auth_configuration");
+    assert!(envelope.summary.contains("not allowlisted by Moonshot yet"));
+    assert!(envelope.summary.contains("code@moonshot.ai"));
+    assert!(envelope.summary.contains("User-Agent to allowlist"));
+    assert!(envelope.diagnostics["raw_message"]
+        .as_str()
+        .expect("raw message")
+        .contains("Kimi For Coding is currently only available for Coding Agents"));
 }
 
 pub(super) async fn collect_chunks(mut stream: CompletionStream) -> Vec<CompletionChunk> {

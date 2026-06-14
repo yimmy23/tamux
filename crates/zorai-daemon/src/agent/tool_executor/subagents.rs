@@ -243,6 +243,11 @@ async fn resolve_effective_subagent_provider_config(
                 model,
             );
         }
+        crate::agent::provider_resolution::apply_role_transport_override(
+            provider_id,
+            &mut provider_config,
+            task.override_api_transport,
+        );
         return Ok(provider_config);
     }
 
@@ -620,6 +625,7 @@ pub(crate) async fn execute_spawn_subagent(
     if let Some(def) = matched_def.as_ref() {
         subagent.override_provider = Some(def.provider.clone());
         subagent.override_model = Some(def.model.clone());
+        subagent.override_api_transport = def.api_transport;
         subagent.override_system_prompt = def.system_prompt.clone();
         subagent.sub_agent_def_id = Some(def.id.clone());
 
@@ -1175,6 +1181,7 @@ pub(in crate::agent) async fn spawn_weles_internal_subagent(
         .await;
     subagent.override_provider = Some(def.provider.clone());
     subagent.override_model = Some(def.model.clone());
+    subagent.override_api_transport = def.api_transport;
     subagent.sub_agent_def_id = Some(def.id.clone());
     subagent.override_system_prompt = Some(format!(
         "{}\n\n{}",

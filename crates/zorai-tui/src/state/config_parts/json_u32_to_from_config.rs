@@ -291,6 +291,7 @@ pub struct ConfigState {
     pub compaction_weles_provider: String,
     pub compaction_weles_model: String,
     pub compaction_weles_reasoning_effort: String,
+    pub compaction_weles_api_transport: String,
     pub compaction_custom_provider: String,
     pub compaction_custom_base_url: String,
     pub compaction_custom_model: String,

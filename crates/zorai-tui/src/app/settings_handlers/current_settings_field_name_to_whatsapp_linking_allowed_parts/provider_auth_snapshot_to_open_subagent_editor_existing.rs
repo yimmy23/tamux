@@ -444,6 +444,7 @@ impl TuiModel {
         editor.delete_allowed = entry.delete_allowed;
         editor.protected_reason = entry.protected_reason.clone();
         editor.reasoning_effort = entry.reasoning_effort.clone();
+        editor.api_transport = entry.api_transport.clone();
         editor.openrouter_provider_order =
             crate::state::subagents::openrouter_provider_list_from_json(
                 &raw,

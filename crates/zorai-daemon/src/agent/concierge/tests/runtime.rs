@@ -225,6 +225,7 @@ async fn generate_welcome_survives_low_confidence_goal_plan_approval_resume() {
         supervisor_config: None,
         override_provider: None,
         override_model: None,
+        override_api_transport: None,
         override_system_prompt: None,
         sub_agent_def_id: None,
     });

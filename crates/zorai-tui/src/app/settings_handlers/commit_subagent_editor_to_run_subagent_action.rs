@@ -97,6 +97,14 @@ impl TuiModel {
                     .map(serde_json::Value::String)
                     .unwrap_or(serde_json::Value::Null),
             );
+            obj.insert(
+                "api_transport".to_string(),
+                editor
+                    .api_transport
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
             if editor.provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
                 obj.insert(
                     "openrouter_provider_order".to_string(),
@@ -175,6 +183,11 @@ impl TuiModel {
             reasoning_effort: raw
                 .get("reasoning_effort")
                 .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            api_transport: raw
+                .get("api_transport")
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.is_empty())
                 .map(ToString::to_string),
             openrouter_provider_order: crate::state::subagents::openrouter_provider_list_from_json(
                 &raw,
@@ -272,6 +285,7 @@ impl TuiModel {
             "provider": self.concierge.provider,
             "model": self.concierge.model,
             "reasoning_effort": self.concierge.reasoning_effort,
+            "api_transport": self.concierge.api_transport,
             "auto_cleanup_on_navigate": self.concierge.auto_cleanup_on_navigate,
         });
         if self.concierge.provider.as_deref()

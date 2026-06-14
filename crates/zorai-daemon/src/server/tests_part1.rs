@@ -179,6 +179,7 @@ fn spawned_task_update_forwards_to_parent_thread_subscription() {
             supervisor_config: None,
             override_provider: None,
             override_model: None,
+            override_api_transport: None,
             override_system_prompt: None,
             sub_agent_def_id: None,
         }),

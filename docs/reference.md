@@ -45,7 +45,9 @@ Data directory: `~/.zorai/` on Unix, `%LOCALAPPDATA%\zorai\` on Windows. Existin
 | MiniMax | `minimax` | MiniMax-M1-80k | api.minimax.io |
 | MiniMax Coding Plan | `minimax-coding-plan` | MiniMax-M2.7 | api.minimax.io/anthropic |
 | Alibaba Coding Plan | `alibaba-coding-plan` | qwen3-coder | coding-intl.dashscope.aliyuncs.com |
-| OpenCode Zen | `opencode-zen` | claude-sonnet-4-5 | opencode.ai/zen |
+| Alibaba Token Plan | `alibaba-token-plan` | qwen3.7-max | token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode |
+| OpenCode Zen | `opencode-zen` | claude-sonnet-4-6 | opencode.ai/zen |
+| OpenCode Go | `opencode-go` | glm-5.1 | opencode.ai/zen/go |
 | Custom | `custom` | user-defined | user-defined |
 
 ### API Formats
@@ -53,7 +55,8 @@ Data directory: `~/.zorai/` on Unix, `%LOCALAPPDATA%\zorai\` on Windows. Existin
 - Most providers use OpenAI-compatible `/chat/completions` endpoints
 - Anthropic, MiniMax, and MiniMax Coding Plan use the Anthropic Messages API at `/v1/messages`
 - Alibaba Coding Plan supports both OpenAI-compatible `/v1` and Anthropic-compatible `/apps/anthropic`, auto-selected by model name
-- OpenCode Zen auto-selects Anthropic format for Claude models and OpenAI-compatible format for others
+- Alibaba Token Plan is the pay-as-you-go (`sk-xxx`) tier at `token-plan.ap-southeast-1.maas.aliyuncs.com`, exposing OpenAI-compatible `/compatible-mode/v1` and Anthropic-compatible `/apps/anthropic` endpoints (auto-selected from the base URL), separate from the Coding Plan subscription (`sk-sp-xxx`)
+- OpenCode Zen (`opencode.ai/zen/v1`) and OpenCode Go (`opencode.ai/zen/go/v1`) are separate providers; each supports both `chat_completions` and `anthropic_messages` transports (selectable), auto-selects Anthropic format for Claude models and OpenAI-compatible format for others, and fetches its live model list from `/models`
 
 Switch providers at any time from the Settings panel. Each provider's base URL, model, and API key are independently configurable, and models can be selected from a searchable list or entered manually.
 

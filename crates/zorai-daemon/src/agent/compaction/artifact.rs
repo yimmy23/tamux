@@ -550,6 +550,16 @@ impl AgentEngine {
         };
         let mut provider_config =
             resolve_provider_config_for(config, &provider_id, Some(model.as_str()))?;
+        let api_transport = config
+            .compaction
+            .weles
+            .api_transport
+            .or(config.builtin_sub_agents.weles.api_transport);
+        crate::agent::provider_resolution::apply_role_transport_override(
+            &provider_id,
+            &mut provider_config,
+            api_transport,
+        );
         provider_config.reasoning_effort = reasoning_effort;
         provider_config.response_schema = None;
         Ok((provider_id, provider_config))

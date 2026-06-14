@@ -9,7 +9,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tempfile::tempdir;
 use zorai_shared::providers::{
-    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENROUTER,
+    PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_KIMI_CODING_PLAN, PROVIDER_ID_OPENAI,
+    PROVIDER_ID_OPENROUTER,
 };
 
 #[test]
@@ -820,6 +821,76 @@ fn github_copilot_internal_requests_use_agent_initiator() {
             .get("x-initiator")
             .and_then(|value| value.to_str().ok()),
         Some("agent")
+    );
+}
+
+#[test]
+fn kimi_coding_plan_requests_include_sdk_headers() {
+    let client = reqwest::Client::new();
+    let config = ProviderConfig {
+        base_url: "https://api.kimi.com/coding/v1".to_string(),
+        model: "kimi-for-coding".to_string(),
+        api_key: "test-key".to_string(),
+        assistant_id: String::new(),
+        auth_source: AuthSource::ApiKey,
+        api_transport: ApiTransport::ChatCompletions,
+        reasoning_effort: String::new(),
+        context_window_tokens: 0,
+        response_schema: None,
+        stop_sequences: None,
+        temperature: None,
+        top_p: None,
+        top_k: None,
+        metadata: None,
+        service_tier: None,
+        container: None,
+        inference_geo: None,
+        cache_control: None,
+        max_tokens: None,
+        anthropic_tool_choice: None,
+        output_effort: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        openrouter_response_cache_enabled: false,
+    };
+
+    let request = apply_dashscope_coding_plan_sdk_headers(
+        build_openai_auth_request(
+            &client,
+            "https://api.kimi.com/coding/v1/chat/completions",
+            PROVIDER_ID_KIMI_CODING_PLAN,
+            &config,
+            CopilotInitiator::User,
+            false,
+        ),
+        PROVIDER_ID_KIMI_CODING_PLAN,
+        &config.base_url,
+        ApiType::OpenAI,
+    )
+    .build()
+    .expect("request should build");
+
+    assert_eq!(
+        request
+            .headers()
+            .get("user-agent")
+            .and_then(|value| value.to_str().ok()),
+        Some("Zorai")
+    );
+    assert_eq!(
+        request
+            .headers()
+            .get("x-stainless-lang")
+            .and_then(|value| value.to_str().ok()),
+        Some("js")
+    );
+    assert_eq!(
+        request
+            .headers()
+            .get("x-stainless-package-version")
+            .and_then(|value| value.to_str().ok()),
+        Some("4.3.0")
     );
 }
 
