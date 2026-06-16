@@ -62,6 +62,7 @@ pub enum AuthSource {
 #[serde(rename_all = "snake_case")]
 pub enum NativeTransportKind {
     AlibabaAssistantApi,
+    ClaudeCodeCli,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,6 +128,33 @@ pub const XAI_MODELS: &[ModelDefinition] = &[
         name: "Grok Code Fast 1",
         context_window: 256_000,
         modalities: TEXT_ONLY,
+    },
+];
+
+pub const CLAUDE_CODE_MODELS: &[ModelDefinition] = &[
+    ModelDefinition {
+        id: "opus",
+        name: "Claude Opus (CLI default)",
+        context_window: 1_000_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "sonnet",
+        name: "Claude Sonnet (CLI)",
+        context_window: 200_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "haiku",
+        name: "Claude Haiku (CLI)",
+        context_window: 200_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "fable",
+        name: "Fable (CLI)",
+        context_window: 1_000_000,
+        modalities: TEXT_IMAGE,
     },
 ];
 

@@ -200,6 +200,7 @@ impl AgentEngine {
             response_id,
             None,
             None,
+            None,
         )
         .await
     }
@@ -217,6 +218,7 @@ impl AgentEngine {
         response_id: Option<String>,
         upstream_message: Option<CompletionUpstreamMessage>,
         provider_final_result: Option<CompletionProviderFinalResult>,
+        cost: Option<f64>,
     ) -> Option<String> {
         let (author_agent_id, author_agent_name) =
             self.assistant_author_identity_for_thread(thread_id).await;
@@ -236,7 +238,7 @@ impl AgentEngine {
                 weles_review: None,
                 input_tokens,
                 output_tokens,
-                cost: None,
+                cost,
                 provider,
                 model,
                 api_transport,

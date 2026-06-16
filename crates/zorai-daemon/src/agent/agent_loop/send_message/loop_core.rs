@@ -203,6 +203,15 @@ impl<'a> SendMessageRunner<'a> {
         } else {
             CopilotInitiator::Agent
         };
+        let working_dir =
+            if self.config.provider == zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI {
+                self.engine
+                    .resolve_thread_repo_root(&self.tid)
+                    .await
+                    .map(|(repo_root, _, _, _)| repo_root)
+            } else {
+                None
+            };
         let mut stream = crate::agent::llm_client::send_completion_request_with_options(
             &request_client,
             &self.config.provider,
@@ -217,6 +226,7 @@ impl<'a> SendMessageRunner<'a> {
             crate::agent::llm_client::CompletionRequestOptions {
                 force_connection_close: prepared_request.force_connection_close,
                 copilot_initiator,
+                working_dir,
             },
         );
 

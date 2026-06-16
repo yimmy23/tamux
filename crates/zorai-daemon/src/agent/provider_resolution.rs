@@ -181,7 +181,9 @@ pub(super) fn resolve_provider_config_for(
         return Ok(finalize_resolved_provider(provider_id, resolved, config));
     }
 
-    if provider_id != config.provider {
+    if provider_id != config.provider
+        && provider_id != zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI
+    {
         anyhow::bail!(
             "No credentials configured for provider '{}'. Log in via Auth settings.",
             provider_id
@@ -196,7 +198,7 @@ pub(super) fn resolve_provider_config_for(
         requested_model.to_string()
     };
     let base_url = get_provider_base_url(provider_id, &model, &config.base_url);
-    if base_url.is_empty() {
+    if base_url.is_empty() && provider_id != zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI {
         anyhow::bail!(
             "No base URL configured for provider '{}'. Configure in agent settings.",
             provider_id
@@ -301,37 +303,46 @@ pub(super) fn resolve_provider_model_switch(
         }
     }
 
-    match config.auth_source {
-        AuthSource::ApiKey => {
-            if config.api_key.trim().is_empty() {
-                bail!(
-                    "API key is required to switch provider '{}' to model '{}'",
-                    provider_id,
-                    model
-                );
-            }
+    if provider_id == zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI {
+        if !super::llm_client::claude_cli_available() {
+            bail!(
+                "Claude Code CLI not found on PATH. Install Claude Code to use provider '{}'.",
+                provider_id
+            );
         }
-        AuthSource::ChatgptSubscription => {
-            if provider_id != PROVIDER_ID_OPENAI
-                || !super::llm_client::has_openai_chatgpt_subscription_auth()
-            {
-                bail!(
-                    "ChatGPT subscription auth is not available for provider '{}'",
-                    provider_id
-                );
+    } else {
+        match config.auth_source {
+            AuthSource::ApiKey => {
+                if config.api_key.trim().is_empty() {
+                    bail!(
+                        "API key is required to switch provider '{}' to model '{}'",
+                        provider_id,
+                        model
+                    );
+                }
             }
-        }
-        AuthSource::GithubCopilot => {
-            if provider_id != PROVIDER_ID_GITHUB_COPILOT
-                || !super::copilot_auth::github_copilot_has_available_models(
-                    &config.api_key,
-                    config.auth_source,
-                )
-            {
-                bail!(
-                    "GitHub Copilot auth is not available for provider '{}'",
-                    provider_id
-                );
+            AuthSource::ChatgptSubscription => {
+                if provider_id != PROVIDER_ID_OPENAI
+                    || !super::llm_client::has_openai_chatgpt_subscription_auth()
+                {
+                    bail!(
+                        "ChatGPT subscription auth is not available for provider '{}'",
+                        provider_id
+                    );
+                }
+            }
+            AuthSource::GithubCopilot => {
+                if provider_id != PROVIDER_ID_GITHUB_COPILOT
+                    || !super::copilot_auth::github_copilot_has_available_models(
+                        &config.api_key,
+                        config.auth_source,
+                    )
+                {
+                    bail!(
+                        "GitHub Copilot auth is not available for provider '{}'",
+                        provider_id
+                    );
+                }
             }
         }
     }
@@ -387,6 +398,24 @@ providers:
         assert_eq!(resolved.model, "llama3.3");
         assert_eq!(resolved.api_key, "local-secret");
         assert_eq!(resolved.api_transport, ApiTransport::ChatCompletions);
+    }
+
+    #[test]
+    fn claude_code_cli_resolves_without_api_key_or_base_url() {
+        use zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI;
+        let mut config = AgentConfig::default();
+        config.provider = PROVIDER_ID_CLAUDE_CODE_CLI.to_string();
+        config.model = "opus".to_string();
+        config.api_key = String::new();
+        config.base_url = String::new();
+
+        let resolved = resolve_provider_config_for(&config, PROVIDER_ID_CLAUDE_CODE_CLI, None)
+            .expect("claude-code-cli must resolve with no pasted key and no base URL");
+        assert_eq!(resolved.api_transport, ApiTransport::NativeAssistant);
+        assert!(
+            resolved.base_url.is_empty(),
+            "the local CLI provider has no HTTP base URL by design"
+        );
     }
 
     #[test]

@@ -781,6 +781,41 @@ fn compaction_triggers_on_measured_input_tokens_when_heuristic_underestimates() 
 }
 
 #[test]
+fn automatic_compaction_is_skipped_for_claude_code_cli_threads() {
+    let mut config = AgentConfig::default();
+    config.compact_threshold_pct = 80;
+    config.max_context_messages = 500;
+    config.keep_recent_on_compact = 1;
+    config.auto_compact_context = true;
+
+    let provider = sample_provider_config();
+
+    let messages = vec![
+        AgentMessage::user("u1", 1),
+        AgentMessage::user("u2", 2),
+        assistant_message_with_input_tokens("a1", 110_000, 3),
+    ];
+
+    config.provider = zorai_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    assert!(
+        compaction_candidate(&messages, &config, &provider).is_some(),
+        "control: an over-budget thread must compact for a normal provider"
+    );
+
+    config.provider = zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI.to_string();
+    assert_eq!(
+        compaction_candidate(&messages, &config, &provider),
+        None,
+        "Claude owns its own context; zorai must not auto-compact the local display copy"
+    );
+
+    assert!(
+        forced_compaction_candidate(&messages, &config, &provider).is_some(),
+        "a forced candidate still resolves; the manual /compact path is intercepted upstream, not here"
+    );
+}
+
+#[test]
 fn build_llm_compaction_messages_trims_to_fit_model_budget() {
     let messages = (0..40)
         .map(|idx| AgentMessage::user(format!("message-{idx} {}", "x".repeat(1_200)), idx + 1))
@@ -3404,6 +3439,41 @@ fn compaction_candidate_keeps_unanswered_tool_turn_out_of_summary_boundary() {
         compaction_candidate(&messages, &config, &provider).expect("candidate should exist");
 
     assert_eq!(candidate.split_at, 1);
+}
+
+#[test]
+fn prepare_llm_request_resumes_stored_claude_code_cli_session() {
+    let mut config = AgentConfig::default();
+    config.provider = zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI.to_string();
+    config.auto_compact_context = false;
+
+    let mut provider = sample_provider_config();
+    provider.model = "opus".to_string();
+    provider.assistant_id = String::new();
+    provider.api_transport = ApiTransport::NativeAssistant;
+
+    let mut thread = sample_thread(vec![AgentMessage::user("follow-up turn", 1)]);
+    thread.upstream_transport = Some(ApiTransport::NativeAssistant);
+    thread.upstream_provider =
+        Some(zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI.to_string());
+    thread.upstream_model = Some("opus".to_string());
+    thread.upstream_assistant_id = None;
+    thread.upstream_thread_id = Some("sess-123".to_string());
+
+    let prepared = prepare_llm_request(&thread, &config, &provider);
+    assert_eq!(prepared.transport, ApiTransport::NativeAssistant);
+    assert_eq!(
+        prepared.upstream_thread_id.as_deref(),
+        Some("sess-123"),
+        "a claude-code-cli thread must carry its stored session id so the CLI uses --resume"
+    );
+
+    let fresh = sample_thread(vec![AgentMessage::user("first turn", 1)]);
+    let prepared_fresh = prepare_llm_request(&fresh, &config, &provider);
+    assert_eq!(
+        prepared_fresh.upstream_thread_id, None,
+        "a thread with no prior session must start fresh (CLI mints --session-id)"
+    );
 }
 
 #[test]

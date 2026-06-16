@@ -380,6 +380,21 @@ impl AgentEngine {
         let use_legacy_top_level_fallback = config.providers.is_empty();
 
         for def in all_provider_definitions() {
+            if def.id == zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI {
+                let pc = config.providers.get(def.id);
+                states.push(ProviderAuthState {
+                    provider_id: def.id.to_string(),
+                    provider_name: def.name.to_string(),
+                    authenticated: crate::agent::llm_client::claude_cli_available(),
+                    auth_source: AuthSource::default(),
+                    model: pc
+                        .map(|pc| pc.model.clone())
+                        .filter(|model| !model.trim().is_empty())
+                        .unwrap_or_else(|| def.default_model.to_string()),
+                    base_url: pc.map(|pc| pc.base_url.clone()).unwrap_or_default(),
+                });
+                continue;
+            }
             let (authenticated, auth_source, model, base_url) =
                 if let Some(pc) = config.providers.get(def.id) {
                     if def.id == PROVIDER_ID_GITHUB_COPILOT {

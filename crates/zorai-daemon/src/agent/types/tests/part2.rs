@@ -2,10 +2,10 @@ use super::super::*;
 use crate::agent::autonomy::AutonomyLevel;
 use crate::agent::config::load_config_from_items;
 use zorai_shared::providers::{
-    PROVIDER_ID_ANTHROPIC, PROVIDER_ID_ARCEE, PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK,
-    PROVIDER_ID_ELEVENLABS, PROVIDER_ID_GITHUB_COPILOT, PROVIDER_ID_HERMES_AGENT_API,
-    PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI,
-    PROVIDER_ID_XAI,
+    PROVIDER_ID_ANTHROPIC, PROVIDER_ID_ARCEE, PROVIDER_ID_CHUTES, PROVIDER_ID_CLAUDE_CODE_CLI,
+    PROVIDER_ID_DEEPSEEK, PROVIDER_ID_ELEVENLABS, PROVIDER_ID_GITHUB_COPILOT,
+    PROVIDER_ID_HERMES_AGENT_API, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN,
+    PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_XAI,
 };
 
 #[test]
@@ -726,6 +726,31 @@ fn arcee_provider_exposes_openai_compatible_defaults() {
             "https://api.arcee.ai/api/v1"
         ),
         ApiType::OpenAI
+    );
+}
+
+#[test]
+fn claude_code_cli_routes_through_native_subprocess_transport() {
+    let provider =
+        get_provider_definition(PROVIDER_ID_CLAUDE_CODE_CLI).expect("claude code cli provider");
+    assert_eq!(provider.api_type, ApiType::OpenAI);
+    assert_eq!(provider.default_transport, ApiTransport::NativeAssistant);
+    assert_eq!(
+        provider.native_transport_kind,
+        Some(NativeTransportKind::ClaudeCodeCli)
+    );
+    assert_eq!(
+        provider.supported_transports,
+        &[ApiTransport::NativeAssistant]
+    );
+    assert!(
+        !provider.supported_transports.contains(&ApiTransport::ChatCompletions),
+        "claude-code-cli must not expose an HTTP chat transport; every turn must reach the local CLI runner"
+    );
+    assert_eq!(
+        get_provider_api_type(PROVIDER_ID_CLAUDE_CODE_CLI, "opus", ""),
+        ApiType::OpenAI,
+        "must stay OpenAI api_type so dispatch reaches the NativeAssistant arm, not the Anthropic HTTP branch"
     );
 }
 

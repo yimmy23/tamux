@@ -124,10 +124,11 @@ impl CopilotInitiator {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct CompletionRequestOptions {
     pub force_connection_close: bool,
     pub copilot_initiator: CopilotInitiator,
+    pub working_dir: Option<String>,
 }
 
 /// Send a completion request. Returns a stream of `CompletionChunk`.
@@ -158,6 +159,17 @@ pub fn send_completion_request(
     )
 }
 
+pub(crate) fn coerce_transport_for_provider(provider: &str, transport: ApiTransport) -> ApiTransport {
+    if matches!(
+        get_provider_definition(provider).and_then(|definition| definition.native_transport_kind),
+        Some(crate::agent::types::NativeTransportKind::ClaudeCodeCli)
+    ) {
+        ApiTransport::NativeAssistant
+    } else {
+        transport
+    }
+}
+
 pub(crate) fn send_completion_request_with_options(
     client: &reqwest::Client,
     provider: &str,
@@ -172,6 +184,7 @@ pub(crate) fn send_completion_request_with_options(
     options: CompletionRequestOptions,
 ) -> CompletionStream {
     let (tx, rx) = mpsc::channel(64);
+    let transport = coerce_transport_for_provider(provider, transport);
     let client = client.clone();
     let provider = provider.to_string();
     let config = config.clone();
@@ -221,17 +234,34 @@ pub(crate) fn send_completion_request_with_options(
             } else {
                 match transport {
                     ApiTransport::NativeAssistant => {
-                        run_native_assistant(
-                            &client,
-                            &provider,
-                            &config,
-                            &messages,
-                            upstream_thread_id.as_deref(),
-                            options.copilot_initiator,
-                            options.force_connection_close,
-                            &tx,
-                        )
-                        .await
+                        if matches!(
+                            get_provider_definition(&provider)
+                                .and_then(|definition| definition.native_transport_kind),
+                            Some(crate::agent::types::NativeTransportKind::ClaudeCodeCli)
+                        ) {
+                            run_claude_code_cli(
+                                &provider,
+                                &config,
+                                &system_prompt,
+                                &messages,
+                                upstream_thread_id.as_deref(),
+                                options.working_dir.as_deref(),
+                                &tx,
+                            )
+                            .await
+                        } else {
+                            run_native_assistant(
+                                &client,
+                                &provider,
+                                &config,
+                                &messages,
+                                upstream_thread_id.as_deref(),
+                                options.copilot_initiator,
+                                options.force_connection_close,
+                                &tx,
+                            )
+                            .await
+                        }
                     }
                     ApiTransport::ChatCompletions => {
                         run_openai_chat_completions(

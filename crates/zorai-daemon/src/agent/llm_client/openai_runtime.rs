@@ -159,11 +159,12 @@ pub(crate) fn build_openai_chat_completions_body(
     messages: &[ApiMessage],
     tools: &[ToolDefinition],
 ) -> Result<serde_json::Value> {
-    let include_tool_reasoning_content = chat_completions_replays_tool_reasoning_content(provider);
+    let include_tool_reasoning_content =
+        chat_completions_replays_tool_reasoning_content(provider, &config.model);
     let include_non_tool_reasoning_content =
         chat_completions_replays_non_tool_reasoning_content(provider);
     let include_non_tool_reasoning_content_after_tool_call =
-        chat_completions_replays_non_tool_reasoning_content_after_tool_call(provider);
+        chat_completions_replays_non_tool_reasoning_content_after_tool_call(provider, &config.model);
     let synthesize_missing_tool_reasoning_content =
         chat_completions_repairs_missing_tool_reasoning_content(provider, config);
     let all_messages = build_chat_completion_messages_with_options(
@@ -217,31 +218,45 @@ pub(crate) fn build_openai_chat_completions_body(
         }
     }
 
+    if provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+        body["usage"] = serde_json::json!({ "include": true });
+    }
+
     apply_openrouter_provider_routing(provider, config, &mut body);
     Ok(body)
 }
 
-fn chat_completions_replays_tool_reasoning_content(provider: &str) -> bool {
-    matches!(
-        provider,
-        zorai_shared::providers::PROVIDER_ID_OPENROUTER
-            | zorai_shared::providers::PROVIDER_ID_DEEPSEEK
-    )
+/// DeepSeek thinking models require the prior turn's `reasoning_content` to be
+/// replayed. Besides the dedicated DeepSeek provider, the OpenCode Go/Zen gateways
+/// serve DeepSeek models (`deepseek-*`) that carry the same requirement.
+fn behaves_as_deepseek_for_reasoning(provider: &str, model: &str) -> bool {
+    provider == zorai_shared::providers::PROVIDER_ID_DEEPSEEK
+        || ((provider == zorai_shared::providers::PROVIDER_ID_OPENCODE_GO
+            || provider == zorai_shared::providers::PROVIDER_ID_OPENCODE_ZEN)
+            && model.starts_with("deepseek"))
+}
+
+fn chat_completions_replays_tool_reasoning_content(provider: &str, model: &str) -> bool {
+    provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER
+        || behaves_as_deepseek_for_reasoning(provider, model)
 }
 
 fn chat_completions_replays_non_tool_reasoning_content(provider: &str) -> bool {
     provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER
 }
 
-fn chat_completions_replays_non_tool_reasoning_content_after_tool_call(provider: &str) -> bool {
-    provider == zorai_shared::providers::PROVIDER_ID_DEEPSEEK
+fn chat_completions_replays_non_tool_reasoning_content_after_tool_call(
+    provider: &str,
+    model: &str,
+) -> bool {
+    behaves_as_deepseek_for_reasoning(provider, model)
 }
 
 fn chat_completions_repairs_missing_tool_reasoning_content(
     provider: &str,
     config: &ProviderConfig,
 ) -> bool {
-    provider == zorai_shared::providers::PROVIDER_ID_DEEPSEEK
+    behaves_as_deepseek_for_reasoning(provider, &config.model)
         || (provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER
             && normalize_reasoning_effort(&config.reasoning_effort).is_some())
 }
