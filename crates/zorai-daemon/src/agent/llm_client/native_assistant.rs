@@ -259,6 +259,7 @@ pub(crate) async fn run_native_assistant(
                         reasoning: None,
                         input_tokens,
                         output_tokens,
+                        cost_usd: None,
                         stop_reason: None,
                         stop_sequence: None,
                         response_id: None,

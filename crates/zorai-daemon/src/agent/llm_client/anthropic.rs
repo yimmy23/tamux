@@ -602,6 +602,7 @@ pub(crate) async fn parse_anthropic_sse(
                                 reasoning: final_reasoning,
                                 input_tokens: usage.input_tokens,
                                 output_tokens: usage.output_tokens,
+                                cost_usd: None,
                                 stop_reason: stop_metadata.stop_reason.clone(),
                                 stop_sequence: stop_metadata.stop_sequence.clone(),
                                 cache_creation_input_tokens: usage
@@ -629,6 +630,7 @@ pub(crate) async fn parse_anthropic_sse(
             reasoning: (!total_reasoning.is_empty()).then_some(total_reasoning),
             input_tokens: usage.input_tokens,
             output_tokens: usage.output_tokens,
+            cost_usd: None,
             stop_reason: stop_metadata.stop_reason,
             stop_sequence: stop_metadata.stop_sequence,
             cache_creation_input_tokens: usage.cache_creation_input_tokens,

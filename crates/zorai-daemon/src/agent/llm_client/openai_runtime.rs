@@ -218,6 +218,10 @@ pub(crate) fn build_openai_chat_completions_body(
         }
     }
 
+    if provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
+        body["usage"] = serde_json::json!({ "include": true });
+    }
+
     apply_openrouter_provider_routing(provider, config, &mut body);
     Ok(body)
 }

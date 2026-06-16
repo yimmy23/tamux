@@ -404,6 +404,10 @@ impl AgentEngine {
             anyhow::bail!("thread not found: {thread_id}");
         }
 
+        if let Some(handled) = self.try_compact_claude_code_cli_session(thread_id).await? {
+            return Ok(handled);
+        }
+
         let latest_user_content = self.latest_visible_user_message_content(thread_id).await;
         let latest_user_content = latest_user_content
             .as_deref()
@@ -462,6 +466,67 @@ impl AgentEngine {
         self.flush_deferred_visible_thread_continuations(thread_id)
             .await?;
         Ok(true)
+    }
+
+    async fn try_compact_claude_code_cli_session(
+        self: &Arc<Self>,
+        thread_id: &str,
+    ) -> Result<Option<bool>> {
+        let (session_id, model) = {
+            let threads = self.threads.read().await;
+            let Some(thread) = threads.get(thread_id) else {
+                return Ok(None);
+            };
+            if thread.upstream_provider.as_deref()
+                != Some(zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI)
+            {
+                return Ok(None);
+            }
+            (
+                thread.upstream_thread_id.clone(),
+                thread.upstream_model.clone(),
+            )
+        };
+
+        let Some(session_id) = session_id.filter(|value| !value.trim().is_empty()) else {
+            let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+                thread_id: thread_id.to_string(),
+                kind: MANUAL_COMPACTION_NOTICE_KIND.to_string(),
+                message: "No Claude session yet; send a message before compacting.".to_string(),
+                details: None,
+            });
+            return Ok(Some(false));
+        };
+
+        let working_dir = self
+            .resolve_thread_repo_root(thread_id)
+            .await
+            .map(|(repo_root, _, _, _)| repo_root);
+
+        let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+            thread_id: thread_id.to_string(),
+            kind: MANUAL_COMPACTION_NOTICE_KIND.to_string(),
+            message: "Compacting Claude session...".to_string(),
+            details: None,
+        });
+
+        let outcome = crate::agent::llm_client::compact_claude_code_cli_session(
+            &session_id,
+            model.as_deref(),
+            working_dir.as_deref(),
+        )
+        .await?;
+
+        let _ = self.event_tx.send(AgentEvent::WorkflowNotice {
+            thread_id: thread_id.to_string(),
+            kind: MANUAL_COMPACTION_NOTICE_KIND.to_string(),
+            message: format!(
+                "Claude session compacted ({} in / {} out tokens).",
+                outcome.input_tokens, outcome.output_tokens
+            ),
+            details: None,
+        });
+        Ok(Some(true))
     }
 }
 

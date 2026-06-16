@@ -288,6 +288,47 @@ fn openrouter_chat_request_drops_empty_assistant_messages_without_tool_calls() {
 }
 
 #[test]
+fn openrouter_chat_request_opts_into_usage_accounting_for_cost() {
+    let mut config = responses_test_config(
+        "https://openrouter.ai/api/v1".to_string(),
+        AuthSource::ApiKey,
+    );
+    config.model = "deepseek/deepseek-chat-v3.1".to_string();
+    let user = ApiMessage {
+        role: "user".to_string(),
+        content: ApiContent::Text("hi".to_string()),
+        reasoning: None,
+        tool_call_id: None,
+        name: None,
+        tool_calls: None,
+    };
+
+    let body = build_openai_chat_completions_body(
+        PROVIDER_ID_OPENROUTER,
+        &config,
+        "sys",
+        &[user.clone()],
+        &[],
+    )
+    .expect("body should build");
+    assert_eq!(
+        body["usage"]["include"].as_bool(),
+        Some(true),
+        "OpenRouter must opt into usage accounting so usage.cost (USD) is returned"
+    );
+
+    let openai_config =
+        responses_test_config("https://api.openai.com/v1".to_string(), AuthSource::ApiKey);
+    let openai_body =
+        build_openai_chat_completions_body(PROVIDER_ID_OPENAI, &openai_config, "sys", &[user], &[])
+            .expect("body should build");
+    assert!(
+        openai_body.get("usage").is_none(),
+        "non-OpenRouter providers must not receive the OpenRouter usage flag"
+    );
+}
+
+#[test]
 fn openrouter_chat_request_drops_assistant_messages_with_empty_content_blocks_without_tool_calls() {
     let mut config = responses_test_config(
         "https://openrouter.ai/api/v1".to_string(),
@@ -1559,5 +1600,24 @@ async fn rate_limit_responses_429_uses_openrouter_raw_message_without_truncation
             .as_str()
             .is_some_and(|value| value.contains("add your own key to accumulate your rate limits")),
         "structured diagnostics should preserve the detailed upstream raw message"
+    );
+}
+
+#[test]
+fn claude_code_cli_request_transport_is_forced_to_native_subprocess() {
+    use zorai_shared::providers::{PROVIDER_ID_CLAUDE_CODE_CLI, PROVIDER_ID_OPENAI};
+
+    assert_eq!(
+        coerce_transport_for_provider(PROVIDER_ID_CLAUDE_CODE_CLI, ApiTransport::ChatCompletions),
+        ApiTransport::NativeAssistant
+    );
+    assert_eq!(
+        coerce_transport_for_provider(PROVIDER_ID_CLAUDE_CODE_CLI, ApiTransport::Responses),
+        ApiTransport::NativeAssistant
+    );
+    assert_eq!(
+        coerce_transport_for_provider(PROVIDER_ID_OPENAI, ApiTransport::ChatCompletions),
+        ApiTransport::ChatCompletions,
+        "other providers keep whatever transport was resolved"
     );
 }

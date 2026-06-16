@@ -43,9 +43,11 @@ pub(crate) fn prepare_llm_request_with_reused_user_message(
         compacted.clone()
     };
 
+    let is_claude_code_cli =
+        config.provider == zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI;
     if !compaction_active
         && selected_transport == ApiTransport::NativeAssistant
-        && !provider_config.assistant_id.trim().is_empty()
+        && (!provider_config.assistant_id.trim().is_empty() || is_claude_code_cli)
     {
         let latest_user_message = messages
             .iter()
@@ -53,6 +55,9 @@ pub(crate) fn prepare_llm_request_with_reused_user_message(
             .find(|message| message.role == MessageRole::User)
             .cloned();
         if let Some(user_message) = latest_user_message {
+            let assistant_id_matches = is_claude_code_cli
+                || thread.upstream_assistant_id.as_deref()
+                    == Some(provider_config.assistant_id.as_str());
             return PreparedLlmRequest {
                 messages: messages_to_api_format(&[user_message]),
                 transport: ApiTransport::NativeAssistant,
@@ -61,8 +66,7 @@ pub(crate) fn prepare_llm_request_with_reused_user_message(
                     == Some(ApiTransport::NativeAssistant)
                     && thread.upstream_provider.as_deref() == Some(config.provider.as_str())
                     && thread.upstream_model.as_deref() == Some(provider_config.model.as_str())
-                    && thread.upstream_assistant_id.as_deref()
-                        == Some(provider_config.assistant_id.as_str())
+                    && assistant_id_matches
                 {
                     thread.upstream_thread_id.clone()
                 } else {

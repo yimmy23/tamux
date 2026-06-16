@@ -23,6 +23,7 @@ impl<'a> SendMessageRunner<'a> {
                 reasoning,
                 input_tokens,
                 output_tokens,
+                cost_usd,
                 stop_reason: _,
                 stop_sequence: _,
                 response_id,
@@ -48,6 +49,7 @@ impl<'a> SendMessageRunner<'a> {
                     reasoning,
                     input_tokens,
                     output_tokens,
+                    cost_usd,
                     response_id,
                     upstream_message,
                     provider_final_result,
@@ -158,11 +160,25 @@ impl<'a> SendMessageRunner<'a> {
         reasoning: Option<String>,
         input_tokens: u64,
         output_tokens: u64,
+        reported_cost_usd: Option<f64>,
         response_id: Option<String>,
         upstream_message: Option<CompletionUpstreamMessage>,
         provider_final_result: Option<CompletionProviderFinalResult>,
         upstream_thread_id: Option<String>,
     ) -> Result<()> {
+        let turn_cost = reported_cost_usd.or_else(|| {
+            if !self.config.cost.enabled {
+                return None;
+            }
+            crate::agent::cost::lookup_rate(
+                &self.config.cost.rate_cards,
+                &self.config.provider,
+                &self.provider_config.model,
+            )
+            .map(|rate| {
+                crate::agent::cost::compute_cost_from_tokens(input_tokens, output_tokens, rate)
+            })
+        });
         let mut final_content = if content.is_empty() {
             accumulated_content
         } else {
@@ -212,6 +228,7 @@ impl<'a> SendMessageRunner<'a> {
                 response_id,
                 upstream_message.clone(),
                 provider_final_result.clone(),
+                turn_cost,
             )
             .await;
         Box::pin(
@@ -263,7 +280,7 @@ impl<'a> SendMessageRunner<'a> {
             thread_id: self.tid.clone(),
             input_tokens,
             output_tokens,
-            cost: None,
+            cost: turn_cost,
             provider: Some(self.config.provider.clone()),
             model: Some(self.provider_config.model.clone()),
             tps,

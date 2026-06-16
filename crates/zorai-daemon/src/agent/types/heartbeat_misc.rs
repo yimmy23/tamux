@@ -402,6 +402,7 @@ pub enum CompletionChunk {
         reasoning: Option<String>,
         input_tokens: u64,
         output_tokens: u64,
+        cost_usd: Option<f64>,
         stop_reason: Option<String>,
         stop_sequence: Option<String>,
         cache_creation_input_tokens: Option<u64>,

@@ -11,6 +11,7 @@ pub(crate) async fn parse_openai_sse(
     let mut pending_tool_calls: HashMap<u32, PendingToolCall> = HashMap::new();
     let mut input_tokens: u64 = 0;
     let mut output_tokens: u64 = 0;
+    let mut cost_usd: Option<f64> = None;
     let mut response_id: Option<String> = None;
     let mut response_model: Option<String> = None;
     let mut finish_reason: Option<String> = None;
@@ -104,6 +105,7 @@ pub(crate) async fn parse_openai_sse(
                             },
                             input_tokens,
                             output_tokens,
+                            cost_usd,
                             stop_reason: None,
                             stop_sequence: None,
                             response_id: None,
@@ -150,6 +152,7 @@ pub(crate) async fn parse_openai_sse(
                 let total_tokens = usage.get("total_tokens").and_then(|v| v.as_u64());
                 (input_tokens, output_tokens) =
                     normalize_openai_usage_tokens(input_tokens, output_tokens, total_tokens);
+                cost_usd = usage.get("cost").and_then(|v| v.as_f64()).or(cost_usd);
             }
 
             let delta = match parsed.pointer("/choices/0/delta") {
@@ -252,6 +255,7 @@ pub(crate) async fn parse_openai_sse(
                 },
                 input_tokens,
                 output_tokens,
+                cost_usd,
                 stop_reason: None,
                 stop_sequence: None,
                 response_id: None,
@@ -446,6 +450,7 @@ async fn emit_openai_responses_terminal_chunk(
             reasoning,
             input_tokens,
             output_tokens,
+            cost_usd: None,
             stop_reason: None,
             stop_sequence: None,
             cache_creation_input_tokens: None,

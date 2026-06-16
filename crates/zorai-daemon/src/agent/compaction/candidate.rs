@@ -115,6 +115,11 @@ pub(crate) fn compaction_candidate_with_mode(
     {
         return None;
     }
+    if mode == CompactionCandidateMode::Automatic
+        && config.provider == zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI
+    {
+        return None;
+    }
 
     let max_messages = config.max_context_messages.max(1) as usize;
     let target_tokens = effective_context_target_tokens(config, provider_config);
