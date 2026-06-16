@@ -101,6 +101,18 @@ impl TuiModel {
                 .settings
                 .start_editing("assistant_id", &self.config.assistant_id.clone()),
             "reasoning_effort" => self.execute_command("effort"),
+            "claude_permission_mode" => {
+                let options = crate::state::subagents::CLAUDE_PERMISSION_MODE_OPTIONS;
+                let current = self.config.claude_permission_mode.clone();
+                let current_idx = options
+                    .iter()
+                    .position(|mode| *mode == current)
+                    .unwrap_or(0);
+                let next_idx = (current_idx + 1) % options.len().max(1);
+                self.config.claude_permission_mode =
+                    options.get(next_idx).copied().unwrap_or("").to_string();
+                self.sync_config_to_daemon();
+            }
             "base_url" => self
                 .settings
                 .start_editing("base_url", &self.config.base_url.clone()),

@@ -232,6 +232,7 @@ fn workspace_task_open_thread_uses_subagent_assignee_as_responder_hint() {
     model.main_pane_view = MainPaneView::Workspace;
     model.focus = FocusArea::Chat;
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "dola".to_string(),
         name: "Dola".to_string(),
         provider: "openai".to_string(),

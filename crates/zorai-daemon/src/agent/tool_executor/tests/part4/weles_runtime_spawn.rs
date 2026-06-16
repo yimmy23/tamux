@@ -195,6 +195,7 @@ async fn spawn_subagent_rejects_other_protected_subagents_from_normal_lookup() {
 
     engine
         .set_sub_agent(SubAgentDefinition {
+            claude_permission_mode: None,
             id: "sentinel_builtin".to_string(),
             name: "Sentinel".to_string(),
             provider: "openai".to_string(),

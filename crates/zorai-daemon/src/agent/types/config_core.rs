@@ -131,6 +131,8 @@ pub struct AgentConfig {
     pub api_transport: ApiTransport,
     #[serde(default = "default_reasoning_effort")]
     pub reasoning_effort: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_permission_mode: Option<String>,
     #[serde(default = "default_system_prompt")]
     pub system_prompt: String,
     #[serde(default = "default_max_tool_loops")]

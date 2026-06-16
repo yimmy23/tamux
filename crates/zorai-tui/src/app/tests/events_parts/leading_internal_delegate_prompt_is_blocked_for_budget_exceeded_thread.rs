@@ -374,6 +374,7 @@ fn subagent_error_requests_refresh_to_clear_rejected_optimistic_state() {
     let (daemon_tx, mut daemon_rx) = unbounded_channel();
     let mut model = TuiModel::new(event_rx, daemon_tx);
     model.subagents.entries = vec![crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "Legacy WELES".to_string(),
         provider: PROVIDER_ID_OPENAI.to_string(),

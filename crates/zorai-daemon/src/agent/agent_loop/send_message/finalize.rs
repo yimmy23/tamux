@@ -166,19 +166,20 @@ impl<'a> SendMessageRunner<'a> {
         provider_final_result: Option<CompletionProviderFinalResult>,
         upstream_thread_id: Option<String>,
     ) -> Result<()> {
-        let turn_cost = reported_cost_usd.or_else(|| {
-            if !self.config.cost.enabled {
-                return None;
-            }
-            crate::agent::cost::lookup_rate(
-                &self.config.cost.rate_cards,
-                &self.config.provider,
-                &self.provider_config.model,
-            )
-            .map(|rate| {
-                crate::agent::cost::compute_cost_from_tokens(input_tokens, output_tokens, rate)
+        let turn_cost = if !self.config.cost.enabled {
+            None
+        } else {
+            reported_cost_usd.or_else(|| {
+                crate::agent::cost::lookup_rate(
+                    &self.config.cost.rate_cards,
+                    &self.config.provider,
+                    &self.provider_config.model,
+                )
+                .map(|rate| {
+                    crate::agent::cost::compute_cost_from_tokens(input_tokens, output_tokens, rate)
+                })
             })
-        });
+        };
         let mut final_content = if content.is_empty() {
             accumulated_content
         } else {

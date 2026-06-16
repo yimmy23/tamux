@@ -3452,7 +3452,10 @@ fn prepare_llm_request_resumes_stored_claude_code_cli_session() {
     provider.assistant_id = String::new();
     provider.api_transport = ApiTransport::NativeAssistant;
 
-    let mut thread = sample_thread(vec![AgentMessage::user("follow-up turn", 1)]);
+    let mut thread = sample_thread(vec![
+        sample_message("[Compacted earlier context] older turns"),
+        AgentMessage::user("follow-up turn", 2),
+    ]);
     thread.upstream_transport = Some(ApiTransport::NativeAssistant);
     thread.upstream_provider =
         Some(zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI.to_string());
@@ -3465,7 +3468,7 @@ fn prepare_llm_request_resumes_stored_claude_code_cli_session() {
     assert_eq!(
         prepared.upstream_thread_id.as_deref(),
         Some("sess-123"),
-        "a claude-code-cli thread must carry its stored session id so the CLI uses --resume"
+        "a claude-code-cli thread must resume its stored session even when local history is compacted"
     );
 
     let fresh = sample_thread(vec![AgentMessage::user("first turn", 1)]);

@@ -49,6 +49,7 @@ pub(super) fn test_user_sub_agent(id: &str, name: &str) -> SubAgentDefinition {
         protected_reason: None,
         reasoning_effort: None,
         api_transport: None,
+        claude_permission_mode: None,
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,

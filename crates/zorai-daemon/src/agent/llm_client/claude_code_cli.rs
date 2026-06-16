@@ -4,9 +4,44 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 const CLAUDE_BINARY: &str = "claude";
 const MODEL_ONLY_MARKER: &str = "model-only";
+const PERMISSION_MODE_ENV: &str = "ZORAI_CLAUDE_CODE_PERMISSION_MODE";
 
 pub(crate) fn claude_cli_available() -> bool {
     which::which(CLAUDE_BINARY).is_ok()
+}
+
+fn claude_permission_mode() -> Option<String> {
+    std::env::var(PERMISSION_MODE_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn summarize_tool_input(input: Option<&serde_json::Value>) -> String {
+    let Some(object) = input.and_then(|value| value.as_object()) else {
+        return String::new();
+    };
+    let summary = [
+        "file_path",
+        "path",
+        "command",
+        "pattern",
+        "query",
+        "url",
+        "description",
+        "prompt",
+    ]
+    .iter()
+    .find_map(|key| {
+        object
+            .get(*key)
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    })
+    .unwrap_or("");
+    let summary: String = summary.split('\n').next().unwrap_or("").chars().take(80).collect();
+    summary
 }
 
 pub(crate) struct ClaudeCompactOutcome {
@@ -28,9 +63,10 @@ pub(crate) async fn compact_claude_code_cli_session(
         .arg("--resume")
         .arg(session_id)
         .arg("--output-format")
-        .arg("json")
-        .arg("--permission-mode")
-        .arg("bypassPermissions");
+        .arg("json");
+    if let Some(mode) = claude_permission_mode() {
+        command.arg("--permission-mode").arg(mode);
+    }
     if let Some(model) = model.filter(|value| !value.trim().is_empty()) {
         command.arg("--model").arg(model);
     }
@@ -62,8 +98,14 @@ pub(crate) async fn compact_claude_code_cli_session(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let value: serde_json::Value =
-        serde_json::from_str(stdout.trim()).unwrap_or(serde_json::Value::Null);
+    let value: serde_json::Value = serde_json::from_str(stdout.trim()).map_err(|err| {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::anyhow!(
+            "claude /compact returned unparseable output ({err}); stdout: {}; stderr: {}",
+            stdout.trim().chars().take(240).collect::<String>(),
+            stderr.trim().chars().take(240).collect::<String>()
+        )
+    })?;
     if value
         .get("is_error")
         .and_then(|field| field.as_bool())
@@ -98,6 +140,7 @@ pub(crate) async fn run_claude_code_cli(
     messages: &[ApiMessage],
     upstream_thread_id: Option<&str>,
     working_dir: Option<&str>,
+    permission_mode: Option<&str>,
     tx: &mpsc::Sender<Result<CompletionChunk>>,
 ) -> Result<()> {
     let binary = which::which(CLAUDE_BINARY).map_err(|_| {
@@ -151,8 +194,13 @@ pub(crate) async fn run_claude_code_cli(
         if !system_prompt.trim().is_empty() {
             command.arg("--append-system-prompt").arg(system_prompt);
         }
-    } else {
-        command.arg("--permission-mode").arg("bypassPermissions");
+    } else if let Some(mode) = permission_mode
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(claude_permission_mode)
+    {
+        command.arg("--permission-mode").arg(mode);
     }
     if let Some(dir) = working_dir.filter(|value| !value.trim().is_empty()) {
         command.current_dir(dir);
@@ -229,7 +277,14 @@ pub(crate) async fn run_claude_code_cli(
                             Some("tool_use") => block
                                 .get("name")
                                 .and_then(|value| value.as_str())
-                                .map(|name| format!("\n`[tool: {name}]`\n")),
+                                .map(|name| {
+                                    let summary = summarize_tool_input(block.get("input"));
+                                    if summary.is_empty() {
+                                        format!("\n\n› **{name}**\n\n")
+                                    } else {
+                                        format!("\n\n› **{name}** `{summary}`\n\n")
+                                    }
+                                }),
                             _ => None,
                         };
                         if let Some(delta) = delta.filter(|value| !value.is_empty()) {
@@ -342,4 +397,34 @@ pub(crate) async fn run_claude_code_cli(
         .await;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::summarize_tool_input;
+
+    #[test]
+    fn summarize_tool_input_prefers_target_path_then_command() {
+        assert_eq!(
+            summarize_tool_input(Some(&serde_json::json!({ "file_path": "crates/x/y.rs" }))),
+            "crates/x/y.rs"
+        );
+        assert_eq!(
+            summarize_tool_input(Some(&serde_json::json!({ "command": "cargo build -p zorai-daemon" }))),
+            "cargo build -p zorai-daemon"
+        );
+        assert_eq!(
+            summarize_tool_input(Some(&serde_json::json!({ "unknown_key": "v" }))),
+            ""
+        );
+        assert_eq!(summarize_tool_input(None), "");
+    }
+
+    #[test]
+    fn summarize_tool_input_takes_first_line_and_truncates() {
+        let long = "a".repeat(200);
+        let out = summarize_tool_input(Some(&serde_json::json!({ "command": format!("{long}\nsecond line") })));
+        assert_eq!(out.chars().count(), 80);
+        assert!(!out.contains('\n'));
+    }
 }

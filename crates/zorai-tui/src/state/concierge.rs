@@ -8,6 +8,7 @@ pub struct ConciergeState {
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
     pub api_transport: Option<String>,
+    pub claude_permission_mode: Option<String>,
     pub openrouter_provider_order: String,
     pub openrouter_provider_ignore: String,
     pub openrouter_allow_fallbacks: bool,
@@ -35,6 +36,7 @@ impl ConciergeState {
             model: None,
             reasoning_effort: None,
             api_transport: None,
+            claude_permission_mode: None,
             openrouter_provider_order: String::new(),
             openrouter_provider_ignore: String::new(),
             openrouter_allow_fallbacks: true,
@@ -57,6 +59,7 @@ pub enum ConciergeAction {
         model: Option<String>,
         reasoning_effort: Option<String>,
         api_transport: Option<String>,
+        claude_permission_mode: Option<String>,
         openrouter_provider_order: String,
         openrouter_provider_ignore: String,
         openrouter_allow_fallbacks: bool,
@@ -96,6 +99,7 @@ impl ConciergeState {
                 model,
                 reasoning_effort,
                 api_transport,
+                claude_permission_mode,
                 openrouter_provider_order,
                 openrouter_provider_ignore,
                 openrouter_allow_fallbacks,
@@ -107,6 +111,7 @@ impl ConciergeState {
                 self.model = model;
                 self.reasoning_effort = reasoning_effort;
                 self.api_transport = api_transport;
+                self.claude_permission_mode = claude_permission_mode;
                 self.openrouter_provider_order = openrouter_provider_order;
                 self.openrouter_provider_ignore = openrouter_provider_ignore;
                 self.openrouter_allow_fallbacks = openrouter_allow_fallbacks;

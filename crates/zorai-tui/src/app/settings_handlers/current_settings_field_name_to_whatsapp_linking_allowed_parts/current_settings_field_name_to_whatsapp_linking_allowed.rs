@@ -18,6 +18,7 @@ impl TuiModel {
                 7 if self.concierge.provider.as_deref() == Some(PROVIDER_ID_OPENROUTER) => {
                     "concierge_openrouter_allow_fallbacks"
                 }
+                6 => "concierge_claude_permission_mode",
                 _ => "",
             };
         }

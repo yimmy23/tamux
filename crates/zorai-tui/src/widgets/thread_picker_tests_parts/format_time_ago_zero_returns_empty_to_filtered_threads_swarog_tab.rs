@@ -295,6 +295,7 @@ fn workspace_goal_threads_route_to_workspace_not_goals_tab() {
 
 pub(super) fn sample_subagent(id: &str, name: &str, builtin: bool) -> SubAgentEntry {
     SubAgentEntry {
+        claude_permission_mode: None,
         id: id.to_string(),
         name: name.to_string(),
         provider: "openai".to_string(),

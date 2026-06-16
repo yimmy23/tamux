@@ -46,6 +46,7 @@ fn subagent(id: &str) -> crate::state::SubAgentEntry {
         protected_reason: None,
         reasoning_effort: None,
         api_transport: None,
+        claude_permission_mode: None,
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,

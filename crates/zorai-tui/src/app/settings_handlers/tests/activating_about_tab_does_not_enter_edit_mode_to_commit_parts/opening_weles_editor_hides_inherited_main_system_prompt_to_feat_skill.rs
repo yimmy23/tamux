@@ -16,6 +16,7 @@ fn opening_weles_editor_hides_inherited_main_system_prompt() {
         }
     }));
     model.subagents.entries = vec![crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),
         provider: PROVIDER_ID_OPENAI.to_string(),

@@ -160,6 +160,7 @@ fn protected_weles_row_hides_delete_and_disable_actions() {
     subagents
         .entries
         .push(crate::state::subagents::SubAgentEntry {
+            claude_permission_mode: None,
             id: "weles_builtin".to_string(),
             name: "WELES".to_string(),
             provider: PROVIDER_ID_OPENAI.to_string(),

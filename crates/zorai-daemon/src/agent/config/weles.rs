@@ -156,6 +156,7 @@ pub(super) fn build_effective_weles_definition(config: &AgentConfig) -> SubAgent
         protected_reason: Some(WELES_PROTECTED_REASON.to_string()),
         reasoning_effort: Some(reasoning_effort),
         api_transport: overrides.api_transport,
+        claude_permission_mode: None,
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,

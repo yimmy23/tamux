@@ -1,3 +1,12 @@
+pub const CLAUDE_PERMISSION_MODE_OPTIONS: &[&str] = &[
+    "",
+    "default",
+    "acceptEdits",
+    "plan",
+    "bypassPermissions",
+    "dontAsk",
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubAgentEditorField {
     Name,
@@ -8,6 +17,7 @@ pub enum SubAgentEditorField {
     OpenRouterAllowFallbacks,
     ReasoningEffort,
     ApiTransport,
+    ClaudePermissionMode,
     Role,
     SystemPrompt,
     Save,
@@ -15,7 +25,7 @@ pub enum SubAgentEditorField {
 }
 
 impl SubAgentEditorField {
-    pub const ALL: [SubAgentEditorField; 12] = [
+    pub const ALL: [SubAgentEditorField; 13] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
@@ -24,17 +34,19 @@ impl SubAgentEditorField {
         SubAgentEditorField::OpenRouterAllowFallbacks,
         SubAgentEditorField::ReasoningEffort,
         SubAgentEditorField::ApiTransport,
+        SubAgentEditorField::ClaudePermissionMode,
         SubAgentEditorField::Role,
         SubAgentEditorField::SystemPrompt,
         SubAgentEditorField::Save,
         SubAgentEditorField::Cancel,
     ];
-    const NON_OPENROUTER: [SubAgentEditorField; 9] = [
+    const NON_OPENROUTER: [SubAgentEditorField; 10] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
         SubAgentEditorField::ReasoningEffort,
         SubAgentEditorField::ApiTransport,
+        SubAgentEditorField::ClaudePermissionMode,
         SubAgentEditorField::Role,
         SubAgentEditorField::SystemPrompt,
         SubAgentEditorField::Save,
@@ -354,6 +366,7 @@ pub struct SubAgentEditorState {
     pub protected_reason: Option<String>,
     pub reasoning_effort: Option<String>,
     pub api_transport: Option<String>,
+    pub claude_permission_mode: Option<String>,
     pub openrouter_provider_order: String,
     pub openrouter_provider_ignore: String,
     pub openrouter_allow_fallbacks: bool,
@@ -380,6 +393,7 @@ impl SubAgentEditorState {
             protected_reason: None,
             reasoning_effort: None,
             api_transport: None,
+            claude_permission_mode: None,
             openrouter_provider_order: String::new(),
             openrouter_provider_ignore: String::new(),
             openrouter_allow_fallbacks: true,

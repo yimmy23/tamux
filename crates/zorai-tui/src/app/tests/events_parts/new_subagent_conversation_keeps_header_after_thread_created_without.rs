@@ -5,6 +5,7 @@ fn new_subagent_conversation_keeps_header_after_thread_created_without_agent_nam
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "domowoj".to_string(),
         name: "Domowoj".to_string(),
         provider: "openai".to_string(),
@@ -66,6 +67,7 @@ fn new_subagent_conversation_done_clears_footer_activity_after_thread_creation()
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "domowoj".to_string(),
         name: "Domowoj".to_string(),
         provider: "openai".to_string(),
@@ -130,6 +132,7 @@ fn new_subagent_conversation_keeps_thinking_after_thread_created_until_first_res
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "domowoj".to_string(),
         name: "Domowoj".to_string(),
         provider: "openai".to_string(),
@@ -177,6 +180,7 @@ fn new_subagent_conversation_keeps_thinking_across_reload_before_first_response(
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "domowoj".to_string(),
         name: "Domowoj".to_string(),
         provider: "openai".to_string(),
@@ -221,6 +225,7 @@ fn new_subagent_conversation_keeps_reasoning_stream_across_reload_before_first_r
     let (mut model, _daemon_rx) = make_model_with_daemon_rx();
     model.connected = true;
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "domowoj".to_string(),
         name: "Domowoj".to_string(),
         provider: "openai".to_string(),

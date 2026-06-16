@@ -177,6 +177,17 @@ pub(crate) fn render_subagents_tab<'a>(
         lines.push(field_line(
             matches!(
                 editor.field,
+                crate::state::subagents::SubAgentEditorField::ClaudePermissionMode
+            ),
+            "Claude perms",
+            editor
+                .claude_permission_mode
+                .clone()
+                .unwrap_or_else(|| "(default)".to_string()),
+        ));
+        lines.push(field_line(
+            matches!(
+                editor.field,
                 crate::state::subagents::SubAgentEditorField::Role
             ),
             "Role",

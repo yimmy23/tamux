@@ -258,6 +258,7 @@ fn header_usage_summary_uses_primary_threshold_for_heuristic_compaction() {
 fn header_profile_tracks_weles_subagent_updates_after_runtime_metadata_exists() {
     let mut model = make_model();
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),
         provider: "provider-old".to_string(),
@@ -294,6 +295,7 @@ fn header_profile_tracks_weles_subagent_updates_after_runtime_metadata_exists() 
     assert_eq!(before.model, "model-runtime");
 
     model.handle_subagent_updated_event(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),
         provider: "provider-new".to_string(),
@@ -323,6 +325,7 @@ fn header_profile_tracks_weles_subagent_updates_after_runtime_metadata_exists() 
 fn header_profile_switches_on_handoff_append_and_clears_stale_runtime() {
     let mut model = make_model();
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "Weles".to_string(),
         provider: "provider-weles".to_string(),

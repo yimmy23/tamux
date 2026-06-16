@@ -78,6 +78,8 @@ impl TuiModel {
                 effort
             }
         };
+        self.config.claude_permission_mode =
+            config_string(json, "claude_permission_mode", "claude_permission_mode");
 
         self.config.search_provider = {
             let provider = config_string(json, "search_provider", "search_provider");

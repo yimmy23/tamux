@@ -102,6 +102,7 @@ mod tests {
 
     fn subagent(id: &str, name: &str, enabled: bool) -> SubAgentEntry {
         SubAgentEntry {
+            claude_permission_mode: None,
             id: id.to_string(),
             name: name.to_string(),
             provider: "openai".to_string(),

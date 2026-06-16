@@ -1648,6 +1648,7 @@ mod tests {
         let mut config = AgentConfig::default();
         config.system_prompt = "Main system prompt".to_string();
         let sub_agents = vec![SubAgentDefinition {
+            claude_permission_mode: None,
             id: "dola".to_string(),
             name: "Dola".to_string(),
             provider: "openai".to_string(),
@@ -2249,6 +2250,7 @@ mod tests {
         config.base_url = "http://127.0.0.1:1/v1".to_string();
         config.api_key = "test-key".to_string();
         config.sub_agents.push(SubAgentDefinition {
+            claude_permission_mode: None,
             id: "qa".to_string(),
             name: "QA".to_string(),
             provider: "openai".to_string(),
