@@ -367,6 +367,79 @@ fn deepseek_chat_request_preserves_tool_reasoning_content() {
 }
 
 #[test]
+fn opencode_go_deepseek_model_preserves_tool_reasoning_content() {
+    let mut config = responses_test_config(
+        "https://opencode.ai/zen/go/v1".to_string(),
+        AuthSource::ApiKey,
+    );
+    config.model = "deepseek-v4-pro".to_string();
+    config.reasoning_effort = "high".to_string();
+
+    let body = build_openai_chat_completions_body(
+        zorai_shared::providers::PROVIDER_ID_OPENCODE_GO,
+        &config,
+        "system prompt",
+        &[ApiMessage {
+            role: "assistant".to_string(),
+            content: ApiContent::Text(String::new()),
+            reasoning: Some("Need the date before calling weather.".to_string()),
+            tool_call_id: None,
+            name: None,
+            tool_calls: Some(vec![ApiToolCall {
+                id: "call_1".to_string(),
+                call_type: "function".to_string(),
+                function: ApiToolCallFunction {
+                    name: "get_date".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            }]),
+        }],
+        &[],
+    )
+    .expect("body should build");
+
+    assert_eq!(
+        body["messages"][1]["reasoning_content"],
+        "Need the date before calling weather."
+    );
+}
+
+#[test]
+fn opencode_go_non_deepseek_model_omits_tool_reasoning_content() {
+    let mut config = responses_test_config(
+        "https://opencode.ai/zen/go/v1".to_string(),
+        AuthSource::ApiKey,
+    );
+    config.model = "glm-5.1".to_string();
+    config.reasoning_effort = "high".to_string();
+
+    let body = build_openai_chat_completions_body(
+        zorai_shared::providers::PROVIDER_ID_OPENCODE_GO,
+        &config,
+        "system prompt",
+        &[ApiMessage {
+            role: "assistant".to_string(),
+            content: ApiContent::Text(String::new()),
+            reasoning: Some("internal".to_string()),
+            tool_call_id: None,
+            name: None,
+            tool_calls: Some(vec![ApiToolCall {
+                id: "call_1".to_string(),
+                call_type: "function".to_string(),
+                function: ApiToolCallFunction {
+                    name: "get_date".to_string(),
+                    arguments: "{}".to_string(),
+                },
+            }]),
+        }],
+        &[],
+    )
+    .expect("body should build");
+
+    assert!(body["messages"][1].get("reasoning_content").is_none());
+}
+
+#[test]
 fn deepseek_chat_request_adds_legacy_tool_reasoning_placeholder() {
     let mut config =
         responses_test_config("https://api.deepseek.com".to_string(), AuthSource::ApiKey);

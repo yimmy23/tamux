@@ -305,7 +305,9 @@ pub(crate) fn build_transcript_metrics(
         let message_count = thread.messages.len();
         let estimate_offscreen_messages = message_count > 20;
         for (idx, msg) in thread.messages.iter().enumerate() {
-            let exact_message_metrics = !estimate_offscreen_messages || idx + 1 == message_count;
+            let exact_message_metrics = !estimate_offscreen_messages
+                || idx + 1 == message_count
+                || chat.selected_message() == Some(idx);
             let start = total_lines;
             total_lines = total_lines.saturating_add(estimated_message_block_line_count(
                 chat,

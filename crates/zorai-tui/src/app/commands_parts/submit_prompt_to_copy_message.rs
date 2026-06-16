@@ -200,8 +200,8 @@ impl TuiModel {
         }
         if thread_id.is_none() {
             let local_thread_id = format!("local-{}", self.tick_counter);
-            let local_title = if prompt.len() > 40 {
-                format!("{}...", &prompt[..40])
+            let local_title = if prompt.chars().count() > 40 {
+                format!("{}...", prompt.chars().take(40).collect::<String>())
             } else {
                 prompt.clone()
             };
