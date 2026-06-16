@@ -184,6 +184,33 @@ pub(crate) fn render_concierge_tab<'a>(
         ]));
     }
 
+    if concierge.provider.as_deref() != Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER) {
+        let is_selected = settings.field_cursor() == 6;
+        let marker = if is_selected { "> " } else { "  " };
+        lines.push(Line::from(vec![
+            Span::styled(
+                marker,
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
+            Span::styled("Claude perms: ", theme.fg_dim),
+            Span::styled(
+                concierge
+                    .claude_permission_mode
+                    .clone()
+                    .unwrap_or_else(|| "(default)".to_string()),
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
+        ]));
+    }
+
     if concierge.provider.as_deref() == Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER) {
         let openrouter_fields = [
             (

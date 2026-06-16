@@ -200,6 +200,7 @@ fn create_modal_displays_subagent_names_and_builtin_persona_labels() {
     form.reviewer = Some(WorkspaceActor::Subagent("mokosh".to_string()));
     let mut subagents = crate::state::SubAgentsState::new();
     subagents.entries = vec![crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "subagent-1777071832136".to_string(),
         name: "Tester".to_string(),
         provider: "openai".to_string(),

@@ -305,6 +305,7 @@ async fn seed_thread_context_does_not_replace_lazy_hydrated_history() {
 async fn hydrate_restores_user_defined_subagent_thread_identity() {
     let mut config = AgentConfig::default();
     config.sub_agents.push(SubAgentDefinition {
+        claude_permission_mode: None,
         id: "dola".to_string(),
         name: "Dola".to_string(),
         provider: PROVIDER_ID_OPENAI.to_string(),

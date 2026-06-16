@@ -10,6 +10,7 @@ fn header_profile_uses_thread_owner_not_latest_participant_author() {
     model.config.model = "gpt-5.4".to_string();
     model.config.context_window_tokens = 400_000;
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "mokosh".to_string(),
         name: "Mokosh".to_string(),
         provider: "alibaba-coding-plan".to_string(),

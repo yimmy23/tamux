@@ -199,6 +199,7 @@ pub struct ConfigState {
     pub auth_source: String,
     pub api_transport: String,
     pub reasoning_effort: String,
+    pub claude_permission_mode: String,
     pub openrouter_provider_order: String,
     pub openrouter_provider_ignore: String,
     pub openrouter_allow_fallbacks: bool,

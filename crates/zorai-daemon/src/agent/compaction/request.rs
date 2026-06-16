@@ -45,9 +45,9 @@ pub(crate) fn prepare_llm_request_with_reused_user_message(
 
     let is_claude_code_cli =
         config.provider == zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI;
-    if !compaction_active
-        && selected_transport == ApiTransport::NativeAssistant
-        && (!provider_config.assistant_id.trim().is_empty() || is_claude_code_cli)
+    if selected_transport == ApiTransport::NativeAssistant
+        && (is_claude_code_cli
+            || (!compaction_active && !provider_config.assistant_id.trim().is_empty()))
     {
         let latest_user_message = messages
             .iter()

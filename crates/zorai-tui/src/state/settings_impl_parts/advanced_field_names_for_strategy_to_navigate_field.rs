@@ -275,6 +275,7 @@ impl SettingsState {
                 7 => "context_window_tokens",
                 8 => "system_prompt",
                 9 => "backend",
+                10 => "claude_permission_mode",
                 _ => "",
             },
             SettingsTab::SubAgents => match self.field_cursor {
@@ -288,6 +289,7 @@ impl SettingsState {
                 3 => "concierge_model",
                 4 => "concierge_reasoning_effort",
                 5 => "concierge_api_transport",
+                6 => "concierge_claude_permission_mode",
                 _ => "",
             },
             SettingsTab::Features => match self.field_cursor {
@@ -387,9 +389,9 @@ impl SettingsState {
             SettingsTab::Chat => 25,
             SettingsTab::Gateway => 14,
             SettingsTab::Auth => 1,
-            SettingsTab::Agent => 10,
+            SettingsTab::Agent => 11,
             SettingsTab::SubAgents => 1,
-            SettingsTab::Concierge => 6,
+            SettingsTab::Concierge => 7,
             SettingsTab::Features => 29,
             SettingsTab::Advanced => 25,
             SettingsTab::Plugins => 1,

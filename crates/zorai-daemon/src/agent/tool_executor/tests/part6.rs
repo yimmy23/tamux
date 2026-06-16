@@ -3965,6 +3965,7 @@ async fn list_agents_returns_effective_runtime_targets() {
         Some(zorai_shared::providers::PROVIDER_ID_ANTHROPIC.to_string());
     config.builtin_sub_agents.weles.model = Some("claude-sonnet-4-20250514".to_string());
     config.sub_agents.push(crate::agent::SubAgentDefinition {
+        claude_permission_mode: None,
         id: "reviewer".to_string(),
         name: "Reviewer".to_string(),
         provider: zorai_shared::providers::PROVIDER_ID_OPENAI.to_string(),
@@ -4200,6 +4201,7 @@ async fn switch_model_updates_targeted_agent_settings_from_svarog_scope() {
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {
+        claude_permission_mode: None,
         id: "reviewer".to_string(),
         name: "Reviewer".to_string(),
         provider: zorai_shared::providers::PROVIDER_ID_OPENAI.to_string(),
@@ -4515,6 +4517,7 @@ async fn spawn_subagent_derives_budget_from_effective_subagent_provider_window()
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {
+        claude_permission_mode: None,
         id: "reviewer".to_string(),
         name: "Reviewer".to_string(),
         provider: zorai_shared::providers::PROVIDER_ID_GROQ.to_string(),
@@ -4606,6 +4609,7 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {
+        claude_permission_mode: None,
         id: "dazhbog".to_string(),
         name: "Dazhbog".to_string(),
         provider: zorai_shared::providers::PROVIDER_ID_GROQ.to_string(),

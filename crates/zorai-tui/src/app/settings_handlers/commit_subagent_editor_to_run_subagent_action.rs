@@ -105,6 +105,14 @@ impl TuiModel {
                     .map(serde_json::Value::String)
                     .unwrap_or(serde_json::Value::Null),
             );
+            obj.insert(
+                "claude_permission_mode".to_string(),
+                editor
+                    .claude_permission_mode
+                    .clone()
+                    .map(serde_json::Value::String)
+                    .unwrap_or(serde_json::Value::Null),
+            );
             if editor.provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
                 obj.insert(
                     "openrouter_provider_order".to_string(),
@@ -186,6 +194,11 @@ impl TuiModel {
                 .map(ToString::to_string),
             api_transport: raw
                 .get("api_transport")
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.is_empty())
+                .map(ToString::to_string),
+            claude_permission_mode: raw
+                .get("claude_permission_mode")
                 .and_then(|v| v.as_str())
                 .filter(|v| !v.is_empty())
                 .map(ToString::to_string),
@@ -286,6 +299,7 @@ impl TuiModel {
             "model": self.concierge.model,
             "reasoning_effort": self.concierge.reasoning_effort,
             "api_transport": self.concierge.api_transport,
+            "claude_permission_mode": self.concierge.claude_permission_mode,
             "auto_cleanup_on_navigate": self.concierge.auto_cleanup_on_navigate,
         });
         if self.concierge.provider.as_deref()
@@ -359,6 +373,16 @@ impl TuiModel {
 
         match self.auth.action_cursor {
             0 => {
+                if entry.provider_id == zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI {
+                    self.status_line = if entry.authenticated {
+                        "Claude Code CLI detected — no API key needed (local auth via `claude`)."
+                            .to_string()
+                    } else {
+                        "Claude Code CLI not found on PATH. Install Claude Code; no API key is used."
+                            .to_string()
+                    };
+                    return;
+                }
                 if entry.authenticated {
                     if entry.provider_id == PROVIDER_ID_OPENAI
                         && entry.auth_source == "chatgpt_subscription"
@@ -417,6 +441,11 @@ impl TuiModel {
                 }
             }
             1 => {
+                if entry.provider_id == zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI {
+                    self.send_daemon_command(DaemonCommand::GetProviderAuthStates);
+                    self.status_line = "Re-checking Claude Code CLI availability...".to_string();
+                    return;
+                }
                 if entry.provider_id == PROVIDER_ID_OPENAI && self.config.chatgpt_auth_available {
                     self.send_daemon_command(DaemonCommand::LogoutOpenAICodex);
                 } else if entry.provider_id == PROVIDER_ID_OPENAI {

@@ -255,6 +255,25 @@ impl TuiModel {
                                 };
                             }
                         }
+                        crate::state::subagents::SubAgentEditorField::ClaudePermissionMode => {
+                            if let Some(editor) = self.subagents.editor.as_mut() {
+                                let options =
+                                    crate::state::subagents::CLAUDE_PERMISSION_MODE_OPTIONS;
+                                let current =
+                                    editor.claude_permission_mode.clone().unwrap_or_default();
+                                let current_idx = options
+                                    .iter()
+                                    .position(|mode| *mode == current)
+                                    .unwrap_or(0);
+                                let next_idx = (current_idx + 1) % options.len().max(1);
+                                let next = options.get(next_idx).copied().unwrap_or("");
+                                editor.claude_permission_mode = if next.is_empty() {
+                                    None
+                                } else {
+                                    Some(next.to_string())
+                                };
+                            }
+                        }
                         crate::state::subagents::SubAgentEditorField::Role => {
                             self.open_subagent_role_picker();
                         }

@@ -69,6 +69,22 @@ impl TuiModel {
                 };
                 self.send_concierge_config();
             }
+            "concierge_claude_permission_mode" => {
+                let options = crate::state::subagents::CLAUDE_PERMISSION_MODE_OPTIONS;
+                let current = self.concierge.claude_permission_mode.clone().unwrap_or_default();
+                let current_idx = options
+                    .iter()
+                    .position(|mode| *mode == current)
+                    .unwrap_or(0);
+                let next_idx = (current_idx + 1) % options.len().max(1);
+                let next = options.get(next_idx).copied().unwrap_or("");
+                self.concierge.claude_permission_mode = if next.is_empty() {
+                    None
+                } else {
+                    Some(next.to_string())
+                };
+                self.send_concierge_config();
+            }
             "concierge_openrouter_provider_order" => self
                 .open_concierge_openrouter_provider_picker(
                     SettingsPickerTarget::ConciergeOpenRouterPreferredProviders,

@@ -82,6 +82,7 @@ fn new_weles_conversation_uses_weles_profile_before_first_prompt() {
     model.config.model = "gpt-5.4".to_string();
     model.config.custom_model_name.clear();
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),
         provider: "anthropic".to_string(),
@@ -124,6 +125,7 @@ fn new_weles_conversation_keeps_weles_profile_after_first_prompt_locally() {
     model.config.model = "gpt-5.4".to_string();
     model.config.custom_model_name.clear();
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),
         provider: "anthropic".to_string(),
@@ -169,6 +171,7 @@ pub(super) fn seed_active_weles_thread(model: &mut TuiModel) {
             model: "gpt-5.4".to_string(),
         });
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),
         provider: PROVIDER_ID_OPENAI.to_string(),
@@ -241,6 +244,7 @@ fn seed_dola_subagent(model: &mut TuiModel) {
     model.config.provider = PROVIDER_ID_OPENAI.to_string();
     model.config.model = "gpt-5.4".to_string();
     model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "dola".to_string(),
         name: "Dola".to_string(),
         provider: PROVIDER_ID_OPENAI.to_string(),

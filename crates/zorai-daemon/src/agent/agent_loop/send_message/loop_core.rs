@@ -55,6 +55,32 @@ fn is_context_window_exceeded_failure(message: &str) -> bool {
 }
 
 impl<'a> SendMessageRunner<'a> {
+    fn resolve_claude_permission_mode(&self) -> Option<String> {
+        let nonempty = |value: Option<&str>| {
+            value
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        };
+        let target = crate::agent::agent_identity::resolve_agent_target(
+            &self.agent_scope_id,
+            &self.config.sub_agents,
+        );
+        if let Some(mode) = target
+            .matched_sub_agent
+            .as_ref()
+            .and_then(|def| nonempty(def.claude_permission_mode.as_deref()))
+        {
+            return Some(mode);
+        }
+        if target.scope_id == crate::agent::agent_identity::CONCIERGE_AGENT_ID {
+            if let Some(mode) = nonempty(self.config.concierge.claude_permission_mode.as_deref()) {
+                return Some(mode);
+            }
+        }
+        nonempty(self.config.claude_permission_mode.as_deref())
+    }
+
     async fn prepare_request(&mut self) -> Result<PreparedLlmRequest> {
         let compaction_inserted = self
             .engine
@@ -203,15 +229,21 @@ impl<'a> SendMessageRunner<'a> {
         } else {
             CopilotInitiator::Agent
         };
-        let working_dir =
-            if self.config.provider == zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI {
-                self.engine
-                    .resolve_thread_repo_root(&self.tid)
-                    .await
-                    .map(|(repo_root, _, _, _)| repo_root)
-            } else {
-                None
-            };
+        let is_claude_code_cli =
+            self.config.provider == zorai_shared::providers::PROVIDER_ID_CLAUDE_CODE_CLI;
+        let working_dir = if is_claude_code_cli {
+            self.engine
+                .resolve_thread_repo_root(&self.tid)
+                .await
+                .map(|(repo_root, _, _, _)| repo_root)
+        } else {
+            None
+        };
+        let claude_permission_mode = if is_claude_code_cli {
+            self.resolve_claude_permission_mode()
+        } else {
+            None
+        };
         let mut stream = crate::agent::llm_client::send_completion_request_with_options(
             &request_client,
             &self.config.provider,
@@ -227,6 +259,7 @@ impl<'a> SendMessageRunner<'a> {
                 force_connection_close: prepared_request.force_connection_close,
                 copilot_initiator,
                 working_dir,
+                claude_permission_mode,
             },
         );
 

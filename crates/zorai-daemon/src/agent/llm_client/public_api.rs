@@ -129,6 +129,7 @@ pub(crate) struct CompletionRequestOptions {
     pub force_connection_close: bool,
     pub copilot_initiator: CopilotInitiator,
     pub working_dir: Option<String>,
+    pub claude_permission_mode: Option<String>,
 }
 
 /// Send a completion request. Returns a stream of `CompletionChunk`.
@@ -246,6 +247,7 @@ pub(crate) fn send_completion_request_with_options(
                                 &messages,
                                 upstream_thread_id.as_deref(),
                                 options.working_dir.as_deref(),
+                                options.claude_permission_mode.as_deref(),
                                 &tx,
                             )
                             .await

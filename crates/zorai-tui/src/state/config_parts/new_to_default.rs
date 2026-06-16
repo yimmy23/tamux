@@ -19,6 +19,7 @@ impl ConfigState {
             auth_source: "api_key".to_string(),
             api_transport: "responses".to_string(),
             reasoning_effort: String::new(),
+            claude_permission_mode: String::new(),
             openrouter_provider_order: String::new(),
             openrouter_provider_ignore: String::new(),
             openrouter_allow_fallbacks: true,

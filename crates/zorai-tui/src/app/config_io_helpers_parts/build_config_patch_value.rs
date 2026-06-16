@@ -57,6 +57,11 @@ impl TuiModel {
         patch["base_url"] = serde_json::Value::String(self.config.base_url.clone());
         patch["model"] = serde_json::Value::String(self.config.model.clone());
         patch["reasoning_effort"] = serde_json::Value::String(self.config.reasoning_effort.clone());
+        patch["claude_permission_mode"] = if self.config.claude_permission_mode.trim().is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(self.config.claude_permission_mode.clone())
+        };
         patch["context_window_tokens"] =
             serde_json::Value::from(self.effective_current_context_window() as u64);
         patch["search_provider"] = serde_json::Value::String(self.config.search_provider.clone());

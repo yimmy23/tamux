@@ -421,11 +421,11 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Auth));
     assert_eq!(state.field_count(), 1);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Agent));
-    assert_eq!(state.field_count(), 10);
+    assert_eq!(state.field_count(), 11);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::SubAgents));
     assert_eq!(state.field_count(), 1);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Concierge));
-    assert_eq!(state.field_count(), 6);
+    assert_eq!(state.field_count(), 7);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Features));
     assert_eq!(state.field_count(), 29);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Advanced));

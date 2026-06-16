@@ -333,5 +333,25 @@ pub(crate) fn render_agent_tab<'a>(
         ]));
     }
 
+    {
+        let is_selected = settings.field_cursor() == 10;
+        let marker = if is_selected { "> " } else { "  " };
+        let style = if is_selected {
+            theme.accent_primary
+        } else {
+            theme.fg_dim
+        };
+        let value = if config.claude_permission_mode.trim().is_empty() {
+            "(default)".to_string()
+        } else {
+            config.claude_permission_mode.clone()
+        };
+        lines.push(Line::from(vec![
+            Span::styled(marker, style),
+            Span::styled("Claude perms      ", theme.fg_dim),
+            Span::styled(value, style),
+        ]));
+    }
+
     lines
 }

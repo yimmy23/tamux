@@ -195,6 +195,7 @@ impl Default for AgentConfig {
             auth_source: default_auth_source(),
             api_transport: default_api_transport(),
             reasoning_effort: default_reasoning_effort(),
+            claude_permission_mode: None,
             system_prompt: default_system_prompt(),
             max_tool_loops: default_max_tool_loops(),
             max_retries: default_max_retries(),
@@ -377,6 +378,8 @@ pub struct SubAgentDefinition {
     pub reasoning_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_transport: Option<ApiTransport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_permission_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub openrouter_provider_order: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -500,6 +503,8 @@ pub struct ConciergeConfig {
     pub reasoning_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_transport: Option<ApiTransport>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_permission_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub openrouter_provider_order: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -519,6 +524,7 @@ impl Default for ConciergeConfig {
             model: None,
             reasoning_effort: None,
             api_transport: None,
+            claude_permission_mode: None,
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,

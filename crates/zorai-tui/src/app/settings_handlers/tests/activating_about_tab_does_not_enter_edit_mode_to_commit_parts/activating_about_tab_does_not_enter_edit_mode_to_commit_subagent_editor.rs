@@ -338,6 +338,7 @@ fn github_copilot_gemini_31_forces_chat_completions_when_loaded_from_saved_confi
 fn commit_subagent_editor_persists_existing_provider_model_and_effort_changes() {
     let (mut model, mut daemon_rx) = make_model();
     model.subagents.entries = vec![crate::state::SubAgentEntry {
+        claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),
         provider: PROVIDER_ID_OPENAI.to_string(),

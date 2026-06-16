@@ -16,6 +16,7 @@ pub struct SubAgentEntry {
     pub protected_reason: Option<String>,
     pub reasoning_effort: Option<String>,
     pub api_transport: Option<String>,
+    pub claude_permission_mode: Option<String>,
     pub openrouter_provider_order: String,
     pub openrouter_provider_ignore: String,
     pub openrouter_allow_fallbacks: bool,
