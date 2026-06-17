@@ -889,6 +889,17 @@ pub struct TriggerFireHistoryRow {
 }
 
 #[derive(Debug, Clone)]
+pub struct AgentWakeupRow {
+    pub id: String,
+    pub thread_id: String,
+    pub message: String,
+    pub interval_ms: u64,
+    pub next_fire_at: u64,
+    pub repetitions_remaining: Option<u64>,
+    pub created_at: u64,
+}
+
+#[derive(Debug, Clone)]
 pub struct RoutineDefinitionRow {
     pub id: String,
     pub title: String,
@@ -1711,6 +1722,7 @@ pub struct AgentMessagePatch {
     pub cost_usd: Option<Option<f64>>,
 }
 
+mod agent_wakeups;
 mod audit;
 mod browser_profiles;
 mod cache;

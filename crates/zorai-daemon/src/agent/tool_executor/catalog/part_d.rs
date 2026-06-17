@@ -120,6 +120,23 @@ pub(crate) fn add_available_tools_part_d(
             "limit": { "type": "integer", "description": "Maximum number of tasks to return" }
         }
     })));
+    tools.push(tool_def(tool_names::SCHEDULE_WAKEUP, "Schedule a wakeup that re-prompts you on this thread after a delay, e.g. to check on a long-running job. Returns a wakeup_id you can pass to cancel_wakeup. The delay is reschedule interval for repeats.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "delay": { "type": "integer", "description": "How long until the wakeup fires (in `unit`s). Minimum 1." },
+            "unit": { "type": "string", "enum": ["seconds", "minutes", "hours"], "description": "Time unit for delay (default: minutes)" },
+            "repetitions": { "type": "integer", "description": "How many times to fire (default 1). 0 = repeat indefinitely until cancelled." },
+            "message": { "type": "string", "description": "What you want to be reminded to do when the wakeup fires" }
+        },
+        "required": ["delay"]
+    })));
+    tools.push(tool_def(tool_names::CANCEL_WAKEUP, "Cancel a previously scheduled wakeup by its wakeup_id.", serde_json::json!({
+        "type": "object",
+        "properties": {
+            "wakeup_id": { "type": "string", "description": "The id returned by schedule_wakeup" }
+        },
+        "required": ["wakeup_id"]
+    })));
     tools.push(tool_def(tool_names::START_GOAL_RUN, "Start a durable goal run for a long-running objective; it always executes on its own dedicated thread.", serde_json::json!({
         "type": "object",
         "properties": {

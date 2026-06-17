@@ -990,7 +990,7 @@ fn kimi_coding_plan_requests_include_sdk_headers() {
             .headers()
             .get("user-agent")
             .and_then(|value| value.to_str().ok()),
-        Some("Zorai")
+        Some("zorai/1.0.0")
     );
     assert_eq!(
         request

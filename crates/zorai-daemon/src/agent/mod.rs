@@ -15,6 +15,7 @@ pub mod types;
 
 pub(crate) mod agent_identity;
 mod agent_loop;
+mod agent_wakeup;
 mod aline_startup;
 mod anticipatory;
 mod anticipatory_support;
