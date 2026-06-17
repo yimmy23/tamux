@@ -2,6 +2,7 @@ use super::*;
 
 const BACKGROUND_SHUTDOWN_JOIN_TIMEOUT_SECS: u64 = 2;
 const SUPERVISOR_TICK_SECS: u64 = 30;
+const WAKEUP_TICK_SECS: u64 = 5;
 
 impl AgentEngine {
     pub async fn run_loop(self: Arc<Self>, mut shutdown: tokio::sync::watch::Receiver<bool>) {
@@ -58,6 +59,11 @@ impl AgentEngine {
                 let engine = self.clone();
                 let rx = shutdown.clone();
                 async move { engine.run_operation_wakeup_supervision_loop(rx).await }
+            }),
+            tokio::spawn({
+                let engine = self.clone();
+                let rx = shutdown.clone();
+                async move { engine.run_timer_wakeup_supervision_loop(rx).await }
             }),
             tokio::spawn({
                 let engine = self.clone();
@@ -381,6 +387,25 @@ impl AgentEngine {
                 _ = tick.tick() => {
                     if let Err(error) = self.supervise_operation_completion_wakeups().await {
                         tracing::warn!(error = %error, "operation wakeup supervision tick failed");
+                    }
+                }
+                _ = shutdown.changed() => break,
+            }
+        }
+    }
+
+    async fn run_timer_wakeup_supervision_loop(
+        self: Arc<Self>,
+        mut shutdown: tokio::sync::watch::Receiver<bool>,
+    ) {
+        let mut tick =
+            tokio::time::interval(std::time::Duration::from_secs(WAKEUP_TICK_SECS));
+
+        loop {
+            tokio::select! {
+                _ = tick.tick() => {
+                    if let Err(error) = self.supervise_timer_wakeups().await {
+                        tracing::warn!(error = %error, "timer wakeup supervision tick failed");
                     }
                 }
                 _ = shutdown.changed() => break,

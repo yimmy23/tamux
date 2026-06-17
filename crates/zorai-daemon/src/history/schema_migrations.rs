@@ -636,6 +636,18 @@ pub(super) fn apply_schema_migrations(
         );
         CREATE INDEX IF NOT EXISTS idx_event_triggers_family_kind_enabled ON event_triggers(event_family, event_kind, enabled, updated_at DESC);",
     )?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS agent_wakeups (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL,
+            message TEXT NOT NULL,
+            interval_ms INTEGER NOT NULL,
+            next_fire_at INTEGER NOT NULL,
+            repetitions_remaining INTEGER,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_agent_wakeups_next_fire ON agent_wakeups(next_fire_at ASC);",
+    )?;
     ensure_column(connection, "event_triggers", "agent_id", "TEXT")?;
     ensure_column(connection, "event_triggers", "prompt_template", "TEXT")?;
     ensure_column(connection, "event_triggers", "tool_name", "TEXT")?;

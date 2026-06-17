@@ -608,6 +608,30 @@ impl AgentEngine {
             Err(e) => tracing::warn!("failed to load goal runs from sqlite: {e}"),
         }
 
+        match self.history.list_agent_wakeups().await {
+            Ok(rows) if !rows.is_empty() => {
+                let loaded = rows.len();
+                let mut wakeups = self.timer_wakeups.lock().await;
+                for row in rows {
+                    wakeups.insert(
+                        row.id.clone(),
+                        crate::agent::agent_wakeup::AgentWakeup {
+                            id: row.id,
+                            thread_id: row.thread_id,
+                            message: row.message,
+                            interval_ms: row.interval_ms,
+                            next_fire_at: row.next_fire_at,
+                            repetitions_remaining: row.repetitions_remaining,
+                            created_at: row.created_at,
+                        },
+                    );
+                }
+                tracing::info!(loaded_wakeups = loaded, "hydrated persisted agent wakeups");
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!("failed to load agent wakeups from sqlite: {e}"),
+        }
+
         let todos_path = self.data_dir.join("todos.json");
         if todos_path.exists() {
             match tokio::fs::read_to_string(&todos_path).await {

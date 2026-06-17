@@ -1763,3 +1763,79 @@ pub(crate) async fn execute_cancel_task(
     })
     .to_string())
 }
+
+pub(crate) async fn execute_schedule_wakeup(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+    thread_id: &str,
+) -> Result<String> {
+    if thread_id.trim().is_empty() {
+        return Err(anyhow::anyhow!("schedule_wakeup requires an active thread"));
+    }
+    let delay = args
+        .get("delay")
+        .and_then(|value| value.as_u64())
+        .filter(|value| *value >= 1)
+        .ok_or_else(|| anyhow::anyhow!("missing or invalid 'delay' (integer >= 1)"))?;
+    let unit = args
+        .get("unit")
+        .and_then(|value| value.as_str())
+        .unwrap_or("minutes")
+        .trim()
+        .to_ascii_lowercase();
+    let unit_ms: u64 = match unit.as_str() {
+        "second" | "seconds" | "sec" | "s" => 1_000,
+        "minute" | "minutes" | "min" | "m" => 60_000,
+        "hour" | "hours" | "hr" | "h" => 3_600_000,
+        other => {
+            return Err(anyhow::anyhow!(
+                "unsupported unit '{other}' (use seconds, minutes, or hours)"
+            ))
+        }
+    };
+    let delay_ms = delay.saturating_mul(unit_ms);
+    let repetitions = args
+        .get("repetitions")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(1);
+    let message = args
+        .get("message")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Scheduled wakeup — continue with what you intended to check.");
+
+    let wakeup = agent
+        .schedule_wakeup(thread_id, delay_ms, repetitions, message)
+        .await;
+
+    let repetitions_value = if repetitions == 0 {
+        serde_json::Value::String("infinite".to_string())
+    } else {
+        serde_json::Value::from(repetitions)
+    };
+    Ok(serde_json::json!({
+        "wakeup_id": wakeup.id,
+        "fires_in_ms": delay_ms,
+        "next_fire_at_ms": wakeup.next_fire_at,
+        "repetitions": repetitions_value,
+        "note": "Cancel with cancel_wakeup using this wakeup_id. Fires within ~30s of the scheduled time.",
+    })
+    .to_string())
+}
+
+pub(crate) async fn execute_cancel_wakeup(
+    args: &serde_json::Value,
+    agent: &AgentEngine,
+) -> Result<String> {
+    let wakeup_id = args
+        .get("wakeup_id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing 'wakeup_id' argument"))?;
+    let cancelled = agent.cancel_wakeup(wakeup_id).await;
+    Ok(serde_json::json!({
+        "wakeup_id": wakeup_id,
+        "cancelled": cancelled,
+    })
+    .to_string())
+}

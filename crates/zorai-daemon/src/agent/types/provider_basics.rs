@@ -12,7 +12,7 @@ pub enum ApiType {
 impl ApiType {
     /// The client User-Agent string used by coding-plan providers.
     pub fn sdk_user_agent(self) -> &'static str {
-        "Zorai"
+        "zorai/1.0.0"
     }
 }
 

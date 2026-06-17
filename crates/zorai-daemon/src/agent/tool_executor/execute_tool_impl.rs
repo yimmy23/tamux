@@ -1813,6 +1813,8 @@ async fn dispatch_tool_execution(
         }
         tool_names::ENQUEUE_TASK => execute_enqueue_task(args, agent).await,
         tool_names::LIST_TASKS => execute_list_tasks(args, agent).await,
+        tool_names::SCHEDULE_WAKEUP => execute_schedule_wakeup(args, agent, thread_id).await,
+        tool_names::CANCEL_WAKEUP => execute_cancel_wakeup(args, agent).await,
         tool_names::START_GOAL_RUN => {
             execute_start_goal_run(args, agent, thread_id, session_id).await
         }

@@ -125,6 +125,12 @@ pub const ALIBABA_TOKEN_MODELS: &[ModelDefinition] = &[
         modalities: TEXT_IMAGE,
     },
     ModelDefinition {
+        id: "glm-5.2",
+        name: "GLM-5.2",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
         id: "glm-5.1",
         name: "GLM-5.1",
         context_window: 202_752,
@@ -401,6 +407,12 @@ pub const OPENCODE_ZEN_MODELS: &[ModelDefinition] = &[
 ];
 
 pub const OPENCODE_GO_MODELS: &[ModelDefinition] = &[
+    ModelDefinition {
+        id: "glm-5.2",
+        name: "GLM-5.2",
+        context_window: 1_000_000,
+        modalities: TEXT_ONLY,
+    },
     ModelDefinition {
         id: "glm-5.1",
         name: "GLM-5.1",
