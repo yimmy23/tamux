@@ -40,7 +40,13 @@ fn summarize_tool_input(input: Option<&serde_json::Value>) -> String {
             .filter(|value| !value.is_empty())
     })
     .unwrap_or("");
-    let summary: String = summary.split('\n').next().unwrap_or("").chars().take(80).collect();
+    let summary: String = summary
+        .split('\n')
+        .next()
+        .unwrap_or("")
+        .chars()
+        .take(80)
+        .collect();
     summary
 }
 
@@ -410,7 +416,9 @@ mod tests {
             "crates/x/y.rs"
         );
         assert_eq!(
-            summarize_tool_input(Some(&serde_json::json!({ "command": "cargo build -p zorai-daemon" }))),
+            summarize_tool_input(Some(
+                &serde_json::json!({ "command": "cargo build -p zorai-daemon" })
+            )),
             "cargo build -p zorai-daemon"
         );
         assert_eq!(
@@ -423,7 +431,9 @@ mod tests {
     #[test]
     fn summarize_tool_input_takes_first_line_and_truncates() {
         let long = "a".repeat(200);
-        let out = summarize_tool_input(Some(&serde_json::json!({ "command": format!("{long}\nsecond line") })));
+        let out = summarize_tool_input(Some(
+            &serde_json::json!({ "command": format!("{long}\nsecond line") }),
+        ));
         assert_eq!(out.chars().count(), 80);
         assert!(!out.contains('\n'));
     }

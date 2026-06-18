@@ -759,6 +759,7 @@ fn github_copilot_stored_auth_adds_bearer_header_to_requests() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
     let request = apply_openai_auth_headers(
         client.get("https://models.github.ai/inference/chat/completions"),
@@ -835,6 +836,7 @@ fn github_copilot_requests_include_copilot_headers() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
     let request = apply_openai_auth_headers(
         client.get("https://api.githubcopilot.com/chat/completions"),
@@ -919,6 +921,7 @@ fn github_copilot_internal_requests_use_agent_initiator() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
     let request = apply_openai_auth_headers(
         client.get("https://api.githubcopilot.com/chat/completions"),
@@ -967,6 +970,7 @@ fn kimi_coding_plan_requests_include_sdk_headers() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let request = apply_dashscope_coding_plan_sdk_headers(
@@ -1037,6 +1041,7 @@ fn openrouter_requests_include_app_attribution_headers() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let request = apply_openai_auth_headers(
@@ -1099,6 +1104,7 @@ fn github_copilot_responses_request_includes_reasoning_summary() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let body = build_openai_responses_body(
@@ -1150,6 +1156,7 @@ fn responses_request_sets_tool_choice_when_tools_are_present() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let body = build_openai_responses_body(
@@ -1219,6 +1226,7 @@ fn build_openai_responses_request_omits_previous_response_id_for_chatgpt_subscri
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let request = build_openai_responses_request(
@@ -1333,6 +1341,7 @@ fn anthropic_request_maps_response_schema_to_output_config_json_schema() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let request = build_anthropic_request(

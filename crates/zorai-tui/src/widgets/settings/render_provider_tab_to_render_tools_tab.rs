@@ -72,7 +72,9 @@ pub(crate) fn render_provider_tab<'a>(
     } else {
         config.assistant_id.clone()
     };
-    use zorai_shared::providers::{PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENROUTER};
+    use zorai_shared::providers::{
+        PROVIDER_ID_CUSTOM, PROVIDER_ID_HUGGINGFACE, PROVIDER_ID_OPENROUTER,
+    };
 
     let effort_val = if config.reasoning_effort().is_empty() {
         "off".to_string()
@@ -99,6 +101,11 @@ pub(crate) fn render_provider_tab<'a>(
         "enabled".to_string()
     } else {
         "disabled".to_string()
+    };
+    let huggingface_provider_val = if config.huggingface_provider.trim().is_empty() {
+        "auto".to_string()
+    } else {
+        config.huggingface_provider.clone()
     };
     let context_hint = if providers::model_uses_context_window_override(
         &config.provider,
@@ -202,6 +209,15 @@ pub(crate) fn render_provider_tab<'a>(
                 " [Enter: toggle]",
             ),
         ]);
+    }
+    if config.provider == PROVIDER_ID_HUGGINGFACE {
+        fields.push((
+            12,
+            "HF Route",
+            huggingface_provider_val,
+            "huggingface_provider",
+            " [Enter: edit]",
+        ));
     }
 
     for (idx, label, value, field_name, hint) in &fields {

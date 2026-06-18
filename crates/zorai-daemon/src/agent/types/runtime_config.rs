@@ -339,6 +339,8 @@ pub struct ProviderConfig {
     pub openrouter_allow_fallbacks: Option<bool>,
     #[serde(default)]
     pub openrouter_response_cache_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub huggingface_provider: Option<String>,
 }
 
 /// A named sub-agent definition that the orchestration engine can dispatch work to.
@@ -358,6 +360,8 @@ pub struct SubAgentDefinition {
     pub tool_blacklist: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_budget_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window_tokens: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_duration_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -386,6 +390,8 @@ pub struct SubAgentDefinition {
     pub openrouter_provider_ignore: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openrouter_allow_fallbacks: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub huggingface_provider: Option<String>,
     #[serde(default)]
     pub created_at: u64,
 }
@@ -511,6 +517,8 @@ pub struct ConciergeConfig {
     pub openrouter_provider_ignore: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub openrouter_allow_fallbacks: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub huggingface_provider: Option<String>,
     #[serde(default = "default_true")]
     pub auto_cleanup_on_navigate: bool,
 }
@@ -528,6 +536,7 @@ impl Default for ConciergeConfig {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            huggingface_provider: None,
             auto_cleanup_on_navigate: true,
         }
     }

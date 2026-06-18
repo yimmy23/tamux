@@ -99,6 +99,7 @@ fn new_weles_conversation_uses_weles_profile_before_first_prompt() {
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: Some(serde_json::json!({
             "id": "weles_builtin",
             "name": "WELES",
@@ -142,6 +143,7 @@ fn new_weles_conversation_keeps_weles_profile_after_first_prompt_locally() {
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     });
 
@@ -188,6 +190,7 @@ pub(super) fn seed_active_weles_thread(model: &mut TuiModel) {
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     });
     model
@@ -261,6 +264,7 @@ fn seed_dola_subagent(model: &mut TuiModel) {
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     });
 }

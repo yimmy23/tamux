@@ -1,4 +1,5 @@
 use super::super::wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render::*;
+use crate::providers;
 use crate::state::settings::SettingsState;
 use crate::theme::ThemeTokens;
 use crate::widgets::message::wrap_text;
@@ -25,6 +26,8 @@ pub(crate) fn render_subagents_tab<'a>(
             settings.is_editing() && settings.editing_field() == Some("subagent_name");
         let model_is_editing =
             settings.is_editing() && settings.editing_field() == Some("subagent_model");
+        let context_is_editing = settings.is_editing()
+            && settings.editing_field() == Some("subagent_context_window_tokens");
         let role_is_editing =
             settings.is_editing() && settings.editing_field() == Some("subagent_role");
         let prompt_is_editing =
@@ -38,6 +41,23 @@ pub(crate) fn render_subagents_tab<'a>(
             format!("{}\u{2588}", settings.edit_buffer())
         } else {
             editor.model.clone()
+        };
+        let context_value = if context_is_editing {
+            format!("{}\u{2588}", settings.edit_buffer())
+        } else {
+            editor
+                .context_window_tokens
+                .map(|tokens| tokens.to_string())
+                .or_else(|| {
+                    providers::known_context_window_for(&editor.provider, &editor.model)
+                        .map(|tokens| format!("{tokens} (auto)"))
+                })
+                .unwrap_or_else(|| "auto".to_string())
+        };
+        let huggingface_provider_value = if editor.huggingface_provider.trim().is_empty() {
+            "auto".to_string()
+        } else {
+            editor.huggingface_provider.clone()
         };
         let role_value = if role_is_editing {
             settings.edit_buffer().to_string()
@@ -112,6 +132,14 @@ pub(crate) fn render_subagents_tab<'a>(
                 model_value
             },
         ));
+        lines.push(field_line(
+            matches!(
+                editor.field,
+                crate::state::subagents::SubAgentEditorField::ContextWindowTokens
+            ),
+            "Context",
+            context_value,
+        ));
         if editor.provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
             let preferred = if editor.openrouter_provider_order.trim().is_empty() {
                 "(none)".to_string()
@@ -150,6 +178,16 @@ pub(crate) fn render_subagents_tab<'a>(
                 } else {
                     "strict".to_string()
                 },
+            ));
+        }
+        if editor.provider == zorai_shared::providers::PROVIDER_ID_HUGGINGFACE {
+            lines.push(field_line(
+                matches!(
+                    editor.field,
+                    crate::state::subagents::SubAgentEditorField::HuggingFaceProvider
+                ),
+                "HF Route",
+                huggingface_provider_value,
             ));
         }
         lines.push(field_line(

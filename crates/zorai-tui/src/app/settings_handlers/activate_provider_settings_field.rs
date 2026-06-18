@@ -141,6 +141,18 @@ impl TuiModel {
                         "OpenRouter response caching only applies to OpenRouter".to_string();
                 }
             }
+            "huggingface_provider" => {
+                if self.config.provider == zorai_shared::providers::PROVIDER_ID_HUGGINGFACE {
+                    self.settings
+                        .start_editing("huggingface_provider", &self.config.huggingface_provider);
+                    self.status_line =
+                        "Enter HF route: fastest, cheapest, preferred, or provider slug"
+                            .to_string();
+                } else {
+                    self.status_line =
+                        "Hugging Face routing only applies to Hugging Face".to_string();
+                }
+            }
             _ => return false,
         }
         true

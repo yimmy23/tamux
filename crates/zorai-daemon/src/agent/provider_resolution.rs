@@ -233,6 +233,7 @@ pub(super) fn resolve_provider_config_for(
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
         config,
     ))
@@ -487,6 +488,7 @@ providers:
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
                 openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
             },
         );
 
@@ -541,6 +543,7 @@ providers:
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
                 openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
             },
         );
 
@@ -592,6 +595,7 @@ providers:
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
                 openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
             },
         );
 
@@ -648,6 +652,7 @@ providers:
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
                 openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
             },
         );
 
@@ -694,6 +699,7 @@ providers:
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
                 openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
             },
         );
 
@@ -742,6 +748,7 @@ providers:
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
                 openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
             },
         );
 
@@ -789,6 +796,7 @@ providers:
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
                 openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
             },
         );
 
@@ -837,6 +845,7 @@ providers:
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
                 openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
             },
         );
 

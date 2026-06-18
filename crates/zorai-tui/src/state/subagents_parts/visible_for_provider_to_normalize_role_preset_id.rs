@@ -12,9 +12,11 @@ pub enum SubAgentEditorField {
     Name,
     Provider,
     Model,
+    ContextWindowTokens,
     OpenRouterProviderOrder,
     OpenRouterProviderIgnore,
     OpenRouterAllowFallbacks,
+    HuggingFaceProvider,
     ReasoningEffort,
     ApiTransport,
     ClaudePermissionMode,
@@ -25,10 +27,28 @@ pub enum SubAgentEditorField {
 }
 
 impl SubAgentEditorField {
-    pub const ALL: [SubAgentEditorField; 13] = [
+    pub const ALL: [SubAgentEditorField; 15] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
+        SubAgentEditorField::ContextWindowTokens,
+        SubAgentEditorField::OpenRouterProviderOrder,
+        SubAgentEditorField::OpenRouterProviderIgnore,
+        SubAgentEditorField::OpenRouterAllowFallbacks,
+        SubAgentEditorField::HuggingFaceProvider,
+        SubAgentEditorField::ReasoningEffort,
+        SubAgentEditorField::ApiTransport,
+        SubAgentEditorField::ClaudePermissionMode,
+        SubAgentEditorField::Role,
+        SubAgentEditorField::SystemPrompt,
+        SubAgentEditorField::Save,
+        SubAgentEditorField::Cancel,
+    ];
+    const OPENROUTER: [SubAgentEditorField; 14] = [
+        SubAgentEditorField::Name,
+        SubAgentEditorField::Provider,
+        SubAgentEditorField::Model,
+        SubAgentEditorField::ContextWindowTokens,
         SubAgentEditorField::OpenRouterProviderOrder,
         SubAgentEditorField::OpenRouterProviderIgnore,
         SubAgentEditorField::OpenRouterAllowFallbacks,
@@ -40,10 +60,25 @@ impl SubAgentEditorField {
         SubAgentEditorField::Save,
         SubAgentEditorField::Cancel,
     ];
-    const NON_OPENROUTER: [SubAgentEditorField; 10] = [
+    const HUGGINGFACE: [SubAgentEditorField; 12] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
+        SubAgentEditorField::ContextWindowTokens,
+        SubAgentEditorField::HuggingFaceProvider,
+        SubAgentEditorField::ReasoningEffort,
+        SubAgentEditorField::ApiTransport,
+        SubAgentEditorField::ClaudePermissionMode,
+        SubAgentEditorField::Role,
+        SubAgentEditorField::SystemPrompt,
+        SubAgentEditorField::Save,
+        SubAgentEditorField::Cancel,
+    ];
+    const NON_OPENROUTER: [SubAgentEditorField; 11] = [
+        SubAgentEditorField::Name,
+        SubAgentEditorField::Provider,
+        SubAgentEditorField::Model,
+        SubAgentEditorField::ContextWindowTokens,
         SubAgentEditorField::ReasoningEffort,
         SubAgentEditorField::ApiTransport,
         SubAgentEditorField::ClaudePermissionMode,
@@ -55,7 +90,9 @@ impl SubAgentEditorField {
 
     fn visible_for_provider(provider: &str) -> &'static [SubAgentEditorField] {
         if provider == zorai_shared::providers::PROVIDER_ID_OPENROUTER {
-            &Self::ALL
+            &Self::OPENROUTER
+        } else if provider == zorai_shared::providers::PROVIDER_ID_HUGGINGFACE {
+            &Self::HUGGINGFACE
         } else {
             &Self::NON_OPENROUTER
         }
@@ -356,6 +393,7 @@ pub struct SubAgentEditorState {
     pub name: String,
     pub provider: String,
     pub model: String,
+    pub context_window_tokens: Option<u32>,
     pub role: String,
     pub system_prompt: String,
     pub enabled: bool,
@@ -370,6 +408,7 @@ pub struct SubAgentEditorState {
     pub openrouter_provider_order: String,
     pub openrouter_provider_ignore: String,
     pub openrouter_allow_fallbacks: bool,
+    pub huggingface_provider: String,
     pub raw_json: Option<serde_json::Value>,
     pub field: SubAgentEditorField,
     pub previous_role_preset: Option<String>,
@@ -383,6 +422,7 @@ impl SubAgentEditorState {
             name: String::new(),
             provider,
             model,
+            context_window_tokens: None,
             role: String::new(),
             system_prompt: String::new(),
             enabled: true,
@@ -397,6 +437,7 @@ impl SubAgentEditorState {
             openrouter_provider_order: String::new(),
             openrouter_provider_ignore: String::new(),
             openrouter_allow_fallbacks: true,
+            huggingface_provider: String::new(),
             raw_json: None,
             field: SubAgentEditorField::Name,
             previous_role_preset: None,

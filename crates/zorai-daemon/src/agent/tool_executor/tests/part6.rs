@@ -3975,6 +3975,7 @@ async fn list_agents_returns_effective_runtime_targets() {
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -3988,6 +3989,7 @@ async fn list_agents_returns_effective_runtime_targets() {
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 0,
     });
     let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
@@ -4198,6 +4200,7 @@ async fn switch_model_updates_targeted_agent_settings_from_svarog_scope() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {
@@ -4211,6 +4214,7 @@ async fn switch_model_updates_targeted_agent_settings_from_svarog_scope() {
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -4224,6 +4228,7 @@ async fn switch_model_updates_targeted_agent_settings_from_svarog_scope() {
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 0,
     });
     let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
@@ -4514,6 +4519,7 @@ async fn spawn_subagent_derives_budget_from_effective_subagent_provider_window()
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {
@@ -4527,6 +4533,7 @@ async fn spawn_subagent_derives_budget_from_effective_subagent_provider_window()
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -4540,6 +4547,7 @@ async fn spawn_subagent_derives_budget_from_effective_subagent_provider_window()
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 0,
     });
     let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
@@ -4606,12 +4614,13 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
     );
     config.sub_agents.push(crate::agent::SubAgentDefinition {
         claude_permission_mode: None,
-        id: "dazhbog".to_string(),
-        name: "Dazhbog".to_string(),
+        id: "design-reviewer".to_string(),
+        name: "Design Reviewer".to_string(),
         provider: zorai_shared::providers::PROVIDER_ID_GROQ.to_string(),
         model: "llama-3.3-70b-versatile".to_string(),
         role: Some("Designer".to_string()),
@@ -4619,6 +4628,7 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: Some(456_789),
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -4632,6 +4642,7 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 0,
     });
     let engine = AgentEngine::new_test(manager.clone(), config, root.path()).await;
@@ -4639,7 +4650,7 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
 
     let result = super::execute_spawn_subagent(
         &serde_json::json!({
-            "title": "Dazhbog",
+            "title": "Design Reviewer",
             "description": "Refactor docs design without semantic changes.",
             "reasoning_effort": "low"
         }),
@@ -4672,7 +4683,7 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
 
     assert_eq!(
         detail.get("agent_name").and_then(|value| value.as_str()),
-        Some("Dazhbog")
+        Some("Design Reviewer")
     );
     assert_eq!(
         detail
@@ -4694,7 +4705,7 @@ async fn spawn_subagent_reserved_thread_detail_includes_execution_profile_metada
         detail
             .get("profile_context_window_tokens")
             .and_then(|value| value.as_u64()),
-        Some(128_000)
+        Some(456_789)
     );
 }
 

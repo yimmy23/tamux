@@ -310,24 +310,24 @@ pub(crate) async fn dispatch_part3(
             match update_result {
                 Ok(updated) => {
                     tracing::info!(updated, "bulk notification update applied");
-                    let events_result = manager.list_notifications(false, None).await.map(
-                        |notifications| {
-                            notifications
-                                .into_iter()
-                                .filter_map(|notification| {
-                                    crate::notifications::notification_event_row(&notification)
-                                        .ok()
-                                })
-                                .collect::<Vec<_>>()
-                        },
-                    );
+                    let events_result =
+                        manager
+                            .list_notifications(false, None)
+                            .await
+                            .map(|notifications| {
+                                notifications
+                                    .into_iter()
+                                    .filter_map(|notification| {
+                                        crate::notifications::notification_event_row(&notification)
+                                            .ok()
+                                    })
+                                    .collect::<Vec<_>>()
+                            });
                     match events_result {
                         Ok(events) => {
                             let (events_json, truncated) = cap_agent_event_rows_for_ipc(events);
                             if truncated {
-                                tracing::warn!(
-                                    "truncated agent event rows to fit IPC frame limit"
-                                );
+                                tracing::warn!("truncated agent event rows to fit IPC frame limit");
                             }
                             framed
                                 .send(DaemonMessage::AgentEventRows { events_json })

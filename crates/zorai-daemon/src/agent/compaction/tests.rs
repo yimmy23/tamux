@@ -35,6 +35,7 @@ fn sample_provider_config() -> ProviderConfig {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     }
 }
 
@@ -1332,6 +1333,7 @@ fn github_copilot_tool_follow_up_disables_previous_response_continuity() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let thread = sample_thread(vec![
@@ -1519,6 +1521,7 @@ fn github_copilot_responses_request_does_not_use_previous_response_id_for_plain_
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let thread = sample_thread(vec![
@@ -1600,6 +1603,7 @@ fn chatgpt_subscription_responses_request_uses_local_thread_id_instead_of_previo
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let thread = sample_thread(vec![
@@ -1682,6 +1686,7 @@ fn openai_responses_request_keeps_previous_response_id_when_compaction_artifact_
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let thread = sample_thread(vec![
@@ -1795,6 +1800,7 @@ fn reused_user_turn_is_injected_when_responses_continuation_only_has_weles_notic
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let mut recovery_notice = AgentMessage::user(

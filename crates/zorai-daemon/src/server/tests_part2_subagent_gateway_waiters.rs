@@ -314,6 +314,7 @@ async fn agent_set_sub_agent_config_accepts_minimal_weles_payload_via_server_can
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -327,6 +328,7 @@ async fn agent_set_sub_agent_config_accepts_minimal_weles_payload_via_server_can
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 0,
     };
 

@@ -160,7 +160,10 @@ pub fn send_completion_request(
     )
 }
 
-pub(crate) fn coerce_transport_for_provider(provider: &str, transport: ApiTransport) -> ApiTransport {
+pub(crate) fn coerce_transport_for_provider(
+    provider: &str,
+    transport: ApiTransport,
+) -> ApiTransport {
     if matches!(
         get_provider_definition(provider).and_then(|definition| definition.native_transport_kind),
         Some(crate::agent::types::NativeTransportKind::ClaudeCodeCli)

@@ -20,6 +20,7 @@ pub struct SubAgentEntry {
     pub openrouter_provider_order: String,
     pub openrouter_provider_ignore: String,
     pub openrouter_allow_fallbacks: bool,
+    pub huggingface_provider: String,
     pub raw_json: Option<serde_json::Value>,
 }
 

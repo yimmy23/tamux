@@ -39,6 +39,7 @@ async fn merge_config_patch_preserves_existing_provider_state() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
     );
     config.providers.insert(
@@ -69,6 +70,7 @@ async fn merge_config_patch_preserves_existing_provider_state() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
     );
     engine.set_config(config).await;

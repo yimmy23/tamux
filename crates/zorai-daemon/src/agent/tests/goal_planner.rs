@@ -1206,6 +1206,7 @@ async fn sync_goal_run_with_task_preserves_captured_subagent_owner_profile_after
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -1219,6 +1220,7 @@ async fn sync_goal_run_with_task_preserves_captured_subagent_owner_profile_after
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: now_millis(),
     });
     let engine = AgentEngine::new_test(manager, config, root.path()).await;
@@ -3426,6 +3428,7 @@ async fn handle_goal_run_step_completion_schedules_subagent_verification_before_
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -3439,6 +3442,7 @@ async fn handle_goal_run_step_completion_schedules_subagent_verification_before_
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: now_millis(),
     });
     let engine = AgentEngine::new_test(manager, config, root.path()).await;

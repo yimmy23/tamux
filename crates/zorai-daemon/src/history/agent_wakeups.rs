@@ -41,7 +41,8 @@ impl HistoryStore {
         let id = id.to_string();
         self.conn
             .call(move |conn| {
-                let deleted = conn.execute("DELETE FROM agent_wakeups WHERE id = ?1", params![id])?;
+                let deleted =
+                    conn.execute("DELETE FROM agent_wakeups WHERE id = ?1", params![id])?;
                 Ok(deleted > 0)
             })
             .await

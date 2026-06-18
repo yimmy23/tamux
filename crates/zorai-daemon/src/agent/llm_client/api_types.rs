@@ -179,7 +179,9 @@ pub(crate) fn classify_http_failure_with_retry_after(
         UpstreamFailureClass::ContextWindowExceeded => {
             format!("{provider} rejected the request because the input exceeds the model context window: {raw_message}")
         }
-        UpstreamFailureClass::AuthConfiguration => auth_configuration_summary(provider, &raw_message),
+        UpstreamFailureClass::AuthConfiguration => {
+            auth_configuration_summary(provider, &raw_message)
+        }
         UpstreamFailureClass::TransportIncompatible => {
             format!("The selected provider/transport combination is incompatible for {provider}: {raw_message}")
         }
@@ -293,7 +295,9 @@ pub(crate) fn classify_openai_responses_stream_failure(
 
     let message = error_message.unwrap_or("Responses API stream error");
     let summary = match class {
-        UpstreamFailureClass::RateLimit => format!("{provider} Responses stream hit a rate limit: {message}"),
+        UpstreamFailureClass::RateLimit => {
+            format!("{provider} Responses stream hit a rate limit: {message}")
+        }
         UpstreamFailureClass::AuthConfiguration => auth_configuration_summary(provider, message),
         UpstreamFailureClass::RequestInvalid => {
             format!("{provider} Responses stream rejected the daemon request as invalid: {message}")

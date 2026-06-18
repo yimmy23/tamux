@@ -211,6 +211,35 @@ pub(crate) fn render_concierge_tab<'a>(
         ]));
     }
 
+    if concierge.provider.as_deref() == Some(zorai_shared::providers::PROVIDER_ID_HUGGINGFACE) {
+        let is_selected = settings.field_cursor() == 7;
+        let marker = if is_selected { "> " } else { "  " };
+        let value = if concierge.huggingface_provider.trim().is_empty() {
+            "auto"
+        } else {
+            concierge.huggingface_provider.trim()
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                marker,
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
+            Span::styled("HF Route:     ", theme.fg_dim),
+            Span::styled(
+                value.to_string(),
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
+        ]));
+    }
+
     if concierge.provider.as_deref() == Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER) {
         let openrouter_fields = [
             (

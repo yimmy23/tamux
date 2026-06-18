@@ -78,6 +78,7 @@ export type BuiltinAgentProviderId =
   | "arcee"
   | "nvidia"
   | "nous-portal"
+  | "poolside"
   | "openrouter"
   | "cerebras"
   | "together"
@@ -115,6 +116,7 @@ export const AGENT_PROVIDER_IDS: BuiltinAgentProviderId[] = [
   "arcee",
   "nvidia",
   "nous-portal",
+  "poolside",
   "openrouter",
   "cerebras",
   "together",

@@ -18,6 +18,8 @@ struct DirectThreadResponderConfig {
     provider_id: String,
     model: Option<String>,
     reasoning_effort: Option<String>,
+    context_window_tokens: Option<u32>,
+    huggingface_provider: Option<String>,
     openrouter_provider_order: Vec<String>,
     openrouter_provider_ignore: Vec<String>,
     openrouter_allow_fallbacks: Option<bool>,
@@ -166,6 +168,8 @@ fn build_direct_thread_responder_config(
             provider_id,
             model: Some(provider_config.model.clone()),
             reasoning_effort: Some(provider_config.reasoning_effort.clone()),
+            context_window_tokens: Some(provider_config.context_window_tokens),
+            huggingface_provider: provider_config.huggingface_provider.clone(),
             openrouter_provider_order: config.concierge.openrouter_provider_order.clone(),
             openrouter_provider_ignore: config.concierge.openrouter_provider_ignore.clone(),
             openrouter_allow_fallbacks: config.concierge.openrouter_allow_fallbacks,
@@ -181,6 +185,8 @@ fn build_direct_thread_responder_config(
     let profile_model = nonempty(execution_profile.and_then(|profile| profile.model.as_deref()));
     let profile_reasoning_effort =
         nonempty(execution_profile.and_then(|profile| profile.reasoning_effort.as_deref()));
+    let profile_context_window_tokens =
+        execution_profile.and_then(|profile| profile.context_window_tokens);
     if is_explicit_builtin_persona_scope(resolved_scope)
         && builtin_persona_requires_setup(config, resolved_scope)
         && matched_def.is_none()
@@ -224,6 +230,13 @@ fn build_direct_thread_responder_config(
                     .and_then(|overrides| nonempty(overrides.reasoning_effort.as_deref()))
             })
             .or_else(|| profile_reasoning_effort.clone()),
+        context_window_tokens: matched_def
+            .as_ref()
+            .and_then(|def| def.context_window_tokens)
+            .or(profile_context_window_tokens),
+        huggingface_provider: matched_def
+            .as_ref()
+            .and_then(|def| def.huggingface_provider.clone()),
         openrouter_provider_order: matched_def
             .as_ref()
             .map(|def| def.openrouter_provider_order.clone())
@@ -515,6 +528,8 @@ impl<'a> SendMessageRunner<'a> {
                     t.override_system_prompt.clone(),
                     t.sub_agent_def_id.clone(),
                     t.override_api_transport,
+                    None,
+                    None,
                 ));
             }
 
@@ -526,6 +541,8 @@ impl<'a> SendMessageRunner<'a> {
                 t.override_system_prompt.clone(),
                 Some(def.id.clone()),
                 def.api_transport,
+                def.context_window_tokens,
+                def.huggingface_provider.clone(),
             ))
         });
         let thread_execution_profile = engine
@@ -554,7 +571,7 @@ impl<'a> SendMessageRunner<'a> {
             .flatten();
         let active_provider_id = task_provider_override
             .as_ref()
-            .map(|(provider_id, _, _, _, _)| provider_id.as_str())
+            .map(|(provider_id, _, _, _, _, _, _)| provider_id.as_str())
             .or_else(|| {
                 direct_thread_responder
                     .as_ref()
@@ -562,66 +579,100 @@ impl<'a> SendMessageRunner<'a> {
             })
             .unwrap_or(config.provider.as_str())
             .to_string();
-        let provider_config =
-            match if let Some((ref sub_provider, ref sub_model, _, _, sub_transport)) =
-                task_provider_override
+        let provider_config = match if let Some((
+            ref sub_provider,
+            ref sub_model,
+            _,
+            _,
+            sub_transport,
+            sub_context_window_tokens,
+            ref sub_huggingface_provider,
+        )) = task_provider_override
+        {
+            let mut pc = engine.resolve_sub_agent_provider_config(&config, sub_provider)?;
+            if let Some(model) = sub_model {
+                apply_provider_model_override(sub_provider, &mut pc, model);
+            }
+            crate::agent::provider_resolution::apply_role_transport_override(
+                sub_provider,
+                &mut pc,
+                sub_transport,
+            );
+            if let Some(reasoning_effort) = task_execution_profile_reasoning.as_ref() {
+                pc.reasoning_effort = reasoning_effort.clone();
+            }
+            if let Some(context_window_tokens) = thread_execution_profile
+                .as_ref()
+                .and_then(|profile| profile.context_window_tokens)
+                .or(sub_context_window_tokens)
+                .filter(|tokens| *tokens > 0)
             {
-                let mut pc = engine.resolve_sub_agent_provider_config(&config, sub_provider)?;
-                if let Some(model) = sub_model {
-                    apply_provider_model_override(sub_provider, &mut pc, model);
-                }
-                crate::agent::provider_resolution::apply_role_transport_override(
-                    sub_provider,
-                    &mut pc,
-                    sub_transport,
-                );
-                if let Some(reasoning_effort) = task_execution_profile_reasoning.as_ref() {
-                    pc.reasoning_effort = reasoning_effort.clone();
-                }
-                Ok(pc)
-            } else if let Some(responder) = direct_thread_responder.as_ref() {
-                let mut pc =
-                    engine.resolve_sub_agent_provider_config(&config, &responder.provider_id)?;
-                if let Some(model) = responder.model.as_ref() {
-                    apply_provider_model_override(&responder.provider_id, &mut pc, model);
-                }
-                if let Some(reasoning_effort) = responder.reasoning_effort.as_ref() {
-                    pc.reasoning_effort = reasoning_effort.clone();
-                }
-                apply_openrouter_routing_override(
-                    &responder.provider_id,
-                    &mut pc,
-                    &responder.openrouter_provider_order,
-                    &responder.openrouter_provider_ignore,
-                    responder.openrouter_allow_fallbacks,
-                );
-                Ok(pc)
-            } else {
-                engine.resolve_provider_config(&config)
-            } {
-                Ok(provider_config) => provider_config,
-                Err(error) => {
-                    let error_text = sanitize_upstream_failure_message(&error.to_string());
-                    engine
-                        .add_assistant_message(
-                            &tid,
-                            &format!("Error: {error_text}"),
-                            0,
-                            0,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                        )
-                        .await;
-                    engine.persist_thread_by_id(&tid).await;
-                    engine
-                        .emit_turn_error_completion(&tid, &error_text, None, None)
-                        .await;
-                    return Err(error);
-                }
-            };
+                pc.context_window_tokens = context_window_tokens;
+            }
+            if let Some(huggingface_provider) = sub_huggingface_provider
+                .as_ref()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+            {
+                pc.huggingface_provider = Some(huggingface_provider);
+            }
+            Ok(pc)
+        } else if let Some(responder) = direct_thread_responder.as_ref() {
+            let mut pc =
+                engine.resolve_sub_agent_provider_config(&config, &responder.provider_id)?;
+            if let Some(model) = responder.model.as_ref() {
+                apply_provider_model_override(&responder.provider_id, &mut pc, model);
+            }
+            if let Some(reasoning_effort) = responder.reasoning_effort.as_ref() {
+                pc.reasoning_effort = reasoning_effort.clone();
+            }
+            if let Some(context_window_tokens) =
+                responder.context_window_tokens.filter(|tokens| *tokens > 0)
+            {
+                pc.context_window_tokens = context_window_tokens;
+            }
+            if let Some(huggingface_provider) = responder
+                .huggingface_provider
+                .as_ref()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+            {
+                pc.huggingface_provider = Some(huggingface_provider);
+            }
+            apply_openrouter_routing_override(
+                &responder.provider_id,
+                &mut pc,
+                &responder.openrouter_provider_order,
+                &responder.openrouter_provider_ignore,
+                responder.openrouter_allow_fallbacks,
+            );
+            Ok(pc)
+        } else {
+            engine.resolve_provider_config(&config)
+        } {
+            Ok(provider_config) => provider_config,
+            Err(error) => {
+                let error_text = sanitize_upstream_failure_message(&error.to_string());
+                engine
+                    .add_assistant_message(
+                        &tid,
+                        &format!("Error: {error_text}"),
+                        0,
+                        0,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await;
+                engine.persist_thread_by_id(&tid).await;
+                engine
+                    .emit_turn_error_completion(&tid, &error_text, None, None)
+                    .await;
+                return Err(error);
+            }
+        };
         config.provider = active_provider_id.clone();
         config.base_url = provider_config.base_url.clone();
         config.model = provider_config.model.clone();
@@ -695,18 +746,17 @@ impl<'a> SendMessageRunner<'a> {
         }
         let memory = engine.current_memory_snapshot().await;
         let memory_paths = memory_paths_for_scope(&engine.data_dir, &agent_scope_id);
-        let base_prompt = if let Some((_, _, Some(ref override_prompt), _, _)) =
-            task_provider_override
-        {
-            format!("{}\n\n{}", override_prompt, config.system_prompt)
-        } else if let Some(responder) = direct_thread_responder.as_ref() {
-            format!(
-                "{}\n\n{}",
-                responder.persona_prompt, responder.system_prompt
-            )
-        } else {
-            config.system_prompt.clone()
-        };
+        let base_prompt =
+            if let Some((_, _, Some(ref override_prompt), _, _, _, _)) = task_provider_override {
+                format!("{}\n\n{}", override_prompt, config.system_prompt)
+            } else if let Some(responder) = direct_thread_responder.as_ref() {
+                format!(
+                    "{}\n\n{}",
+                    responder.persona_prompt, responder.system_prompt
+                )
+            } else {
+                config.system_prompt.clone()
+            };
         let operator_model_summary = engine.build_operator_model_prompt_summary().await;
         let operational_context = engine.build_operational_context_summary().await;
         let causal_guidance = engine.build_causal_guidance_summary().await;
@@ -918,7 +968,7 @@ impl<'a> SendMessageRunner<'a> {
         };
         let runtime_agent_name = task_provider_override
             .as_ref()
-            .and_then(|(_, _, prompt, sub_agent_def_id, _)| {
+            .and_then(|(_, _, prompt, sub_agent_def_id, _, _, _)| {
                 if sub_agent_def_id.as_deref()
                     == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
                 {
@@ -1475,6 +1525,7 @@ mod tests {
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
                 openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
             },
         );
         config.builtin_sub_agents.weles.provider = Some("weles-provider".to_string());
@@ -1570,6 +1621,7 @@ mod tests {
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
                 openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
             },
         );
         let engine = AgentEngine::new_test(manager, config, root.path()).await;
@@ -1658,6 +1710,7 @@ mod tests {
             tool_whitelist: None,
             tool_blacklist: None,
             context_budget_tokens: None,
+            context_window_tokens: None,
             max_duration_secs: None,
             supervisor_config: None,
             enabled: true,
@@ -1671,6 +1724,7 @@ mod tests {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            huggingface_provider: None,
             created_at: 1,
         }];
 
@@ -2260,6 +2314,7 @@ mod tests {
             tool_whitelist: Some(vec![zorai_protocol::tool_names::CANCEL_TASK.to_string()]),
             tool_blacklist: None,
             context_budget_tokens: None,
+            context_window_tokens: None,
             max_duration_secs: None,
             supervisor_config: None,
             enabled: true,
@@ -2273,6 +2328,7 @@ mod tests {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            huggingface_provider: None,
             created_at: 1,
         });
         let engine = AgentEngine::new_test(manager, config, root.path()).await;
@@ -3063,6 +3119,7 @@ mod tests {
                 openrouter_provider_ignore: Vec::new(),
                 openrouter_allow_fallbacks: None,
                 openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
             },
         );
         config.builtin_sub_agents.mokosh.provider = Some("alibaba-coding-plan".to_string());

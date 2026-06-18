@@ -177,6 +177,7 @@ fn protected_weles_row_hides_delete_and_disable_actions() {
             openrouter_provider_order: String::new(),
             openrouter_provider_ignore: String::new(),
             openrouter_allow_fallbacks: true,
+            huggingface_provider: String::new(),
             raw_json: Some(serde_json::json!({ "id": "weles_builtin" })),
         });
     let concierge = crate::state::concierge::ConciergeState::new();

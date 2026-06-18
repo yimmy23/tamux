@@ -31,6 +31,7 @@ fn sub_agent_definition_roundtrip_preserves_builtin_metadata_and_reasoning_effor
         tool_whitelist: Some(vec!["python_execute".to_string()]),
         tool_blacklist: Some(vec!["bash".to_string()]),
         context_budget_tokens: Some(8192),
+        context_window_tokens: None,
         max_duration_secs: Some(30),
         supervisor_config: None,
         enabled: true,
@@ -44,6 +45,7 @@ fn sub_agent_definition_roundtrip_preserves_builtin_metadata_and_reasoning_effor
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 1_712_000_000,
     };
 
@@ -328,6 +330,7 @@ async fn set_sub_agent_rejects_minimal_weles_override_payload_without_protection
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -341,6 +344,7 @@ async fn set_sub_agent_rejects_minimal_weles_override_payload_without_protection
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 0,
     };
 

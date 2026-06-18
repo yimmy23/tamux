@@ -942,7 +942,10 @@ async fn inspect_prompt_returns_sectioned_main_agent_prompt() {
     let mut conn = spawn_test_connection_with_config(config).await;
 
     conn.framed
-        .send(ClientMessage::AgentInspectPrompt { agent_id: None, client_surface: None })
+        .send(ClientMessage::AgentInspectPrompt {
+            agent_id: None,
+            client_surface: None,
+        })
         .await
         .expect("send inspect prompt request");
 

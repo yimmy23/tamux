@@ -2,14 +2,49 @@ use super::*;
 
 use zorai_shared::providers::{
     PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_ALIBABA_TOKEN_PLAN, PROVIDER_ID_GITHUB_COPILOT,
-    PROVIDER_ID_KIMI_CODING_PLAN, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN,
-    PROVIDER_ID_OPENAI, PROVIDER_ID_OPENCODE_ZEN, PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN,
-    PROVIDER_ID_QWEN_DEEPINFRA, PROVIDER_ID_Z_AI, PROVIDER_ID_Z_AI_CODING_PLAN,
+    PROVIDER_ID_HUGGINGFACE, PROVIDER_ID_KIMI_CODING_PLAN, PROVIDER_ID_MINIMAX,
+    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_OPENAI, PROVIDER_ID_OPENCODE_ZEN,
+    PROVIDER_ID_OPENROUTER, PROVIDER_ID_QWEN, PROVIDER_ID_QWEN_DEEPINFRA, PROVIDER_ID_Z_AI,
+    PROVIDER_ID_Z_AI_CODING_PLAN,
 };
 
 const OPENROUTER_ATTRIBUTION_URL: &str = "https://zorai.app";
 const OPENROUTER_ATTRIBUTION_TITLE: &str = "Zorai";
 const OPENROUTER_ATTRIBUTION_CATEGORIES: &str = "cli-agent,personal-agent";
+
+pub(crate) fn normalize_huggingface_provider_selector(value: &str) -> Option<String> {
+    let value = value.trim().trim_start_matches(':').to_ascii_lowercase();
+    if value.is_empty() || value == "auto" {
+        return None;
+    }
+    let valid = value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'));
+    valid.then_some(value)
+}
+
+pub(crate) fn huggingface_routed_model(
+    provider: &str,
+    model: &str,
+    selector: Option<&str>,
+) -> String {
+    let model = model.trim();
+    if provider != PROVIDER_ID_HUGGINGFACE {
+        return model.to_string();
+    }
+    let Some(selector) = selector.and_then(normalize_huggingface_provider_selector) else {
+        return model.to_string();
+    };
+    if model
+        .rsplit_once(':')
+        .and_then(|(_, suffix)| normalize_huggingface_provider_selector(suffix))
+        .is_some()
+    {
+        model.to_string()
+    } else {
+        format!("{model}:{selector}")
+    }
+}
 
 pub(crate) fn build_chat_completion_url(base_url: &str) -> String {
     let base = base_url.trim_end_matches('/');
@@ -143,7 +178,11 @@ pub(crate) fn build_openai_responses_request(
     }
 
     OpenAiResponsesCreateRequest {
-        model: config.model.clone(),
+        model: huggingface_routed_model(
+            provider,
+            &config.model,
+            config.huggingface_provider.as_deref(),
+        ),
         instructions: Some(system_prompt.to_string()),
         input: messages_to_responses_input(provider, messages, previous_response_id.as_deref())
             .into_iter()
@@ -239,12 +278,12 @@ pub(crate) fn apply_dashscope_coding_plan_sdk_headers(
         ApiType::OpenAI => "4.3.0",
     };
     req.header("User-Agent", api_type.sdk_user_agent())
-    .header("x-stainless-lang", "js")
-    .header("x-stainless-package-version", sdk_version)
-    .header("x-stainless-os", std::env::consts::OS)
-    .header("x-stainless-arch", std::env::consts::ARCH)
-    .header("x-stainless-runtime", "node")
-    .header("x-stainless-runtime-version", "v22.0.0")
+        .header("x-stainless-lang", "js")
+        .header("x-stainless-package-version", sdk_version)
+        .header("x-stainless-os", std::env::consts::OS)
+        .header("x-stainless-arch", std::env::consts::ARCH)
+        .header("x-stainless-runtime", "node")
+        .header("x-stainless-runtime-version", "v22.0.0")
 }
 
 pub(crate) fn anthropic_thinking_budget(effort: &str) -> Option<u32> {

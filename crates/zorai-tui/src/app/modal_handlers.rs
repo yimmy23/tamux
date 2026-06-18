@@ -335,6 +335,14 @@ impl TuiModel {
                             "base_url" => self.config.base_url = value,
                             "api_key" => self.config.api_key = value,
                             "assistant_id" => self.config.assistant_id = value,
+                            "huggingface_provider" => {
+                                self.config.huggingface_provider =
+                                    value.trim().trim_start_matches(':').to_ascii_lowercase();
+                            }
+                            "concierge_huggingface_provider" => {
+                                self.concierge.huggingface_provider =
+                                    value.trim().trim_start_matches(':').to_ascii_lowercase();
+                            }
                             "compaction_weles_model" => {
                                 self.config.compaction_weles_model = value.trim().to_string()
                             }
@@ -587,6 +595,25 @@ impl TuiModel {
                             "subagent_model" => {
                                 if let Some(editor) = self.subagents.editor.as_mut() {
                                     editor.model = value.trim().to_string();
+                                }
+                            }
+                            "subagent_context_window_tokens" => {
+                                if let Some(editor) = self.subagents.editor.as_mut() {
+                                    editor.context_window_tokens = if value.trim().is_empty() {
+                                        None
+                                    } else {
+                                        value
+                                            .trim()
+                                            .parse::<u32>()
+                                            .ok()
+                                            .map(|tokens| tokens.clamp(1_000, 2_000_000))
+                                    };
+                                }
+                            }
+                            "subagent_huggingface_provider" => {
+                                if let Some(editor) = self.subagents.editor.as_mut() {
+                                    editor.huggingface_provider =
+                                        value.trim().trim_start_matches(':').to_ascii_lowercase();
                                 }
                             }
                             "mission_control_assignment_model" => {
@@ -891,10 +918,16 @@ impl TuiModel {
                             _ => {}
                         }
                         self.settings.reduce(SettingsAction::ConfirmEdit);
+                        if field == "concierge_huggingface_provider" {
+                            self.send_concierge_config();
+                        }
                         if !matches!(
                             field.as_str(),
                             "subagent_name"
                                 | "subagent_role"
+                                | "subagent_context_window_tokens"
+                                | "subagent_huggingface_provider"
+                                | "concierge_huggingface_provider"
                                 | "subagent_system_prompt"
                                 | "honcho_editor_api_key"
                                 | "honcho_editor_base_url"

@@ -57,6 +57,7 @@ fn provider_config(
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     }
 }
 
@@ -315,6 +316,7 @@ async fn hydrate_restores_user_defined_subagent_thread_identity() {
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -328,6 +330,7 @@ async fn hydrate_restores_user_defined_subagent_thread_identity() {
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 1,
     });
     let (engine, temp_dir) = make_test_engine(config.clone()).await;

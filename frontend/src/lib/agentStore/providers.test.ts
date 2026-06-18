@@ -33,6 +33,28 @@ describe("frontend NVIDIA provider catalog", () => {
   });
 });
 
+describe("frontend Poolside provider catalog", () => {
+  it("registers Poolside with fetchable chat-completion defaults", () => {
+    const poolside = getProviderDefinition("poolside");
+
+    expect(poolside).toBeDefined();
+    expect(poolside?.defaultBaseUrl).toBe("https://inference.poolside.ai/v1");
+    expect(poolside?.defaultModel).toBe("poolside/laguna-m.1");
+    expect(poolside?.supportsModelFetch).toBe(true);
+    expect(poolside?.defaultTransport).toBe("chat_completions");
+    expect(poolside?.supportedTransports).toEqual(["chat_completions"]);
+    expect(poolside?.models.map((model) => [model.id, model.contextWindow])).toEqual([
+      ["poolside/laguna-m.1", 256_000],
+    ]);
+    expect(DEFAULT_AGENT_SETTINGS.poolside.model).toBe("poolside/laguna-m.1");
+  });
+
+  it("recognizes Poolside as a valid provider id", () => {
+    expect(normalizeAgentProviderId("poolside")).toBe("poolside");
+    expect(getDefaultModelForProvider("poolside")).toBe("poolside/laguna-m.1");
+  });
+});
+
 describe("frontend Chutes provider catalog", () => {
   it("registers Chutes with fetchable OpenAI-compatible defaults", () => {
     const chutes = getProviderDefinition("chutes" as any);

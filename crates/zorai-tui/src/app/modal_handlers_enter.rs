@@ -681,6 +681,9 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                                 editor.openrouter_allow_fallbacks = true;
                                 editor.field = editor.field.next_for_provider(&editor.provider);
                             }
+                            if editor.provider != zorai_shared::providers::PROVIDER_ID_HUGGINGFACE {
+                                editor.huggingface_provider.clear();
+                            }
                             let default_model =
                                 providers::default_model_for_provider_auth(def.id, "api_key");
                             if editor.model.trim().is_empty()
@@ -690,6 +693,8 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                             {
                                 editor.model = default_model;
                             }
+                            editor.context_window_tokens =
+                                providers::known_context_window_for(def.id, &editor.model);
                         }
                         model.status_line = format!("Sub-agent provider: {}", def.name);
                     }
@@ -727,6 +732,9 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                             model.concierge.openrouter_provider_ignore.clear();
                             model.concierge.openrouter_allow_fallbacks = true;
                             model.clamp_settings_cursor();
+                        }
+                        if def.id != zorai_shared::providers::PROVIDER_ID_HUGGINGFACE {
+                            model.concierge.huggingface_provider.clear();
                         }
                         let default_model =
                             providers::default_model_for_provider_auth(def.id, "api_key");
@@ -999,6 +1007,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                     SettingsPickerTarget::SubAgentModel => {
                         if let Some(editor) = model.subagents.editor.as_mut() {
                             editor.model = model_id.clone();
+                            editor.context_window_tokens = model_context_window;
                         }
                         model.status_line = format!("Sub-agent model: {}", model_id);
                     }

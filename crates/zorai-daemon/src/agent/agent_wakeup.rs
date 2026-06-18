@@ -96,7 +96,8 @@ impl AgentEngine {
                     .entry(wakeup.thread_id.clone())
                     .or_default()
                     .push(wakeup.message.clone());
-                let is_last = matches!(wakeup.repetitions_remaining, Some(remaining) if remaining <= 1);
+                let is_last =
+                    matches!(wakeup.repetitions_remaining, Some(remaining) if remaining <= 1);
                 if is_last {
                     wakeups.remove(&id);
                     to_delete.push(id);
@@ -202,7 +203,10 @@ mod tests {
 
     async fn force_due(engine: &AgentEngine, id: &str) {
         let mut wakeups = engine.timer_wakeups.lock().await;
-        wakeups.get_mut(id).expect("wakeup should be present").next_fire_at = 0;
+        wakeups
+            .get_mut(id)
+            .expect("wakeup should be present")
+            .next_fire_at = 0;
     }
 
     #[tokio::test]
@@ -224,7 +228,9 @@ mod tests {
             .deferred_visible_thread_continuations_for(thread_id)
             .await;
         assert_eq!(continuations.len(), 1);
-        assert!(continuations[0].llm_user_content.contains("check job progress"));
+        assert!(continuations[0]
+            .llm_user_content
+            .contains("check job progress"));
         assert!(continuations[0]
             .llm_user_content
             .starts_with("[Scheduled wakeup]"));
@@ -278,7 +284,9 @@ mod tests {
     async fn cancel_wakeup_removes_pending_wakeup() {
         let thread_id = "thread-wakeup-cancel";
         let engine = engine_with_thread(thread_id).await;
-        let wakeup = engine.schedule_wakeup(thread_id, 60_000, 0, "loop forever").await;
+        let wakeup = engine
+            .schedule_wakeup(thread_id, 60_000, 0, "loop forever")
+            .await;
         assert_eq!(engine.pending_wakeup_count().await, 1);
         assert!(engine.cancel_wakeup(&wakeup.id).await);
         assert_eq!(engine.pending_wakeup_count().await, 0);

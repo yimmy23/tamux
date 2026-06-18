@@ -469,7 +469,10 @@ fn reload_preserves_activity_after_workflow_notice_replaces_thinking() {
         message: "skill guidance ready".to_string(),
         details: None,
     });
-    assert_eq!(model.footer_activity_text().as_deref(), Some("skill review"));
+    assert_eq!(
+        model.footer_activity_text().as_deref(),
+        Some("skill review")
+    );
 
     model.handle_client_event(ClientEvent::ThreadReloadRequired {
         thread_id: "thread-user".to_string(),

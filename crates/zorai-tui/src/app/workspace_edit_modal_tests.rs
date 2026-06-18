@@ -50,6 +50,7 @@ fn subagent(id: &str) -> crate::state::SubAgentEntry {
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     }
 }

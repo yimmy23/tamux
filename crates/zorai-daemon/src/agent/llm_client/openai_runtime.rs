@@ -164,7 +164,10 @@ pub(crate) fn build_openai_chat_completions_body(
     let include_non_tool_reasoning_content =
         chat_completions_replays_non_tool_reasoning_content(provider);
     let include_non_tool_reasoning_content_after_tool_call =
-        chat_completions_replays_non_tool_reasoning_content_after_tool_call(provider, &config.model);
+        chat_completions_replays_non_tool_reasoning_content_after_tool_call(
+            provider,
+            &config.model,
+        );
     let synthesize_missing_tool_reasoning_content =
         chat_completions_repairs_missing_tool_reasoning_content(provider, config);
     let all_messages = build_chat_completion_messages_with_options(
@@ -177,7 +180,11 @@ pub(crate) fn build_openai_chat_completions_body(
     )?;
 
     let mut body = serde_json::json!({
-        "model": config.model,
+        "model": super::openai_transport::huggingface_routed_model(
+            provider,
+            &config.model,
+            config.huggingface_provider.as_deref(),
+        ),
         "messages": all_messages,
         "stream": true,
         "stream_options": { "include_usage": true },

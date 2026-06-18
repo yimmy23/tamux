@@ -1,6 +1,6 @@
 use super::*;
 use crate::state::config::ConfigState;
-use zorai_shared::providers::PROVIDER_ID_OPENROUTER;
+use zorai_shared::providers::{PROVIDER_ID_HUGGINGFACE, PROVIDER_ID_OPENROUTER};
 impl SettingsState {
     fn advanced_field_names_for_strategy(strategy: &str) -> &'static [&'static str] {
         const HEURISTIC_FIELDS: &[&str] = &[
@@ -358,6 +358,20 @@ impl SettingsState {
     }
 
     pub fn current_field_name_with_config<'a>(&'a self, config: &'a ConfigState) -> &'a str {
+        if self.active_tab == SettingsTab::Provider && config.provider == PROVIDER_ID_HUGGINGFACE {
+            return match self.field_cursor {
+                0 => "provider",
+                1 => "base_url",
+                2 => "auth_source",
+                3 => "model",
+                4 => "api_transport",
+                5 => "assistant_id",
+                6 => "reasoning_effort",
+                7 => "context_window_tokens",
+                12 => "huggingface_provider",
+                _ => "",
+            };
+        }
         if self.active_tab == SettingsTab::Provider && config.provider != PROVIDER_ID_OPENROUTER {
             return match self.field_cursor {
                 0 => "provider",
@@ -400,11 +414,14 @@ impl SettingsState {
     }
 
     pub fn field_count_with_config(&self, config: &ConfigState) -> usize {
-        if self.active_tab == SettingsTab::Provider && config.provider != PROVIDER_ID_OPENROUTER {
-            return 8;
-        }
         if self.active_tab == SettingsTab::Provider && config.provider == PROVIDER_ID_OPENROUTER {
             return 12;
+        }
+        if self.active_tab == SettingsTab::Provider && config.provider == PROVIDER_ID_HUGGINGFACE {
+            return 13;
+        }
+        if self.active_tab == SettingsTab::Provider && config.provider != PROVIDER_ID_OPENROUTER {
+            return 8;
         }
         if self.active_tab == SettingsTab::Advanced {
             return Self::advanced_field_names_for_strategy(&config.compaction_strategy).len();

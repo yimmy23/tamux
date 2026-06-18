@@ -398,8 +398,7 @@ impl AgentEngine {
         self: Arc<Self>,
         mut shutdown: tokio::sync::watch::Receiver<bool>,
     ) {
-        let mut tick =
-            tokio::time::interval(std::time::Duration::from_secs(WAKEUP_TICK_SECS));
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(WAKEUP_TICK_SECS));
 
         loop {
             tokio::select! {

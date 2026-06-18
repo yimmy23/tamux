@@ -61,6 +61,7 @@ async fn anthropic_batch_results_parse_document_content_blocks() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
         "msgbatch_document",
     )
@@ -154,6 +155,7 @@ async fn anthropic_batch_results_parse_tool_result_content_blocks() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
         "msgbatch_tool_result",
     )
@@ -244,6 +246,7 @@ async fn anthropic_batch_results_parse_nested_tool_result_content_blocks() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
         "msgbatch_nested_tool_result",
     )
@@ -328,6 +331,7 @@ async fn anthropic_batch_results_parse_web_search_result_content_blocks() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
         "msgbatch_search",
     )
@@ -411,6 +415,7 @@ async fn anthropic_batch_results_parse_file_backed_content_blocks() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
         "msgbatch_file",
     )
@@ -490,6 +495,7 @@ async fn anthropic_batch_results_parse_tool_reference_content_blocks() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
         "msgbatch_reference",
     )

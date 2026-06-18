@@ -615,6 +615,7 @@ async fn list_threads_filtered_matches_user_defined_subagent_agent_name() {
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -628,6 +629,7 @@ async fn list_threads_filtered_matches_user_defined_subagent_agent_name() {
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 1,
     });
     let engine = AgentEngine::new_test(manager, config, root.path()).await;

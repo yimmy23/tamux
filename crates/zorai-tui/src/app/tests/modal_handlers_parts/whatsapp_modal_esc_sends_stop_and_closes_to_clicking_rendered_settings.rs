@@ -277,6 +277,7 @@ pub(super) fn sample_subagent(id: &str, name: &str, builtin: bool) -> crate::sta
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     }
 }

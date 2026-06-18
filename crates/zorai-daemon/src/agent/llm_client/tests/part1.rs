@@ -240,6 +240,7 @@ pub(super) fn responses_test_config(base_url: String, auth_source: AuthSource) -
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     }
 }
 
@@ -362,6 +363,7 @@ async fn anthropic_count_tokens_uses_count_tokens_endpoint_and_parses_input_toke
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
         "system",
         &[ApiMessage {

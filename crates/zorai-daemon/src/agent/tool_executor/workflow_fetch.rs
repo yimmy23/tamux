@@ -674,14 +674,15 @@ pub(crate) async fn execute_fetch_url_with_python(
 ) -> Result<String> {
     let request = fetch_url_request(args)?;
     let preview_cap = fetch_preview_cap(args);
-    let inventory_dir =
-        zorai_protocol::thread_inventory_dir(agent.history.data_root(), thread_id);
-    tokio::fs::create_dir_all(&inventory_dir).await.map_err(|error| {
-        anyhow::anyhow!(
-            "create thread inventory dir {}: {error}",
-            inventory_dir.display()
-        )
-    })?;
+    let inventory_dir = zorai_protocol::thread_inventory_dir(agent.history.data_root(), thread_id);
+    tokio::fs::create_dir_all(&inventory_dir)
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "create thread inventory dir {}: {error}",
+                inventory_dir.display()
+            )
+        })?;
     let out_base = fetch_inventory_file_base(&inventory_dir, &request.url);
 
     if request.profile_id.is_none() {
@@ -700,12 +701,11 @@ pub(crate) async fn execute_fetch_url_with_python(
         }
     }
 
-    let content =
-        execute_fetch_url_legacy(agent, http_client, browse_provider, &request).await?;
+    let content = execute_fetch_url_legacy(agent, http_client, browse_provider, &request).await?;
     let path = out_base.with_extension("txt");
-    tokio::fs::write(&path, &content).await.map_err(|error| {
-        anyhow::anyhow!("write fetch result {}: {error}", path.display())
-    })?;
+    tokio::fs::write(&path, &content)
+        .await
+        .map_err(|error| anyhow::anyhow!("write fetch result {}: {error}", path.display()))?;
     let preview: String = content.chars().take(preview_cap).collect();
     Ok(format_saved_fetch_result(
         &request.url,

@@ -35,6 +35,7 @@ pub(super) fn apply_weles_allowed_overrides(
     let inherited_tool_whitelist = None::<Vec<String>>;
     let inherited_tool_blacklist = Some(default_weles_tool_blacklist());
     let inherited_context_budget_tokens = None::<u32>;
+    let inherited_context_window_tokens = None::<u32>;
     let inherited_max_duration_secs = None::<u64>;
     let inherited_supervisor_config = None::<SupervisorConfig>;
     let inherited_reasoning_effort = Some("medium".to_string());
@@ -80,6 +81,11 @@ pub(super) fn apply_weles_allowed_overrides(
         } else {
             def.context_budget_tokens
         },
+        context_window_tokens: if def.context_window_tokens == inherited_context_window_tokens {
+            None
+        } else {
+            def.context_window_tokens
+        },
         max_duration_secs: if def.max_duration_secs == inherited_max_duration_secs {
             None
         } else {
@@ -108,6 +114,7 @@ pub(super) fn apply_weles_allowed_overrides(
             def.openrouter_provider_ignore.clone()
         },
         openrouter_allow_fallbacks: def.openrouter_allow_fallbacks,
+        huggingface_provider: def.huggingface_provider.clone(),
         max_concurrent_reviews: None,
         api_transport: def.api_transport,
     };

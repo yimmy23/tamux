@@ -146,6 +146,7 @@ pub(super) fn build_effective_weles_definition(config: &AgentConfig) -> SubAgent
             .clone()
             .or_else(|| Some(default_weles_tool_blacklist())),
         context_budget_tokens: overrides.context_budget_tokens,
+        context_window_tokens: overrides.context_window_tokens,
         max_duration_secs: overrides.max_duration_secs,
         supervisor_config: overrides.supervisor_config.clone(),
         enabled: true,
@@ -160,6 +161,7 @@ pub(super) fn build_effective_weles_definition(config: &AgentConfig) -> SubAgent
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: overrides.huggingface_provider.clone(),
         created_at: 0,
     }
 }

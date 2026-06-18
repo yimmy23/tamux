@@ -124,6 +124,14 @@ impl TuiModel {
                 .get("openrouter_response_cache_enabled")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
+            self.config.huggingface_provider = Self::provider_field_str(
+                provider_config,
+                "huggingface_provider",
+                "huggingface_provider",
+            )
+            .map(str::trim)
+            .unwrap_or("")
+            .to_string();
             self.config.context_window_tokens = json
                 .get("context_window_tokens")
                 .and_then(|v| v.as_u64())

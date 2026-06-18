@@ -147,7 +147,7 @@
       },
       "run_inference": {
         "method": "POST",
-        "path": "https://api-inference.huggingface.co/models/{{params.id}}",
+        "path": "https://router.huggingface.co/models/{{params.id}}",
         "headers": {
           "Authorization": "Bearer {{settings.token}}",
           "Content-Type": "application/json",
@@ -160,7 +160,7 @@
       },
       "submit_async_inference": {
         "method": "POST",
-        "path": "https://api-inference.huggingface.co/async/models/{{params.id}}",
+        "path": "https://router.huggingface.co/async/models/{{params.id}}",
         "headers": {
           "Authorization": "Bearer {{settings.token}}",
           "Content-Type": "application/json"
@@ -172,7 +172,7 @@
       },
       "get_async_inference_status": {
         "method": "GET",
-        "path": "https://api-inference.huggingface.co/async/{{params.job_id}}",
+        "path": "https://router.huggingface.co/async/{{params.job_id}}",
         "headers": {"Authorization": "Bearer {{settings.token}}"},
         "response_template": "## Async job `{{../params.job_id}}`\n\nStatus: {{status}}\n\n{{#if output}}### Output\n```json\n{{json output}}\n```{{/if}}"
       },

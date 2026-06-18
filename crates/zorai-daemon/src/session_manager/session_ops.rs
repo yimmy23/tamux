@@ -778,15 +778,14 @@ impl SessionManager {
     }
 
     pub async fn cancel_queued_managed_command(&self, execution_id: &str) -> bool {
-        let sessions: Vec<Arc<Mutex<PtySession>>> = self
-            .sessions
-            .read()
-            .await
-            .values()
-            .cloned()
-            .collect();
+        let sessions: Vec<Arc<Mutex<PtySession>>> =
+            self.sessions.read().await.values().cloned().collect();
         for session in sessions {
-            if session.lock().await.cancel_queued_managed_command(execution_id) {
+            if session
+                .lock()
+                .await
+                .cancel_queued_managed_command(execution_id)
+            {
                 return true;
             }
         }

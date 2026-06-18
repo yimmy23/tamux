@@ -136,6 +136,7 @@ async fn rerunning_thread_workspace_task_uses_updated_assignee_model() -> Result
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -149,6 +150,7 @@ async fn rerunning_thread_workspace_task_uses_updated_assignee_model() -> Result
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 1,
     });
     config.sub_agents.push(SubAgentDefinition {
@@ -162,6 +164,7 @@ async fn rerunning_thread_workspace_task_uses_updated_assignee_model() -> Result
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -175,6 +178,7 @@ async fn rerunning_thread_workspace_task_uses_updated_assignee_model() -> Result
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 2,
     });
     let manager = SessionManager::new_test(root.path()).await;
@@ -594,6 +598,7 @@ async fn moving_to_review_with_subagent_reviewer_queues_reviewer_persona_task() 
         tool_whitelist: None,
         tool_blacklist: None,
         context_budget_tokens: None,
+        context_window_tokens: None,
         max_duration_secs: None,
         supervisor_config: None,
         enabled: true,
@@ -607,6 +612,7 @@ async fn moving_to_review_with_subagent_reviewer_queues_reviewer_persona_task() 
         openrouter_provider_order: Vec::new(),
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
         created_at: 1,
     });
     let engine = AgentEngine::new_test(manager, config, root.path()).await;

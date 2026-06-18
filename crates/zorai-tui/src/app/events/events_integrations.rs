@@ -231,6 +231,11 @@ impl TuiModel {
                     .get("openrouter_allow_fallbacks")
                     .and_then(|value| value.as_bool())
                     .unwrap_or(true),
+                huggingface_provider: raw
+                    .get("huggingface_provider")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 auto_cleanup_on_navigate: raw
                     .get("auto_cleanup_on_navigate")
                     .and_then(|value| value.as_bool())

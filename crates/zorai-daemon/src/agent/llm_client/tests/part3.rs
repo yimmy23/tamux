@@ -137,6 +137,7 @@ fn github_copilot_continued_responses_request_omits_orphaned_tool_outputs() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let body = build_openai_responses_body(
@@ -205,6 +206,53 @@ fn openrouter_chat_request_includes_provider_routing_preferences() {
     );
     assert_eq!(body["provider"]["ignore"], serde_json::json!(["deepinfra"]));
     assert_eq!(body["provider"]["allow_fallbacks"], false);
+}
+
+#[test]
+fn huggingface_chat_request_appends_provider_route_to_model() {
+    let mut config = responses_test_config(
+        "https://router.huggingface.co/v1".to_string(),
+        AuthSource::ApiKey,
+    );
+    config.model = "openai/gpt-oss-120b".to_string();
+    config.huggingface_provider = Some(":SambaNova".to_string());
+
+    let body = super::build_openai_chat_completions_body(
+        zorai_shared::providers::PROVIDER_ID_HUGGINGFACE,
+        &config,
+        "system prompt",
+        &[ApiMessage {
+            role: "user".to_string(),
+            content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
+            tool_call_id: None,
+            name: None,
+            tool_calls: None,
+        }],
+        &[],
+    )
+    .expect("body should build");
+
+    assert_eq!(body["model"], "openai/gpt-oss-120b:sambanova");
+
+    config.model = "openai/gpt-oss-120b:fastest".to_string();
+    config.huggingface_provider = Some("preferred".to_string());
+    let body = super::build_openai_chat_completions_body(
+        zorai_shared::providers::PROVIDER_ID_HUGGINGFACE,
+        &config,
+        "system prompt",
+        &[ApiMessage {
+            role: "user".to_string(),
+            content: ApiContent::Text("hello".to_string()),
+            reasoning: None,
+            tool_call_id: None,
+            name: None,
+            tool_calls: None,
+        }],
+        &[],
+    )
+    .expect("body should build");
+    assert_eq!(body["model"], "openai/gpt-oss-120b:fastest");
 }
 
 #[tokio::test]
@@ -324,6 +372,7 @@ fn github_copilot_full_responses_request_omits_orphaned_function_calls() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let body = build_openai_responses_body(
@@ -406,6 +455,7 @@ fn github_copilot_full_responses_request_omits_orphaned_tool_outputs() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let body = build_openai_responses_body(
@@ -471,6 +521,7 @@ fn github_copilot_full_responses_request_preserves_function_call_history() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let body = build_openai_responses_body(

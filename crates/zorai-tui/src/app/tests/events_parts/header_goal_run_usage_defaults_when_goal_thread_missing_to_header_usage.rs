@@ -275,6 +275,7 @@ fn header_profile_tracks_weles_subagent_updates_after_runtime_metadata_exists() 
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     });
     model.handle_client_event(ClientEvent::ThreadCreated {
@@ -312,6 +313,7 @@ fn header_profile_tracks_weles_subagent_updates_after_runtime_metadata_exists() 
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     });
 
@@ -342,6 +344,7 @@ fn header_profile_switches_on_handoff_append_and_clears_stale_runtime() {
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     });
     model.handle_client_event(ClientEvent::ThreadCreated {

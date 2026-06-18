@@ -128,6 +128,10 @@ impl TuiModel {
                 value["openrouter_response_cache_enabled"] =
                     serde_json::Value::Bool(self.config.openrouter_response_cache_enabled);
             }
+            if provider_id == zorai_shared::providers::PROVIDER_ID_HUGGINGFACE {
+                value["huggingface_provider"] =
+                    serde_json::Value::String(self.config.huggingface_provider.trim().to_string());
+            }
             return value;
         }
 
@@ -161,6 +165,9 @@ impl TuiModel {
             value["openrouter_provider_ignore"] = serde_json::json!([]);
             value["openrouter_allow_fallbacks"] = serde_json::Value::Bool(true);
             value["openrouter_response_cache_enabled"] = serde_json::Value::Bool(false);
+        }
+        if provider_id == zorai_shared::providers::PROVIDER_ID_HUGGINGFACE {
+            value["huggingface_provider"] = serde_json::Value::String(String::new());
         }
         value
     }
@@ -268,6 +275,21 @@ impl TuiModel {
                         false
                     },
                 ));
+        }
+        if provider_id == zorai_shared::providers::PROVIDER_ID_HUGGINGFACE {
+            let huggingface_provider =
+                Self::provider_field_str(&ui_value, "huggingface_provider", "huggingface_provider")
+                    .unwrap_or_else(|| {
+                        if self.config.provider == zorai_shared::providers::PROVIDER_ID_HUGGINGFACE
+                        {
+                            self.config.huggingface_provider.as_str()
+                        } else {
+                            ""
+                        }
+                    })
+                    .trim()
+                    .to_string();
+            value["huggingface_provider"] = serde_json::Value::String(huggingface_provider);
         }
         value
     }

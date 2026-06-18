@@ -59,6 +59,14 @@ impl TuiModel {
                 "model".to_string(),
                 serde_json::Value::String(editor.model.clone()),
             );
+            if let Some(context_window_tokens) = editor.context_window_tokens {
+                obj.insert(
+                    "context_window_tokens".to_string(),
+                    serde_json::Value::Number(context_window_tokens.into()),
+                );
+            } else {
+                obj.remove("context_window_tokens");
+            }
             obj.insert("role".to_string(), role);
             obj.insert("system_prompt".to_string(), system_prompt);
             obj.insert(
@@ -134,6 +142,19 @@ impl TuiModel {
                 obj.remove("openrouter_provider_order");
                 obj.remove("openrouter_provider_ignore");
                 obj.remove("openrouter_allow_fallbacks");
+            }
+            if editor.provider == zorai_shared::providers::PROVIDER_ID_HUGGINGFACE {
+                let huggingface_provider = editor.huggingface_provider.trim();
+                if huggingface_provider.is_empty() {
+                    obj.remove("huggingface_provider");
+                } else {
+                    obj.insert(
+                        "huggingface_provider".to_string(),
+                        serde_json::Value::String(huggingface_provider.to_string()),
+                    );
+                }
+            } else {
+                obj.remove("huggingface_provider");
             }
             obj.insert(
                 "created_at".to_string(),
@@ -214,6 +235,11 @@ impl TuiModel {
                 .get("openrouter_allow_fallbacks")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true),
+            huggingface_provider: raw
+                .get("huggingface_provider")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             raw_json: Some(raw),
         };
         if self
@@ -315,6 +341,15 @@ impl TuiModel {
                 );
             config["openrouter_allow_fallbacks"] =
                 serde_json::Value::Bool(self.concierge.openrouter_allow_fallbacks);
+        }
+        if self.concierge.provider.as_deref()
+            == Some(zorai_shared::providers::PROVIDER_ID_HUGGINGFACE)
+        {
+            let huggingface_provider = self.concierge.huggingface_provider.trim();
+            if !huggingface_provider.is_empty() {
+                config["huggingface_provider"] =
+                    serde_json::Value::String(huggingface_provider.to_string());
+            }
         }
         self.send_daemon_command(DaemonCommand::SetConciergeConfig(config.to_string()));
         self.send_daemon_command(DaemonCommand::GetConciergeConfig);

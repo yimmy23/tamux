@@ -41,7 +41,7 @@ Data directory: `~/.zorai/` on Unix, `%LOCALAPPDATA%\zorai\` on Windows. Existin
 | Groq | `groq` | llama-3.3-70b-versatile | api.groq.com |
 | Ollama (local) | `ollama` | llama3.1 | localhost:11434 |
 | Chutes | `chutes` | deepseek-ai/DeepSeek-V3 | llm.chutes.ai |
-| Hugging Face | `huggingface` | meta-llama/Llama-3.3-70B-Instruct | api-inference.huggingface.co |
+| Hugging Face | `huggingface` | meta-llama/Llama-3.3-70B-Instruct | router.huggingface.co |
 | MiniMax | `minimax` | MiniMax-M1-80k | api.minimax.io |
 | MiniMax Coding Plan | `minimax-coding-plan` | MiniMax-M2.7 | api.minimax.io/anthropic |
 | Alibaba Coding Plan | `alibaba-coding-plan` | qwen3-coder | coding-intl.dashscope.aliyuncs.com |

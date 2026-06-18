@@ -235,7 +235,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
     ProviderDef {
         id: PROVIDER_ID_HUGGINGFACE,
         name: "Hugging Face",
-        default_base_url: "https://api-inference.huggingface.co/v1",
+        default_base_url: "https://router.huggingface.co/v1",
         default_model: "meta-llama/Llama-3.3-70B-Instruct",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",

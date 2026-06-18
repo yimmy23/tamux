@@ -661,6 +661,21 @@ pub(crate) async fn execute_spawn_subagent(
     {
         effective_provider_config.reasoning_effort = reasoning_effort;
     }
+    if let Some(context_window_tokens) = matched_def
+        .as_ref()
+        .and_then(|def| def.context_window_tokens)
+        .filter(|tokens| *tokens > 0)
+    {
+        effective_provider_config.context_window_tokens = context_window_tokens;
+    }
+    if let Some(huggingface_provider) = matched_def
+        .as_ref()
+        .and_then(|def| def.huggingface_provider.clone())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        effective_provider_config.huggingface_provider = Some(huggingface_provider);
+    }
     let adaptation_mode = {
         let model = agent.operator_model.read().await;
         SatisfactionAdaptationMode::from_label(&model.operator_satisfaction.label)
