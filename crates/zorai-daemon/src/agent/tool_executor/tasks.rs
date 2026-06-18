@@ -1696,7 +1696,11 @@ pub(crate) async fn execute_cancel_task(
         .to_string());
     }
 
-    if let Ok(Some(status)) = agent.session_manager.get_background_task_status(task_id).await {
+    if let Ok(Some(status)) = agent
+        .session_manager
+        .get_background_task_status(task_id)
+        .await
+    {
         match status.state {
             crate::session_manager::BackgroundTaskState::Queued
             | crate::session_manager::BackgroundTaskState::Running => {

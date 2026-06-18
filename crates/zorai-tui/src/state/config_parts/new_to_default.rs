@@ -24,6 +24,7 @@ impl ConfigState {
             openrouter_provider_ignore: String::new(),
             openrouter_allow_fallbacks: true,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: String::new(),
             openrouter_endpoint_providers: Vec::new(),
             custom_context_window_tokens: None,
             chatgpt_auth_available: false,

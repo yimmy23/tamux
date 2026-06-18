@@ -117,10 +117,8 @@ async fn fetch_url_without_python_falls_back_to_legacy_fetch_and_still_saves_fil
         .find_map(|line| line.strip_prefix("- saved_to: "))
         .expect("fallback result must still report a saved file path")
         .to_string();
-    let inventory_dir = zorai_protocol::thread_inventory_dir(
-        engine.history.data_root(),
-        "thread-fetch-fallback",
-    );
+    let inventory_dir =
+        zorai_protocol::thread_inventory_dir(engine.history.data_root(), "thread-fetch-fallback");
     assert!(
         saved_path.starts_with(&inventory_dir.display().to_string()),
         "fallback file {saved_path} must land inside the thread inventory dir"

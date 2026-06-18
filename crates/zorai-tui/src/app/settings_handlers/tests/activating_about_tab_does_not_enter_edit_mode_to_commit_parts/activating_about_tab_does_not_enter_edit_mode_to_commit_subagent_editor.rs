@@ -355,6 +355,7 @@ fn commit_subagent_editor_persists_existing_provider_model_and_effort_changes() 
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: Some(serde_json::json!({
             "id": "weles_builtin",
             "name": "WELES",
@@ -387,6 +388,7 @@ fn commit_subagent_editor_persists_existing_provider_model_and_effort_changes() 
     editor.delete_allowed = false;
     editor.protected_reason = Some("Protected builtin".to_string());
     editor.reasoning_effort = Some("high".to_string());
+    editor.context_window_tokens = Some(333_000);
     editor.raw_json = Some(serde_json::json!({
         "id": "weles_builtin",
         "name": "WELES",
@@ -427,6 +429,12 @@ fn commit_subagent_editor_persists_existing_provider_model_and_effort_changes() 
             .get("reasoning_effort")
             .and_then(|value| value.as_str()),
         Some("high")
+    );
+    assert_eq!(
+        saved
+            .get("context_window_tokens")
+            .and_then(|value| value.as_u64()),
+        Some(333_000)
     );
 
     let entry = model

@@ -293,6 +293,7 @@ async fn prepare_agent_reasoning_effort_json_updates_main_and_active_provider() 
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
     );
     engine.set_config(config).await;

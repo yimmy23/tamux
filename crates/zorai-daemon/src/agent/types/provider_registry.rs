@@ -12,8 +12,10 @@ pub const RESPONSES_CHAT_AND_ANTHROPIC_TRANSPORTS: &[ApiTransport] = &[
 ];
 pub const NATIVE_AND_CHAT_TRANSPORTS: &[ApiTransport] =
     &[ApiTransport::NativeAssistant, ApiTransport::ChatCompletions];
-pub const CHAT_AND_ANTHROPIC_TRANSPORTS: &[ApiTransport] =
-    &[ApiTransport::ChatCompletions, ApiTransport::AnthropicMessages];
+pub const CHAT_AND_ANTHROPIC_TRANSPORTS: &[ApiTransport] = &[
+    ApiTransport::ChatCompletions,
+    ApiTransport::AnthropicMessages,
+];
 
 pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
     ProviderDefinition {
@@ -40,6 +42,22 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: NVIDIA_MODELS,
+        supports_model_fetch: true,
+        anthropic_base_url: None,
+        supported_transports: CHAT_ONLY_TRANSPORTS,
+        default_transport: ApiTransport::ChatCompletions,
+        native_transport_kind: None,
+        native_base_url: None,
+        supports_response_continuity: false,
+    },
+    ProviderDefinition {
+        id: PROVIDER_ID_POOLSIDE,
+        name: "Poolside",
+        default_base_url: "https://inference.poolside.ai/v1",
+        default_model: "poolside/laguna-m.1",
+        api_type: ApiType::OpenAI,
+        auth_method: AuthMethod::Bearer,
+        models: POOLSIDE_MODELS,
         supports_model_fetch: true,
         anthropic_base_url: None,
         supported_transports: CHAT_ONLY_TRANSPORTS,
@@ -371,12 +389,12 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
     ProviderDefinition {
         id: PROVIDER_ID_HUGGINGFACE,
         name: "Hugging Face",
-        default_base_url: "https://api-inference.huggingface.co/v1",
+        default_base_url: "https://router.huggingface.co/v1",
         default_model: "meta-llama/Llama-3.3-70B-Instruct",
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: HUGGINGFACE_MODELS,
-        supports_model_fetch: false,
+        supports_model_fetch: true,
         anthropic_base_url: None,
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: ApiTransport::ChatCompletions,

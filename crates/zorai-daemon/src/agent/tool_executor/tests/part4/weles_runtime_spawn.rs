@@ -205,6 +205,7 @@ async fn spawn_subagent_rejects_other_protected_subagents_from_normal_lookup() {
             tool_whitelist: None,
             tool_blacklist: None,
             context_budget_tokens: None,
+            context_window_tokens: None,
             max_duration_secs: None,
             supervisor_config: None,
             enabled: true,
@@ -218,6 +219,7 @@ async fn spawn_subagent_rejects_other_protected_subagents_from_normal_lookup() {
             openrouter_provider_order: Vec::new(),
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
+            huggingface_provider: None,
             created_at: 1,
         })
         .await

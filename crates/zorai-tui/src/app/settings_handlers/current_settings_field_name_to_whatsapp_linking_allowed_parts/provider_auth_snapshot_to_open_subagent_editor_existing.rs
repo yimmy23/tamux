@@ -411,6 +411,8 @@ impl TuiModel {
             default_model,
         );
         editor.name = format!("Sub-Agent {}", self.subagents.entries.len() + 1);
+        editor.context_window_tokens =
+            providers::known_context_window_for(&editor.provider, &editor.model);
         self.subagents.editor = Some(editor);
         self.subagents.actions_focused = false;
     }
@@ -435,6 +437,10 @@ impl TuiModel {
         );
         let system_prompt = self.subagent_editor_system_prompt_override(&entry, &raw);
         editor.name = entry.name;
+        editor.context_window_tokens = raw
+            .get("context_window_tokens")
+            .and_then(|value| value.as_u64())
+            .map(|value| value.min(u32::MAX as u64) as u32);
         editor.role = entry.role.clone().unwrap_or_default();
         editor.system_prompt = system_prompt;
         editor.enabled = entry.enabled;
@@ -460,6 +466,11 @@ impl TuiModel {
             .get("openrouter_allow_fallbacks")
             .and_then(|value| value.as_bool())
             .unwrap_or(true);
+        editor.huggingface_provider = raw
+            .get("huggingface_provider")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string();
         editor.raw_json = Some(raw);
         editor.previous_role_preset = editor
             .role_preset_index()

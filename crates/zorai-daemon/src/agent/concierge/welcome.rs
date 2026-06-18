@@ -419,6 +419,16 @@ pub(crate) fn resolve_concierge_provider(config: &AgentConfig) -> Result<Provide
             resolved.openrouter_allow_fallbacks = config.concierge.openrouter_allow_fallbacks;
         }
     }
+    if provider_id == zorai_shared::providers::PROVIDER_ID_HUGGINGFACE {
+        if let Some(huggingface_provider) = config
+            .concierge
+            .huggingface_provider
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            resolved.huggingface_provider = Some(huggingface_provider.trim().to_string());
+        }
+    }
     Ok(resolved)
 }
 

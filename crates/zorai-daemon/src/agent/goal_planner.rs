@@ -206,6 +206,7 @@ impl AgentEngine {
                     openrouter_provider_ignore: Vec::new(),
                     openrouter_allow_fallbacks: None,
                     openrouter_response_cache_enabled: false,
+                    huggingface_provider: None,
                 });
             goal_agent_assignment(
                 GOAL_REVIEWER_ROLE_ID.to_string(),
@@ -248,6 +249,7 @@ impl AgentEngine {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         });
         let assignments = vec![goal_agent_assignment(
             crate::agent::agent_identity::MAIN_AGENT_ID.to_string(),

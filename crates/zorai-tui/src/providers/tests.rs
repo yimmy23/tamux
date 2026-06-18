@@ -4,13 +4,13 @@ use zorai_shared::providers::{
     MINIMAX_PROVIDER, PROVIDER_ID_ALIBABA_CODING_PLAN, PROVIDER_ID_ANTHROPIC, PROVIDER_ID_ARCEE,
     PROVIDER_ID_CHUTES, PROVIDER_ID_DEEPSEEK, PROVIDER_ID_ELEVENLABS, PROVIDER_ID_GITHUB_COPILOT,
     PROVIDER_ID_HERMES_AGENT_API, PROVIDER_ID_KIMI, PROVIDER_ID_KIMI_CODING_PLAN,
-    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_XAI,
-    PROVIDER_ID_Z_AI, PROVIDER_ID_Z_AI_CODING_PLAN, QWEN_PROVIDER,
+    PROVIDER_ID_MINIMAX_CODING_PLAN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_POOLSIDE,
+    PROVIDER_ID_XAI, PROVIDER_ID_Z_AI, PROVIDER_ID_Z_AI_CODING_PLAN, QWEN_PROVIDER,
 };
 
 #[test]
-fn provider_count_is_30() {
-    assert_eq!(PROVIDERS.len(), 33);
+fn provider_count_matches_builtin_catalog() {
+    assert_eq!(PROVIDERS.len(), 34);
 }
 
 #[test]
@@ -370,6 +370,26 @@ fn nvidia_provider_uses_expected_defaults() {
         Some(205_000)
     );
     assert!(supports_model_fetch_for(PROVIDER_ID_NVIDIA));
+}
+
+#[test]
+fn poolside_provider_uses_expected_defaults() {
+    let provider = find_by_id(PROVIDER_ID_POOLSIDE).unwrap();
+    assert_eq!(provider.name, "Poolside");
+    assert_eq!(
+        provider.default_base_url,
+        "https://inference.poolside.ai/v1"
+    );
+    assert_eq!(provider.default_model, "poolside/laguna-m.1");
+    assert_eq!(provider.default_auth_source, "api_key");
+    assert_eq!(provider.supported_auth_sources, API_KEY_ONLY_AUTH_SOURCES);
+    assert_eq!(provider.default_transport, "chat_completions");
+    assert_eq!(provider.supported_transports, CHAT_ONLY_TRANSPORTS);
+    assert_eq!(
+        known_context_window_for(PROVIDER_ID_POOLSIDE, "poolside/laguna-m.1"),
+        Some(256_000)
+    );
+    assert!(supports_model_fetch_for(PROVIDER_ID_POOLSIDE));
 }
 
 #[test]

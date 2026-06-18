@@ -438,7 +438,10 @@ fn last_message_metrics_cover_rendered_lines_in_long_threads() {
     });
     let chat = chat_with_messages(messages);
     let last_idx = chat.active_thread().expect("thread").messages.len() - 1;
-    assert!(last_idx >= 20, "long-thread estimate path requires >20 messages");
+    assert!(
+        last_idx >= 20,
+        "long-thread estimate path requires >20 messages"
+    );
 
     let (_, rendered_ranges) = build_rendered_lines(&chat, &ThemeTokens::default(), 60, 0, false);
     let metrics = build_transcript_metrics(&chat, &ThemeTokens::default(), 60, 0, false);
@@ -451,8 +454,7 @@ fn last_message_metrics_cover_rendered_lines_in_long_threads() {
         "the newest message must be measured exactly so its last line is not clipped by the bottom-anchored window"
     );
     assert_eq!(
-        metrics.total_lines,
-        rendered_ranges[last_idx].1,
+        metrics.total_lines, rendered_ranges[last_idx].1,
         "total transcript height must reach the end of the newest message"
     );
 }

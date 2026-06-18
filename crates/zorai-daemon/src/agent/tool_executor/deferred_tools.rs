@@ -99,8 +99,7 @@ pub(crate) fn is_deferrable_tool(name: &str) -> bool {
     if META_TOOL_NAMES.contains(&name) {
         return false;
     }
-    DEFERRABLE_GROUPS.iter().any(|group| group.contains(&name))
-        || DEFERRABLE_EXTRA.contains(&name)
+    DEFERRABLE_GROUPS.iter().any(|group| group.contains(&name)) || DEFERRABLE_EXTRA.contains(&name)
 }
 
 /// Remove deferrable tools from `tools` and return them as a pool the runner can

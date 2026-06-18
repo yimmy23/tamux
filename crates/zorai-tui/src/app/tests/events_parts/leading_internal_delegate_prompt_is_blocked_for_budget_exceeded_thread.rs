@@ -391,6 +391,7 @@ fn subagent_error_requests_refresh_to_clear_rejected_optimistic_state() {
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: Some(serde_json::json!({
             "id": "weles_builtin",
             "name": "Legacy WELES"

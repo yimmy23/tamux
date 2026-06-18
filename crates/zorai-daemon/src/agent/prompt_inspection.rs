@@ -775,7 +775,10 @@ impl AgentEngine {
                 &super::agent_data_dir(),
                 true,
             );
-            crate::agent::tool_executor::filter_tools_for_client_surface(&mut tools, client_surface);
+            crate::agent::tool_executor::filter_tools_for_client_surface(
+                &mut tools,
+                client_surface,
+            );
             if config.tools.deferred_tool_loading {
                 let _ = crate::agent::tool_executor::partition_deferred_tools(&mut tools);
             }

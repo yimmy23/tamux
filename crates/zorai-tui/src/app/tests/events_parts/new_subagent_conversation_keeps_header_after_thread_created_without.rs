@@ -22,6 +22,7 @@ fn new_subagent_conversation_keeps_header_after_thread_created_without_agent_nam
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     });
 
@@ -84,6 +85,7 @@ fn new_subagent_conversation_done_clears_footer_activity_after_thread_creation()
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     });
 
@@ -149,6 +151,7 @@ fn new_subagent_conversation_keeps_thinking_after_thread_created_until_first_res
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     });
 
@@ -197,6 +200,7 @@ fn new_subagent_conversation_keeps_thinking_across_reload_before_first_response(
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     });
 
@@ -242,6 +246,7 @@ fn new_subagent_conversation_keeps_reasoning_stream_across_reload_before_first_r
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     });
 

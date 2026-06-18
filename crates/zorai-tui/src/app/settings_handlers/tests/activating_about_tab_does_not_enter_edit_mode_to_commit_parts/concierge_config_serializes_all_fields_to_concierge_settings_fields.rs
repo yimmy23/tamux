@@ -29,6 +29,25 @@ fn concierge_config_serializes_all_fields() {
 }
 
 #[test]
+fn concierge_config_serializes_huggingface_route_for_huggingface_provider() {
+    let (mut model, mut daemon_rx) = make_model();
+    model.concierge.provider = Some(PROVIDER_ID_HUGGINGFACE.to_string());
+    model.concierge.model = Some("openai/gpt-oss-120b".to_string());
+    model.concierge.huggingface_provider = "sambanova".to_string();
+
+    model.send_concierge_config();
+
+    let payload = match daemon_rx.try_recv() {
+        Ok(DaemonCommand::SetConciergeConfig(payload)) => payload,
+        other => panic!("expected SetConciergeConfig, got {other:?}"),
+    };
+    let json: serde_json::Value = serde_json::from_str(&payload).expect("valid concierge json");
+    assert_eq!(json["provider"], PROVIDER_ID_HUGGINGFACE);
+    assert_eq!(json["huggingface_provider"], "sambanova");
+    assert!(json.get("openrouter_provider_order").is_none());
+}
+
+#[test]
 fn concierge_config_write_requests_fresh_settings_snapshot() {
     let (mut model, mut daemon_rx) = make_model();
     model.concierge.provider = Some("anthropic".to_string());

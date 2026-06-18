@@ -6,6 +6,7 @@
 //! state (workspace/pane/browser) are not available in daemon mode — only
 //! tools that can execute headlessly are included here.
 
+mod deferred_tools;
 #[path = "catalog/part_a.rs"]
 mod part_a;
 #[path = "catalog/part_b.rs"]
@@ -14,7 +15,6 @@ mod part_b;
 mod part_c;
 #[path = "catalog/part_d.rs"]
 mod part_d;
-mod deferred_tools;
 mod prelude;
 mod result_metadata;
 mod search_runtime;

@@ -1,5 +1,7 @@
 use super::*;
-use zorai_shared::providers::{AudioToolKind, PROVIDER_ID_CUSTOM, PROVIDER_ID_OPENROUTER};
+use zorai_shared::providers::{
+    AudioToolKind, PROVIDER_ID_CUSTOM, PROVIDER_ID_HUGGINGFACE, PROVIDER_ID_OPENROUTER,
+};
 impl TuiModel {
     pub(crate) fn current_settings_field_name(&self) -> &str {
         if self.settings.active_tab() == crate::state::SettingsTab::Concierge {
@@ -18,6 +20,9 @@ impl TuiModel {
                 7 if self.concierge.provider.as_deref() == Some(PROVIDER_ID_OPENROUTER) => {
                     "concierge_openrouter_allow_fallbacks"
                 }
+                7 if self.concierge.provider.as_deref() == Some(PROVIDER_ID_HUGGINGFACE) => {
+                    "concierge_huggingface_provider"
+                }
                 6 => "concierge_claude_permission_mode",
                 _ => "",
             };
@@ -29,8 +34,10 @@ impl TuiModel {
         if self.settings.active_tab() == crate::state::SettingsTab::Concierge {
             return if self.concierge.provider.as_deref() == Some(PROVIDER_ID_OPENROUTER) {
                 8
+            } else if self.concierge.provider.as_deref() == Some(PROVIDER_ID_HUGGINGFACE) {
+                8
             } else {
-                5
+                7
             };
         }
         self.settings.field_count_with_config(&self.config)

@@ -217,6 +217,7 @@ fn create_modal_displays_subagent_names_and_builtin_persona_labels() {
         openrouter_provider_order: String::new(),
         openrouter_provider_ignore: String::new(),
         openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
         raw_json: None,
     }];
 

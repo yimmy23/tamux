@@ -42,6 +42,7 @@ fn minimax_anthropic_requests_keep_connection_close_without_extra_transport_head
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
     let request = build_anthropic_request(
         &client,
@@ -116,6 +117,7 @@ fn anthropic_request_sets_tool_choice_auto_when_tools_are_present() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
     let request = build_anthropic_request(
         &client,
@@ -192,6 +194,7 @@ fn anthropic_request_fingerprint_is_stable_for_identical_requests() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
     let messages = vec![ApiMessage {
         role: "user".to_string(),
@@ -269,6 +272,7 @@ fn anthropic_request_fingerprint_changes_when_payload_changes() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let request_a = build_anthropic_request(
@@ -340,6 +344,7 @@ fn minimax_attempt_target_uses_anthropic_messages_endpoint() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let target = effective_attempt_target(
@@ -451,6 +456,7 @@ async fn minimax_anthropic_retry_recovers_after_malformed_http_response() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
         "system",
         &[ApiMessage {
@@ -582,6 +588,7 @@ async fn minimax_send_path_never_falls_back_to_chat_completions() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
         "system",
         &[ApiMessage {

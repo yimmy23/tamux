@@ -333,3 +333,10 @@ pub const NVIDIA_MODELS: &[ModelDefinition] = &[ModelDefinition {
     context_window: 205000,
     modalities: TEXT_ONLY,
 }];
+
+pub const POOLSIDE_MODELS: &[ModelDefinition] = &[ModelDefinition {
+    id: "poolside/laguna-m.1",
+    name: "Poolside Laguna M.1",
+    context_window: 256_000,
+    modalities: TEXT_ONLY,
+}];

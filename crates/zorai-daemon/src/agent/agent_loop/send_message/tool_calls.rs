@@ -843,12 +843,15 @@ impl<'a> SendMessageRunner<'a> {
         let names: Vec<String> = serde_json::from_str::<serde_json::Value>(&tc.function.arguments)
             .ok()
             .and_then(|value| {
-                value.get("names").and_then(|names| names.as_array()).map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|item| item.as_str().map(str::to_string))
-                        .collect()
-                })
+                value
+                    .get("names")
+                    .and_then(|names| names.as_array())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| item.as_str().map(str::to_string))
+                            .collect()
+                    })
             })
             .unwrap_or_default();
 

@@ -46,7 +46,10 @@ async fn deferred_tool_gate_withholds_niche_tools_but_keeps_core_and_meta() {
     assert!(has(&tools, tn::READ_FILE), "read_file must stay core");
     assert!(has(&tools, tn::BASH_COMMAND), "bash must stay core");
     assert!(has(&tools, tn::SEARCH_FILES), "search_files must stay core");
-    assert!(has(&pool, tn::CREATE_ROUTINE), "create_routine should defer");
+    assert!(
+        has(&pool, tn::CREATE_ROUTINE),
+        "create_routine should defer"
+    );
     assert!(has(&pool, tn::RUN_DEBATE), "run_debate should defer");
 }
 

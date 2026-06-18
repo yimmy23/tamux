@@ -148,6 +148,11 @@ impl DaemonClient {
                                 .get("openrouter_allow_fallbacks")
                                 .and_then(|b| b.as_bool())
                                 .unwrap_or(true),
+                            huggingface_provider: v
+                                .get("huggingface_provider")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("")
+                                .to_string(),
                             raw_json: Some(v.clone()),
                         })
                     })
@@ -225,6 +230,11 @@ impl DaemonClient {
                         .get("openrouter_allow_fallbacks")
                         .and_then(|b| b.as_bool())
                         .unwrap_or(true),
+                    huggingface_provider: v
+                        .get("huggingface_provider")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     raw_json: Some(v),
                 };
                 let _ = event_tx.send(ClientEvent::SubAgentUpdated(entry)).await;

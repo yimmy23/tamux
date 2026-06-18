@@ -473,6 +473,7 @@ async fn send_refinement_llm_call_uses_weles_provider_when_running_under_weles_s
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
     );
     config.builtin_sub_agents.weles.provider = Some("custom-weles".to_string());

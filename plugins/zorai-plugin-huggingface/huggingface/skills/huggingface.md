@@ -31,7 +31,7 @@ After a search, call `model` / `dataset` / `space` to get full metadata and the 
 
 ## Inference (serverless)
 
-`run_inference` calls `api-inference.huggingface.co`. The `x-wait-for-model: true` header tells HF to block server-side instead of returning 503 while the model loads.
+`run_inference` calls `router.huggingface.co`. The `x-wait-for-model: true` header tells HF to block server-side instead of returning 503 while the model loads.
 
 ```json
 {"plugin_name": "huggingface", "endpoint_name": "run_inference", "params": {"id": "distilbert-base-uncased-finetuned-sst-2-english", "inputs": "this is great"}}

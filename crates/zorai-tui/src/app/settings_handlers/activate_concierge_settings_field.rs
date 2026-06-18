@@ -71,7 +71,11 @@ impl TuiModel {
             }
             "concierge_claude_permission_mode" => {
                 let options = crate::state::subagents::CLAUDE_PERMISSION_MODE_OPTIONS;
-                let current = self.concierge.claude_permission_mode.clone().unwrap_or_default();
+                let current = self
+                    .concierge
+                    .claude_permission_mode
+                    .clone()
+                    .unwrap_or_default();
                 let current_idx = options
                     .iter()
                     .position(|mode| *mode == current)
@@ -101,6 +105,22 @@ impl TuiModel {
                 } else {
                     self.status_line =
                         "OpenRouter provider routing only applies to OpenRouter agents".to_string();
+                }
+            }
+            "concierge_huggingface_provider" => {
+                if self.concierge.provider.as_deref()
+                    == Some(zorai_shared::providers::PROVIDER_ID_HUGGINGFACE)
+                {
+                    self.settings.start_editing(
+                        "concierge_huggingface_provider",
+                        &self.concierge.huggingface_provider,
+                    );
+                    self.status_line =
+                        "Enter HF route: fastest, cheapest, preferred, or provider slug"
+                            .to_string();
+                } else {
+                    self.status_line =
+                        "Hugging Face routing only applies to Hugging Face agents".to_string();
                 }
             }
             "managed_security_level" => {

@@ -178,10 +178,10 @@ mod tests {
             "overestimated metrics must not duplicate message content"
         );
         assert!(
-            lines[10..].iter().all(|line| matches!(
-                line.kind,
-                RenderedLineKind::Padding
-            ) && line.message_index == Some(0)),
+            lines[10..]
+                .iter()
+                .all(|line| matches!(line.kind, RenderedLineKind::Padding)
+                    && line.message_index == Some(0)),
             "overestimated metric gaps should render as padding still attributed to the message"
         );
     }

@@ -204,6 +204,7 @@ pub struct ConfigState {
     pub openrouter_provider_ignore: String,
     pub openrouter_allow_fallbacks: bool,
     pub openrouter_response_cache_enabled: bool,
+    pub huggingface_provider: String,
     pub openrouter_endpoint_providers: Vec<String>,
     pub custom_context_window_tokens: Option<u32>,
     pub chatgpt_auth_available: bool,

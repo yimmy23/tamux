@@ -46,6 +46,7 @@ pub const PROVIDER_ID_CHATGPT_SUBSCRIPTION: &str = "chatgpt_subscription";
 pub const PROVIDER_ID_OPENCODE_ZEN: &str = "opencode-zen";
 pub const PROVIDER_ID_OPENCODE_GO: &str = "opencode-go";
 pub const PROVIDER_ID_OPENROUTER: &str = "openrouter";
+pub const PROVIDER_ID_POOLSIDE: &str = "poolside";
 pub const PROVIDER_ID_QWEN: &str = "qwen";
 pub const PROVIDER_ID_QWEN_DEEPINFRA: &str = "qwen-deepinfra";
 pub const PROVIDER_ID_TOGETHER: &str = "together";
@@ -102,6 +103,9 @@ pub const OPENCODE_ZEN_PROVIDER: ProviderRef = ProviderRef {
 };
 pub const OPENROUTER_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_OPENROUTER,
+};
+pub const POOLSIDE_PROVIDER: ProviderRef = ProviderRef {
+    id: PROVIDER_ID_POOLSIDE,
 };
 pub const QWEN_PROVIDER: ProviderRef = ProviderRef {
     id: PROVIDER_ID_QWEN,

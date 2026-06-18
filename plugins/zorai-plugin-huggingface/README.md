@@ -49,7 +49,7 @@ The following commands incur real charges on your HuggingFace account. **Always 
 
 ## Known caveats
 
-- **AutoTrain and async-inference path stability** — HF has revised these surfaces over time. The current manifest reflects design-time assumptions (`api.autotrain.huggingface.co/projects/...` and `api-inference.huggingface.co/async/...`). If `/hf autotrain-list` or `/hf job-status` returns 404, verify against current HF docs and update the endpoint paths in `huggingface/plugin.json`.
+- **AutoTrain and async-inference path stability** — HF has revised these surfaces over time. The current manifest reflects design-time assumptions (`api.autotrain.huggingface.co/projects/...` and `router.huggingface.co/async/...`). If `/hf autotrain-list` or `/hf job-status` returns 404, verify against current HF docs and update the endpoint paths in `huggingface/plugin.json`.
 
 ## License
 

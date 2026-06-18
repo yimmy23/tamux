@@ -5,7 +5,7 @@ use zorai_shared::providers::{
     PROVIDER_ID_ANTHROPIC, PROVIDER_ID_ARCEE, PROVIDER_ID_CHUTES, PROVIDER_ID_CLAUDE_CODE_CLI,
     PROVIDER_ID_DEEPSEEK, PROVIDER_ID_ELEVENLABS, PROVIDER_ID_GITHUB_COPILOT,
     PROVIDER_ID_HERMES_AGENT_API, PROVIDER_ID_MINIMAX, PROVIDER_ID_MINIMAX_CODING_PLAN,
-    PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_XAI,
+    PROVIDER_ID_NVIDIA, PROVIDER_ID_OPENAI, PROVIDER_ID_POOLSIDE, PROVIDER_ID_XAI,
 };
 
 #[test]
@@ -774,6 +774,32 @@ fn nvidia_provider_exposes_fetchable_openai_defaults() {
             PROVIDER_ID_NVIDIA,
             "minimaxai/minimax-m2.7",
             "https://integrate.api.nvidia.com/v1"
+        ),
+        ApiType::OpenAI
+    );
+}
+
+#[test]
+fn poolside_provider_exposes_fetchable_chat_completion_defaults() {
+    let provider = get_provider_definition(PROVIDER_ID_POOLSIDE).expect("poolside provider");
+    assert_eq!(
+        provider.default_base_url,
+        "https://inference.poolside.ai/v1"
+    );
+    assert_eq!(provider.default_model, "poolside/laguna-m.1");
+    assert_eq!(provider.api_type, ApiType::OpenAI);
+    assert_eq!(provider.auth_method, AuthMethod::Bearer);
+    assert!(provider.supports_model_fetch);
+    assert_eq!(provider.default_transport, ApiTransport::ChatCompletions);
+    assert_eq!(provider.supported_transports, CHAT_ONLY_TRANSPORTS);
+    assert_eq!(provider.models.len(), 1);
+    assert_eq!(provider.models[0].id, "poolside/laguna-m.1");
+    assert_eq!(provider.models[0].context_window, 256_000);
+    assert_eq!(
+        get_provider_api_type(
+            PROVIDER_ID_POOLSIDE,
+            "poolside/laguna-m.1",
+            "https://inference.poolside.ai/v1"
         ),
         ApiType::OpenAI
     );

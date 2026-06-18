@@ -216,6 +216,20 @@ impl TuiModel {
                         crate::state::subagents::SubAgentEditorField::Model => {
                             self.open_subagent_model_picker();
                         }
+                        crate::state::subagents::SubAgentEditorField::ContextWindowTokens => {
+                            let current = self
+                                .subagents
+                                .editor
+                                .as_ref()
+                                .and_then(|editor| editor.context_window_tokens)
+                                .map(|tokens| tokens.to_string())
+                                .unwrap_or_default();
+                            self.settings
+                                .start_editing("subagent_context_window_tokens", &current);
+                            self.status_line =
+                                "Enter sub-agent context window tokens; empty uses auto"
+                                    .to_string();
+                        }
                         crate::state::subagents::SubAgentEditorField::OpenRouterProviderOrder => {
                             self.open_subagent_openrouter_provider_picker(
                                 SettingsPickerTarget::SubAgentOpenRouterPreferredProviders,
@@ -231,6 +245,19 @@ impl TuiModel {
                                 editor.openrouter_allow_fallbacks =
                                     !editor.openrouter_allow_fallbacks;
                             }
+                        }
+                        crate::state::subagents::SubAgentEditorField::HuggingFaceProvider => {
+                            let current = self
+                                .subagents
+                                .editor
+                                .as_ref()
+                                .map(|editor| editor.huggingface_provider.clone())
+                                .unwrap_or_default();
+                            self.settings
+                                .start_editing("subagent_huggingface_provider", &current);
+                            self.status_line =
+                                "Enter HF route: fastest, cheapest, preferred, or provider slug"
+                                    .to_string();
                         }
                         crate::state::subagents::SubAgentEditorField::ReasoningEffort => {
                             self.open_subagent_effort_picker();

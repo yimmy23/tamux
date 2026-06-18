@@ -78,6 +78,7 @@ async fn anthropic_create_message_batch_posts_requests_and_parses_batch() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
     let params = build_anthropic_message_batch_params(
         "anthropic",
@@ -247,6 +248,7 @@ async fn anthropic_batch_list_and_lifecycle_endpoints_use_documented_paths() {
         openrouter_provider_ignore: Vec::new(),
         openrouter_allow_fallbacks: None,
         openrouter_response_cache_enabled: false,
+        huggingface_provider: None,
     };
 
     let list = list_message_batches(
@@ -378,6 +380,7 @@ async fn anthropic_batch_results_parse_jsonl_lines() {
             openrouter_provider_ignore: Vec::new(),
             openrouter_allow_fallbacks: None,
             openrouter_response_cache_enabled: false,
+            huggingface_provider: None,
         },
         "msgbatch_123",
     )
