@@ -158,8 +158,8 @@ pub async fn run_db_bridge() -> Result<()> {
                         });
                         emit_db_event(&msg.to_string())?;
                     }
-                    Some(Ok(DaemonMessage::AgentDbMessageAck)) => {
-                        let msg = serde_json::json!({"type":"ack"});
+                    Some(Ok(DaemonMessage::AgentDbMessageAck { message_id })) => {
+                        let msg = serde_json::json!({"type":"ack","message_id":message_id});
                         emit_db_event(&msg.to_string())?;
                     }
                     Some(Ok(DaemonMessage::TranscriptIndexEntries { entries_json })) => {

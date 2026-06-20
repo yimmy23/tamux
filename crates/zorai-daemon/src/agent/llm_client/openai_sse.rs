@@ -5,7 +5,7 @@ pub(crate) async fn parse_openai_sse(
 ) -> Result<()> {
     use futures::StreamExt;
     let mut stream = response.bytes_stream();
-    let mut buffer = String::new();
+    let mut buffer: Vec<u8> = Vec::new();
     let mut total_content = String::new();
     let mut total_reasoning = String::new();
     let mut pending_tool_calls: HashMap<u32, PendingToolCall> = HashMap::new();
@@ -17,15 +17,20 @@ pub(crate) async fn parse_openai_sse(
     let mut finish_reason: Option<String> = None;
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.context("failed to read SSE chunk")?;
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        buffer.extend_from_slice(&chunk);
 
-        let mut remaining = String::new();
-        for line in buffer.split('\n') {
+        let mut lines: Vec<String> = Vec::new();
+        while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
+            let line_bytes: Vec<u8> = buffer.drain(..=pos).collect();
+            lines.push(
+                String::from_utf8_lossy(&line_bytes)
+                    .trim_end_matches(['\r', '\n'])
+                    .to_string(),
+            );
+        }
+        for line in &lines {
+            let line = line.as_str();
             if !line.starts_with("data: ") {
-                if !line.is_empty() && !line.starts_with(':') && !line.starts_with("event:") {
-                    remaining.push_str(line);
-                    remaining.push('\n');
-                }
                 continue;
             }
 
@@ -209,7 +214,6 @@ pub(crate) async fn parse_openai_sse(
                 }
             }
         }
-        buffer = remaining;
     }
     if !pending_tool_calls.is_empty() {
         let tool_calls = drain_tool_calls(&mut pending_tool_calls);

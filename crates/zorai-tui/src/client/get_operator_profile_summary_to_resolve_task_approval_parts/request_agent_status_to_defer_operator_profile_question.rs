@@ -159,11 +159,13 @@ impl DaemonClient {
         &self,
         thread_id: String,
         message_id: String,
+        absolute_message_index: Option<usize>,
         reaction: Option<zorai_protocol::Reaction>,
     ) -> Result<()> {
         self.send(ClientMessage::AgentMessageFeedback {
             thread_id,
             message_id,
+            absolute_message_index,
             reaction,
         })
     }

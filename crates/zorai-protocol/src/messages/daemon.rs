@@ -36,7 +36,7 @@ pub enum DaemonMessage {
     CommandLogAck,
     AgentDbThreadList { threads_json: String },
     AgentDbThreadDetail { thread_json: String, messages_json: String },
-    AgentDbMessageAck,
+    AgentDbMessageAck { #[serde(default)] message_id: Option<String> },
     TranscriptIndexEntries { entries_json: String },
     SnapshotIndexEntries { entries_json: String },
     AgentEventRows { events_json: String },

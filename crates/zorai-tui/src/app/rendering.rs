@@ -571,6 +571,16 @@ impl TuiModel {
             || agent_name.is_some_and(|value| value.eq_ignore_ascii_case(alias))
     }
 
+    fn subagent_entry_context_window_tokens(entry: &crate::state::SubAgentEntry) -> Option<u32> {
+        entry
+            .raw_json
+            .as_ref()
+            .and_then(|raw| raw.get("context_window_tokens"))
+            .and_then(|value| value.as_u64())
+            .filter(|tokens| *tokens > 0)
+            .map(|tokens| tokens.min(u32::MAX as u64) as u32)
+    }
+
     fn subagent_profile_for_identity(
         &self,
         agent_id: Option<&str>,
@@ -593,10 +603,8 @@ impl TuiModel {
                 .reasoning_effort
                 .clone()
                 .filter(|value| !value.is_empty()),
-            context_window_tokens: providers::known_context_window_for(
-                &entry.provider,
-                &entry.model,
-            ),
+            context_window_tokens: Self::subagent_entry_context_window_tokens(entry)
+                .or_else(|| providers::known_context_window_for(&entry.provider, &entry.model)),
         })
     }
 
@@ -725,10 +733,8 @@ impl TuiModel {
                     .reasoning_effort
                     .clone()
                     .filter(|value| !value.is_empty()),
-                context_window_tokens: providers::known_context_window_for(
-                    &entry.provider,
-                    &entry.model,
-                ),
+                context_window_tokens: Self::subagent_entry_context_window_tokens(entry)
+                    .or_else(|| providers::known_context_window_for(&entry.provider, &entry.model)),
             };
         }
 
@@ -957,10 +963,20 @@ impl TuiModel {
             .goal_run_owner_header_profile(run)
             .or_else(|| self.goal_run_launch_header_profile(run))
             .unwrap_or_else(|| self.svarog_profile());
-        let provider = thread.runtime_provider.clone().unwrap_or(fallback.provider);
-        let model = thread.runtime_model.clone().unwrap_or(fallback.model);
-        let context_window_tokens = providers::known_context_window_for(&provider, &model)
-            .or(fallback.context_window_tokens);
+        let provider = thread
+            .runtime_provider
+            .clone()
+            .unwrap_or_else(|| fallback.provider.clone());
+        let model = thread
+            .runtime_model
+            .clone()
+            .unwrap_or_else(|| fallback.model.clone());
+        let fallback_context_window_tokens = (provider == fallback.provider
+            && model == fallback.model)
+            .then_some(fallback.context_window_tokens)
+            .flatten();
+        let context_window_tokens = fallback_context_window_tokens
+            .or_else(|| providers::known_context_window_for(&provider, &model));
         Some(ConversationAgentProfile {
             agent_label: thread
                 .agent_name
@@ -997,10 +1013,16 @@ impl TuiModel {
 
         let fallback = self.current_conversation_agent_profile();
         if let Some(runtime) = self.chat.active_thread_runtime_metadata() {
-            let provider = runtime.provider.unwrap_or(fallback.provider);
-            let model = runtime.model.unwrap_or(fallback.model);
-            let context_window_tokens = providers::known_context_window_for(&provider, &model)
-                .or(fallback.context_window_tokens);
+            let provider = runtime
+                .provider
+                .unwrap_or_else(|| fallback.provider.clone());
+            let model = runtime.model.unwrap_or_else(|| fallback.model.clone());
+            let fallback_context_window_tokens = (provider == fallback.provider
+                && model == fallback.model)
+                .then_some(fallback.context_window_tokens)
+                .flatten();
+            let context_window_tokens = fallback_context_window_tokens
+                .or_else(|| providers::known_context_window_for(&provider, &model));
             return ConversationAgentProfile {
                 agent_label: fallback.agent_label,
                 provider,

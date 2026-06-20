@@ -164,6 +164,7 @@ fn hit_test_targets_copy_action_when_clicking_row_below_action_bar() {
 #[test]
 fn selected_message_action_bar_highlights_only_primary_action() {
     let mut chat = chat_with_messages(vec![AgentMessage {
+        id: Some("message-1".into()),
         role: MessageRole::User,
         content: "first".into(),
         ..Default::default()
@@ -250,7 +251,36 @@ fn user_message_actions_include_pin_before_delete() {
         .map(|(label, _)| label)
         .collect();
 
-    assert_eq!(labels, vec!["[Copy]", "[Resend]", "[Pin]", "[Delete]"]);
+    assert_eq!(
+        labels,
+        vec!["[Copy]", "[Fork]", "[Resend]", "[Pin]", "[Delete]"]
+    );
+}
+
+#[test]
+fn message_actions_show_forking_label_while_fork_is_pending() {
+    let mut chat = chat_with_messages(vec![AgentMessage {
+        id: Some("message-1".into()),
+        role: MessageRole::User,
+        content: "first".into(),
+        ..Default::default()
+    }]);
+    chat.select_message(Some(0));
+    chat.mark_message_forking(0, 25);
+
+    let message = chat
+        .active_thread()
+        .and_then(|thread| thread.messages.first())
+        .expect("message should exist");
+    let labels: Vec<String> = message_action_targets(&chat, 0, message, 10)
+        .into_iter()
+        .map(|(label, _)| label)
+        .collect();
+
+    assert_eq!(
+        labels,
+        vec!["[Copy]", "[Forking]", "[Resend]", "[Pin]", "[Delete]"]
+    );
 }
 
 #[test]
@@ -274,8 +304,37 @@ fn assistant_pinned_message_actions_include_unpin_before_delete() {
 
     assert_eq!(
         labels,
-        vec!["[Copy]", "[Regenerate]", "[Unpin]", "[Delete]"]
+        vec![
+            "[Copy]",
+            "[Fork]",
+            "[Regenerate]",
+            "[Unpin]",
+            "[👍]",
+            "[👎]",
+            "[Delete]"
+        ]
     );
+}
+
+#[test]
+fn message_actions_without_saved_id_hide_daemon_backed_buttons() {
+    let chat = chat_with_messages(vec![AgentMessage {
+        id: None,
+        role: MessageRole::Assistant,
+        content: "answer".into(),
+        ..Default::default()
+    }]);
+
+    let message = chat
+        .active_thread()
+        .and_then(|thread| thread.messages.first())
+        .expect("message should exist");
+    let labels: Vec<String> = message_action_targets(&chat, 0, message, 0)
+        .into_iter()
+        .map(|(label, _)| label)
+        .collect();
+
+    assert_eq!(labels, vec!["[Copy]"]);
 }
 
 #[test]

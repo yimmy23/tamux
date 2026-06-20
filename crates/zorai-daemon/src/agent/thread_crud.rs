@@ -593,15 +593,54 @@ impl AgentEngine {
         &self,
         thread_id: &str,
         message_id: &str,
+        absolute_message_index: Option<usize>,
         desired: Option<zorai_protocol::Reaction>,
     ) -> std::result::Result<Option<zorai_protocol::Reaction>, &'static str> {
-        let state = match self
+        let (message_id, state) = match self
             .history
             .message_feedback_state(thread_id, message_id)
             .await
         {
-            Ok(Some(state)) => state,
-            Ok(None) => return Err("message_not_found"),
+            Ok(Some(state)) => (message_id.to_string(), state),
+            Ok(None) => {
+                let Some(absolute_index) = absolute_message_index else {
+                    return Err("message_not_found");
+                };
+                let resolved_message_id = match self
+                    .history
+                    .message_id_at_absolute_index(thread_id, absolute_index)
+                    .await
+                {
+                    Ok(Some(message_id)) => message_id,
+                    Ok(None) => return Err("message_not_found"),
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            thread_id,
+                            absolute_index,
+                            "message_id_at_absolute_index failed"
+                        );
+                        return Err("message_feedback_state_unavailable");
+                    }
+                };
+                match self
+                    .history
+                    .message_feedback_state(thread_id, &resolved_message_id)
+                    .await
+                {
+                    Ok(Some(state)) => (resolved_message_id, state),
+                    Ok(None) => return Err("message_not_found"),
+                    Err(error) => {
+                        tracing::warn!(
+                            error = %error,
+                            thread_id,
+                            message_id = %resolved_message_id,
+                            "message_feedback_state failed after index resolution"
+                        );
+                        return Err("message_feedback_state_unavailable");
+                    }
+                }
+            }
             Err(error) => {
                 tracing::warn!(error = %error, thread_id, message_id, "message_feedback_state failed");
                 return Err("message_feedback_state_unavailable");
@@ -622,7 +661,7 @@ impl AgentEngine {
         let resolved_str = resolved.map(reaction_str);
         match self
             .history
-            .set_message_feedback(thread_id, message_id, resolved_str)
+            .set_message_feedback(thread_id, &message_id, resolved_str)
             .await
         {
             Ok(true) => {}
@@ -663,7 +702,7 @@ impl AgentEngine {
 
         let _ = self.event_tx.send(AgentEvent::MessageFeedbackUpdated {
             thread_id: thread_id.to_string(),
-            message_id: message_id.to_string(),
+            message_id,
             reaction: resolved,
         });
 

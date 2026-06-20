@@ -220,10 +220,11 @@ pub(crate) async fn dispatch_part4(
         ClientMessage::AgentMessageFeedback {
             thread_id,
             message_id,
+            absolute_message_index,
             reaction,
         } => {
             match agent
-                .apply_message_feedback(&thread_id, &message_id, reaction)
+                .apply_message_feedback(&thread_id, &message_id, absolute_message_index, reaction)
                 .await
             {
                 Ok(_resolved) => {

@@ -2689,6 +2689,31 @@ impl HistoryStore {
             .map_err(|e| anyhow::anyhow!("{e}"))
     }
 
+    pub(crate) async fn message_id_at_absolute_index(
+        &self,
+        thread_id: &str,
+        absolute_index: usize,
+    ) -> Result<Option<String>> {
+        let thread_id = thread_id.to_string();
+        self.read_conn
+            .call(move |conn| {
+                conn.query_row(
+                    "SELECT id
+                     FROM agent_messages
+                     WHERE thread_id = ?1
+                       AND deleted_at IS NULL
+                     ORDER BY created_at ASC, rowid ASC
+                     LIMIT 1 OFFSET ?2",
+                    params![thread_id, absolute_index as i64],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(Into::into)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     pub(crate) async fn set_message_feedback(
         &self,
         thread_id: &str,

@@ -71,6 +71,17 @@ pub(crate) fn message_action_targets(
     }
 
     actions.push((copy_label, ChatHitTarget::CopyMessage(msg_index)));
+    let has_persistent_id = msg.id.as_deref().is_some_and(|id| !id.trim().is_empty());
+    if !has_persistent_id {
+        return actions;
+    }
+
+    let fork_label = if chat.is_message_recently_forking(msg_index, current_tick) {
+        "[Forking]".to_string()
+    } else {
+        "[Fork]".to_string()
+    };
+    actions.push((fork_label, ChatHitTarget::ForkMessage(msg_index)));
     match msg.role {
         MessageRole::User => {
             actions.push((

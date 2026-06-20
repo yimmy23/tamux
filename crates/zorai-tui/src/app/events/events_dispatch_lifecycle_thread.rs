@@ -118,8 +118,12 @@ impl TuiModel {
                 message_id,
                 reaction,
             } => {
-                self.chat
-                    .set_message_feedback(&thread_id, &message_id, reaction);
+                if !self
+                    .chat
+                    .set_message_feedback(&thread_id, &message_id, reaction)
+                {
+                    self.request_latest_thread_page(thread_id, false);
+                }
                 None
             }
             ClientEvent::ContextWindowUpdate {

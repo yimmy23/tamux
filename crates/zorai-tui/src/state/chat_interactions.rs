@@ -155,6 +155,17 @@ impl ChatState {
         self.bump_render_revision_only();
     }
 
+    pub fn mark_message_forking(&mut self, message_index: usize, expires_at_tick: u64) {
+        let Some(message_ref) = self.message_ref_for_active_index(message_index) else {
+            return;
+        };
+        self.forking_message_feedback = Some(CopiedMessageFeedback {
+            message_ref,
+            expires_at_tick,
+        });
+        self.bump_render_revision_only();
+    }
+
     pub fn clear_expired_copy_feedback(&mut self, current_tick: u64) {
         if self
             .copied_message_feedback
@@ -164,10 +175,27 @@ impl ChatState {
             self.copied_message_feedback = None;
             self.bump_render_revision_only();
         }
+        if self
+            .forking_message_feedback
+            .as_ref()
+            .is_some_and(|feedback| current_tick >= feedback.expires_at_tick)
+        {
+            self.forking_message_feedback = None;
+            self.bump_render_revision_only();
+        }
     }
 
     pub fn is_message_recently_copied(&self, message_index: usize, current_tick: u64) -> bool {
         self.copied_message_feedback
+            .as_ref()
+            .is_some_and(|feedback| {
+                current_tick < feedback.expires_at_tick
+                    && self.resolve_active_message_ref(&feedback.message_ref) == Some(message_index)
+            })
+    }
+
+    pub fn is_message_recently_forking(&self, message_index: usize, current_tick: u64) -> bool {
+        self.forking_message_feedback
             .as_ref()
             .is_some_and(|feedback| {
                 current_tick < feedback.expires_at_tick

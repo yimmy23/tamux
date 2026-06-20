@@ -84,10 +84,12 @@ pub(super) fn normalize_thread_participants(
     participants
         .into_iter()
         .map(|mut participant| {
-            let canonical_id = canonical_agent_id(&participant.agent_id).to_string();
-            participant.agent_id = canonical_id.clone();
-            if participant.agent_name.trim().is_empty() {
-                participant.agent_name = canonical_agent_name(&canonical_id).to_string();
+            if is_known_builtin_agent_alias(&participant.agent_id) {
+                let canonical_id = canonical_agent_id(&participant.agent_id).to_string();
+                participant.agent_id = canonical_id.clone();
+                if participant.agent_name.trim().is_empty() {
+                    participant.agent_name = canonical_agent_name(&canonical_id).to_string();
+                }
             }
             participant
         })
@@ -2050,6 +2052,36 @@ impl AgentEngine {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    fn participant(agent_id: &str, agent_name: &str) -> ThreadParticipantState {
+        ThreadParticipantState {
+            agent_id: agent_id.to_string(),
+            agent_name: agent_name.to_string(),
+            instruction: "do the thing".to_string(),
+            status: ThreadParticipantStatus::Active,
+            created_at: 1,
+            updated_at: 1,
+            deactivated_at: None,
+            last_contribution_at: None,
+            last_observed_visible_message_at: None,
+            always_auto_response: false,
+        }
+    }
+
+    #[test]
+    fn normalize_keeps_user_subagent_id_so_responses_are_not_attributed_to_main_agent() {
+        let normalized =
+            normalize_thread_participants(vec![participant("subagent-1781954801939", "hf")]);
+        assert_eq!(normalized[0].agent_id, "subagent-1781954801939");
+        assert_eq!(normalized[0].agent_name, "hf");
+    }
+
+    #[test]
+    fn normalize_canonicalizes_known_builtin_aliases() {
+        let normalized = normalize_thread_participants(vec![participant("veles", "")]);
+        assert_eq!(normalized[0].agent_id, WELES_AGENT_ID);
+        assert_eq!(normalized[0].agent_name, WELES_AGENT_NAME);
+    }
 
     #[tokio::test]
     async fn task_provider_override_for_compaction_uses_persisted_task_after_live_queue_clear() {

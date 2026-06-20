@@ -72,8 +72,16 @@ impl TuiModel {
             let Some(message) = thread.messages.get(index) else {
                 return;
             };
-            let Some(message_id) = message.id.clone().filter(|id| !id.is_empty()) else {
-                self.status_line = "Cannot react to message without a daemon id".to_string();
+            if !matches!(
+                message.role,
+                chat::MessageRole::Assistant | chat::MessageRole::Tool
+            ) {
+                self.status_line =
+                    "Feedback is available only for assistant and tool messages".to_string();
+                return;
+            }
+            let Some(message_id) = message.id.clone().filter(|id| !id.trim().is_empty()) else {
+                self.status_line = "Feedback is available after the message is saved".to_string();
                 return;
             };
             (thread.id.clone(), message_id, message.feedback)
@@ -87,22 +95,14 @@ impl TuiModel {
         } else {
             Some(new_reaction)
         };
-        self.set_message_feedback_local(&thread_id, &message_id, desired);
+        self.chat
+            .set_active_message_feedback_by_index(index, desired);
         self.send_daemon_command(DaemonCommand::SubmitMessageFeedback {
             thread_id,
             message_id,
+            absolute_message_index: None,
             reaction: desired,
         });
-    }
-
-    pub(crate) fn set_message_feedback_local(
-        &mut self,
-        thread_id: &str,
-        message_id: &str,
-        reaction: Option<zorai_protocol::Reaction>,
-    ) {
-        self.chat
-            .set_message_feedback(thread_id, message_id, reaction);
     }
 
     pub(crate) fn pin_message_for_compaction(&mut self, index: usize) {
@@ -188,18 +188,22 @@ impl TuiModel {
     }
 
     pub(crate) fn delete_message(&mut self, index: usize) {
-        let (thread_id, msg_id, has_persistent_id) = {
+        let (thread_id, msg_id) = {
             let Some(thread) = self.chat.active_thread() else {
                 return;
             };
             if index >= thread.messages.len() {
                 return;
             }
-            let persistent_id = thread.messages[index].id.clone();
-            let mid = persistent_id
+            let Some(message_id) = thread.messages[index]
+                .id
                 .clone()
-                .unwrap_or_else(|| format!("{}:{}", thread.id, index));
-            (thread.id.clone(), mid, persistent_id.is_some())
+                .filter(|id| !id.trim().is_empty())
+            else {
+                self.status_line = "Cannot delete message before it is saved".to_string();
+                return;
+            };
+            (thread.id.clone(), message_id)
         };
 
         self.send_daemon_command(DaemonCommand::DeleteMessages {
@@ -211,12 +215,10 @@ impl TuiModel {
         self.chat.delete_active_message(index);
         self.chat_selection_snapshot = None;
         self.restore_locked_chat_viewport(viewport_anchor);
-        if has_persistent_id {
-            *self
-                .pending_local_message_delete_reload_suppression
-                .entry(thread_id.clone())
-                .or_insert(0) += 1;
-        }
+        *self
+            .pending_local_message_delete_reload_suppression
+            .entry(thread_id.clone())
+            .or_insert(0) += 1;
         self.queue_older_messages_after_delete(&thread_id);
         self.status_line = format!("Deleted message {}", index + 1);
     }

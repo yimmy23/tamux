@@ -216,6 +216,81 @@ fn header_uses_thread_profile_metadata_before_runtime_metadata_arrives() {
 }
 
 #[test]
+fn header_profile_context_window_beats_known_model_when_runtime_metadata_matches() {
+    let mut model = make_model();
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-dazhbog-runtime-profile".to_string(),
+        title: "Spawned thread".to_string(),
+        agent_name: Some("Dazhbog".to_string()),
+    });
+    model.handle_thread_detail_event(crate::wire::AgentThread {
+        id: "thread-dazhbog-runtime-profile".to_string(),
+        agent_name: Some("Dazhbog".to_string()),
+        profile_provider: Some("alibaba-coding-plan".to_string()),
+        profile_model: Some("MiniMax-M2.5".to_string()),
+        profile_reasoning_effort: Some("high".to_string()),
+        profile_context_window_tokens: Some(240_000),
+        title: "Spawned thread".to_string(),
+        created_at: 1,
+        updated_at: 1,
+        ..Default::default()
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-dazhbog-runtime-profile".to_string(),
+    ));
+    if let Some(thread) = model.chat.active_thread_mut() {
+        thread.runtime_provider = Some("alibaba-coding-plan".to_string());
+        thread.runtime_model = Some("MiniMax-M2.5".to_string());
+    }
+
+    let usage = model.current_header_usage_summary();
+    assert_eq!(usage.context_window_tokens, 240_000);
+}
+
+#[test]
+fn header_subagent_profile_uses_configured_context_window_from_subagent_json() {
+    let mut model = make_model();
+    model.subagents.entries.push(crate::state::SubAgentEntry {
+        claude_permission_mode: None,
+        id: "mokosh".to_string(),
+        name: "Mokosh".to_string(),
+        provider: "alibaba-coding-plan".to_string(),
+        model: "MiniMax-M2.5".to_string(),
+        role: Some("testing".to_string()),
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: Some("medium".to_string()),
+        api_transport: None,
+        openrouter_provider_order: String::new(),
+        openrouter_provider_ignore: String::new(),
+        openrouter_allow_fallbacks: true,
+        huggingface_provider: String::new(),
+        raw_json: Some(serde_json::json!({
+            "id": "mokosh",
+            "name": "Mokosh",
+            "provider": "alibaba-coding-plan",
+            "model": "MiniMax-M2.5",
+            "context_window_tokens": 333000
+        })),
+    });
+    model.handle_client_event(ClientEvent::ThreadCreated {
+        thread_id: "thread-mokosh-context".to_string(),
+        title: "Mokosh Thread".to_string(),
+        agent_name: Some("Mokosh".to_string()),
+    });
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "thread-mokosh-context".to_string(),
+    ));
+
+    let usage = model.current_header_usage_summary();
+    assert_eq!(usage.context_window_tokens, 333_000);
+}
+
+#[test]
 fn mission_control_header_context_window_tracks_active_execution_thread_changes() {
     let mut model = make_model();
     model.config.provider = PROVIDER_ID_GITHUB_COPILOT.to_string();

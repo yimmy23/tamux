@@ -367,7 +367,9 @@ pub(crate) async fn dispatch_part2(
             match serde_json::from_str::<zorai_protocol::AgentDbThread>(&thread_json) {
                 Ok(thread) => match manager.create_agent_thread(&thread).await {
                     Ok(()) => {
-                        framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                        framed
+                            .send(DaemonMessage::AgentDbMessageAck { message_id: None })
+                            .await?;
                     }
                     Err(e) => {
                         framed
@@ -390,7 +392,9 @@ pub(crate) async fn dispatch_part2(
         ClientMessage::DeleteAgentThread { thread_id } => {
             match manager.delete_agent_thread(&thread_id).await {
                 Ok(()) => {
-                    framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                    framed
+                        .send(DaemonMessage::AgentDbMessageAck { message_id: None })
+                        .await?;
                 }
                 Err(e) => {
                     framed
@@ -494,7 +498,11 @@ pub(crate) async fn dispatch_part2(
             match serde_json::from_str::<zorai_protocol::AgentDbMessage>(&message_json) {
                 Ok(message) => match manager.add_agent_message(&message).await {
                     Ok(()) => {
-                        framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                        framed
+                            .send(DaemonMessage::AgentDbMessageAck {
+                                message_id: Some(message.id.clone()),
+                            })
+                            .await?;
                     }
                     Err(e) => {
                         framed
@@ -524,7 +532,9 @@ pub(crate) async fn dispatch_part2(
                     deleted,
                     "deleted agent messages"
                 );
-                framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                framed
+                    .send(DaemonMessage::AgentDbMessageAck { message_id: None })
+                    .await?;
             }
             Err(e) => {
                 framed
@@ -548,7 +558,9 @@ pub(crate) async fn dispatch_part2(
                     restored,
                     "restored soft-deleted agent messages"
                 );
-                framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                framed
+                    .send(DaemonMessage::AgentDbMessageAck { message_id: None })
+                    .await?;
             }
             Err(e) => {
                 framed
