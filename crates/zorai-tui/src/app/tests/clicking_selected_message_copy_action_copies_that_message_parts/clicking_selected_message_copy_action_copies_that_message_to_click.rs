@@ -1,6 +1,7 @@
 use super::super::{build_model, unbounded_channel};
 use super::*;
 use std::sync::mpsc;
+use zorai_protocol::{AgentDbMessage, AgentDbThread};
 #[test]
 fn clicking_selected_message_copy_action_copies_that_message() {
     let mut model = build_model();
@@ -137,6 +138,273 @@ fn clicking_selected_message_action_with_small_pointer_shift_still_copies_messag
         super::conversion::last_copied_text().as_deref(),
         Some("second")
     );
+}
+
+#[test]
+fn assistant_message_feedback_without_id_waits_for_saved_message_id() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model
+        .chat
+        .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+            id: "thread-1".to_string(),
+            title: "Thread".to_string(),
+            messages: vec![
+                chat::AgentMessage {
+                    id: Some("user-1".to_string()),
+                    role: chat::MessageRole::User,
+                    content: "question".to_string(),
+                    ..Default::default()
+                },
+                chat::AgentMessage {
+                    id: None,
+                    role: chat::MessageRole::Assistant,
+                    content: "answer".to_string(),
+                    ..Default::default()
+                },
+            ],
+            total_message_count: 2,
+            loaded_message_start: 0,
+            loaded_message_end: 2,
+            ..Default::default()
+        }));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-1".to_string()));
+
+    model.submit_message_feedback(1, zorai_protocol::Reaction::Up);
+
+    let message = model
+        .chat
+        .active_thread()
+        .and_then(|thread| thread.messages.get(1))
+        .expect("assistant message should exist");
+    assert_eq!(message.feedback, None);
+    assert_eq!(
+        model.status_line,
+        "Feedback is available after the message is saved"
+    );
+    assert!(cmd_rx.try_recv().is_err());
+}
+
+#[test]
+fn fork_message_creates_new_thread_with_history_through_selected_message() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model
+        .chat
+        .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+            id: "parent-thread".to_string(),
+            agent_name: Some("Swarog".to_string()),
+            profile_provider: Some("openai".to_string()),
+            profile_model: Some("gpt-5.4".to_string()),
+            profile_context_window_tokens: Some(400_000),
+            title: "Parent".to_string(),
+            messages: vec![
+                chat::AgentMessage {
+                    id: Some("parent-0".to_string()),
+                    role: chat::MessageRole::User,
+                    content: "first".to_string(),
+                    timestamp: 10,
+                    input_tokens: 3,
+                    ..Default::default()
+                },
+                chat::AgentMessage {
+                    id: Some("parent-1".to_string()),
+                    role: chat::MessageRole::Assistant,
+                    content: "answer".to_string(),
+                    reasoning: Some("because".to_string()),
+                    timestamp: 20,
+                    output_tokens: 5,
+                    ..Default::default()
+                },
+                chat::AgentMessage {
+                    id: Some("parent-2".to_string()),
+                    role: chat::MessageRole::User,
+                    content: "after fork point".to_string(),
+                    timestamp: 30,
+                    ..Default::default()
+                },
+            ],
+            total_message_count: 3,
+            loaded_message_start: 0,
+            loaded_message_end: 3,
+            ..Default::default()
+        }));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("parent-thread".to_string()));
+
+    model.fork_message(1);
+
+    let active = model
+        .chat
+        .active_thread()
+        .expect("forked thread should be selected");
+    assert!(active.id.starts_with("fork-parent-thread-"));
+    assert_eq!(active.title, "Fork: answer");
+    assert_eq!(active.messages.len(), 2);
+    assert_eq!(active.messages[0].content, "first");
+    assert_eq!(active.messages[1].content, "answer");
+    assert_eq!(active.profile_context_window_tokens, Some(400_000));
+
+    let command = cmd_rx.try_recv().expect("fork should persist via daemon");
+    let DaemonCommand::ForkThread {
+        thread_id,
+        thread_json,
+        messages_json,
+        refresh_message_limit,
+    } = command
+    else {
+        panic!("expected ForkThread command");
+    };
+    assert_eq!(thread_id, active.id);
+    assert_eq!(messages_json.len(), 2);
+    assert!(refresh_message_limit >= 2);
+
+    let db_thread: AgentDbThread =
+        serde_json::from_str(&thread_json).expect("thread payload should parse");
+    assert_eq!(db_thread.id, active.id);
+    assert_eq!(db_thread.message_count, 2);
+    assert_eq!(db_thread.agent_name.as_deref(), Some("Swarog"));
+    let metadata: serde_json::Value = serde_json::from_str(
+        db_thread
+            .metadata_json
+            .as_deref()
+            .expect("fork metadata should exist"),
+    )
+    .expect("fork metadata should parse");
+    assert_eq!(metadata["upstream_thread_id"], "parent-thread");
+    assert_eq!(metadata["forked_message_index"], 1);
+    assert_eq!(metadata["forked_message_id"], "parent-1");
+
+    let db_message: AgentDbMessage =
+        serde_json::from_str(&messages_json[1]).expect("message payload should parse");
+    assert_eq!(db_message.thread_id, active.id);
+    assert_eq!(db_message.role, "assistant");
+    assert_eq!(db_message.reasoning.as_deref(), Some("because"));
+    assert_ne!(db_message.id, "parent-1");
+}
+
+#[test]
+fn fork_message_persists_runtime_profile_and_responder_identity() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model
+        .chat
+        .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+            id: "subagent-thread".to_string(),
+            agent_name: Some("Design Reviewer".to_string()),
+            title: "Subagent".to_string(),
+            messages: vec![chat::AgentMessage {
+                id: Some("assistant-1".to_string()),
+                role: chat::MessageRole::Assistant,
+                content: "design answer".to_string(),
+                author_agent_id: Some("design-reviewer".to_string()),
+                author_agent_name: Some("Design Reviewer".to_string()),
+                timestamp: 10,
+                ..Default::default()
+            }],
+            total_message_count: 1,
+            loaded_message_start: 0,
+            loaded_message_end: 1,
+            runtime_provider: Some("groq".to_string()),
+            runtime_model: Some("llama-3.3-70b-versatile".to_string()),
+            runtime_reasoning_effort: Some("high".to_string()),
+            ..Default::default()
+        }));
+    model.chat.reduce(chat::ChatAction::SelectThread(
+        "subagent-thread".to_string(),
+    ));
+
+    model.fork_message(0);
+
+    let command = cmd_rx.try_recv().expect("fork should persist via daemon");
+    let DaemonCommand::ForkThread { thread_json, .. } = command else {
+        panic!("expected ForkThread command");
+    };
+    let db_thread: AgentDbThread =
+        serde_json::from_str(&thread_json).expect("thread payload should parse");
+    let metadata: serde_json::Value = serde_json::from_str(
+        db_thread
+            .metadata_json
+            .as_deref()
+            .expect("fork metadata should exist"),
+    )
+    .expect("fork metadata should parse");
+
+    assert_eq!(metadata["execution_profile"]["provider"], "groq");
+    assert_eq!(
+        metadata["execution_profile"]["model"],
+        "llama-3.3-70b-versatile"
+    );
+    assert_eq!(metadata["execution_profile"]["reasoning_effort"], "high");
+    assert_eq!(metadata["active_agent_id"], "design-reviewer");
+    assert_eq!(
+        metadata["handoff_stack"][0]["agent_name"],
+        "Design Reviewer"
+    );
+}
+
+#[test]
+fn fork_message_from_partial_history_opens_thread_immediately() {
+    let (_daemon_tx, daemon_rx) = mpsc::channel();
+    let (cmd_tx, mut cmd_rx) = unbounded_channel();
+    let mut model = TuiModel::new(daemon_rx, cmd_tx);
+    model
+        .chat
+        .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+            id: "parent-thread".to_string(),
+            title: "Parent".to_string(),
+            messages: vec![
+                chat::AgentMessage {
+                    id: Some("parent-2".to_string()),
+                    role: chat::MessageRole::User,
+                    content: "loaded second user".to_string(),
+                    timestamp: 30,
+                    ..Default::default()
+                },
+                chat::AgentMessage {
+                    id: Some("parent-3".to_string()),
+                    role: chat::MessageRole::Assistant,
+                    content: "fork point".to_string(),
+                    timestamp: 40,
+                    ..Default::default()
+                },
+            ],
+            total_message_count: 4,
+            loaded_message_start: 2,
+            loaded_message_end: 4,
+            ..Default::default()
+        }));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("parent-thread".to_string()));
+
+    model.fork_message(1);
+
+    let active = model
+        .chat
+        .active_thread()
+        .expect("forked thread should be selected immediately");
+    assert!(active.id.starts_with("fork-parent-thread-"));
+    assert_eq!(
+        active
+            .messages
+            .iter()
+            .map(|message| message.content.as_str())
+            .collect::<Vec<_>>(),
+        vec!["loaded second user", "fork point"]
+    );
+
+    let command = cmd_rx.try_recv().expect("immediate fork should persist");
+    let DaemonCommand::ForkThread { messages_json, .. } = command else {
+        panic!("expected ForkThread command");
+    };
+    assert_eq!(messages_json.len(), 2);
 }
 
 #[test]

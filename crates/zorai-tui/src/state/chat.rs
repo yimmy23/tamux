@@ -67,6 +67,7 @@ pub struct ChatState {
     local_deleted_messages: std::collections::HashSet<StoredMessageRef>,
     pinned_message_top: Option<StoredMessageRef>,
     copied_message_feedback: Option<CopiedMessageFeedback>,
+    forking_message_feedback: Option<CopiedMessageFeedback>,
 }
 
 fn merge_message_pair(
@@ -278,6 +279,42 @@ fn dedupe_operator_question_messages(messages: &mut Vec<AgentMessage>) -> usize 
         }
     });
     before - messages.len()
+}
+
+fn pending_operator_question_messages(messages: &[AgentMessage]) -> Vec<AgentMessage> {
+    messages
+        .iter()
+        .filter(|message| {
+            message.is_operator_question
+                && message.operator_question_answer.is_none()
+                && message
+                    .operator_question_id
+                    .as_deref()
+                    .is_some_and(|id| !id.is_empty())
+        })
+        .cloned()
+        .collect()
+}
+
+fn reattach_pending_operator_questions(thread: &mut AgentThread, preserved: Vec<AgentMessage>) {
+    for question in preserved {
+        let Some(question_id) = question
+            .operator_question_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+        else {
+            continue;
+        };
+        if thread
+            .messages
+            .iter()
+            .any(|message| message.operator_question_id.as_deref() == Some(question_id))
+        {
+            continue;
+        }
+        thread.messages.push(question);
+        thread.total_message_count = thread.total_message_count.saturating_add(1);
+    }
 }
 
 fn content_blocks_match(left: &[AgentContentBlock], right: &[AgentContentBlock]) -> bool {
@@ -842,6 +879,7 @@ impl ChatState {
             local_deleted_messages: std::collections::HashSet::new(),
             pinned_message_top: None,
             copied_message_feedback: None,
+            forking_message_feedback: None,
         }
     }
 
@@ -1237,6 +1275,18 @@ impl ChatState {
                         expires_at_tick: feedback.expires_at_tick,
                     })
                 });
+            self.forking_message_feedback =
+                self.forking_message_feedback.take().and_then(|feedback| {
+                    adjust_message_ref_for_deleted_absolute(
+                        feedback.message_ref,
+                        &deleted_thread_id,
+                        deleted_absolute_index,
+                    )
+                    .map(|message_ref| CopiedMessageFeedback {
+                        message_ref,
+                        expires_at_tick: feedback.expires_at_tick,
+                    })
+                });
             self.bump_render_revision();
         }
     }
@@ -1279,6 +1329,34 @@ impl ChatState {
             self.bump_render_revision();
         }
         updated
+    }
+
+    pub fn set_active_message_feedback_by_index(
+        &mut self,
+        message_index: usize,
+        reaction: Option<zorai_protocol::Reaction>,
+    ) -> bool {
+        let Some(thread) = self.active_thread_mut() else {
+            return false;
+        };
+        let Some(message) = thread.messages.get_mut(message_index) else {
+            return false;
+        };
+        if message.feedback == reaction {
+            return false;
+        }
+        message.feedback = reaction;
+        self.bump_render_revision();
+        true
+    }
+
+    pub fn operator_question_answered(&self, question_id: &str) -> bool {
+        self.threads.iter().any(|thread| {
+            thread.messages.iter().any(|message| {
+                message.operator_question_id.as_deref() == Some(question_id)
+                    && message.operator_question_answer.is_some()
+            })
+        })
     }
 
     pub fn resolve_operator_question_answer(&mut self, question_id: &str, answer: String) -> bool {
@@ -1366,11 +1444,12 @@ impl ChatState {
     }
 
     pub fn render_cache_epoch(&self, current_tick: u64) -> u64 {
-        let mut epoch = if self.copied_message_feedback.is_some() {
-            1_u64 << 63
-        } else {
-            0
-        };
+        let mut epoch =
+            if self.copied_message_feedback.is_some() || self.forking_message_feedback.is_some() {
+                1_u64 << 63
+            } else {
+                0
+            };
         if self
             .retry_status()
             .is_some_and(|status| status.phase == RetryPhase::Waiting)
@@ -1822,6 +1901,8 @@ impl ChatState {
                 filter_locally_deleted_messages(&mut incoming, &local_deleted_messages);
                 if let Some(existing) = self.threads.iter_mut().find(|t| t.id == incoming.id) {
                     normalize_thread_window(existing);
+                    let preserved_pending_questions =
+                        pending_operator_question_messages(&existing.messages);
                     let has_local_deleted_messages = local_deleted_messages
                         .iter()
                         .any(|deleted| deleted.thread_id == incoming.id);
@@ -1880,6 +1961,7 @@ impl ChatState {
                         .total_message_count
                         .saturating_sub(dedup_removed)
                         .max(existing.loaded_message_end);
+                    reattach_pending_operator_questions(existing, preserved_pending_questions);
                     if !older_history_page && !stale_context_window {
                         if incoming.active_context_window_tokens.is_some() {
                             existing.active_context_window_start =
@@ -2229,6 +2311,7 @@ impl ChatState {
                 self.new_thread_pending = true;
                 self.clear_thread_history_stack();
                 self.copied_message_feedback = None;
+                self.forking_message_feedback = None;
             }
 
             ChatAction::SetTranscriptMode(mode) => {

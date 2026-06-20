@@ -122,7 +122,9 @@ pub(crate) async fn dispatch_part3(
             match serde_json::from_str::<zorai_protocol::TranscriptIndexEntry>(&entry_json) {
                 Ok(entry) => match manager.upsert_transcript_index(&entry).await {
                     Ok(()) => {
-                        framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                        framed
+                            .send(DaemonMessage::AgentDbMessageAck { message_id: None })
+                            .await?;
                     }
                     Err(e) => {
                         framed
@@ -170,7 +172,9 @@ pub(crate) async fn dispatch_part3(
             match serde_json::from_str::<zorai_protocol::SnapshotIndexEntry>(&entry_json) {
                 Ok(entry) => match manager.upsert_snapshot_index(&entry).await {
                     Ok(()) => {
-                        framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                        framed
+                            .send(DaemonMessage::AgentDbMessageAck { message_id: None })
+                            .await?;
                     }
                     Err(e) => {
                         framed
@@ -227,7 +231,9 @@ pub(crate) async fn dispatch_part3(
                                 },
                             );
                         }
-                        framed.send(DaemonMessage::AgentDbMessageAck).await?;
+                        framed
+                            .send(DaemonMessage::AgentDbMessageAck { message_id: None })
+                            .await?;
                     }
                     Err(e) => {
                         framed

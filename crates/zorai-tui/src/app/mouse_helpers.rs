@@ -544,6 +544,10 @@ impl TuiModel {
                 self.chat.select_message(Some(idx));
                 self.copy_message(idx);
             }
+            Some(chat::ChatHitTarget::ForkMessage(idx)) => {
+                self.chat.select_message(Some(idx));
+                self.fork_message(idx);
+            }
             Some(chat::ChatHitTarget::ResendMessage(idx)) => {
                 self.chat.select_message(Some(idx));
                 self.resend_message(idx);

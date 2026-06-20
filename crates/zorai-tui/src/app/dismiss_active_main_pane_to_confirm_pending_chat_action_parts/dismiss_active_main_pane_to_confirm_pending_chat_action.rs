@@ -203,6 +203,11 @@ impl TuiModel {
                 Some((question_id.to_string(), answer.to_string()))
             })
         {
+            if self.chat.operator_question_answered(&question_id) {
+                return;
+            }
+            self.chat
+                .resolve_operator_question_answer(&question_id, answer.clone());
             self.send_daemon_command(DaemonCommand::AnswerOperatorQuestion {
                 question_id,
                 answer,

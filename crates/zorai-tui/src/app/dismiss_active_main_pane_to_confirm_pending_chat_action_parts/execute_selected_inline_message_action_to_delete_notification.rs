@@ -41,6 +41,11 @@ impl TuiModel {
                 self.copy_message(index);
                 true
             }
+            chat::ChatHitTarget::ForkMessage(index) => {
+                self.chat.select_message(Some(index));
+                self.fork_message(index);
+                true
+            }
             chat::ChatHitTarget::ResendMessage(index) => {
                 self.chat.select_message(Some(index));
                 self.resend_message(index);

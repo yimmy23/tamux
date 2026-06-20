@@ -83,6 +83,126 @@ fn append_message_keeps_distinct_operator_questions() {
 }
 
 #[test]
+fn thread_detail_received_preserves_unanswered_operator_question() {
+    // Why this matters: the operator question + answer buttons live only as a
+    // client-side ephemeral message (it is never in daemon-persisted history).
+    // Background activity (meta-cognition, wakeups, other participants) streams
+    // ThreadDetailReceived refreshes whose persisted window does not contain the
+    // question, so the merge would silently drop it — the user reported the
+    // question and its buttons vanishing mid-answer, then "unknown operator
+    // question" when clicking. An unanswered question must survive the refresh.
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            id: None,
+            role: MessageRole::Assistant,
+            content: "Pick A or B".into(),
+            is_operator_question: true,
+            operator_question_id: Some("oq_keep".into()),
+            ..Default::default()
+        },
+    });
+
+    let incoming = AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        messages: (1..=3)
+            .map(|n| AgentMessage {
+                id: Some(format!("db_row_{n}")),
+                role: MessageRole::Assistant,
+                content: format!("background message {n}"),
+                timestamp: n as u64,
+                ..Default::default()
+            })
+            .collect(),
+        total_message_count: 3,
+        loaded_message_start: 0,
+        loaded_message_end: 3,
+        ..Default::default()
+    };
+    state.reduce(ChatAction::ThreadDetailReceived(incoming));
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .expect("thread should exist");
+    assert!(
+        thread
+            .messages
+            .iter()
+            .any(|message| message.operator_question_id.as_deref() == Some("oq_keep")),
+        "an unanswered operator question must survive a background thread refresh"
+    );
+    assert_eq!(
+        thread.loaded_message_end,
+        thread.loaded_message_start + thread.messages.len(),
+        "loaded window must stay consistent with messages.len() after reattach"
+    );
+}
+
+#[test]
+fn thread_detail_received_does_not_resurrect_answered_operator_question() {
+    // Why this matters: once a question is answered the persisted history owns
+    // the interaction. Re-adding the ephemeral copy on every refresh would
+    // duplicate it forever, so the reattach must apply only while unanswered.
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadCreated {
+        thread_id: "t1".into(),
+        title: "Test".into(),
+    });
+    state.reduce(ChatAction::AppendMessage {
+        thread_id: "t1".into(),
+        message: AgentMessage {
+            id: None,
+            role: MessageRole::Assistant,
+            content: "Pick A or B".into(),
+            is_operator_question: true,
+            operator_question_id: Some("oq_done".into()),
+            operator_question_answer: Some("A".into()),
+            ..Default::default()
+        },
+    });
+
+    let incoming = AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        messages: (1..=3)
+            .map(|n| AgentMessage {
+                id: Some(format!("db_row_{n}")),
+                role: MessageRole::Assistant,
+                content: format!("background message {n}"),
+                timestamp: n as u64,
+                ..Default::default()
+            })
+            .collect(),
+        total_message_count: 3,
+        loaded_message_start: 0,
+        loaded_message_end: 3,
+        ..Default::default()
+    };
+    state.reduce(ChatAction::ThreadDetailReceived(incoming));
+
+    let thread = state
+        .threads()
+        .iter()
+        .find(|thread| thread.id == "t1")
+        .expect("thread should exist");
+    assert!(
+        !thread
+            .messages
+            .iter()
+            .any(|message| message.operator_question_id.as_deref() == Some("oq_done")),
+        "an answered operator question must not be reattached over persisted history"
+    );
+}
+
+#[test]
 fn thread_detail_received_dedupes_operator_question_id_after_merge() {
     // Why this matters: if a live OperatorQuestion event already appended a
     // message locally (id=None) and the daemon snapshot arrives later with

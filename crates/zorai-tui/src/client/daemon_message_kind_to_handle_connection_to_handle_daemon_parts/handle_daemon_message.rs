@@ -30,7 +30,7 @@ impl DaemonClient {
             | DaemonMessage::AgentModelsResponse { .. }
             | DaemonMessage::AgentHeartbeatItems { .. }
             | DaemonMessage::AgentEventRows { .. }
-            | DaemonMessage::AgentDbMessageAck
+            | DaemonMessage::AgentDbMessageAck { .. }
             | DaemonMessage::SessionSpawned { .. }
             | DaemonMessage::ApprovalRequired { .. }
             | DaemonMessage::AgentTaskApprovalRules { .. }
@@ -103,6 +103,14 @@ impl DaemonClient {
             | DaemonMessage::GatewayShutdownCommand { .. }
             | DaemonMessage::Error { .. }) => {
                 Self::handle_activity_profile_gateway_daemon_messages(message, event_tx).await
+            }
+            DaemonMessage::AgentQuestionAnswered {
+                question_id,
+                answer,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::OperatorQuestionResolved { question_id, answer })
+                    .await;
             }
             DaemonMessage::Pong => {}
             DaemonMessage::AgentConciergeWelcomeDismissed => {}

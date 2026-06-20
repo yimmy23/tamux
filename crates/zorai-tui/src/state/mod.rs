@@ -58,6 +58,7 @@ pub enum DaemonCommand {
     SubmitMessageFeedback {
         thread_id: String,
         message_id: String,
+        absolute_message_index: Option<usize>,
         reaction: Option<zorai_protocol::Reaction>,
     },
     RequestThreadTodos(String),
@@ -114,6 +115,12 @@ pub enum DaemonCommand {
         content_blocks_json: Option<String>,
         session_id: Option<String>,
         target_agent_id: Option<String>,
+    },
+    ForkThread {
+        thread_id: String,
+        thread_json: String,
+        messages_json: Vec<String>,
+        refresh_message_limit: usize,
     },
     InternalDelegate {
         thread_id: Option<String>,

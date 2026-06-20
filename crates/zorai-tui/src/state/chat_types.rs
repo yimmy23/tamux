@@ -188,6 +188,7 @@ pub enum ChatHitTarget {
         action_index: usize,
     },
     CopyMessage(usize),
+    ForkMessage(usize),
     ResendMessage(usize),
     RegenerateMessage(usize),
     PinMessage(usize),

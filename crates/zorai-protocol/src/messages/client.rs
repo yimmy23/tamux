@@ -258,7 +258,7 @@ pub enum ClientMessage {
         #[serde(default)]
         repo_monitor_exclude_dirs: Vec<String>,
     },
-    AgentMessageFeedback { thread_id: String, message_id: String, #[serde(default)] reaction: Option<Reaction> },
+    AgentMessageFeedback { thread_id: String, message_id: String, #[serde(default)] absolute_message_index: Option<usize>, #[serde(default)] reaction: Option<Reaction> },
     MarkAllNotificationsRead,
     ArchiveReadNotifications,
 }

@@ -53,6 +53,77 @@ fn list_ids(threads: &[AgentThread]) -> Vec<&str> {
 }
 
 #[tokio::test]
+async fn message_feedback_resolves_stale_id_by_absolute_index() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "feedback-index-thread";
+
+    engine
+        .history
+        .create_thread(&zorai_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("Swarog".to_string()),
+            title: "Feedback index".to_string(),
+            created_at: 1,
+            updated_at: 2,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: None,
+        })
+        .await
+        .expect("create thread");
+    for (id, role, content, created_at) in [
+        ("user-row", "user", "question", 10),
+        ("assistant-row", "assistant", "answer", 20),
+    ] {
+        engine
+            .history
+            .add_message(&zorai_protocol::AgentDbMessage {
+                id: id.to_string(),
+                thread_id: thread_id.to_string(),
+                created_at,
+                role: role.to_string(),
+                content: content.to_string(),
+                provider: None,
+                model: None,
+                input_tokens: None,
+                output_tokens: None,
+                total_tokens: None,
+                cost_usd: None,
+                reasoning: None,
+                tool_calls_json: None,
+                metadata_json: None,
+            })
+            .await
+            .expect("add message");
+    }
+
+    let resolved = engine
+        .apply_message_feedback(
+            thread_id,
+            "stale-local-id",
+            Some(1),
+            Some(zorai_protocol::Reaction::Up),
+        )
+        .await
+        .expect("feedback should resolve by absolute index");
+
+    assert_eq!(resolved, Some(zorai_protocol::Reaction::Up));
+    let state = engine
+        .history
+        .message_feedback_state(thread_id, "assistant-row")
+        .await
+        .expect("feedback state query")
+        .expect("assistant row should exist");
+    assert_eq!(state.reaction.as_deref(), Some("up"));
+}
+
+#[tokio::test]
 async fn list_threads_omits_message_history_from_thread_summaries() {
     let root = tempdir().expect("temp dir");
     let manager = SessionManager::new_test(root.path()).await;
@@ -2582,6 +2653,89 @@ async fn restore_thread_from_db_preserves_custom_sub_agent_name_instead_of_canon
         restored.agent_name.as_deref(),
         Some("DeepSeekorrr"),
         "restored thread must keep the custom sub-agent name, not collapse to Swarog"
+    );
+}
+
+#[tokio::test]
+async fn restore_thread_from_db_hydrates_fork_execution_profile_and_responder() {
+    let root = tempdir().expect("temp dir");
+    let manager = SessionManager::new_test(root.path()).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await;
+    let thread_id = "thread-restore-fork-profile";
+    let metadata_json = serde_json::json!({
+        "source": "tui_message_fork",
+        "execution_profile": {
+            "provider": "groq",
+            "model": "llama-3.3-70b-versatile",
+            "reasoning_effort": "high",
+            "context_window_tokens": 456789,
+        },
+        "thread_profile": {
+            "provider": "groq",
+            "model": "llama-3.3-70b-versatile",
+            "reasoning_effort": "high",
+            "context_window_tokens": 456789,
+        },
+        "origin_agent_id": "design-reviewer",
+        "active_agent_id": "design-reviewer",
+        "handoff_stack": [
+            {
+                "agent_id": "design-reviewer",
+                "agent_name": "Design Reviewer",
+                "entered_at": 12,
+            }
+        ],
+        "handoff_events": [],
+    })
+    .to_string();
+
+    engine
+        .history
+        .create_thread(&zorai_protocol::AgentDbThread {
+            id: thread_id.to_string(),
+            workspace_id: None,
+            surface_id: None,
+            pane_id: None,
+            agent_name: Some("Design Reviewer".to_string()),
+            title: "Forked sub-agent thread".to_string(),
+            created_at: 12,
+            updated_at: 12,
+            message_count: 0,
+            total_tokens: 0,
+            last_preview: String::new(),
+            metadata_json: Some(metadata_json),
+        })
+        .await
+        .expect("create thread");
+
+    let restored = engine
+        .restore_thread_from_db(thread_id)
+        .await
+        .expect("thread should restore from db");
+    assert_eq!(restored.agent_name.as_deref(), Some("Design Reviewer"));
+    let profile = engine
+        .thread_execution_profiles
+        .read()
+        .await
+        .get(thread_id)
+        .cloned()
+        .expect("execution profile should hydrate");
+    assert_eq!(profile.provider.as_deref(), Some("groq"));
+    assert_eq!(profile.model.as_deref(), Some("llama-3.3-70b-versatile"));
+    assert_eq!(profile.reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(profile.context_window_tokens, Some(456_789));
+
+    let handoff = engine
+        .thread_handoff_state(thread_id)
+        .await
+        .expect("handoff state should hydrate");
+    assert_eq!(handoff.active_agent_id, "design-reviewer");
+    assert_eq!(
+        handoff
+            .responder_stack
+            .last()
+            .map(|frame| frame.agent_name.as_str()),
+        Some("Design Reviewer")
     );
 }
 

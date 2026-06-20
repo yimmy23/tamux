@@ -144,6 +144,7 @@ where
                 .send(ClientMessage::AgentMessageFeedback {
                     thread_id,
                     message_id,
+                    absolute_message_index: None,
                     reaction,
                 })
                 .await?;

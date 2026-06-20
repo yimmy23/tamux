@@ -759,6 +759,7 @@ fn start_daemon_bridge(
                             DaemonCommand::SubmitMessageFeedback {
                                 thread_id,
                                 message_id,
+                                absolute_message_index,
                                 reaction,
                             } => {
                                 forward_bridge_command_result(
@@ -767,6 +768,7 @@ fn start_daemon_bridge(
                                     client.submit_message_feedback(
                                         thread_id,
                                         message_id,
+                                        absolute_message_index,
                                         reaction,
                                     ),
                                 );
@@ -912,6 +914,40 @@ fn start_daemon_bridge(
                                     session_id,
                                     target_agent_id,
                                 );
+                            }
+                            DaemonCommand::ForkThread {
+                                thread_id,
+                                thread_json,
+                                messages_json,
+                                refresh_message_limit,
+                            } => {
+                                let create_result = client.send(
+                                    zorai_protocol::ClientMessage::CreateAgentThread {
+                                        thread_json,
+                                    },
+                                );
+                                if let Err(err) = create_result {
+                                    let _ = daemon_event_tx.send(crate::client::ClientEvent::Error(
+                                        format!("fork thread create failed: {err}"),
+                                    ));
+                                    continue;
+                                }
+                                for message_json in messages_json {
+                                    if let Err(err) = client.send(
+                                        zorai_protocol::ClientMessage::AddAgentMessage {
+                                            message_json,
+                                        },
+                                    ) {
+                                        let _ = daemon_event_tx.send(
+                                            crate::client::ClientEvent::Error(format!(
+                                                "fork thread message write failed: {err}"
+                                            )),
+                                        );
+                                        break;
+                                    }
+                                }
+                                let _ =
+                                    client.request_thread(thread_id, Some(refresh_message_limit), Some(0));
                             }
                             DaemonCommand::InternalDelegate {
                                 thread_id,

@@ -337,7 +337,7 @@ impl DaemonClient {
                     Err(err) => warn!("Failed to parse agent event rows: {}", err),
                 }
             }
-            DaemonMessage::AgentDbMessageAck => {}
+            DaemonMessage::AgentDbMessageAck { .. } => {}
             DaemonMessage::SessionSpawned { id } => {
                 let _ = event_tx
                     .send(ClientEvent::SessionSpawned {

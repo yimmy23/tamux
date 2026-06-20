@@ -1778,6 +1778,70 @@ async fn chat_completions_parser_provider_final_result_uses_normalized_tool_call
     server.await.expect("server task");
 }
 
+async fn chat_sse_split_test_response(
+    first: &str,
+    second: &str,
+) -> (reqwest::Response, tokio::task::JoinHandle<()>) {
+    let client = reqwest::Client::new();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind test server");
+    let addr = listener.local_addr().expect("local addr");
+    let first = first.to_string();
+    let second = second.to_string();
+    let total = first.len() + second.len();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let header = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            total
+        );
+        let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, header.as_bytes()).await;
+        let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, first.as_bytes()).await;
+        let _ = tokio::io::AsyncWriteExt::flush(&mut socket).await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let _ = tokio::io::AsyncWriteExt::write_all(&mut socket, second.as_bytes()).await;
+        let _ = tokio::io::AsyncWriteExt::flush(&mut socket).await;
+    });
+    let response = client
+        .get(format!("http://{addr}"))
+        .send()
+        .await
+        .expect("send test request");
+    (response, server)
+}
+
+#[tokio::test]
+async fn chat_completions_parser_reassembles_data_line_split_across_chunks() {
+    let first = "data: {\"id\":\"c1\",\"model\":\"glm-5.2\",\"choices\":[{\"delta\":{\"content\":\"hel";
+    let second = concat!(
+        "lo world\"}}]}\n",
+        "data: {\"id\":\"c1\",\"model\":\"glm-5.2\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n",
+        "data: [DONE]\n"
+    );
+    let (response, server) = chat_sse_split_test_response(first, second).await;
+
+    let (tx, mut rx) = mpsc::channel(8);
+    parse_openai_sse(response, &tx)
+        .await
+        .expect("parse should succeed");
+    drop(tx);
+
+    let mut streamed = String::new();
+    let mut done_content = None;
+    while let Some(chunk) = rx.recv().await {
+        match chunk.expect("chunk") {
+            CompletionChunk::Delta { content, .. } => streamed.push_str(&content),
+            CompletionChunk::Done { content, .. } => done_content = Some(content),
+            _ => {}
+        }
+    }
+
+    assert_eq!(streamed, "hello world");
+    assert_eq!(done_content.as_deref(), Some("hello world"));
+    server.await.expect("server task");
+}
+
 #[tokio::test]
 async fn chat_completions_parser_uses_total_tokens_when_completion_details_are_hidden() {
     let body = concat!(
