@@ -877,6 +877,37 @@ fn compaction_candidate_exposes_the_older_slice_boundary() {
 }
 
 #[test]
+fn active_request_messages_excludes_participant_no_suggestion_notices() {
+    let mut participant_notice = sample_message("NO_MESSAGE");
+    participant_notice.role = MessageRole::Assistant;
+    participant_notice.author_agent_id = Some("subagent-hf".to_string());
+    let messages = vec![
+        sample_message("operator request"),
+        participant_notice,
+        {
+            let mut reply = sample_message("here is real progress");
+            reply.role = MessageRole::Assistant;
+            reply
+        },
+    ];
+
+    let request_messages = active_request_messages(&messages);
+
+    assert!(
+        request_messages
+            .iter()
+            .all(|message| message.content != "NO_MESSAGE"),
+        "participant NO_MESSAGE notices must be withheld from the main agent context"
+    );
+    assert!(
+        request_messages
+            .iter()
+            .any(|message| message.content == "here is real progress"),
+        "real participant contributions must still reach the main agent"
+    );
+}
+
+#[test]
 fn heuristic_message_count_alone_still_triggers_compaction() {
     let mut config = AgentConfig::default();
     config.compaction.strategy = CompactionStrategy::Heuristic;

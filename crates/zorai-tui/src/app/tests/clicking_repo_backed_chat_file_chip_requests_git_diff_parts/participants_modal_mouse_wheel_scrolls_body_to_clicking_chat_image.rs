@@ -39,7 +39,7 @@ fn participants_modal_mouse_wheel_scrolls_body() {
         modifiers: KeyModifiers::NONE,
     });
 
-    assert_eq!(model.thread_participants_modal_scroll, 3);
+    assert_eq!(model.modal.picker_cursor(), 1);
 }
 
 #[test]

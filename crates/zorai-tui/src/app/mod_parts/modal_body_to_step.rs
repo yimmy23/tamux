@@ -311,6 +311,26 @@ pub(crate) enum PendingBuiltinPersonaSetupContinuation {
         pending: PendingWorkspaceActorPicker,
         actor: zorai_protocol::WorkspaceActor,
     },
+    AddThreadParticipant {
+        thread_id: String,
+        agent_id: String,
+        agent_name: String,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PendingParticipantInstructionEdit {
+    pub(crate) thread_id: String,
+    pub(crate) agent_id: String,
+    pub(crate) agent_name: String,
+    pub(crate) is_new: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ParticipantActionsTarget {
+    pub(crate) agent_id: String,
+    pub(crate) agent_name: String,
+    pub(crate) active: bool,
 }
 
 #[derive(Clone, Debug)]

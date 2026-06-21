@@ -370,16 +370,15 @@ fn slash_participants_opens_modal_with_thread_participant_sections() {
     );
     let body = model.thread_participants_modal_body();
     assert!(
-        body.contains("Active Participants"),
-        "missing active section: {body}"
-    );
-    assert!(body.contains("Weles"), "missing active participant: {body}");
-    assert!(
-        body.contains("Inactive Participants"),
-        "missing inactive section: {body}"
+        body.contains("+ Add participant"),
+        "missing add participant action: {body}"
     );
     assert!(
-        body.contains("Rarog"),
+        body.contains("Weles") && body.contains("[active]"),
+        "missing active participant: {body}"
+    );
+    assert!(
+        body.contains("Rarog") && body.contains("[inactive]"),
         "missing inactive participant: {body}"
     );
     assert!(

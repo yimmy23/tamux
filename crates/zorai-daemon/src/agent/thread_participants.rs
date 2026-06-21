@@ -123,7 +123,7 @@ fn is_participant_stop_action(action: &str) -> bool {
 fn is_participant_remove_action(action: &str) -> bool {
     matches!(
         action.trim().to_ascii_lowercase().as_str(),
-        "leave" | "done" | "return"
+        "leave" | "done" | "return" | "remove"
     )
 }
 
@@ -771,13 +771,7 @@ impl AgentEngine {
             .unwrap_or_else(|| llm_user_content.to_string());
         let mut current_thread_id = thread_id.to_string();
         let mut current_llm_user_content = llm_user_content.to_string();
-        let resolved_canonical_id = canonical_agent_id(agent_id);
-        let mut current_agent_scope_id =
-            if resolved_canonical_id == MAIN_AGENT_ID && !is_main_agent_scope(agent_id) {
-                agent_id.trim().to_string()
-            } else {
-                resolved_canonical_id.to_string()
-            };
+        let mut current_agent_scope_id = agent_turn_scope_id(agent_id);
 
         loop {
             let thread_for_turn = current_thread_id.clone();
@@ -2081,6 +2075,13 @@ mod tests {
         let normalized = normalize_thread_participants(vec![participant("veles", "")]);
         assert_eq!(normalized[0].agent_id, WELES_AGENT_ID);
         assert_eq!(normalized[0].agent_name, WELES_AGENT_NAME);
+    }
+
+    #[test]
+    fn remove_action_accepts_remove_keyword() {
+        assert!(is_participant_remove_action("remove"));
+        assert!(is_participant_remove_action("leave"));
+        assert!(!is_participant_remove_action("deactivate"));
     }
 
     #[tokio::test]

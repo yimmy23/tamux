@@ -848,6 +848,9 @@ impl TuiModel {
                 | modal::ModalKind::RolePicker
                 | modal::ModalKind::OpenAIAuth
                 | modal::ModalKind::WorkspaceTaskHistory
+                | modal::ModalKind::ThreadParticipants
+                | modal::ModalKind::ThreadParticipantAgentPicker
+                | modal::ModalKind::ThreadParticipantActions
                 | modal::ModalKind::EffortPicker => {
                     self.modal.reduce(modal::ModalAction::Navigate(-1));
                 }
@@ -874,9 +877,6 @@ impl TuiModel {
                 modal::ModalKind::WorkspaceEditTask => {
                     self.step_workspace_edit_modal_scroll(-3);
                 }
-                modal::ModalKind::ThreadParticipants => {
-                    self.step_thread_participants_modal_scroll(-3);
-                }
                 modal::ModalKind::Help => {
                     self.step_help_modal_scroll(-3);
                 }
@@ -899,6 +899,9 @@ impl TuiModel {
                 | modal::ModalKind::RolePicker
                 | modal::ModalKind::OpenAIAuth
                 | modal::ModalKind::WorkspaceTaskHistory
+                | modal::ModalKind::ThreadParticipants
+                | modal::ModalKind::ThreadParticipantAgentPicker
+                | modal::ModalKind::ThreadParticipantActions
                 | modal::ModalKind::EffortPicker => {
                     self.modal.reduce(modal::ModalAction::Navigate(1));
                 }
@@ -924,9 +927,6 @@ impl TuiModel {
                 }
                 modal::ModalKind::WorkspaceEditTask => {
                     self.step_workspace_edit_modal_scroll(3);
-                }
-                modal::ModalKind::ThreadParticipants => {
-                    self.step_thread_participants_modal_scroll(3);
                 }
                 modal::ModalKind::Help => {
                     self.step_help_modal_scroll(3);

@@ -1,85 +1,6 @@
 use super::*;
 use crate::widgets;
 impl TuiModel {
-    pub(crate) fn thread_participants_modal_body(&self) -> String {
-        let Some(thread) = self.chat.active_thread() else {
-            return "No active thread selected.".to_string();
-        };
-
-        let active: Vec<_> = thread
-            .thread_participants
-            .iter()
-            .filter(|participant| participant.status.eq_ignore_ascii_case("active"))
-            .collect();
-        let inactive: Vec<_> = thread
-            .thread_participants
-            .iter()
-            .filter(|participant| !participant.status.eq_ignore_ascii_case("active"))
-            .collect();
-
-        let mut body = String::new();
-        body.push_str(&format!("Thread: {}\n", thread.title));
-        body.push_str("==============================\n\n");
-
-        body.push_str("Active Participants\n");
-        body.push_str("-------------------\n");
-        if active.is_empty() {
-            body.push_str("- none\n");
-        } else {
-            for participant in active {
-                body.push_str(&format!(
-                    "- {} ({})\n  instruction: {}\n",
-                    participant.agent_name,
-                    participant.agent_id,
-                    participant.instruction.trim()
-                ));
-            }
-        }
-        body.push('\n');
-
-        body.push_str("Inactive Participants\n");
-        body.push_str("---------------------\n");
-        if inactive.is_empty() {
-            body.push_str("- none\n");
-        } else {
-            for participant in inactive {
-                body.push_str(&format!(
-                    "- {} ({})\n  instruction: {}\n",
-                    participant.agent_name,
-                    participant.agent_id,
-                    participant.instruction.trim()
-                ));
-            }
-        }
-        body.push('\n');
-
-        body.push_str("Queued Suggestions\n");
-        body.push_str("------------------\n");
-        if thread.queued_participant_suggestions.is_empty() {
-            body.push_str("- none\n");
-        } else {
-            for suggestion in &thread.queued_participant_suggestions {
-                let mut badges = vec![suggestion.status.clone()];
-                if suggestion.force_send {
-                    badges.push("force_send".to_string());
-                }
-                body.push_str(&format!(
-                    "- {} [{}]\n  message: {}\n",
-                    suggestion.target_agent_name,
-                    badges.join(", "),
-                    suggestion.instruction.trim()
-                ));
-                if let Some(error) = suggestion.error.as_deref() {
-                    if !error.trim().is_empty() {
-                        body.push_str(&format!("  error: {}\n", error.trim()));
-                    }
-                }
-            }
-        }
-
-        body
-    }
-
     pub(crate) fn prompt_modal_max_scroll(&self) -> usize {
         let body = self.prompt_modal_body();
         let (viewport_lines, inner_width) = self
@@ -126,25 +47,6 @@ impl TuiModel {
             .map(|(_, area)| {
                 (
                     area.height.saturating_sub(5) as usize,
-                    area.width.saturating_sub(2) as usize,
-                )
-            })
-            .unwrap_or((1, 1));
-        let total_lines = crate::widgets::message::wrap_text(&body, inner_width.max(1))
-            .len()
-            .max(1);
-        let viewport_lines = viewport_lines.max(1);
-        total_lines.saturating_sub(viewport_lines)
-    }
-
-    pub(crate) fn thread_participants_modal_max_scroll(&self) -> usize {
-        let body = self.thread_participants_modal_body();
-        let (viewport_lines, inner_width) = self
-            .current_modal_area()
-            .filter(|(kind, _)| *kind == modal::ModalKind::ThreadParticipants)
-            .map(|(_, area)| {
-                (
-                    area.height.saturating_sub(3) as usize,
                     area.width.saturating_sub(2) as usize,
                 )
             })
@@ -282,11 +184,6 @@ impl TuiModel {
         );
     }
 
-    pub(crate) fn set_thread_participants_modal_scroll(&mut self, scroll: usize) {
-        self.thread_participants_modal_scroll =
-            scroll.min(self.thread_participants_modal_max_scroll());
-    }
-
     pub(crate) fn set_help_modal_scroll(&mut self, scroll: usize) {
         self.help_modal_scroll = scroll.min(self.help_modal_max_scroll());
     }
@@ -307,27 +204,12 @@ impl TuiModel {
         self.step_prompt_modal_scroll(page * direction);
     }
 
-    pub(crate) fn step_thread_participants_modal_scroll(&mut self, delta: i32) {
-        let current = self.thread_participants_modal_scroll as i32;
-        let next = (current + delta).max(0) as usize;
-        self.set_thread_participants_modal_scroll(next);
-    }
-
     pub(crate) fn step_help_modal_scroll(&mut self, delta: i32) {
         let current = self.help_modal_scroll as i32;
         let next = (current + delta).max(0) as usize;
         self.set_help_modal_scroll(next);
     }
 
-    pub(crate) fn page_thread_participants_modal_scroll(&mut self, direction: i32) {
-        let page = self
-            .current_modal_area()
-            .filter(|(kind, _)| *kind == modal::ModalKind::ThreadParticipants)
-            .map(|(_, area)| area.height.saturating_sub(4) as i32)
-            .unwrap_or(10)
-            .max(1);
-        self.step_thread_participants_modal_scroll(page * direction);
-    }
 
     pub(crate) fn page_help_modal_scroll(&mut self, direction: i32) {
         let page = self
@@ -344,12 +226,12 @@ impl TuiModel {
             self.status_line = "Open a thread first, then run /participants".to_string();
             return;
         }
-        self.thread_participants_modal_scroll = 0;
         if self.modal.top() != Some(modal::ModalKind::ThreadParticipants) {
             self.modal.reduce(modal::ModalAction::Push(
                 modal::ModalKind::ThreadParticipants,
             ));
         }
+        self.sync_thread_participants_modal_item_count();
     }
 
     pub(crate) fn request_prompt_inspection(&mut self, agent_id: Option<String>) {

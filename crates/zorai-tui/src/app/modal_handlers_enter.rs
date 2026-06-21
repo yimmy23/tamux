@@ -359,6 +359,15 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
         modal::ModalKind::WorkspaceActorPicker => {
             model.submit_workspace_actor_picker();
         }
+        modal::ModalKind::ThreadParticipants => {
+            model.handle_thread_participants_modal_enter();
+        }
+        modal::ModalKind::ThreadParticipantAgentPicker => {
+            model.submit_thread_participant_agent_picker();
+        }
+        modal::ModalKind::ThreadParticipantActions => {
+            model.submit_thread_participant_actions();
+        }
         modal::ModalKind::GoalStepActionPicker => {
             let cursor = model.modal.picker_cursor();
             let items = model.goal_action_picker_items();
@@ -986,6 +995,19 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                                 actor,
                             } => {
                                 model.apply_workspace_actor_selection(pending, Some(actor));
+                            }
+                            PendingBuiltinPersonaSetupContinuation::AddThreadParticipant {
+                                thread_id,
+                                agent_id,
+                                agent_name,
+                            } => {
+                                model.open_participant_instruction_editor(
+                                    thread_id,
+                                    agent_id,
+                                    agent_name,
+                                    true,
+                                    String::new(),
+                                );
                             }
                         }
                         return;

@@ -1944,6 +1944,12 @@ impl TuiModel {
                 modal::ModalKind::Statistics => render_helpers::centered_rect(84, 84, area),
                 modal::ModalKind::PromptViewer => render_helpers::centered_rect(84, 84, area),
                 modal::ModalKind::ThreadParticipants => render_helpers::centered_rect(76, 68, area),
+                modal::ModalKind::ThreadParticipantAgentPicker => {
+                    render_helpers::centered_rect(48, 46, area)
+                }
+                modal::ModalKind::ThreadParticipantActions => {
+                    render_helpers::centered_rect(44, 30, area)
+                }
                 modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
                 modal::ModalKind::WorkspacePicker => render_helpers::centered_rect(54, 42, area),
@@ -2395,7 +2401,29 @@ impl TuiModel {
                         overlay_area,
                         "THREAD PARTICIPANTS",
                         &self.thread_participants_modal_body(),
-                        self.thread_participants_modal_scroll,
+                        self.thread_participants_modal_cursor_scroll(),
+                        true,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::ThreadParticipantAgentPicker => {
+                    render_helpers::render_status_modal(
+                        frame,
+                        overlay_area,
+                        "ADD PARTICIPANT",
+                        &self.thread_participant_agent_picker_body(),
+                        self.thread_participant_agent_picker_scroll(),
+                        true,
+                        &self.theme,
+                    );
+                }
+                modal::ModalKind::ThreadParticipantActions => {
+                    render_helpers::render_status_modal(
+                        frame,
+                        overlay_area,
+                        "PARTICIPANT ACTIONS",
+                        &self.thread_participant_actions_body(),
+                        self.thread_participant_actions_scroll(),
                         true,
                         &self.theme,
                     );
@@ -2438,6 +2466,12 @@ impl TuiModel {
             modal::ModalKind::Statistics => render_helpers::centered_rect(84, 84, area),
             modal::ModalKind::PromptViewer => render_helpers::centered_rect(84, 84, area),
             modal::ModalKind::ThreadParticipants => render_helpers::centered_rect(76, 68, area),
+            modal::ModalKind::ThreadParticipantAgentPicker => {
+                render_helpers::centered_rect(48, 46, area)
+            }
+            modal::ModalKind::ThreadParticipantActions => {
+                render_helpers::centered_rect(44, 30, area)
+            }
             modal::ModalKind::ThreadPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::GoalPicker => render_helpers::centered_rect(60, 50, area),
             modal::ModalKind::WorkspacePicker => render_helpers::centered_rect(54, 42, area),

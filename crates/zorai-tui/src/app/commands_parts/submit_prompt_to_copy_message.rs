@@ -5,6 +5,10 @@ impl TuiModel {
             self.status_line = "Not connected to daemon".to_string();
             return;
         }
+        if self.pending_participant_instruction_edit.is_some() {
+            self.submit_participant_instruction_edit(prompt);
+            return;
+        }
         if self.should_queue_submitted_prompt() {
             self.queue_prompt(prompt);
             return;
