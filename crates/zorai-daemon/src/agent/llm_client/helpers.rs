@@ -194,6 +194,10 @@ pub async fn fetch_models(
         return built_in_models_for_provider(provider_id);
     }
 
+    if provider_id == zorai_shared::providers::PROVIDER_ID_OLLAMA {
+        return fetch_ollama_models(base_url, api_key).await;
+    }
+
     let def = crate::agent::types::get_provider_definition(provider_id)
         .ok_or_else(|| anyhow::anyhow!("Unknown provider '{}'", provider_id))?;
 
@@ -264,6 +268,143 @@ pub async fn fetch_models(
 
     let json: serde_json::Value = response.json().await?;
     Ok(parse_fetched_models_response(&json))
+}
+
+async fn fetch_ollama_models(base_url: &str, api_key: &str) -> Result<Vec<FetchedModel>> {
+    let client = reqwest::Client::new();
+    let trimmed = base_url.trim_end_matches('/');
+    let api_root = trimmed.strip_suffix("/v1").unwrap_or(trimmed);
+    let tags_url = format!("{api_root}/api/tags");
+
+    let mut req = client
+        .get(&tags_url)
+        .header("Content-Type", "application/json");
+    if !api_key.is_empty() {
+        req = req.bearer_auth(api_key);
+    }
+    let response = req.send().await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "Failed to fetch Ollama models: {} - {}",
+            status,
+            text
+        ));
+    }
+
+    let json: serde_json::Value = response.json().await?;
+    let names: Vec<String> = json
+        .get("models")
+        .and_then(|models| models.as_array())
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(|model| {
+                    model
+                        .get("model")
+                        .or_else(|| model.get("name"))
+                        .and_then(|value| value.as_str())
+                        .map(|value| value.to_string())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let details = futures::future::join_all(
+        names
+            .iter()
+            .map(|name| fetch_ollama_model_detail(&client, api_root, api_key, name)),
+    )
+    .await;
+
+    Ok(names
+        .into_iter()
+        .zip(details)
+        .map(|(name, (context_window, metadata))| FetchedModel {
+            id: name.clone(),
+            name: Some(name),
+            context_window,
+            pricing: None,
+            metadata,
+        })
+        .collect())
+}
+
+async fn fetch_ollama_model_detail(
+    client: &reqwest::Client,
+    api_root: &str,
+    api_key: &str,
+    model: &str,
+) -> (Option<u32>, Option<serde_json::Value>) {
+    let url = format!("{api_root}/api/show");
+    let mut req = client
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "model": model }));
+    if !api_key.is_empty() {
+        req = req.bearer_auth(api_key);
+    }
+    let Ok(response) = req.send().await else {
+        return (None, None);
+    };
+    if !response.status().is_success() {
+        return (None, None);
+    }
+    let Ok(json) = response.json::<serde_json::Value>().await else {
+        return (None, None);
+    };
+
+    parse_ollama_model_detail(&json)
+}
+
+pub(crate) fn parse_ollama_model_detail(
+    json: &serde_json::Value,
+) -> (Option<u32>, Option<serde_json::Value>) {
+    let context_window = json
+        .get("model_info")
+        .and_then(|info| info.as_object())
+        .and_then(|info| {
+            info.iter().find_map(|(key, value)| {
+                if key.ends_with(".context_length") {
+                    value.as_u64()
+                } else {
+                    None
+                }
+            })
+        })
+        .and_then(|value| u32::try_from(value).ok());
+
+    let vision = json
+        .get("capabilities")
+        .and_then(|caps| caps.as_array())
+        .map(|caps| {
+            caps.iter().any(|cap| {
+                cap.as_str()
+                    .map(|cap| cap.eq_ignore_ascii_case("vision"))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+
+    let mut input_modalities = vec![serde_json::Value::String("text".to_string())];
+    if vision {
+        input_modalities.push(serde_json::Value::String("image".to_string()));
+    }
+
+    let mut metadata = serde_json::Map::new();
+    metadata.insert(
+        "input_modalities".to_string(),
+        serde_json::Value::Array(input_modalities),
+    );
+    if let Some(details) = json.get("details") {
+        metadata.insert("details".to_string(), details.clone());
+    }
+    if let Some(caps) = json.get("capabilities") {
+        metadata.insert("capabilities".to_string(), caps.clone());
+    }
+
+    (context_window, Some(serde_json::Value::Object(metadata)))
 }
 
 pub async fn validate_provider_connection(

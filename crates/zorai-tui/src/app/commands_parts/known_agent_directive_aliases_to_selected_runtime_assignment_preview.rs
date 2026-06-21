@@ -129,6 +129,36 @@ impl TuiModel {
         );
     }
 
+    pub(crate) fn begin_add_thread_participant(&mut self, agent_id: &str) {
+        let Some(thread_id) = self.chat.active_thread_id().map(String::from) else {
+            self.status_line = "Open a thread before adding participants".to_string();
+            return;
+        };
+        let agent_name = self.participant_display_name(agent_id);
+        let is_unconfigured_builtin = matches!(
+            agent_id.trim().to_ascii_lowercase().as_str(),
+            "swarozyc" | "radogost" | "domowoj" | "swietowit" | "perun" | "mokosh" | "dazhbog"
+        ) && !self.builtin_persona_configured(agent_id);
+        if is_unconfigured_builtin {
+            self.open_builtin_persona_setup_flow(
+                agent_id,
+                PendingBuiltinPersonaSetupContinuation::AddThreadParticipant {
+                    thread_id,
+                    agent_id: agent_id.to_string(),
+                    agent_name,
+                },
+            );
+            return;
+        }
+        self.open_participant_instruction_editor(
+            thread_id,
+            agent_id.to_string(),
+            agent_name,
+            true,
+            String::new(),
+        );
+    }
+
     pub(crate) fn restore_builtin_persona_setup_config_snapshot(&mut self) {
         let Some(setup) = self.pending_builtin_persona_setup.as_ref() else {
             return;

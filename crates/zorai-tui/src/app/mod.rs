@@ -26,6 +26,7 @@ mod input_ops;
 mod keyboard;
 mod modal_handlers;
 mod mouse;
+mod participant_management;
 mod render_helpers;
 mod rendering;
 mod settings_handlers;
@@ -189,6 +190,8 @@ pub struct TuiModel {
     pending_builtin_persona_setup: Option<PendingBuiltinPersonaSetup>,
     pending_target_agent_config: Option<PendingTargetAgentConfig>,
     pending_svarog_reasoning_effort: Option<String>,
+    pending_participant_instruction_edit: Option<PendingParticipantInstructionEdit>,
+    participant_actions_target: Option<ParticipantActionsTarget>,
 
     thread_loading_id: Option<String>,
     missing_runtime_thread_ids: std::collections::HashSet<String>,
@@ -223,7 +226,6 @@ pub struct TuiModel {
     prompt_modal_title_override: Option<String>,
     prompt_modal_body_override: Option<String>,
     settings_modal_scroll: usize,
-    thread_participants_modal_scroll: usize,
     help_modal_scroll: usize,
 
     chat_drag_anchor: Option<Position>,

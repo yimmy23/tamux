@@ -7,6 +7,8 @@ pub enum ModalKind {
     Statistics,
     PromptViewer,
     ThreadParticipants,
+    ThreadParticipantAgentPicker,
+    ThreadParticipantActions,
     ThreadPicker,
     GoalPicker,
     WorkspacePicker,

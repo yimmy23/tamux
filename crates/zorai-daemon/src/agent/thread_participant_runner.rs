@@ -43,7 +43,7 @@ fn normalize_no_suggestion_candidate(value: &str) -> String {
 pub(super) fn participant_response_is_no_suggestion(value: &str) -> bool {
     matches!(
         normalize_no_suggestion_candidate(value).as_str(),
-        "nosuggestion" | "no_suggestion"
+        "nosuggestion" | "no_suggestion" | "nomessage" | "no_message"
     )
 }
 
@@ -519,8 +519,9 @@ impl AgentEngine {
         target_agent_id: &str,
     ) -> Result<ParticipantObserverResponderConfig> {
         let config = self.config.read().await.clone();
-        let agent_scope_id = canonical_agent_id(target_agent_id).to_string();
         let sub_agents = self.list_sub_agents().await;
+        let resolved_target = resolve_agent_target(target_agent_id, &sub_agents);
+        let agent_scope_id = resolved_target.scope_id.clone();
 
         if agent_scope_id == CONCIERGE_AGENT_ID {
             let provider_id = config
@@ -545,14 +546,7 @@ impl AgentEngine {
             });
         }
 
-        let matched_def = if agent_scope_id == WELES_AGENT_ID {
-            sub_agents
-                .iter()
-                .find(|def| def.id == WELES_BUILTIN_SUBAGENT_ID)
-                .cloned()
-        } else {
-            None
-        };
+        let matched_def = resolved_target.matched_sub_agent.clone();
         let builtin_persona_overrides = builtin_persona_overrides(&config, &agent_scope_id);
         if is_explicit_builtin_persona_scope(&agent_scope_id)
             && builtin_persona_requires_setup(&config, &agent_scope_id)
@@ -629,7 +623,7 @@ impl AgentEngine {
         target_agent_id: &str,
         prompt: &str,
     ) -> Result<String> {
-        let target_agent_id = canonical_agent_id(target_agent_id).to_string();
+        let target_agent_id = agent_turn_scope_id(target_agent_id);
         let prompt = prompt.trim().to_string();
         if prompt.is_empty() {
             anyhow::bail!("participant playground prompt cannot be empty");
@@ -926,5 +920,22 @@ impl AgentEngine {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_participant_suggestion_response, participant_response_is_no_suggestion};
+
+    #[test]
+    fn no_message_is_treated_like_no_suggestion() {
+        assert!(participant_response_is_no_suggestion("NO_MESSAGE"));
+        assert!(participant_response_is_no_suggestion("NO MESSAGE"));
+        assert!(participant_response_is_no_suggestion("Response: NO_MESSAGE"));
+        assert_eq!(parse_participant_suggestion_response("NO_MESSAGE"), None);
+        assert_eq!(
+            parse_participant_suggestion_response("FORCE: yes\nMESSAGE: NO_MESSAGE"),
+            None
+        );
     }
 }

@@ -1887,3 +1887,50 @@ async fn chat_completions_parser_uses_total_tokens_when_completion_details_are_h
     assert_eq!(final_result_tokens, (75, 1186));
     server.await.expect("server task");
 }
+
+#[test]
+fn ollama_model_detail_extracts_context_window_and_vision_capability() {
+    let show = serde_json::json!({
+        "details": { "family": "kimi-k2", "parameter_size": "1042000000000" },
+        "model_info": {
+            "general.architecture": "kimi-k2",
+            "kimi-k2.context_length": 262144
+        },
+        "capabilities": ["vision", "thinking", "completion", "tools"]
+    });
+
+    let (context_window, metadata) = super::parse_ollama_model_detail(&show);
+
+    assert_eq!(context_window, Some(262144));
+
+    let features = zorai_shared::providers::derive_model_feature_capabilities(
+        zorai_shared::providers::PROVIDER_ID_OLLAMA,
+        "kimi-k2.7-code:cloud",
+        metadata.as_ref(),
+        false,
+    );
+    assert!(
+        features.vision,
+        "vision capability must propagate into derived model features"
+    );
+}
+
+#[test]
+fn ollama_model_detail_without_vision_does_not_report_vision() {
+    let show = serde_json::json!({
+        "model_info": { "llama.context_length": 131072 },
+        "capabilities": ["completion", "tools"]
+    });
+
+    let (context_window, metadata) = super::parse_ollama_model_detail(&show);
+
+    assert_eq!(context_window, Some(131072));
+
+    let features = zorai_shared::providers::derive_model_feature_capabilities(
+        zorai_shared::providers::PROVIDER_ID_OLLAMA,
+        "llama3.1",
+        metadata.as_ref(),
+        false,
+    );
+    assert!(!features.vision);
+}

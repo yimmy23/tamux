@@ -425,6 +425,13 @@ pub(crate) fn hidden_dangling_tool_turn(
         .collect()
 }
 
+pub(crate) fn message_is_participant_no_suggestion_notice(message: &AgentMessage) -> bool {
+    message.role == MessageRole::Assistant
+        && crate::agent::thread_participant_runner::participant_response_is_no_suggestion(
+            &message.content,
+        )
+}
+
 pub(crate) fn active_request_messages(messages: &[AgentMessage]) -> Vec<AgentMessage> {
     let (window_start, active_messages) = active_compaction_window(messages);
     let Some((first_message, remaining_messages)) = active_messages.split_first() else {
@@ -449,5 +456,6 @@ pub(crate) fn active_request_messages(messages: &[AgentMessage]) -> Vec<AgentMes
             .iter()
             .map(materialize_compaction_message),
     );
+    request_messages.retain(|message| !message_is_participant_no_suggestion_notice(message));
     request_messages
 }

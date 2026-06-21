@@ -483,6 +483,21 @@ pub(crate) fn current_agent_scope_id() -> String {
         .unwrap_or_else(|_| MAIN_AGENT_ID.to_string())
 }
 
+/// Resolve the task-local agent scope id for a turn driven by `alias`.
+///
+/// Built-in aliases (main, concierge, weles, spawned personas) canonicalize to
+/// their stable ids, but a user sub-agent id — which `canonical_agent_id`
+/// collapses to the main agent — is preserved so the turn runs under that
+/// sub-agent's own provider/model config instead of the main agent's.
+pub(crate) fn agent_turn_scope_id(alias: &str) -> String {
+    let canonical = canonical_agent_id(alias);
+    if canonical == MAIN_AGENT_ID && !is_main_agent_scope(alias) {
+        alias.trim().to_string()
+    } else {
+        canonical.to_string()
+    }
+}
+
 pub(crate) async fn run_with_agent_scope<F>(scope_id: String, future: F) -> F::Output
 where
     F: Future,
@@ -561,6 +576,20 @@ mod tests {
         let second = spawned_persona_id("task-123");
         assert_eq!(first, second);
         assert!(SPAWNED_PERSONAS.iter().any(|persona| persona.id == first));
+    }
+
+    #[test]
+    fn agent_turn_scope_preserves_user_subagent_ids() {
+        // A user sub-agent id must drive a turn under its own scope (and thus its
+        // own provider), not collapse to the main agent.
+        assert_eq!(
+            agent_turn_scope_id("subagent-1777071832136"),
+            "subagent-1777071832136"
+        );
+        assert_eq!(agent_turn_scope_id("main"), MAIN_AGENT_ID);
+        assert_eq!(agent_turn_scope_id(MAIN_AGENT_ID), MAIN_AGENT_ID);
+        assert_eq!(agent_turn_scope_id("radogost"), RADOGOST_AGENT_ID);
+        assert_eq!(agent_turn_scope_id("veles"), WELES_AGENT_ID);
     }
 
     #[test]
