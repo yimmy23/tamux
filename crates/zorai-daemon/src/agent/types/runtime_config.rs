@@ -31,6 +31,8 @@ pub struct GatewayConfig {
     pub whatsapp_phone_id: String,
     #[serde(default)]
     pub command_prefix: String,
+    #[serde(default = "default_gateway_agent")]
+    pub default_agent: String,
     /// Feature flag: when false (default), only daemon gateways run.
     /// When true, Electron bridges run alongside daemon gateways. Per D-07.
     /// Note: platform tokens may also be provided via env vars as a fallback
@@ -41,6 +43,9 @@ pub struct GatewayConfig {
     pub whatsapp_link_fallback_electron: bool,
 }
 
+pub(crate) fn default_gateway_agent() -> String {
+    zorai_protocol::AGENT_ID_RAROG.into()
+}
 pub(crate) fn default_provider() -> String {
     PROVIDER_ID_OPENAI.into()
 }

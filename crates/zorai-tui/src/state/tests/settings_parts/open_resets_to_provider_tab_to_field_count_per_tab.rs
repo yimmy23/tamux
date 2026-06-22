@@ -274,6 +274,8 @@ fn current_field_name_gateway_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
     assert_eq!(state.current_field_name(), "gateway_enabled");
     state.reduce(SettingsAction::NavigateField(1));
+    assert_eq!(state.current_field_name(), "gateway_default_agent");
+    state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "gateway_prefix");
     state.reduce(SettingsAction::NavigateField(1));
     assert_eq!(state.current_field_name(), "slack_token");
@@ -417,7 +419,7 @@ fn field_count_per_tab() {
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Chat));
     assert_eq!(state.field_count(), 25);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Gateway));
-    assert_eq!(state.field_count(), 14);
+    assert_eq!(state.field_count(), 15);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Auth));
     assert_eq!(state.field_count(), 1);
     state.reduce(SettingsAction::SwitchTab(SettingsTab::Agent));

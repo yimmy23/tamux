@@ -101,19 +101,20 @@ pub(crate) fn single_line_edit_layout(
             _ => None,
         },
         SettingsTab::Gateway => match field {
-            "gateway_prefix" => Some((5, 19)),
-            "slack_token" => Some((8, 19)),
-            "slack_channel_filter" => Some((9, 19)),
-            "telegram_token" => Some((12, 19)),
-            "telegram_allowed_chats" => Some((13, 19)),
-            "discord_token" => Some((16, 19)),
-            "discord_channel_filter" => Some((17, 19)),
-            "discord_allowed_users" => Some((18, 19)),
-            "whatsapp_allowed_contacts" => Some((21, 19)),
-            "whatsapp_token" => Some((22, 19)),
-            "whatsapp_phone_id" => Some((23, 19)),
-            "whatsapp_link_device" => Some((24, 19)),
-            "whatsapp_relink_device" => Some((25, 19)),
+            "gateway_default_agent" => Some((5, 19)),
+            "gateway_prefix" => Some((6, 19)),
+            "slack_token" => Some((9, 19)),
+            "slack_channel_filter" => Some((10, 19)),
+            "telegram_token" => Some((13, 19)),
+            "telegram_allowed_chats" => Some((14, 19)),
+            "discord_token" => Some((17, 19)),
+            "discord_channel_filter" => Some((18, 19)),
+            "discord_allowed_users" => Some((19, 19)),
+            "whatsapp_allowed_contacts" => Some((22, 19)),
+            "whatsapp_token" => Some((23, 19)),
+            "whatsapp_phone_id" => Some((24, 19)),
+            "whatsapp_link_device" => Some((25, 19)),
+            "whatsapp_relink_device" => Some((26, 19)),
             _ => None,
         },
         SettingsTab::Auth => None,
@@ -149,7 +150,7 @@ pub(crate) fn textarea_edit_layout(
 ) -> Option<(usize, usize)> {
     match settings.active_tab() {
         SettingsTab::Agent if field == "system_prompt" => Some((17, 4)),
-        SettingsTab::Gateway if field == "whatsapp_allowed_contacts" => Some((23, 4)),
+        SettingsTab::Gateway if field == "whatsapp_allowed_contacts" => Some((24, 4)),
         SettingsTab::Advanced => match config.compaction_strategy.as_str() {
             "weles" => match field {
                 "workspace_repo_monitor_include_dirs" => Some((38, 4)),
@@ -304,33 +305,34 @@ pub(crate) fn settings_row_hit(
         SettingsTab::Gateway => match row {
             4 => Some((0, None)),
             5 => Some((1, None)),
-            8 => Some((2, None)),
+            6 => Some((2, None)),
             9 => Some((3, None)),
-            12 => Some((4, None)),
+            10 => Some((4, None)),
             13 => Some((5, None)),
-            16 => Some((6, None)),
+            14 => Some((6, None)),
             17 => Some((7, None)),
             18 => Some((8, None)),
-            21 => Some((9, None)),
+            19 => Some((9, None)),
+            22 => Some((10, None)),
             r if settings.is_editing()
                 && settings.is_textarea()
                 && settings.editing_field() == Some("whatsapp_allowed_contacts") =>
             {
                 let textarea_lines = settings.edit_buffer().lines().count().max(1);
                 match r {
-                    22..=23 => Some((9, None)),
-                    line if line >= 24 && line < 24 + textarea_lines => Some((9, None)),
-                    line if line == 24 + textarea_lines => Some((10, None)),
+                    23..=24 => Some((10, None)),
+                    line if line >= 25 && line < 25 + textarea_lines => Some((10, None)),
                     line if line == 25 + textarea_lines => Some((11, None)),
                     line if line == 26 + textarea_lines => Some((12, None)),
                     line if line == 27 + textarea_lines => Some((13, None)),
+                    line if line == 28 + textarea_lines => Some((14, None)),
                     _ => None,
                 }
             }
-            22 => Some((10, None)),
             23 => Some((11, None)),
             24 => Some((12, None)),
             25 => Some((13, None)),
+            26 => Some((14, None)),
             _ => None,
         },
         SettingsTab::Auth => row

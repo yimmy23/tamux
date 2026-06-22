@@ -71,6 +71,7 @@ fn make_replay_gateway_config() -> super::types::GatewayConfig {
         whatsapp_token: String::new(),
         whatsapp_phone_id: String::new(),
         command_prefix: "!".into(),
+        default_agent: "rarog".into(),
         gateway_electron_bridges_enabled: false,
         whatsapp_link_fallback_electron: false,
     }

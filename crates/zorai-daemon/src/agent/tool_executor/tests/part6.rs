@@ -6560,6 +6560,18 @@ async fn approved_thread_handoff_activation_updates_stack_and_thread_identity() 
         )
         .await;
 
+    engine
+        .set_thread_execution_profile(
+            thread_id,
+            Some(crate::agent::types::ThreadExecutionProfile {
+                provider: Some("previous-provider".to_string()),
+                model: Some("previous-model".to_string()),
+                reasoning_effort: Some("high".to_string()),
+                context_window_tokens: Some(123_456),
+            }),
+        )
+        .await;
+
     let tool_call = ToolCall::with_default_weles_review(
         "tool-handoff-thread-approved".to_string(),
         ToolFunction {
@@ -6628,6 +6640,37 @@ async fn approved_thread_handoff_activation_updates_stack_and_thread_identity() 
                 && message.content.contains("\"approval_id\":\"")
         }),
         "approval activation should append a structured handoff system event"
+    );
+
+    let handoff_system_message = thread
+        .messages
+        .iter()
+        .find(|message| {
+            message.role == crate::agent::types::MessageRole::System
+                && message.content.starts_with("[[handoff_event]]")
+        })
+        .map(|message| message.content.clone())
+        .expect("handoff should append a [[handoff_event]] system message");
+    assert!(
+        handoff_system_message.contains("\"to_agent_name\":\"Weles\""),
+        "handoff system message must carry the resolved responder name, got {handoff_system_message}"
+    );
+    assert!(
+        handoff_system_message.contains(&format!(
+            "\"from_agent_name\":\"{}\"",
+            crate::agent::agent_identity::MAIN_AGENT_NAME
+        )),
+        "handoff system message must carry the resolved previous responder name, got {handoff_system_message}"
+    );
+
+    assert!(
+        engine
+            .thread_execution_profiles
+            .read()
+            .await
+            .get(thread_id)
+            .is_none(),
+        "handoff must clear the previous responder's execution profile so the header reflects the new agent"
     );
 }
 

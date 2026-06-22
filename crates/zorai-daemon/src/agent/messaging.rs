@@ -966,6 +966,34 @@ impl AgentEngine {
         .thread_id)
     }
 
+    pub async fn send_message_with_agent_scope_override(
+        &self,
+        thread_id: Option<&str>,
+        stored_content: &str,
+        llm_user_override: &str,
+        agent_scope: Option<&str>,
+        stream_chunk_timeout: std::time::Duration,
+    ) -> Result<String> {
+        Ok(Box::pin(self.send_message_inner_with_options(
+            thread_id,
+            stored_content,
+            None,
+            None,
+            None,
+            None,
+            Some(llm_user_override),
+            Some(stream_chunk_timeout),
+            None,
+            true,
+            false,
+            true,
+            true,
+            agent_scope,
+        ))
+        .await?
+        .thread_id)
+    }
+
     pub async fn send_message_with_session(
         &self,
         thread_id: Option<&str>,

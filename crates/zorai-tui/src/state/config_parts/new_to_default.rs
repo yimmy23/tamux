@@ -49,6 +49,7 @@ impl ConfigState {
             browse_provider: "auto".to_string(),
             custom_modalities: "text".to_string(),
             gateway_enabled: false,
+            gateway_default_agent: "rarog".to_string(),
             gateway_prefix: "!zorai".to_string(),
             slack_token: String::new(),
             slack_channel_filter: String::new(),

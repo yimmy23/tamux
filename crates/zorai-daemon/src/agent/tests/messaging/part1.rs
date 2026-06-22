@@ -744,6 +744,8 @@ async fn thread_handoff_state_persists_and_restores_active_agent_identity() {
                     kind: ThreadHandoffKind::Push,
                     from_agent_id: MAIN_AGENT_ID.to_string(),
                     to_agent_id: crate::agent::agent_identity::WELES_AGENT_ID.to_string(),
+                    from_agent_name: None,
+                    to_agent_name: None,
                     requested_by: ThreadHandoffRequestedBy::Agent,
                     reason: "Security review needed".to_string(),
                     summary: "Asked Weles to inspect risky changes.".to_string(),

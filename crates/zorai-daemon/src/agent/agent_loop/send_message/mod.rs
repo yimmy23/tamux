@@ -74,7 +74,7 @@ impl AgentEngine {
         }
     }
 
-    async fn send_message_inner_with_options(
+    pub(in crate::agent) async fn send_message_inner_with_options(
         &self,
         thread_id: Option<&str>,
         content: &str,
@@ -89,6 +89,7 @@ impl AgentEngine {
         initial_reuse_existing_user_message: bool,
         allow_auto_participant_queue_drain: bool,
         run_participant_observers_after_turn: bool,
+        agent_scope_override: Option<&str>,
     ) -> Result<SendMessageOutcome> {
         let stored_user_content = content;
         let stored_user_content_blocks = Self::parse_content_blocks_json(content_blocks_json)?;
@@ -98,9 +99,15 @@ impl AgentEngine {
         let mut reuse_existing_user_message = initial_reuse_existing_user_message;
 
         loop {
-            let agent_scope_id = self
-                .agent_scope_id_for_turn(current_thread_id.as_deref(), task_id)
-                .await;
+            let agent_scope_id = match agent_scope_override {
+                Some(scope) if task_id.is_none() && !scope.trim().is_empty() => {
+                    crate::agent::agent_identity::agent_turn_scope_id(scope)
+                }
+                _ => {
+                    self.agent_scope_id_for_turn(current_thread_id.as_deref(), task_id)
+                        .await
+                }
+            };
             let thread_for_turn = current_thread_id.clone();
             let llm_user_content_for_turn = current_llm_user_content.clone();
             let stored_user_content_blocks_for_turn = stored_user_content_blocks.clone();
@@ -378,6 +385,7 @@ impl AgentEngine {
             false,
             true,
             true,
+            None,
         )
         .await
     }
@@ -401,6 +409,7 @@ impl AgentEngine {
             true,
             true,
             true,
+            None,
         )
         .await
     }
@@ -425,6 +434,7 @@ impl AgentEngine {
             true,
             true,
             true,
+            None,
         )
         .await
     }
@@ -448,6 +458,7 @@ impl AgentEngine {
             true,
             false,
             false,
+            None,
         )
         .await
     }

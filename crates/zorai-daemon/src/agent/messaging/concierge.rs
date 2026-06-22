@@ -33,7 +33,7 @@ impl AgentEngine {
             self.record_operator_message(&tid, content, false).await?;
         }
 
-        let reply = if allow_escalation && concierge_should_escalate(content) {
+        let (reply, reasoning) = if allow_escalation && concierge_should_escalate(content) {
             let result = Box::pin(self.send_internal_agent_message(
                 CONCIERGE_AGENT_ID,
                 MAIN_AGENT_ID,
@@ -42,7 +42,10 @@ impl AgentEngine {
             ))
             .await?;
             let response = result.response;
-            format!("I checked with {}. {}", MAIN_AGENT_NAME, response.trim())
+            (
+                format!("I checked with {}. {}", MAIN_AGENT_NAME, response.trim()),
+                None,
+            )
         } else {
             self.generate_concierge_reply(&tid).await?
         };
@@ -53,7 +56,7 @@ impl AgentEngine {
                 &reply,
                 0,
                 0,
-                None,
+                reasoning.clone(),
                 Some("concierge".to_string()),
                 None,
                 None,
@@ -73,7 +76,7 @@ impl AgentEngine {
             model: None,
             tps: None,
             generation_ms: None,
-            reasoning: None,
+            reasoning,
             upstream_message: None,
             provider_final_result: None,
             message_id: persisted_message_id,
@@ -81,7 +84,7 @@ impl AgentEngine {
         Ok(())
     }
 
-    async fn generate_concierge_reply(&self, thread_id: &str) -> Result<String> {
+    async fn generate_concierge_reply(&self, thread_id: &str) -> Result<(String, Option<String>)> {
         let config = self.config.read().await.clone();
         let provider_config = crate::agent::concierge::fast_concierge_provider_config(
             &crate::agent::concierge::resolve_concierge_provider(&config)?,
@@ -157,13 +160,24 @@ impl AgentEngine {
             },
         );
         let mut full_content = String::new();
+        let mut full_reasoning = String::new();
         let mut stream = std::pin::pin!(stream);
         while let Some(chunk) = stream.next().await {
             match chunk {
-                Ok(CompletionChunk::Delta { content, .. }) => full_content.push_str(&content),
-                Ok(CompletionChunk::Done { content, .. }) => {
+                Ok(CompletionChunk::Delta { content, reasoning }) => {
+                    full_content.push_str(&content);
+                    if let Some(reasoning) = reasoning {
+                        full_reasoning.push_str(&reasoning);
+                    }
+                }
+                Ok(CompletionChunk::Done {
+                    content, reasoning, ..
+                }) => {
                     if !content.is_empty() {
                         full_content = content;
+                    }
+                    if let Some(reasoning) = reasoning.filter(|value| !value.is_empty()) {
+                        full_reasoning = reasoning;
                     }
                     break;
                 }
@@ -172,6 +186,8 @@ impl AgentEngine {
                 Ok(_) => {}
             }
         }
-        Ok(full_content.trim().to_string())
+        let reasoning =
+            (!full_reasoning.trim().is_empty()).then(|| full_reasoning.trim().to_string());
+        Ok((full_content.trim().to_string(), reasoning))
     }
 }

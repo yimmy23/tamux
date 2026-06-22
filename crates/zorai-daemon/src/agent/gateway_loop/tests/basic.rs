@@ -66,6 +66,30 @@ fn gateway_route_requests_support_commands_and_natural_language() {
     );
 }
 
+#[tokio::test]
+async fn gateway_default_responder_routes_concierge_main_and_personas() {
+    let root = make_test_root("gateway-default-responder");
+    let manager = SessionManager::new_test(&root).await;
+    let engine = AgentEngine::new_test(manager, AgentConfig::default(), &root).await;
+
+    async fn responder(engine: &AgentEngine, agent: &str) -> (bool, Option<String>) {
+        let mut config = engine.get_config().await;
+        config.gateway.default_agent = agent.to_string();
+        engine.set_config(config).await;
+        engine.resolve_gateway_default_responder().await
+    }
+
+    assert_eq!(responder(&engine, "rarog").await, (true, None));
+    assert_eq!(responder(&engine, "").await, (true, None));
+    assert_eq!(responder(&engine, "swarog").await, (false, None));
+    assert_eq!(responder(&engine, "main").await, (false, None));
+    assert_eq!(responder(&engine, "totally-unknown").await, (false, None));
+    assert_eq!(
+        responder(&engine, "radogost").await,
+        (false, Some("radogost".to_string()))
+    );
+}
+
 #[test]
 fn gateway_reply_helpers_accept_lowercase_platform_names() {
     assert_eq!(

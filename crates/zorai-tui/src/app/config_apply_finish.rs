@@ -28,6 +28,12 @@ impl TuiModel {
                 .and_then(|v| v.as_str())
                 .unwrap_or("!zorai")
                 .to_string();
+            self.config.gateway_default_agent = gateway
+                .get("default_agent")
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.is_empty())
+                .unwrap_or("rarog")
+                .to_string();
             self.config.slack_token = gateway
                 .get("slack_token")
                 .and_then(|v| v.as_str())

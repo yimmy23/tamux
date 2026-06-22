@@ -410,6 +410,9 @@ impl TuiModel {
                                     );
                                 }
                             }
+                            "gateway_default_agent" => {
+                                self.config.gateway_default_agent = value
+                            }
                             "gateway_prefix" => self.config.gateway_prefix = value,
                             "slack_token" => self.config.slack_token = value,
                             "slack_channel_filter" => self.config.slack_channel_filter = value,

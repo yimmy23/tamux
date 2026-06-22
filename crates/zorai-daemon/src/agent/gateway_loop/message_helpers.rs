@@ -957,6 +957,27 @@ impl AgentEngine {
         }
     }
 
+    /// Resolve the configured gateway default responder into a triage decision
+    /// and an optional full-agent scope override. Concierge keeps the triage
+    /// front-door; the main agent and any other sub-agent run the full agent
+    /// directly, scoped to that responder.
+    pub(super) async fn resolve_gateway_default_responder(&self) -> (bool, Option<String>) {
+        let default_agent = self.config.read().await.gateway.default_agent.clone();
+        let trimmed = default_agent.trim();
+        if trimmed.is_empty() {
+            return (true, None);
+        }
+        let sub_agents = self.list_sub_agents().await;
+        let resolved = crate::agent::agent_identity::resolve_agent_target(trimmed, &sub_agents);
+        if resolved.scope_id == crate::agent::agent_identity::CONCIERGE_AGENT_ID {
+            (true, None)
+        } else if resolved.scope_id == crate::agent::agent_identity::MAIN_AGENT_ID {
+            (false, None)
+        } else {
+            (false, Some(resolved.scope_id))
+        }
+    }
+
     pub(super) async fn handle_gateway_full_agent_response(
         &self,
         msg: &gateway::IncomingMessage,
@@ -964,6 +985,7 @@ impl AgentEngine {
         existing_thread: Option<&str>,
         history_window: Option<&str>,
         reply_tool_name: &str,
+        agent_scope: Option<&str>,
     ) {
         let active_responder_name = match existing_thread {
             Some(thread_id) => self
@@ -983,10 +1005,11 @@ impl AgentEngine {
         let gateway_timeout_budget = self.gateway_timeout_budget().await;
         let send_result = Box::pin(tokio::time::timeout(
             gateway_timeout_budget.0,
-            self.send_message_with_ephemeral_user_override(
+            self.send_message_with_agent_scope_override(
                 existing_thread,
                 &msg.content,
                 &enriched_prompt,
+                agent_scope,
                 gateway_timeout_budget.1,
             ),
         ))
