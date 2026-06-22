@@ -135,6 +135,22 @@ function registerDbIpcHandlers(ipcMain, runtime) {
             return false;
         }
     });
+    ipcMain.handle('db-export-thread', async (_event, threadId, messageId) => {
+        try {
+            const result = await sendDbQuery({ type: 'export-agent-thread', thread_id: threadId, message_id: messageId }, 'agent-thread-exported');
+            return { ok: true, file_path: result?.file_path ?? null };
+        } catch (error) {
+            return { ok: false, error: error?.message || String(error) };
+        }
+    });
+    ipcMain.handle('db-fork-thread', async (_event, threadId, messageId) => {
+        try {
+            const result = await sendDbQuery({ type: 'fork-agent-thread', thread_id: threadId, message_id: messageId }, 'agent-thread-forked');
+            return { ok: true, thread_id: result?.thread_id ?? null, title: result?.title ?? null };
+        } catch (error) {
+            return { ok: false, error: error?.message || String(error) };
+        }
+    });
     ipcMain.handle('db-delete-message', async (_event, threadId, messageId) => {
         try {
             await sendDbAckCommand({ type: 'delete-agent-messages', thread_id: threadId, message_ids: [messageId] });

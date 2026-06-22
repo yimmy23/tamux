@@ -465,6 +465,40 @@ impl AgentEngine {
         Ok(HashMap::new())
     }
 
+    /// Embed arbitrary texts for in-process similarity work (e.g. semantic
+    /// handoff routing). Returns `None` when embeddings are disabled, the model
+    /// is unconfigured, or the provider request fails, so callers fall back.
+    #[cfg(feature = "lancedb-vector")]
+    pub(crate) async fn embed_texts(
+        &self,
+        config: &AgentConfig,
+        inputs: &[String],
+    ) -> Option<Vec<Vec<f32>>> {
+        if !config.semantic.embedding.enabled || inputs.is_empty() {
+            return None;
+        }
+        if resolved_embedding_model(config).is_empty() {
+            return None;
+        }
+        match request_embeddings(&self.http_client, config, inputs).await {
+            Ok(vectors) if !vectors.is_empty() => Some(vectors),
+            Ok(_) => None,
+            Err(error) => {
+                tracing::warn!(error = %error, "embed_texts request failed; falling back");
+                None
+            }
+        }
+    }
+
+    #[cfg(not(feature = "lancedb-vector"))]
+    pub(crate) async fn embed_texts(
+        &self,
+        _config: &AgentConfig,
+        _inputs: &[String],
+    ) -> Option<Vec<Vec<f32>>> {
+        None
+    }
+
     #[cfg(feature = "lancedb-vector")]
     pub(crate) async fn semantic_document_scores(
         &self,

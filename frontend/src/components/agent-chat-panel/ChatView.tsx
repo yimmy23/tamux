@@ -73,6 +73,8 @@ export function ChatView({
   onDismissParticipantSuggestion,
   onStopStreaming,
   onDeleteMessage,
+  onForkMessage,
+  onExportThread,
   onPinMessage,
   onUnpinMessage,
   onFeedbackMessage,
@@ -452,6 +454,8 @@ export function ChatView({
               onFeedback={onFeedbackMessage ? (reaction) => {
                 void onFeedbackMessage(message.id, reaction);
               } : undefined}
+              onFork={onForkMessage ? () => onForkMessage(message.id) : undefined}
+              onExport={onExportThread ? () => onExportThread(message.id) : undefined}
               isSpeaking={speakingMessageId === message.id}
               isSpeechPaused={speakingMessageId === message.id && isSpeechPaused}
             />

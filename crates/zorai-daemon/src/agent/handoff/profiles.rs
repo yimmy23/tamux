@@ -479,6 +479,87 @@ pub fn match_specialist(
     }
 }
 
+/// Minimum cosine similarity required for an embedding-based specialist pick to
+/// be trusted; below this the broker falls back to capability-tag routing.
+pub const SPECIALIST_EMBEDDING_FLOOR: f32 = 0.20;
+
+/// Minimum lead the top semantic candidate must hold over the runner-up. When
+/// the field is too flat the query is treated as not clearly mapping to any one
+/// specialist and routing falls back to capability tags.
+pub const SPECIALIST_EMBEDDING_MARGIN: f32 = 0.02;
+
+/// Cosine similarity between two equal-length embedding vectors. Returns 0.0 for
+/// mismatched, empty, or zero-magnitude inputs.
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let mut dot = 0.0_f32;
+    let mut norm_a = 0.0_f32;
+    let mut norm_b = 0.0_f32;
+    for (x, y) in a.iter().zip(b.iter()) {
+        dot += x * y;
+        norm_a += x * x;
+        norm_b += y * y;
+    }
+    if norm_a <= 0.0 || norm_b <= 0.0 {
+        return 0.0;
+    }
+    dot / (norm_a.sqrt() * norm_b.sqrt())
+}
+
+/// Pick the highest-similarity candidate when it clears `floor` and leads the
+/// runner-up by at least `margin`. `scored` pairs each candidate's caller-facing
+/// index with its cosine similarity to the query. Returns the index + score.
+pub fn select_by_embedding(
+    scored: &[(usize, f32)],
+    floor: f32,
+    margin: f32,
+) -> Option<(usize, f64)> {
+    let mut sorted: Vec<(usize, f32)> = scored.to_vec();
+    sorted.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    let (idx, top) = sorted.first().copied()?;
+    if top < floor {
+        return None;
+    }
+    if let Some((_, second)) = sorted.get(1).copied() {
+        if top - second < margin {
+            return None;
+        }
+    }
+    Some((idx, top as f64))
+}
+
+/// Text used to represent a specialist when embedding the catalog: its human
+/// name, role, declared capability tags, and system-prompt snippet.
+pub fn profile_embedding_text(profile: &SpecialistProfile) -> String {
+    let tags = profile
+        .capabilities
+        .iter()
+        .map(|cap| cap.tag.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let snippet = profile.system_prompt_snippet.as_deref().unwrap_or("");
+    format!(
+        "{name} ({role}). Capabilities: {tags}. {snippet}",
+        name = profile.name,
+        role = profile.role,
+    )
+}
+
+/// Stable content signature over a specialist catalog for a given embedding
+/// model, used to invalidate cached embeddings when either changes.
+pub fn catalog_embedding_signature(profiles: &[SpecialistProfile], model: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    model.hash(&mut hasher);
+    for profile in profiles {
+        profile.id.hash(&mut hasher);
+        profile_embedding_text(profile).hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
 fn compute_recency_decay(last_attempt_ms: Option<u64>, half_life_hours: f64, now_ms: u64) -> f64 {
     let Some(last_attempt_ms) = last_attempt_ms else {
         return 1.0;
@@ -659,6 +740,45 @@ pub fn select_specialist(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cosine_similarity_identical_vectors_is_one() {
+        let v = vec![0.2_f32, 0.5, 0.9];
+        assert!((cosine_similarity(&v, &v) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn cosine_similarity_orthogonal_is_zero() {
+        assert!(cosine_similarity(&[1.0, 0.0], &[0.0, 1.0]).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cosine_similarity_mismatched_or_empty_is_zero() {
+        assert_eq!(cosine_similarity(&[1.0, 2.0], &[1.0]), 0.0);
+        assert_eq!(cosine_similarity(&[], &[]), 0.0);
+        assert_eq!(cosine_similarity(&[0.0, 0.0], &[1.0, 1.0]), 0.0);
+    }
+
+    #[test]
+    fn select_by_embedding_picks_clear_leader_above_floor() {
+        let scored = vec![(0usize, 0.15_f32), (1, 0.42), (2, 0.10)];
+        assert_eq!(
+            select_by_embedding(&scored, SPECIALIST_EMBEDDING_FLOOR, SPECIALIST_EMBEDDING_MARGIN),
+            Some((1, 0.42_f32 as f64))
+        );
+    }
+
+    #[test]
+    fn select_by_embedding_rejects_when_top_below_floor() {
+        let scored = vec![(0usize, 0.10_f32), (1, 0.12)];
+        assert!(select_by_embedding(&scored, SPECIALIST_EMBEDDING_FLOOR, SPECIALIST_EMBEDDING_MARGIN).is_none());
+    }
+
+    #[test]
+    fn select_by_embedding_rejects_flat_field_without_margin() {
+        let scored = vec![(0usize, 0.40_f32), (1, 0.395)];
+        assert!(select_by_embedding(&scored, SPECIALIST_EMBEDDING_FLOOR, SPECIALIST_EMBEDDING_MARGIN).is_none());
+    }
 
     #[test]
     fn default_profiles_include_expanded_specialist_catalog() {

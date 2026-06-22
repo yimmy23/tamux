@@ -146,6 +146,7 @@ pub struct AcceptanceCriteria {
 pub enum RoutingMethod {
     Probabilistic,
     Deterministic,
+    Semantic,
 }
 
 impl RoutingMethod {
@@ -153,8 +154,19 @@ impl RoutingMethod {
         match self {
             Self::Probabilistic => "probabilistic",
             Self::Deterministic => "deterministic",
+            Self::Semantic => "semantic",
         }
     }
+}
+
+/// In-memory cache of specialist description embeddings, reused across handoffs
+/// so the specialist catalog is embedded once rather than on every routing call.
+/// Invalidated when the embedding model or the catalog content changes.
+#[derive(Debug, Default)]
+pub(crate) struct SpecialistEmbeddingCache {
+    pub model: String,
+    pub signature: u64,
+    pub vectors: std::collections::HashMap<String, Vec<f32>>,
 }
 
 /// Result of a successful handoff dispatch.

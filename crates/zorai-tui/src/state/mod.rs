@@ -334,6 +334,10 @@ pub enum DaemonCommand {
         thread_id: String,
         message_ids: Vec<String>,
     },
+    ExportThread {
+        thread_id: String,
+        message_id: String,
+    },
     DeleteThread {
         thread_id: String,
     },

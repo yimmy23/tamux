@@ -76,6 +76,10 @@ pub enum ClientEvent {
         thread_id: String,
         deleted: bool,
     },
+    ThreadExported {
+        thread_id: String,
+        file_path: String,
+    },
     ThreadMessagePinResult(ThreadMessagePinResultVm),
     ThreadReloadRequired {
         thread_id: String,

@@ -75,6 +75,8 @@ export function MessageBubble({
   onUnpin,
   onSpeak,
   onFeedback,
+  onFork,
+  onExport,
   isSpeaking = false,
   isSpeechPaused = false,
 }: {
@@ -87,6 +89,8 @@ export function MessageBubble({
   onUnpin?: () => void | Promise<void>;
   onSpeak?: () => void | Promise<void>;
   onFeedback?: (reaction: "up" | "down" | null) => void | Promise<void>;
+  onFork?: () => void | Promise<void>;
+  onExport?: () => void | Promise<void>;
   isSpeaking?: boolean;
   isSpeechPaused?: boolean;
 }) {
@@ -201,6 +205,8 @@ export function MessageBubble({
           >
             <ActionBtn label={copied ? "Copied!" : "Copy"} onClick={handleCopy} />
             {onDelete && <ActionBtn label="Delete" onClick={onDelete} />}
+            {onFork && <ActionBtn label="Fork" onClick={() => { void onFork(); }} />}
+            {onExport && <ActionBtn label="Export" onClick={() => { void onExport(); }} />}
           </div>
         )}
       </div>

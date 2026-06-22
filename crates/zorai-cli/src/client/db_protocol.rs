@@ -47,6 +47,14 @@ pub(super) enum DbBridgeCommand {
         #[serde(default, alias = "trashed")]
         include_deleted: bool,
     },
+    ExportAgentThread {
+        thread_id: String,
+        message_id: String,
+    },
+    ForkAgentThread {
+        thread_id: String,
+        message_id: String,
+    },
     UpsertTranscriptIndex {
         entry_json: String,
     },

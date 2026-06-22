@@ -141,6 +141,10 @@ pub(crate) fn message_action_targets(
         "[Delete]".to_string(),
         ChatHitTarget::DeleteMessage(msg_index),
     ));
+    actions.push((
+        "[Export]".to_string(),
+        ChatHitTarget::ExportMessage(msg_index),
+    ));
     actions
 }
 

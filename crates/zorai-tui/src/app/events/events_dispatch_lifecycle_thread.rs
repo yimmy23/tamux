@@ -113,6 +113,28 @@ impl TuiModel {
                 }
                 None
             }
+            ClientEvent::ThreadExported {
+                thread_id,
+                file_path,
+            } => {
+                let timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
+                    .unwrap_or(0);
+                let message = chat::AgentMessage {
+                    role: chat::MessageRole::System,
+                    content: format!("Thread exported to {file_path}"),
+                    message_kind: "system".to_string(),
+                    timestamp,
+                    ..Default::default()
+                };
+                self.chat.reduce(chat::ChatAction::AppendMessage {
+                    thread_id,
+                    message,
+                });
+                self.status_line = format!("Thread exported to {file_path}");
+                None
+            }
             ClientEvent::MessageFeedbackUpdated {
                 thread_id,
                 message_id,

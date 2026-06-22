@@ -251,6 +251,9 @@ pub struct AgentEngine {
     pub(super) calibration_tracker: RwLock<super::uncertainty::calibration::CalibrationTracker>,
     /// Handoff broker for multi-agent task delegation (Phase v3.0: HAND-01).
     pub(super) handoff_broker: RwLock<super::handoff::HandoffBroker>,
+    /// Cached embeddings of the specialist catalog for semantic handoff routing.
+    pub(super) specialist_embedding_cache:
+        tokio::sync::Mutex<super::handoff::SpecialistEmbeddingCache>,
     /// Active divergent sessions for parallel framing mode (Phase v3.0: DIVR-01).
     pub(super) divergent_sessions:
         RwLock<HashMap<String, super::handoff::divergent::DivergentSession>>,
@@ -477,6 +480,9 @@ impl AgentEngine {
                 super::uncertainty::calibration::CalibrationTracker::default(),
             ),
             handoff_broker: RwLock::new(super::handoff::HandoffBroker::default()),
+            specialist_embedding_cache: tokio::sync::Mutex::new(
+                super::handoff::SpecialistEmbeddingCache::default(),
+            ),
             divergent_sessions: RwLock::new(HashMap::new()),
             debate_sessions: RwLock::new(HashMap::new()),
             goal_step_completion_marker_retries: Mutex::new(HashMap::new()),

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { abortThreadStream, buildHydratedRemoteThread, useAgentStore } from "@/lib/agentStore";
+import { getAgentDbApi } from "@/lib/agentStore/history";
 import { getAgentBridge, shouldUseDaemonRuntime } from "@/lib/agentDaemonConfig";
 import { fetchAgentRuns, isSubagentRun, type AgentRun } from "@/lib/agentRuns";
 import { fetchThreadTodos } from "@/lib/agentTodos";
@@ -748,6 +749,55 @@ export function useAgentChatPanelProviderValue(): {
     });
   }, []);
 
+  const exportThread = useCallback(async (messageId: string) => {
+    const notify = useNotificationStore.getState().addNotification;
+    const daemonThreadId = activeThread?.daemonThreadId ?? null;
+    if (!daemonThreadId) {
+      notify({ source: "system", title: "Export unavailable", body: "This thread is not saved yet." });
+      return;
+    }
+    const api = getAgentDbApi();
+    if (!api?.dbExportThread) {
+      notify({ source: "system", title: "Export unavailable", body: "Export is not supported by this build." });
+      return;
+    }
+    const result = await api
+      .dbExportThread(daemonThreadId, messageId)
+      .catch((error) => ({ ok: false, file_path: null, error: String(error) }));
+    if (result?.ok && result.file_path) {
+      notify({ source: "system", title: "Thread exported", body: `Saved to ${result.file_path}` });
+    } else {
+      notify({ source: "system", title: "Export failed", body: result?.error || "Unknown error." });
+    }
+  }, [activeThread]);
+
+  const forkThread = useCallback(async (messageId: string) => {
+    const notify = useNotificationStore.getState().addNotification;
+    const daemonThreadId = activeThread?.daemonThreadId ?? null;
+    if (!daemonThreadId) {
+      notify({ source: "system", title: "Fork unavailable", body: "This thread is not saved yet." });
+      return;
+    }
+    const api = getAgentDbApi();
+    if (!api?.dbForkThread) {
+      notify({ source: "system", title: "Fork unavailable", body: "Fork is not supported by this build." });
+      return;
+    }
+    const result = await api
+      .dbForkThread(daemonThreadId, messageId)
+      .catch((error) => ({ ok: false, thread_id: null, title: null, error: String(error) }));
+    if (result?.ok && result.thread_id) {
+      await refreshThreadList();
+      const local = findLocalThreadByDaemonThreadId(useAgentStore.getState().threads, result.thread_id);
+      if (local) {
+        setActiveThread(local.id);
+      }
+      notify({ source: "system", title: "Thread forked", body: result.title || "Forked thread created." });
+    } else {
+      notify({ source: "system", title: "Fork failed", body: result?.error || "Unknown error." });
+    }
+  }, [activeThread, refreshThreadList, setActiveThread]);
+
   const fetchThreadList = useCallback(async (options?: { agentFilter?: string | null }) => {
     const zorai = getAgentBridge();
     if (!zorai?.agentListThreads) {
@@ -1052,6 +1102,8 @@ export function useAgentChatPanelProviderValue(): {
     sendParticipantSuggestion,
     dismissParticipantSuggestion,
     deleteMessage,
+    forkThread,
+    exportThread,
     pinMessageForCompaction,
     unpinMessageForCompaction,
     submitMessageFeedback,
@@ -1083,6 +1135,8 @@ export function useAgentChatPanelProviderValue(): {
     startGoalRunFromPrompt,
     daemonTodosByThread,
     deleteMessage,
+    forkThread,
+    exportThread,
     deleteThread,
     dismissParticipantSuggestion,
     filteredThreads,

@@ -81,6 +81,11 @@ impl TuiModel {
                 self.submit_message_feedback(index, zorai_protocol::Reaction::Down);
                 true
             }
+            chat::ChatHitTarget::ExportMessage(index) => {
+                self.chat.select_message(Some(index));
+                self.export_thread(index);
+                true
+            }
             chat::ChatHitTarget::ToolFilePath { message_index } => {
                 self.chat.select_message(Some(message_index));
                 false

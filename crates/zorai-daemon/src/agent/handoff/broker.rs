@@ -7,8 +7,15 @@
 use anyhow::{Context, Result};
 use uuid::Uuid;
 
-use super::profiles::{match_specialist, select_specialist};
-use super::{AcceptanceCriteria, ContextBundle, HandoffResult, RoutingMethod, ValidationResult};
+use super::profiles::{
+    catalog_embedding_signature, cosine_similarity, match_specialist, profile_embedding_text,
+    select_by_embedding, select_specialist, SPECIALIST_EMBEDDING_FLOOR,
+    SPECIALIST_EMBEDDING_MARGIN,
+};
+use super::{
+    AcceptanceCriteria, ContextBundle, HandoffResult, RoutingMethod, SpecialistProfile,
+    ValidationResult,
+};
 use crate::agent::background_workers::domain_routing::select_snapshot_candidate;
 use crate::agent::background_workers::protocol::{
     BackgroundWorkerCommand, BackgroundWorkerKind, BackgroundWorkerResult,
@@ -373,6 +380,99 @@ impl AgentEngine {
     ///
     /// Flow: check depth -> match specialist -> assemble bundle -> audit -> enqueue task
     #[allow(clippy::too_many_arguments)]
+    /// Embedding-based specialist routing — the primary path when an embedding
+    /// model is configured. Embeds the task query and scores it against the
+    /// cached specialist-catalog embeddings, returning the best
+    /// `candidate_profiles` index when the match clears the confidence bar.
+    /// Returns `None` whenever embeddings are unavailable or no specialist is a
+    /// confident match, so the caller falls back to capability-tag routing.
+    async fn embedding_route_specialist(
+        &self,
+        catalog: &[SpecialistProfile],
+        candidate_profiles: &[SpecialistProfile],
+        query: &str,
+        config: &crate::agent::types::AgentConfig,
+    ) -> Option<(usize, f64)> {
+        if !config.semantic.embedding.enabled
+            || query.trim().is_empty()
+            || candidate_profiles.is_empty()
+        {
+            return None;
+        }
+        let model = config.semantic.embedding.model.trim().to_string();
+        if model.is_empty() {
+            return None;
+        }
+
+        let signature = catalog_embedding_signature(catalog, &model);
+        let cached = {
+            let cache = self.specialist_embedding_cache.lock().await;
+            if cache.model == model
+                && cache.signature == signature
+                && candidate_profiles
+                    .iter()
+                    .all(|profile| cache.vectors.contains_key(&profile.id))
+            {
+                Some(
+                    candidate_profiles
+                        .iter()
+                        .map(|profile| {
+                            cache.vectors.get(&profile.id).cloned().unwrap_or_default()
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            } else {
+                None
+            }
+        };
+
+        let candidate_vectors = match cached {
+            Some(vectors) => vectors,
+            None => {
+                let texts = catalog
+                    .iter()
+                    .map(profile_embedding_text)
+                    .collect::<Vec<_>>();
+                let embeddings = self.embed_texts(config, &texts).await?;
+                if embeddings.len() != catalog.len() {
+                    return None;
+                }
+                let map = catalog
+                    .iter()
+                    .zip(embeddings)
+                    .map(|(profile, vector)| (profile.id.clone(), vector))
+                    .collect::<std::collections::HashMap<_, _>>();
+                let selected = candidate_profiles
+                    .iter()
+                    .map(|profile| map.get(&profile.id).cloned().unwrap_or_default())
+                    .collect::<Vec<_>>();
+                let mut cache = self.specialist_embedding_cache.lock().await;
+                cache.model = model;
+                cache.signature = signature;
+                cache.vectors = map;
+                selected
+            }
+        };
+
+        let query_embedding = self
+            .embed_texts(config, &[query.trim().to_string()])
+            .await?
+            .into_iter()
+            .next()?;
+
+        let scored = candidate_vectors
+            .iter()
+            .enumerate()
+            .map(|(idx, vector)| (idx, cosine_similarity(&query_embedding, vector)))
+            .collect::<Vec<_>>();
+
+        select_by_embedding(
+            &scored,
+            SPECIALIST_EMBEDDING_FLOOR,
+            SPECIALIST_EMBEDDING_MARGIN,
+        )
+    }
+
     pub(crate) async fn route_handoff(
         &self,
         task_description: &str,
@@ -394,15 +494,12 @@ impl AgentEngine {
         let threshold = broker.match_threshold;
         drop(broker);
         validate_match_threshold(threshold)?;
-        let routing_cfg = self.config.read().await.routing.clone();
-        let required_tags = if capability_tags.is_empty() {
-            crate::agent::morphogenesis::task_router::classify_domains(
-                task_description,
-                capability_tags,
-            )
-        } else {
-            capability_tags.to_vec()
-        };
+        let full_config = self.get_config().await;
+        let routing_cfg = full_config.routing.clone();
+        let required_tags = crate::agent::morphogenesis::task_router::classify_domains(
+            task_description,
+            capability_tags,
+        );
 
         let occupied_statuses = [TaskStatus::InProgress, TaskStatus::AwaitingApproval]
             .into_iter()
@@ -510,6 +607,21 @@ impl AgentEngine {
             select_snapshot_candidate(snapshot, routing_cfg.confidence_threshold)
         });
 
+        // Learned/probabilistic routing takes precedence; only reach for the
+        // embedding model (a live network call) when learned routing has no
+        // confident candidate. Both sit above capability-tag fallback.
+        let semantic_selection = if learned_selection.is_some() {
+            None
+        } else {
+            self.embedding_route_specialist(
+                &profiles,
+                &routing_profiles,
+                task_description,
+                &full_config,
+            )
+            .await
+        };
+
         let (selection, routing_confidence_threshold) =
             if let Some((profile_idx, routing_score)) = learned_selection {
                 (
@@ -520,6 +632,16 @@ impl AgentEngine {
                         fallback_used: false,
                     },
                     routing_cfg.confidence_threshold,
+                )
+            } else if let Some((profile_idx, routing_score)) = semantic_selection {
+                (
+                    super::profiles::RoutingSelection {
+                        profile_idx,
+                        routing_method: RoutingMethod::Semantic,
+                        routing_score,
+                        fallback_used: false,
+                    },
+                    SPECIALIST_EMBEDDING_FLOOR as f64,
                 )
             } else if matches!(routing_cfg.method, RoutingMode::Probabilistic) {
                 if let Some((idx, score)) =
@@ -547,7 +669,7 @@ impl AgentEngine {
                 }
             } else if matches!(routing_cfg.method, RoutingMode::Deterministic) {
                 if let Some((idx, score)) =
-                    match_specialist(&routing_profiles, capability_tags, threshold)
+                    match_specialist(&routing_profiles, &required_tags, threshold)
                 {
                     (
                         super::profiles::RoutingSelection {
@@ -570,7 +692,7 @@ impl AgentEngine {
                     )
                 }
             } else {
-                let fallback = select_specialist(&routing_profiles, capability_tags, threshold)
+                let fallback = select_specialist(&routing_profiles, &required_tags, threshold)
                     .context("selecting specialist profile for handoff")?;
                 (fallback, threshold)
             };
@@ -606,7 +728,7 @@ impl AgentEngine {
                 routing_score,
             )
         };
-        let matched_capability_tags = capability_tags
+        let matched_capability_tags = required_tags
             .iter()
             .filter(|required_tag| {
                 specialist
@@ -618,6 +740,7 @@ impl AgentEngine {
             .collect::<Vec<_>>();
         let specialization_diagnostics = serde_json::json!({
             "matched_capability_tags": matched_capability_tags,
+            "semantic_routing_influenced": matches!(routing_method, RoutingMethod::Semantic),
             "learned_routing_influenced": matches!(routing_method, RoutingMethod::Probabilistic),
             "morphogenesis_influenced": routing_snapshot.as_ref().is_some_and(|snapshot| {
                 snapshot
@@ -1030,6 +1153,41 @@ mod tests {
             "routing result should reflect availability-aware fallback: {:?}",
             result
         );
+    }
+
+    #[tokio::test]
+    async fn deterministic_routing_maps_caller_tags_to_domain_specialist() {
+        let root = tempdir().expect("tempdir");
+        let manager = SessionManager::new_test(root.path()).await;
+        let mut config = AgentConfig::default();
+        config.routing.enabled = true;
+        config.routing.method = crate::agent::types::RoutingMode::Deterministic;
+        let engine = AgentEngine::new_test(manager, config, root.path()).await;
+
+        let result = engine
+            .route_handoff(
+                "Compare how clinicians differentiate two conditions: summarize the diagnosis, \
+                 patient phenotype, and clinical guidelines for each.",
+                &["medical_research".to_string()],
+                None,
+                None,
+                "thread-routing-medical",
+                "non_empty",
+                0,
+            )
+            .await
+            .expect("handoff should succeed");
+
+        assert_eq!(
+            result.specialist_profile_id, "medical-research",
+            "a caller-tagged medical task must reach the medical specialist, not fall back to generalist"
+        );
+        assert!(!result.fallback_used);
+        assert!(result
+            .specialization_diagnostics
+            .get("matched_capability_tags")
+            .and_then(|v| v.as_array())
+            .is_some_and(|tags| !tags.is_empty()));
     }
 
     #[tokio::test]

@@ -1305,27 +1305,71 @@ impl AgentEngine {
                 self.persist_tasks().await;
             }
             self.emit_task_update(&parent, Some("Subagent update received".into()));
-            if child_task.status == TaskStatus::BudgetExceeded {
-                let parent_thread_id = parent
+            let parent_thread_id = parent
+                .thread_id
+                .clone()
+                .or_else(|| child_task.parent_thread_id.clone());
+            if let Some(parent_thread_id) = parent_thread_id {
+                let child_thread_id = child_task
                     .thread_id
-                    .clone()
-                    .or_else(|| child_task.parent_thread_id.clone());
-                if let Some(parent_thread_id) = parent_thread_id {
-                    let child_thread_id = child_task
-                        .thread_id
-                        .as_deref()
-                        .unwrap_or("<unknown-child-thread>");
-                    let parent_message = format!(
-                        "Spawned thread `{child_thread_id}` exhausted its execution budget.\n\nReview what was completed in that child thread. If the result is sufficient, keep it. Otherwise respawn from the last completed point with a larger budget."
-                    );
+                    .as_deref()
+                    .unwrap_or("<unknown-child-thread>");
+                let child_task_id = child_task.id.as_str();
+                let notice = match child_task.status {
+                    TaskStatus::Completed => {
+                        let result_text = child_task
+                            .result
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .unwrap_or("(the subagent did not record a result)");
+                        Some((
+                            format!(
+                                "Spawned thread `{child_thread_id}` (subagent task `{child_task_id}`) finished and reported back.\n\nResult:\n{result_text}\n\nReport this outcome back to the operator. Use `list_subagents` if you need the full child output."
+                            ),
+                            "child-thread-completed",
+                            format!("Spawned thread {child_thread_id} reported back."),
+                        ))
+                    }
+                    TaskStatus::Failed | TaskStatus::Cancelled => {
+                        let outcome = if child_task.status == TaskStatus::Cancelled {
+                            "was cancelled before completing"
+                        } else {
+                            "failed"
+                        };
+                        let error_text = child_task
+                            .last_error
+                            .as_deref()
+                            .or(child_task.error.as_deref())
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .unwrap_or("(no error detail recorded)");
+                        Some((
+                            format!(
+                                "Spawned thread `{child_thread_id}` (subagent task `{child_task_id}`) {outcome}.\n\nError:\n{error_text}\n\nDecide whether to retry, adjust the task, or report the failure back to the operator."
+                            ),
+                            "child-thread-failed",
+                            format!("Spawned thread {child_thread_id} {outcome}."),
+                        ))
+                    }
+                    TaskStatus::BudgetExceeded => Some((
+                        format!(
+                            "Spawned thread `{child_thread_id}` exhausted its execution budget.\n\nReview what was completed in that child thread. If the result is sufficient, keep it. Otherwise respawn from the last completed point with a larger budget."
+                        ),
+                        "child-thread-budget-exceeded",
+                        format!("Spawned thread {child_thread_id} exhausted its budget."),
+                    )),
+                    _ => None,
+                };
+                if let Some((parent_message, notice_kind, notice_summary)) = notice {
                     if self
                         .append_system_thread_message(&parent_thread_id, parent_message)
                         .await
                     {
                         self.emit_workflow_notice(
                             &parent_thread_id,
-                            "child-thread-budget-exceeded",
-                            format!("Spawned thread {child_thread_id} exhausted its budget."),
+                            notice_kind,
+                            notice_summary,
                             Some(
                                 serde_json::json!({
                                     "child_task_id": child_task.id,

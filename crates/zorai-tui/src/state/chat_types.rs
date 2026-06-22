@@ -196,6 +196,7 @@ pub enum ChatHitTarget {
     DeleteMessage(usize),
     ThumbsUp(usize),
     ThumbsDown(usize),
+    ExportMessage(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
