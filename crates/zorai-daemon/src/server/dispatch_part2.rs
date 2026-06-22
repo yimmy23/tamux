@@ -37,6 +37,8 @@ pub(crate) async fn dispatch_part2(
             | ClientMessage::AddAgentMessage { .. }
             | ClientMessage::DeleteAgentMessages { .. }
             | ClientMessage::RestoreAgentMessages { .. }
+            | ClientMessage::ExportAgentThread { .. }
+            | ClientMessage::ForkAgentThread { .. }
     ) {
         return Ok(DispatchOutcome::NotMatched);
     }
@@ -481,6 +483,49 @@ pub(crate) async fn dispatch_part2(
                         .send(DaemonMessage::AgentDbThreadDetail {
                             thread_json,
                             messages_json,
+                        })
+                        .await?;
+                }
+                Err(e) => {
+                    framed
+                        .send(DaemonMessage::Error {
+                            message: e.to_string(),
+                        })
+                        .await?;
+                }
+            }
+        }
+
+        ClientMessage::ExportAgentThread { thread_id } => {
+            match manager.export_agent_thread(&thread_id).await {
+                Ok(file_path) => {
+                    framed
+                        .send(DaemonMessage::AgentThreadExported {
+                            thread_id,
+                            file_path: file_path.to_string_lossy().into_owned(),
+                        })
+                        .await?;
+                }
+                Err(e) => {
+                    framed
+                        .send(DaemonMessage::Error {
+                            message: e.to_string(),
+                        })
+                        .await?;
+                }
+            }
+        }
+
+        ClientMessage::ForkAgentThread {
+            thread_id,
+            message_id,
+        } => {
+            match manager.fork_agent_thread(&thread_id, &message_id).await {
+                Ok((new_thread_id, title)) => {
+                    framed
+                        .send(DaemonMessage::AgentThreadForked {
+                            thread_id: new_thread_id,
+                            title,
                         })
                         .await?;
                 }

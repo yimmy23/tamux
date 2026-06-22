@@ -146,6 +146,8 @@ mod active_goal_sidebar_item_to_speak_latest_assistant_message;
 mod copy_work_context_content_to_regenerate_from_message;
 #[path = "commands_parts/focus_next_goal_workspace_pane_to_select_goal_sidebar_row.rs"]
 mod focus_next_goal_workspace_pane_to_select_goal_sidebar_row;
+#[path = "commands_parts/export_thread.rs"]
+mod export_thread;
 #[path = "commands_parts/fork_message.rs"]
 mod fork_message;
 #[path = "commands_parts/go_back_thread_to_execute_selected_queued_prompt_action.rs"]

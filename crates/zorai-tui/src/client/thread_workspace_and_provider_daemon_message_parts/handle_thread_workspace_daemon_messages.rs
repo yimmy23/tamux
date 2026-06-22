@@ -298,6 +298,17 @@ impl DaemonClient {
                     .send(ClientEvent::ThreadDeleted { thread_id, deleted })
                     .await;
             }
+            DaemonMessage::AgentThreadExported {
+                thread_id,
+                file_path,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::ThreadExported {
+                        thread_id,
+                        file_path,
+                    })
+                    .await;
+            }
             DaemonMessage::AgentModelsResponse {
                 operation_id: _,
                 models_json,

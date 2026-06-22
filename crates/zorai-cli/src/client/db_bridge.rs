@@ -92,6 +92,12 @@ pub async fn run_db_bridge() -> Result<()> {
                                     })
                                     .await?;
                             }
+                            DbBridgeCommand::ExportAgentThread { thread_id } => {
+                                framed.send(ClientMessage::ExportAgentThread { thread_id }).await?;
+                            }
+                            DbBridgeCommand::ForkAgentThread { thread_id, message_id } => {
+                                framed.send(ClientMessage::ForkAgentThread { thread_id, message_id }).await?;
+                            }
                             DbBridgeCommand::UpsertTranscriptIndex { entry_json } => {
                                 framed.send(ClientMessage::UpsertTranscriptIndex { entry_json }).await?;
                             }
@@ -160,6 +166,20 @@ pub async fn run_db_bridge() -> Result<()> {
                     }
                     Some(Ok(DaemonMessage::AgentDbMessageAck { message_id })) => {
                         let msg = serde_json::json!({"type":"ack","message_id":message_id});
+                        emit_db_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentThreadExported { thread_id, file_path })) => {
+                        let msg = serde_json::json!({
+                            "type":"agent-thread-exported",
+                            "data":{"thread_id":thread_id,"file_path":file_path},
+                        });
+                        emit_db_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::AgentThreadForked { thread_id, title })) => {
+                        let msg = serde_json::json!({
+                            "type":"agent-thread-forked",
+                            "data":{"thread_id":thread_id,"title":title},
+                        });
                         emit_db_event(&msg.to_string())?;
                     }
                     Some(Ok(DaemonMessage::TranscriptIndexEntries { entries_json })) => {

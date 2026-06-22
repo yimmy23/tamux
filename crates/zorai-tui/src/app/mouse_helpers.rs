@@ -576,6 +576,10 @@ impl TuiModel {
                 self.chat.select_message(Some(idx));
                 self.submit_message_feedback(idx, zorai_protocol::Reaction::Down);
             }
+            Some(chat::ChatHitTarget::ExportMessage(idx)) => {
+                self.chat.select_message(Some(idx));
+                self.export_thread();
+            }
             None => {}
         }
     }

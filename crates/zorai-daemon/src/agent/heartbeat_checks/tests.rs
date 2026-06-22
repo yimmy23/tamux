@@ -227,6 +227,9 @@ async fn make_test_engine(
             super::uncertainty::calibration::CalibrationTracker::default(),
         ),
         handoff_broker: RwLock::new(super::handoff::HandoffBroker::default()),
+        specialist_embedding_cache: tokio::sync::Mutex::new(
+            super::handoff::SpecialistEmbeddingCache::default(),
+        ),
         divergent_sessions: RwLock::new(HashMap::new()),
         debate_sessions: RwLock::new(HashMap::new()),
         cost_trackers: Mutex::new(HashMap::new()),

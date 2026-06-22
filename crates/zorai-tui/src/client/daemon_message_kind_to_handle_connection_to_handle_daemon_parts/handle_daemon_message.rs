@@ -31,6 +31,7 @@ impl DaemonClient {
             | DaemonMessage::AgentHeartbeatItems { .. }
             | DaemonMessage::AgentEventRows { .. }
             | DaemonMessage::AgentDbMessageAck { .. }
+            | DaemonMessage::AgentThreadExported { .. }
             | DaemonMessage::SessionSpawned { .. }
             | DaemonMessage::ApprovalRequired { .. }
             | DaemonMessage::AgentTaskApprovalRules { .. }

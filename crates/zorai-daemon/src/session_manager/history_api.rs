@@ -102,6 +102,125 @@ impl SessionManager {
             .await
     }
 
+    pub async fn export_agent_thread(&self, thread_id: &str) -> Result<std::path::PathBuf> {
+        let thread = self
+            .history
+            .get_thread(thread_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("thread {thread_id} not found"))?;
+        let messages = self
+            .history
+            .list_messages_with_deleted(thread_id, None)
+            .await?;
+        let exported_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
+            .unwrap_or(0);
+        let payload = serde_json::json!({
+            "schema": "zorai.thread-export",
+            "version": 1,
+            "exported_at": exported_at,
+            "thread": thread,
+            "messages": messages,
+        });
+        let json = serde_json::to_string_pretty(&payload)?;
+        let dir = zorai_protocol::thread_inventory_dir(self.history.data_root(), thread_id);
+        std::fs::create_dir_all(&dir)?;
+        let file_path = dir.join(format!("thread-export-{exported_at}.json"));
+        std::fs::write(&file_path, json)?;
+        Ok(file_path)
+    }
+
+    pub async fn fork_agent_thread(
+        &self,
+        thread_id: &str,
+        message_id: &str,
+    ) -> Result<(String, String)> {
+        let parent = self
+            .history
+            .get_thread(thread_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("thread {thread_id} not found"))?;
+        let messages = self.history.list_messages(thread_id, None).await?;
+        let cut = messages
+            .iter()
+            .position(|message| message.id == message_id)
+            .ok_or_else(|| anyhow::anyhow!("message {message_id} not found in thread {thread_id}"))?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
+            .unwrap_or(0);
+        let fork_thread_id = format!("fork-{thread_id}-{now}");
+        let forked: Vec<AgentDbMessage> = messages[..=cut]
+            .iter()
+            .enumerate()
+            .map(|(index, message)| {
+                let mut forked = message.clone();
+                forked.id = format!("{fork_thread_id}-msg-{index}");
+                forked.thread_id = fork_thread_id.clone();
+                forked
+            })
+            .collect();
+
+        let mut metadata = parent
+            .metadata_json
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        if let Some(object) = metadata.as_object_mut() {
+            object.insert("thread_id".into(), serde_json::json!(fork_thread_id));
+            object.insert("threadId".into(), serde_json::json!(fork_thread_id));
+            object.insert("source".into(), serde_json::json!("gui_message_fork"));
+            object.insert("upstream_thread_id".into(), serde_json::json!(thread_id));
+            object.insert("upstreamThreadId".into(), serde_json::json!(thread_id));
+            object.insert("forked_from_thread_id".into(), serde_json::json!(thread_id));
+            object.insert("forkedFromThreadId".into(), serde_json::json!(thread_id));
+            object.insert("forked_message_index".into(), serde_json::json!(cut));
+            object.insert("forkedMessageIndex".into(), serde_json::json!(cut));
+            object.insert("forked_message_id".into(), serde_json::json!(message_id));
+            object.insert("forkedMessageId".into(), serde_json::json!(message_id));
+        }
+
+        let base_title = forked
+            .last()
+            .map(|message| message.content.trim())
+            .filter(|content| !content.is_empty())
+            .unwrap_or(parent.title.as_str());
+        let base_title: String = base_title.chars().take(48).collect();
+        let title = if base_title.trim().is_empty() {
+            "Forked thread".to_string()
+        } else {
+            format!("Fork: {}", base_title.trim())
+        };
+
+        let total_input: i64 = forked.iter().filter_map(|message| message.input_tokens).sum();
+        let total_output: i64 = forked.iter().filter_map(|message| message.output_tokens).sum();
+        let last_preview: String = forked
+            .last()
+            .map(|message| message.content.chars().take(240).collect())
+            .unwrap_or_default();
+
+        let fork_thread = AgentDbThread {
+            id: fork_thread_id.clone(),
+            workspace_id: parent.workspace_id.clone(),
+            surface_id: parent.surface_id.clone(),
+            pane_id: parent.pane_id.clone(),
+            agent_name: parent.agent_name.clone(),
+            title: title.clone(),
+            created_at: now as i64,
+            updated_at: now as i64,
+            message_count: forked.len() as i64,
+            total_tokens: total_input.saturating_add(total_output),
+            last_preview,
+            metadata_json: Some(metadata.to_string()),
+        };
+        self.history.create_thread(&fork_thread).await?;
+        for message in &forked {
+            self.history.add_message(message).await?;
+        }
+        Ok((fork_thread_id, title))
+    }
+
     pub async fn upsert_transcript_index(&self, entry: &TranscriptIndexEntry) -> Result<()> {
         self.history.upsert_transcript_index(entry).await
     }
