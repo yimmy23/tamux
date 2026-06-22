@@ -336,6 +336,7 @@ pub enum DaemonCommand {
     },
     ExportThread {
         thread_id: String,
+        message_id: String,
     },
     DeleteThread {
         thread_id: String,

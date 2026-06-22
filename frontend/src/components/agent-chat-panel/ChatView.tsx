@@ -455,7 +455,7 @@ export function ChatView({
                 void onFeedbackMessage(message.id, reaction);
               } : undefined}
               onFork={onForkMessage ? () => onForkMessage(message.id) : undefined}
-              onExport={onExportThread ? () => onExportThread() : undefined}
+              onExport={onExportThread ? () => onExportThread(message.id) : undefined}
               isSpeaking={speakingMessageId === message.id}
               isSpeechPaused={speakingMessageId === message.id && isSpeechPaused}
             />

@@ -749,7 +749,7 @@ export function useAgentChatPanelProviderValue(): {
     });
   }, []);
 
-  const exportThread = useCallback(async () => {
+  const exportThread = useCallback(async (messageId: string) => {
     const notify = useNotificationStore.getState().addNotification;
     const daemonThreadId = activeThread?.daemonThreadId ?? null;
     if (!daemonThreadId) {
@@ -762,7 +762,7 @@ export function useAgentChatPanelProviderValue(): {
       return;
     }
     const result = await api
-      .dbExportThread(daemonThreadId)
+      .dbExportThread(daemonThreadId, messageId)
       .catch((error) => ({ ok: false, file_path: null, error: String(error) }));
     if (result?.ok && result.file_path) {
       notify({ source: "system", title: "Thread exported", body: `Saved to ${result.file_path}` });

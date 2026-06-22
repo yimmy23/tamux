@@ -295,7 +295,7 @@ export function AgentChatPanelChatSurface() {
             if (tid) runtime.deleteMessage(tid, messageId);
           }}
           onForkMessage={(messageId) => { void runtime.forkThread(messageId); }}
-          onExportThread={() => { void runtime.exportThread(); }}
+          onExportThread={(messageId) => { void runtime.exportThread(messageId); }}
           onPinMessage={runtime.activeThreadId ? (messageId) => runtime.pinMessageForCompaction(runtime.activeThreadId as string, messageId) : undefined}
           onUnpinMessage={runtime.activeThreadId ? (messageId) => runtime.unpinMessageForCompaction(runtime.activeThreadId as string, messageId) : undefined}
           onFeedbackMessage={runtime.activeThreadId ? (messageId, reaction) => runtime.submitMessageFeedback(runtime.activeThreadId as string, messageId, reaction) : undefined}

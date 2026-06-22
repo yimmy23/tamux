@@ -92,8 +92,8 @@ pub async fn run_db_bridge() -> Result<()> {
                                     })
                                     .await?;
                             }
-                            DbBridgeCommand::ExportAgentThread { thread_id } => {
-                                framed.send(ClientMessage::ExportAgentThread { thread_id }).await?;
+                            DbBridgeCommand::ExportAgentThread { thread_id, message_id } => {
+                                framed.send(ClientMessage::ExportAgentThread { thread_id, message_id }).await?;
                             }
                             DbBridgeCommand::ForkAgentThread { thread_id, message_id } => {
                                 framed.send(ClientMessage::ForkAgentThread { thread_id, message_id }).await?;

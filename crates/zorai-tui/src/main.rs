@@ -949,9 +949,9 @@ fn start_daemon_bridge(
                                 let _ =
                                     client.request_thread(thread_id, Some(refresh_message_limit), Some(0));
                             }
-                            DaemonCommand::ExportThread { thread_id } => {
+                            DaemonCommand::ExportThread { thread_id, message_id } => {
                                 if let Err(err) = client.send(
-                                    zorai_protocol::ClientMessage::ExportAgentThread { thread_id },
+                                    zorai_protocol::ClientMessage::ExportAgentThread { thread_id, message_id },
                                 ) {
                                     let _ = daemon_event_tx.send(crate::client::ClientEvent::Error(
                                         format!("export thread request failed: {err}"),

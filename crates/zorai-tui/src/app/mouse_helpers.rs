@@ -578,7 +578,7 @@ impl TuiModel {
             }
             Some(chat::ChatHitTarget::ExportMessage(idx)) => {
                 self.chat.select_message(Some(idx));
-                self.export_thread();
+                self.export_thread(idx);
             }
             None => {}
         }

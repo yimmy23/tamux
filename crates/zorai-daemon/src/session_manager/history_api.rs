@@ -102,16 +102,25 @@ impl SessionManager {
             .await
     }
 
-    pub async fn export_agent_thread(&self, thread_id: &str) -> Result<std::path::PathBuf> {
+    pub async fn export_agent_thread(
+        &self,
+        thread_id: &str,
+        message_id: &str,
+    ) -> Result<std::path::PathBuf> {
         let thread = self
             .history
             .get_thread(thread_id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("thread {thread_id} not found"))?;
-        let messages = self
+        let mut messages = self
             .history
             .list_messages_with_deleted(thread_id, None)
             .await?;
+        let cut = messages
+            .iter()
+            .position(|message| message.id == message_id)
+            .ok_or_else(|| anyhow::anyhow!("message {message_id} not found in thread {thread_id}"))?;
+        messages.truncate(cut.saturating_add(1));
         let exported_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
@@ -120,6 +129,7 @@ impl SessionManager {
             "schema": "zorai.thread-export",
             "version": 1,
             "exported_at": exported_at,
+            "exported_through_message_id": message_id,
             "thread": thread,
             "messages": messages,
         });

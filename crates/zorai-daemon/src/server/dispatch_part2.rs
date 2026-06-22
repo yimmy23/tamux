@@ -496,8 +496,11 @@ pub(crate) async fn dispatch_part2(
             }
         }
 
-        ClientMessage::ExportAgentThread { thread_id } => {
-            match manager.export_agent_thread(&thread_id).await {
+        ClientMessage::ExportAgentThread {
+            thread_id,
+            message_id,
+        } => {
+            match manager.export_agent_thread(&thread_id, &message_id).await {
                 Ok(file_path) => {
                     framed
                         .send(DaemonMessage::AgentThreadExported {

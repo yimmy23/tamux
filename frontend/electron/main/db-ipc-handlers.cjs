@@ -135,9 +135,9 @@ function registerDbIpcHandlers(ipcMain, runtime) {
             return false;
         }
     });
-    ipcMain.handle('db-export-thread', async (_event, threadId) => {
+    ipcMain.handle('db-export-thread', async (_event, threadId, messageId) => {
         try {
-            const result = await sendDbQuery({ type: 'export-agent-thread', thread_id: threadId }, 'agent-thread-exported');
+            const result = await sendDbQuery({ type: 'export-agent-thread', thread_id: threadId, message_id: messageId }, 'agent-thread-exported');
             return { ok: true, file_path: result?.file_path ?? null };
         } catch (error) {
             return { ok: false, error: error?.message || String(error) };

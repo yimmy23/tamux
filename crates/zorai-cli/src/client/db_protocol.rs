@@ -49,6 +49,7 @@ pub(super) enum DbBridgeCommand {
     },
     ExportAgentThread {
         thread_id: String,
+        message_id: String,
     },
     ForkAgentThread {
         thread_id: String,

@@ -41,7 +41,7 @@ pub enum ClientMessage {
     DeleteAgentMessages { thread_id: String, message_ids: Vec<String> },
     RestoreAgentMessages { thread_id: String, message_ids: Vec<String> },
     ListAgentMessages { thread_id: String, limit: Option<usize>, #[serde(default, alias = "trashed")] include_deleted: bool },
-    ExportAgentThread { thread_id: String },
+    ExportAgentThread { thread_id: String, message_id: String },
     ForkAgentThread { thread_id: String, message_id: String },
     UpsertTranscriptIndex { entry_json: String },
     ListTranscriptIndex { workspace_id: Option<WorkspaceId> },

@@ -83,7 +83,7 @@ impl TuiModel {
             }
             chat::ChatHitTarget::ExportMessage(index) => {
                 self.chat.select_message(Some(index));
-                self.export_thread();
+                self.export_thread(index);
                 true
             }
             chat::ChatHitTarget::ToolFilePath { message_index } => {
