@@ -178,6 +178,11 @@ pub(crate) fn build_anthropic_base_body(
         if is_native_claude_model(&config.model)
             || (provider == zorai_shared::providers::PROVIDER_ID_ALIBABA_CODING_PLAN
                 && dashscope_openai_uses_enable_thinking(provider, &config.model))
+            || matches!(
+                provider,
+                zorai_shared::providers::PROVIDER_ID_MINIMAX
+                    | zorai_shared::providers::PROVIDER_ID_MINIMAX_CODING_PLAN
+            )
         {
             body["thinking"] = serde_json::json!({
                 "type": "enabled",

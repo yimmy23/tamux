@@ -328,6 +328,173 @@ async fn gateway_auto_send_thread_response_emits_gateway_request_for_latest_assi
     fs::remove_dir_all(&root).expect("cleanup test root");
 }
 
+async fn spawn_stub_gateway_assistant_server(response_text: &str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind stub gateway assistant server");
+    let addr = listener.local_addr().expect("stub server local addr");
+    let response_text = response_text.to_string();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                break;
+            };
+            let response_text = response_text.clone();
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 65536];
+                let _ = socket.read(&mut buffer).await;
+                let response = format!(
+                    concat!(
+                        "HTTP/1.1 200 OK\r\n",
+                        "content-type: text/event-stream\r\n",
+                        "cache-control: no-cache\r\n",
+                        "connection: close\r\n",
+                        "\r\n",
+                        "data: {{\"choices\":[{{\"delta\":{{\"content\":\"{}\"}}}}]}}\n\n",
+                        "data: {{\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"stop\"}}],\"usage\":{{\"prompt_tokens\":7,\"completion_tokens\":3}}}}\n\n",
+                        "data: [DONE]\n\n"
+                    ),
+                    response_text
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            });
+        }
+    });
+    format!("http://{addr}/v1")
+}
+
+/// Regression: a gateway turn routed to a sub-agent must own the thread under
+/// that sub-agent, carry the gateway title (so it is classified as a gateway
+/// thread), and auto-deliver the sub-agent's reply back to the channel.
+#[tokio::test]
+async fn gateway_subagent_turn_owns_thread_titles_it_and_auto_replies() {
+    let root = make_test_root("gateway-subagent-turn");
+    let manager = SessionManager::new_test(&root).await;
+    let mut config = AgentConfig::default();
+    config.gateway.enabled = true;
+    config.provider = zorai_shared::providers::PROVIDER_ID_OPENAI.to_string();
+    config.base_url = spawn_stub_gateway_assistant_server("Hey Mariusz, I am glmus.").await;
+    config.model = "gpt-4o-mini".to_string();
+    config.api_key = "test-key".to_string();
+    config.api_transport = ApiTransport::ChatCompletions;
+    config.auto_retry = false;
+    config.max_retries = 0;
+    config.max_tool_loops = 1;
+    config.sub_agents.push(SubAgentDefinition {
+        id: "subagent-glmus".to_string(),
+        name: "Glmus".to_string(),
+        provider: zorai_shared::providers::PROVIDER_ID_OPENAI.to_string(),
+        model: "gpt-4o-mini".to_string(),
+        role: None,
+        system_prompt: Some("You are glmus.".to_string()),
+        tool_whitelist: None,
+        tool_blacklist: None,
+        context_budget_tokens: None,
+        context_window_tokens: None,
+        max_duration_secs: None,
+        supervisor_config: None,
+        enabled: true,
+        builtin: false,
+        immutable_identity: false,
+        disable_allowed: true,
+        delete_allowed: true,
+        protected_reason: None,
+        reasoning_effort: None,
+        api_transport: None,
+        claude_permission_mode: None,
+        openrouter_provider_order: Vec::new(),
+        openrouter_provider_ignore: Vec::new(),
+        openrouter_allow_fallbacks: None,
+        huggingface_provider: None,
+        created_at: 1,
+    });
+    let engine = AgentEngine::new_test(manager, config, &root).await;
+    engine.init_gateway().await;
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    engine.set_gateway_ipc_sender(Some(tx)).await;
+
+    let msg = gateway::IncomingMessage {
+        platform: "discord".to_string(),
+        sender: "mariuszkurman".to_string(),
+        content: "Bro, who are you?".to_string(),
+        channel: "user:42".to_string(),
+        message_id: Some("discord-incoming-glmus".to_string()),
+        thread_context: None,
+    };
+    let channel_key = gateway::gateway_channel_key(&msg.platform, &msg.channel);
+
+    let helper = engine.clone();
+    let task_msg = msg.clone();
+    let task_key = channel_key.clone();
+    let task = tokio::spawn(async move {
+        helper
+            .handle_gateway_full_agent_response(
+                &task_msg,
+                &task_key,
+                None,
+                None,
+                "send_discord_message",
+                Some("subagent-glmus"),
+            )
+            .await;
+    });
+
+    let request = match tokio::time::timeout(std::time::Duration::from_secs(15), rx.recv())
+        .await
+        .expect("gateway send request should be emitted")
+        .expect("gateway send request should exist")
+    {
+        zorai_protocol::DaemonMessage::GatewaySendRequest { request } => request,
+        other => panic!("expected GatewaySendRequest, got {other:?}"),
+    };
+    assert_eq!(request.platform, "discord");
+    assert!(
+        request.content.contains("glmus"),
+        "auto-reply should carry the sub-agent response, got {:?}",
+        request.content
+    );
+
+    engine
+        .complete_gateway_send_result(zorai_protocol::GatewaySendResult {
+            correlation_id: request.correlation_id.clone(),
+            platform: "discord".to_string(),
+            channel_id: request.channel_id.clone(),
+            requested_channel_id: Some(request.channel_id.clone()),
+            delivery_id: Some("delivery-glmus".to_string()),
+            ok: true,
+            error: None,
+            completed_at_ms: now_millis(),
+        })
+        .await;
+
+    task.await.expect("gateway turn task should join");
+
+    let thread_id = engine
+        .gateway_threads
+        .read()
+        .await
+        .get(&channel_key)
+        .cloned()
+        .expect("gateway thread should be bound");
+    let threads = engine.threads.read().await;
+    let thread = threads.get(&thread_id).expect("thread should exist");
+    assert_eq!(
+        thread.agent_name.as_deref(),
+        Some("Glmus"),
+        "gateway sub-agent thread should be owned by the sub-agent, not the main agent"
+    );
+    assert!(
+        thread.title.to_ascii_lowercase().starts_with("discord"),
+        "gateway thread should carry the gateway title so it is classified as a gateway thread, got {:?}",
+        thread.title
+    );
+    drop(threads);
+    fs::remove_dir_all(&root).expect("cleanup test root");
+}
+
 #[tokio::test]
 async fn gateway_approval_reply_fast_path_resolves_pending_task_and_notifies_channel() {
     let root = make_test_root("gateway-approval-reply-fast-path");

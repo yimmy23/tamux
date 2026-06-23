@@ -9,6 +9,7 @@ pub enum ModalKind {
     ThreadParticipants,
     ThreadParticipantAgentPicker,
     ThreadParticipantActions,
+    GatewayDefaultAgentPicker,
     ThreadPicker,
     GoalPicker,
     WorkspacePicker,
@@ -201,6 +202,10 @@ impl ModalState {
     }
     pub fn picker_cursor(&self) -> usize {
         self.picker_cursor
+    }
+    pub fn set_picker_cursor(&mut self, cursor: usize) {
+        let max = self.picker_item_count.unwrap_or(0).saturating_sub(1);
+        self.picker_cursor = cursor.min(max);
     }
     pub fn set_picker_item_count(&mut self, count: usize) {
         if self.top() == Some(ModalKind::CommandPalette) {

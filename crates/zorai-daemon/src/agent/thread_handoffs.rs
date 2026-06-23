@@ -36,6 +36,10 @@ pub struct ThreadHandoffEvent {
     pub kind: ThreadHandoffKind,
     pub from_agent_id: String,
     pub to_agent_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_agent_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to_agent_name: Option<String>,
     pub requested_by: ThreadHandoffRequestedBy,
     pub reason: String,
     pub summary: String,
@@ -283,8 +287,18 @@ fn resolve_thread_handoff_agent(alias: &str) -> Option<(String, String)> {
 }
 
 fn thread_handoff_system_message(event: &ThreadHandoffEvent) -> String {
-    let from_agent_name = canonical_agent_name(&event.from_agent_id);
-    let to_agent_name = canonical_agent_name(&event.to_agent_id);
+    let from_agent_name = event
+        .from_agent_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| canonical_agent_name(&event.from_agent_id));
+    let to_agent_name = event
+        .to_agent_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| canonical_agent_name(&event.to_agent_id));
     let payload = serde_json::json!({
         "id": event.id,
         "kind": match event.kind {
@@ -545,6 +559,13 @@ impl AgentEngine {
         let now = now_millis();
         let event_id = format!("handoff_{}", Uuid::new_v4());
         let from_agent_id = state.active_agent_id.clone();
+        let from_agent_name = state
+            .responder_stack
+            .iter()
+            .rev()
+            .find(|frame| frame.agent_id.eq_ignore_ascii_case(&from_agent_id))
+            .map(|frame| frame.agent_name.trim().to_string())
+            .filter(|name| !name.is_empty());
         let stack_depth_before = state.responder_stack.len();
         let thread_participants = self.list_thread_participants(thread_id).await;
 
@@ -642,6 +663,8 @@ impl AgentEngine {
             kind: request.kind,
             from_agent_id: from_agent_id.clone(),
             to_agent_id: to_agent_id.clone(),
+            from_agent_name: from_agent_name.clone(),
+            to_agent_name: Some(to_agent_name.clone()),
             requested_by: request.requested_by,
             reason: request.reason.clone(),
             summary: request.summary.clone(),
@@ -704,6 +727,7 @@ impl AgentEngine {
             thread.updated_at = now;
         }
 
+        self.set_thread_execution_profile(thread_id, None).await;
         self.clear_thread_continuation_state(thread_id).await;
         let _ = self.event_tx.send(AgentEvent::ThreadReloadRequired {
             thread_id: thread_id.to_string(),

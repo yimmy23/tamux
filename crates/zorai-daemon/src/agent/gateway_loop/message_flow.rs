@@ -95,21 +95,25 @@ impl AgentEngine {
             content: msg.content.clone(),
             channel: msg.channel.clone(),
         });
-        let route_mode = if let Some(request) = route_request {
-            request.mode
-        } else {
-            self.gateway_route_modes
+        let (run_concierge_triage, full_agent_scope): (bool, Option<String>) =
+            if let Some(request) = route_request {
+                (request.mode == gateway::GatewayRouteMode::Rarog, None)
+            } else if let Some(mode) = self
+                .gateway_route_modes
                 .read()
                 .await
                 .get(&channel_key)
                 .copied()
-                .unwrap_or_default()
-        };
+            {
+                (mode == gateway::GatewayRouteMode::Rarog, None)
+            } else {
+                self.resolve_gateway_default_responder().await
+            };
         let history_window: Option<String> = self
             .load_gateway_history_window(&channel_key, existing_thread.as_deref())
             .await;
 
-        if route_mode == gateway::GatewayRouteMode::Rarog {
+        if run_concierge_triage {
             match self
                 .triage_gateway_message(&msg, history_window.as_deref(), existing_thread.as_deref())
                 .await
@@ -134,8 +138,8 @@ impl AgentEngine {
             tracing::info!(
                 platform = %msg.platform,
                 channel = %msg.channel,
-                "gateway: sticky route is set to {}; bypassing concierge triage",
-                AGENT_NAME_SWAROG,
+                responder = full_agent_scope.as_deref().unwrap_or(AGENT_NAME_SWAROG),
+                "gateway: bypassing concierge triage; routing to configured responder",
             );
         }
 
@@ -145,6 +149,7 @@ impl AgentEngine {
             existing_thread.as_deref(),
             history_window.as_deref(),
             reply_tool_name,
+            full_agent_scope.as_deref(),
         )
         .await;
         self.release_gateway_inflight_channel(&channel_key).await;

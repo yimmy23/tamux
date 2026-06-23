@@ -1360,14 +1360,25 @@ impl AgentEngine {
                     .filter(|v| !v.is_empty())
             };
             let derived_from_messages = detail_result.as_ref().and_then(|result| {
-                result.thread.messages.iter().rev().find_map(|message| {
-                    if !matches!(message.role, MessageRole::Assistant) {
-                        return None;
-                    }
-                    let provider = nonempty(message.provider.clone())?;
-                    let model = nonempty(message.model.clone())?;
-                    Some((provider, model))
-                })
+                result
+                    .thread
+                    .messages
+                    .iter()
+                    .rev()
+                    .take_while(|message| {
+                        !(message.role == MessageRole::System
+                            && message
+                                .content
+                                .starts_with(crate::agent::thread_handoffs::THREAD_HANDOFF_SYSTEM_MARKER))
+                    })
+                    .find_map(|message| {
+                        if !matches!(message.role, MessageRole::Assistant) {
+                            return None;
+                        }
+                        let provider = nonempty(message.provider.clone())?;
+                        let model = nonempty(message.model.clone())?;
+                        Some((provider, model))
+                    })
             });
             let resolved_provider = execution_profile
                 .as_ref()

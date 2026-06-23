@@ -22,6 +22,7 @@ mod commands;
 mod config_io;
 pub(crate) mod conversion;
 mod events;
+mod gateway_agent_picker;
 mod input_ops;
 mod keyboard;
 mod modal_handlers;

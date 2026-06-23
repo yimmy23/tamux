@@ -2,6 +2,9 @@ use super::*;
 impl TuiModel {
     pub(super) fn activate_gateway_settings_field(&mut self, field: &str) -> bool {
         match field {
+            "gateway_default_agent" => {
+                self.open_gateway_default_agent_picker();
+            }
             "gateway_prefix" => {
                 self.settings
                     .start_editing("gateway_prefix", &self.config.gateway_prefix.clone());

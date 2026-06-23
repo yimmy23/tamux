@@ -135,7 +135,7 @@ impl TuiModel {
         body
     }
 
-    fn cursor_follow_scroll(
+    pub(crate) fn cursor_follow_scroll(
         &self,
         kind: modal::ModalKind,
         header_lines: usize,

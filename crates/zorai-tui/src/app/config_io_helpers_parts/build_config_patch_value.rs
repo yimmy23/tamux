@@ -126,6 +126,7 @@ impl TuiModel {
         patch["gateway"] = serde_json::json!({
             "enabled": self.config.gateway_enabled,
             "command_prefix": self.config.gateway_prefix,
+            "default_agent": self.config.gateway_default_agent,
             "slack_token": self.config.slack_token,
             "slack_channel_filter": self.config.slack_channel_filter,
             "telegram_token": self.config.telegram_token,

@@ -234,6 +234,7 @@ pub struct ConfigState {
     pub custom_modalities: String,
 
     pub gateway_enabled: bool,
+    pub gateway_default_agent: String,
     pub gateway_prefix: String,
     pub slack_token: String,
     pub slack_channel_filter: String,

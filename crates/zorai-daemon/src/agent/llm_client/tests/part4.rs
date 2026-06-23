@@ -86,6 +86,11 @@ fn minimax_anthropic_requests_keep_connection_close_without_extra_transport_head
     .expect("json body");
     assert_eq!(body["cache_control"]["type"], "ephemeral");
     assert!(body["cache_control"]["ttl"].is_null());
+    assert_eq!(
+        body["thinking"]["type"], "enabled",
+        "minimax requests must enable thinking so reasoning is returned"
+    );
+    assert_eq!(body["thinking"]["budget_tokens"], 4096);
 }
 
 #[test]

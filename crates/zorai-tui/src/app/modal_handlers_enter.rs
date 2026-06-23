@@ -368,6 +368,9 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
         modal::ModalKind::ThreadParticipantActions => {
             model.submit_thread_participant_actions();
         }
+        modal::ModalKind::GatewayDefaultAgentPicker => {
+            model.submit_gateway_default_agent_picker();
+        }
         modal::ModalKind::GoalStepActionPicker => {
             let cursor = model.modal.picker_cursor();
             let items = model.goal_action_picker_items();

@@ -180,6 +180,9 @@ impl TuiModel {
                 modal::ModalKind::ThreadParticipantActions => {
                     "modal:thread_participant_actions".to_string()
                 }
+                modal::ModalKind::GatewayDefaultAgentPicker => {
+                    "modal:gateway_default_agent_picker".to_string()
+                }
                 modal::ModalKind::ThreadPicker => "modal:thread_picker".to_string(),
                 modal::ModalKind::GoalPicker => "modal:goal_picker".to_string(),
                 modal::ModalKind::WorkspacePicker => "modal:workspace_picker".to_string(),

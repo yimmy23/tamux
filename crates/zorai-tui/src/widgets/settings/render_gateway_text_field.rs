@@ -58,6 +58,17 @@ pub(crate) fn render_gateway_tab<'a>(
         theme,
         &mut lines,
         1,
+        "Default Agent",
+        &config.gateway_default_agent,
+        "gateway_default_agent",
+        false,
+    );
+
+    render_gateway_text_field(
+        settings,
+        theme,
+        &mut lines,
+        2,
         "Command Prefix",
         &config.gateway_prefix,
         "gateway_prefix",
@@ -73,7 +84,7 @@ pub(crate) fn render_gateway_tab<'a>(
         settings,
         theme,
         &mut lines,
-        2,
+        3,
         "Bot Token",
         &config.slack_token,
         "slack_token",
@@ -83,7 +94,7 @@ pub(crate) fn render_gateway_tab<'a>(
         settings,
         theme,
         &mut lines,
-        3,
+        4,
         "Channel Filter",
         &config.slack_channel_filter,
         "slack_channel_filter",
@@ -99,7 +110,7 @@ pub(crate) fn render_gateway_tab<'a>(
         settings,
         theme,
         &mut lines,
-        4,
+        5,
         "Bot Token",
         &config.telegram_token,
         "telegram_token",
@@ -109,7 +120,7 @@ pub(crate) fn render_gateway_tab<'a>(
         settings,
         theme,
         &mut lines,
-        5,
+        6,
         "Allowed Chats",
         &config.telegram_allowed_chats,
         "telegram_allowed_chats",
@@ -125,7 +136,7 @@ pub(crate) fn render_gateway_tab<'a>(
         settings,
         theme,
         &mut lines,
-        6,
+        7,
         "Bot Token",
         &config.discord_token,
         "discord_token",
@@ -135,7 +146,7 @@ pub(crate) fn render_gateway_tab<'a>(
         settings,
         theme,
         &mut lines,
-        7,
+        8,
         "Channel Filter",
         &config.discord_channel_filter,
         "discord_channel_filter",
@@ -145,7 +156,7 @@ pub(crate) fn render_gateway_tab<'a>(
         settings,
         theme,
         &mut lines,
-        8,
+        9,
         "Allowed Users",
         &config.discord_allowed_users,
         "discord_allowed_users",
@@ -161,7 +172,7 @@ pub(crate) fn render_gateway_tab<'a>(
         settings,
         theme,
         &mut lines,
-        9,
+        10,
         "Allowed Contacts",
         &config.whatsapp_allowed_contacts,
         "whatsapp_allowed_contacts",
@@ -171,7 +182,7 @@ pub(crate) fn render_gateway_tab<'a>(
         settings,
         theme,
         &mut lines,
-        10,
+        11,
         "API Token",
         &config.whatsapp_token,
         "whatsapp_token",
@@ -181,7 +192,7 @@ pub(crate) fn render_gateway_tab<'a>(
         settings,
         theme,
         &mut lines,
-        11,
+        12,
         "Phone Number ID",
         &config.whatsapp_phone_id,
         "whatsapp_phone_id",
@@ -191,7 +202,7 @@ pub(crate) fn render_gateway_tab<'a>(
     let linked = whatsapp_link.phase() == WhatsAppLinkPhase::Connected;
     let whatsapp_allowlist_ready = has_whatsapp_allowed_contacts(&config.whatsapp_allowed_contacts);
     {
-        let is_selected = settings.field_cursor() == 12;
+        let is_selected = settings.field_cursor() == 13;
         let marker = if is_selected { "> " } else { "  " };
         let marker_style = if is_selected {
             theme.accent_primary
@@ -217,7 +228,7 @@ pub(crate) fn render_gateway_tab<'a>(
         lines.push(Line::from(spans));
     }
     {
-        let is_selected = settings.field_cursor() == 13;
+        let is_selected = settings.field_cursor() == 14;
         let marker = if is_selected { "> " } else { "  " };
         let marker_style = if is_selected {
             theme.accent_primary
