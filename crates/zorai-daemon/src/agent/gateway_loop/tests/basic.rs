@@ -622,8 +622,6 @@ fn daemon_gateway_loop_boxes_large_delivery_futures() {
 
     for required in [
         "Box::pin(self.process_gateway_messages()).await",
-        "if let Err(e) = Box::pin(self.send_internal_message(None, &prompt)).await",
-        "let tool_result = Box::pin(tool_executor::execute_tool(",
         "let triage = match Box::pin(tokio::time::timeout(",
         "let send_result = Box::pin(tokio::time::timeout(",
     ] {

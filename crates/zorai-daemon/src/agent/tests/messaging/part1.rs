@@ -54,14 +54,6 @@ fn direct_message_entrypoints_box_large_send_message_futures() {
     );
     assert!(
         messaging_production.contains(
-            "self.send_message_inner(\n            thread_id, content, None, None, None, None, None, None, None, false,"
-        ) || messaging_production.contains(
-            "self.send_message_inner(thread_id, content, None, None, None, None, None, None, None, false)"
-        ),
-        "internal send_message helper should mark Copilot initiator as agent"
-    );
-    assert!(
-        messaging_production.contains(
             "backend_override,\n            None,\n            None,\n            client_surface,\n            false,"
         ),
         "send_task_message should mark Copilot initiator as agent"
@@ -130,8 +122,10 @@ fn daemon_generated_message_paths_use_internal_initiator() {
         "legacy heartbeat checks should route daemon-owned work through Weles"
     );
     assert!(
-        gateway_message_helpers.contains("send_internal_message(None, &prompt)"),
-        "gateway reset confirmations should use agent initiator"
+        gateway_message_helpers.contains("send_gateway_platform_tool(\"\", \"gateway_reset\"")
+            && !gateway_message_helpers.contains("send_internal_message(None"),
+        "gateway reset confirmations must reply directly via the gateway tool (no agent turn) so \
+         they are not WELES-blocked and never route through the main agent"
     );
 }
 

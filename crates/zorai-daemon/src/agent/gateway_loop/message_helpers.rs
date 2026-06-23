@@ -646,27 +646,9 @@ impl AgentEngine {
         reply_tool_name: &str,
     ) {
         let fallback_text = "I’m still processing your message and hit a timeout. Please send it again, or use !new to start a fresh session.";
-        let fallback_tool = ToolCall::with_default_weles_review(
-            format!("gateway_timeout_{}", uuid::Uuid::new_v4()),
-            ToolFunction {
-                name: reply_tool_name.to_string(),
-                arguments: gateway_reply_args(&msg.platform, &msg.channel, fallback_text)
-                    .to_string(),
-            },
-        );
-        let tool_result = Box::pin(tool_executor::execute_tool(
-            &fallback_tool,
-            self,
-            "",
-            None,
-            &self.session_manager,
-            None,
-            &self.event_tx,
-            &self.data_dir,
-            &self.http_client,
-            None,
-        ))
-        .await;
+        let tool_result = self
+            .send_gateway_platform_tool("", "gateway_timeout", reply_tool_name, msg, fallback_text)
+            .await;
         if tool_result.is_error {
             tracing::error!(
                 platform = %msg.platform,
@@ -701,18 +683,19 @@ impl AgentEngine {
         }
         tracing::info!(channel_key = %channel_key, "gateway: conversation reset");
 
-        let prompt = format!(
-            "The user typed '{}' in {} channel {}. \
-             This means they want to start a fresh conversation. \
-             Send a brief confirmation back using {} saying the conversation has been reset.",
-            msg.content,
-            msg.platform,
-            msg.channel,
-            gateway_reply_tool(&msg.platform, &msg.channel).0
-        );
-
-        if let Err(e) = Box::pin(self.send_internal_message(None, &prompt)).await {
-            tracing::error!(error = %e, "gateway: failed to send reset confirmation");
+        let (_, reply_tool_name) = gateway_reply_tool(&msg.platform, &msg.channel);
+        let confirmation =
+            "Conversation reset. Starting fresh — send your next message whenever you're ready.";
+        let result = self
+            .send_gateway_platform_tool("", "gateway_reset", reply_tool_name, msg, confirmation)
+            .await;
+        if result.is_error {
+            tracing::error!(
+                platform = %msg.platform,
+                channel = %msg.channel,
+                error = %result.content,
+                "gateway: failed to send reset confirmation"
+            );
         }
         true
     }
@@ -994,6 +977,15 @@ impl AgentEngine {
                 .map(|agent_id| canonical_agent_name(&agent_id).to_string()),
             None => None,
         };
+        let (thread_id, _is_new) = self
+            .get_or_create_thread_with_target(existing_thread, &msg.content, agent_scope)
+            .await;
+        self.ensure_thread_identity(&thread_id, &gateway_thread_title(msg), false)
+            .await;
+        self.gateway_threads
+            .write()
+            .await
+            .insert(channel_key.to_string(), thread_id.clone());
         let enriched_prompt = build_gateway_agent_prompt(
             &msg.platform,
             &msg.sender,
@@ -1006,7 +998,7 @@ impl AgentEngine {
         let send_result = Box::pin(tokio::time::timeout(
             gateway_timeout_budget.0,
             self.send_message_with_agent_scope_override(
-                existing_thread,
+                Some(&thread_id),
                 &msg.content,
                 &enriched_prompt,
                 agent_scope,

@@ -855,6 +855,7 @@ impl TuiModel {
                 | modal::ModalKind::ThreadParticipants
                 | modal::ModalKind::ThreadParticipantAgentPicker
                 | modal::ModalKind::ThreadParticipantActions
+                | modal::ModalKind::GatewayDefaultAgentPicker
                 | modal::ModalKind::EffortPicker => {
                     self.modal.reduce(modal::ModalAction::Navigate(-1));
                 }
@@ -906,6 +907,7 @@ impl TuiModel {
                 | modal::ModalKind::ThreadParticipants
                 | modal::ModalKind::ThreadParticipantAgentPicker
                 | modal::ModalKind::ThreadParticipantActions
+                | modal::ModalKind::GatewayDefaultAgentPicker
                 | modal::ModalKind::EffortPicker => {
                     self.modal.reduce(modal::ModalAction::Navigate(1));
                 }

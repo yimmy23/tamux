@@ -897,18 +897,6 @@ impl AgentEngine {
         .thread_id)
     }
 
-    pub(super) async fn send_internal_message(
-        &self,
-        thread_id: Option<&str>,
-        content: &str,
-    ) -> Result<String> {
-        Ok(Box::pin(self.send_message_inner(
-            thread_id, content, None, None, None, None, None, None, None, false,
-        ))
-        .await?
-        .thread_id)
-    }
-
     pub(super) async fn send_internal_message_as(
         &self,
         thread_id: Option<&str>,
