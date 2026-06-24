@@ -1,5 +1,5 @@
 use super::embedding_queue::{
-    enqueue_embedding_job_on_connection, queue_embedding_deletion_on_connection, EmbeddingJobInput,
+    enqueue_embedding_job_exec, queue_embedding_deletion_exec, EmbeddingJobInput,
 };
 use super::*;
 
@@ -38,37 +38,35 @@ impl HistoryStore {
         let embedding_model = embedding_model.trim().to_string();
         let dimensions = dimensions as i64;
 
-        self.conn
-            .call(move |conn| {
-                let tx = conn.transaction()?;
-                let now = now_ts() as i64;
-                let mut summary = SemanticDocumentSyncSummary {
-                    discovered: documents.len(),
-                    ..SemanticDocumentSyncSummary::default()
-                };
-                let mut seen = BTreeSet::new();
+        let now = now_ts() as i64;
+        let mut summary = SemanticDocumentSyncSummary {
+            discovered: documents.len(),
+            ..SemanticDocumentSyncSummary::default()
+        };
+        let mut seen = BTreeSet::new();
 
-                for document in &documents {
-                    seen.insert(document.relative_path.clone());
-                    let existing = load_semantic_document_state(
-                        &tx,
-                        &document.source_kind,
-                        &document.root_path,
-                        &document.relative_path,
-                    )?;
-                    let changed = existing
-                        .as_ref()
-                        .map(|state| {
-                            state.content_hash != document.content_hash
-                                || state.deleted_at.is_some()
-                        })
-                        .unwrap_or(true);
-                    if changed {
-                        summary.changed += 1;
-                    }
+        let mut txn = self.conn_db.transaction().await?;
+        for document in &documents {
+            seen.insert(document.relative_path.clone());
+            let existing = load_semantic_document_state(
+                &mut *txn,
+                &document.source_kind,
+                &document.root_path,
+                &document.relative_path,
+            )
+            .await?;
+            let changed = existing
+                .as_ref()
+                .map(|state| {
+                    state.content_hash != document.content_hash || state.deleted_at.is_some()
+                })
+                .unwrap_or(true);
+            if changed {
+                summary.changed += 1;
+            }
 
-                    tx.execute(
-                        "INSERT INTO semantic_documents (
+            txn.execute(
+                "INSERT INTO semantic_documents (
                             source_kind, root_path, relative_path, source_id, title,
                             content_hash, body, discovered_at, updated_at, last_seen_at, deleted_at
                          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?8, NULL)
@@ -85,58 +83,54 @@ impl HistoryStore {
                             END,
                             last_seen_at = excluded.last_seen_at,
                             deleted_at = NULL",
-                        params![
-                            document.source_kind,
-                            document.root_path,
-                            document.relative_path,
-                            document.source_id,
-                            document.title,
-                            document.content_hash,
-                            document.body,
-                            now
-                        ],
-                    )?;
+                db::db_params![
+                    document.source_kind.clone(),
+                    document.root_path.clone(),
+                    document.relative_path.clone(),
+                    document.source_id.clone(),
+                    document.title.clone(),
+                    document.content_hash.clone(),
+                    document.body.clone(),
+                    now
+                ],
+            )
+            .await?;
 
-                    let needs_embedding = !embedding_model.is_empty()
-                        && !semantic_document_embedding_complete(
-                            &tx,
-                            document,
-                            &embedding_model,
-                            dimensions,
-                        )?;
-                    if needs_embedding {
-                        enqueue_embedding_job_on_connection(
-                            &tx,
-                            &EmbeddingJobInput {
-                                source_kind: document.source_kind.clone(),
-                                source_id: document.source_id.clone(),
-                                chunk_id: "0".to_string(),
-                                title: document.title.clone(),
-                                body: document.body.clone(),
-                                workspace_id: None,
-                                thread_id: None,
-                                agent_id: None,
-                                source_timestamp: document.source_timestamp,
-                            },
-                            now,
-                        )?;
-                        summary.queued_embeddings += 1;
-                    }
-                }
-
-                let removed = mark_missing_semantic_documents_removed(
-                    &tx,
-                    &source_kind,
-                    &root_path,
-                    &seen,
+            let needs_embedding = !embedding_model.is_empty()
+                && !semantic_document_embedding_complete(
+                    &mut *txn,
+                    document,
+                    &embedding_model,
+                    dimensions,
+                )
+                .await?;
+            if needs_embedding {
+                enqueue_embedding_job_exec(
+                    &mut *txn,
+                    &EmbeddingJobInput {
+                        source_kind: document.source_kind.clone(),
+                        source_id: document.source_id.clone(),
+                        chunk_id: "0".to_string(),
+                        title: document.title.clone(),
+                        body: document.body.clone(),
+                        workspace_id: None,
+                        thread_id: None,
+                        agent_id: None,
+                        source_timestamp: document.source_timestamp,
+                    },
                     now,
-                )?;
-                summary.removed = removed;
-                tx.commit()?;
-                Ok(summary)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                )
+                .await?;
+                summary.queued_embeddings += 1;
+            }
+        }
+
+        let removed =
+            mark_missing_semantic_documents_removed(&mut *txn, &source_kind, &root_path, &seen, now)
+                .await?;
+        summary.removed = removed;
+        txn.commit().await?;
+        Ok(summary)
     }
 }
 
@@ -285,34 +279,37 @@ fn semantic_document_hash(body: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn load_semantic_document_state(
-    conn: &Connection,
+async fn load_semantic_document_state<E: db::DbExecutor + ?Sized>(
+    exec: &mut E,
     source_kind: &str,
     root_path: &str,
     relative_path: &str,
-) -> rusqlite::Result<Option<SemanticDocumentState>> {
-    conn.query_row(
-        "SELECT content_hash, deleted_at FROM semantic_documents
+) -> Result<Option<SemanticDocumentState>> {
+    let row = exec
+        .query_opt(
+            "SELECT content_hash, deleted_at FROM semantic_documents
          WHERE source_kind = ?1 AND root_path = ?2 AND relative_path = ?3",
-        params![source_kind, root_path, relative_path],
-        |row| {
-            Ok(SemanticDocumentState {
-                content_hash: row.get(0)?,
-                deleted_at: row.get(1)?,
-            })
-        },
-    )
-    .optional()
+            db::db_params![source_kind, root_path, relative_path],
+        )
+        .await?;
+    row.map(|row| -> anyhow::Result<SemanticDocumentState> {
+        Ok(SemanticDocumentState {
+            content_hash: row.get(0)?,
+            deleted_at: row.get(1)?,
+        })
+    })
+    .transpose()
 }
 
-fn semantic_document_embedding_complete(
-    conn: &Connection,
+async fn semantic_document_embedding_complete<E: db::DbExecutor + ?Sized>(
+    exec: &mut E,
     document: &SemanticDocumentInput,
     embedding_model: &str,
     dimensions: i64,
-) -> rusqlite::Result<bool> {
-    conn.query_row(
-        "SELECT 1 FROM embedding_job_completions
+) -> Result<bool> {
+    let row = exec
+        .query_opt(
+            "SELECT 1 FROM embedding_job_completions
          WHERE source_kind = ?1
            AND source_id = ?2
            AND chunk_id = '0'
@@ -320,47 +317,51 @@ fn semantic_document_embedding_complete(
            AND embedding_model = ?4
            AND dimensions = ?5
          LIMIT 1",
-        params![
-            document.source_kind,
-            document.source_id,
-            document.content_hash,
-            embedding_model,
-            dimensions
-        ],
-        |_| Ok(()),
-    )
-    .optional()
-    .map(|value| value.is_some())
+            db::db_params![
+                document.source_kind.clone(),
+                document.source_id.clone(),
+                document.content_hash.clone(),
+                embedding_model,
+                dimensions
+            ],
+        )
+        .await?;
+    Ok(row.is_some())
 }
 
-fn mark_missing_semantic_documents_removed(
-    conn: &Connection,
+async fn mark_missing_semantic_documents_removed<E: db::DbExecutor + ?Sized>(
+    exec: &mut E,
     source_kind: &str,
     root_path: &str,
     seen: &BTreeSet<String>,
     now: i64,
-) -> rusqlite::Result<usize> {
-    let mut stmt = conn.prepare(
-        "SELECT relative_path, source_id FROM semantic_documents
+) -> Result<usize> {
+    let rows = exec
+        .query(
+            "SELECT relative_path, source_id FROM semantic_documents
          WHERE source_kind = ?1 AND root_path = ?2 AND deleted_at IS NULL",
-    )?;
-    let rows = stmt
-        .query_map(params![source_kind, root_path], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+            db::db_params![source_kind, root_path],
+        )
+        .await?;
+    let pairs: Vec<(String, String)> = rows
+        .iter()
+        .map(|row| -> anyhow::Result<(String, String)> {
+            Ok((row.get::<String>(0)?, row.get::<String>(1)?))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let mut removed = 0usize;
-    for (relative_path, source_id) in rows {
+    for (relative_path, source_id) in pairs {
         if seen.contains(&relative_path) {
             continue;
         }
-        conn.execute(
+        exec.execute(
             "UPDATE semantic_documents
              SET deleted_at = ?4, updated_at = ?4
              WHERE source_kind = ?1 AND root_path = ?2 AND relative_path = ?3",
-            params![source_kind, root_path, relative_path, now],
-        )?;
-        queue_embedding_deletion_on_connection(conn, source_kind, &source_id, now)?;
+            db::db_params![source_kind, root_path, relative_path, now],
+        )
+        .await?;
+        queue_embedding_deletion_exec(exec, source_kind, &source_id, now).await?;
         removed += 1;
     }
     Ok(removed)

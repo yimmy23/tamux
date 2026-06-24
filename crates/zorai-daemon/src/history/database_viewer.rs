@@ -1,5 +1,4 @@
 use super::*;
-use rusqlite::types::{Value, ValueRef};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -60,37 +59,39 @@ struct TableSchema {
 
 impl HistoryStore {
     pub async fn list_database_tables(&self) -> Result<Vec<DatabaseTableSummary>> {
-        self.read_conn
-            .call(|conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT name, type FROM sqlite_master \
-                     WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' \
-                     ORDER BY type ASC, name ASC",
-                )?;
-                let rows = stmt.query_map([], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?;
-                let mut tables = Vec::new();
-                for row in rows {
-                    let (name, table_type) = row?;
-                    let quoted = quote_identifier(&name);
-                    let row_count = conn
-                        .query_row(&format!("SELECT COUNT(*) FROM {quoted}"), [], |row| {
-                            row.get::<_, i64>(0)
-                        })
-                        .ok()
-                        .and_then(|count| u64::try_from(count).ok());
-                    tables.push(DatabaseTableSummary {
-                        editable: table_type == "table" && table_has_rowid(conn, &name),
-                        name,
-                        table_type,
-                        row_count,
-                    });
-                }
-                Ok(tables)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let table_rows = self
+            .read_db
+            .query(
+                "SELECT name, type FROM sqlite_master \
+                 WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' \
+                 ORDER BY type ASC, name ASC",
+                db::Params::None,
+            )
+            .await?;
+        let names = table_rows
+            .iter()
+            .map(|row| Ok((row.get::<String>(0)?, row.get::<String>(1)?)))
+            .collect::<Result<Vec<(String, String)>>>()?;
+        let mut tables = Vec::with_capacity(names.len());
+        for (name, table_type) in names {
+            let quoted = quote_identifier(&name);
+            let row_count = self
+                .read_db
+                .query_opt(&format!("SELECT COUNT(*) FROM {quoted}"), db::Params::None)
+                .await
+                .ok()
+                .flatten()
+                .and_then(|row| row.get::<i64>(0).ok())
+                .and_then(|count| u64::try_from(count).ok());
+            let editable = table_type == "table" && table_has_rowid(&*self.read_db, &name).await;
+            tables.push(DatabaseTableSummary {
+                editable,
+                name,
+                table_type,
+                row_count,
+            });
+        }
+        Ok(tables)
     }
 
     pub async fn query_database_table_rows(
@@ -101,64 +102,67 @@ impl HistoryStore {
         sort_column: Option<&str>,
         sort_direction: Option<&str>,
     ) -> Result<DatabaseTablePage> {
-        let table_name = table_name.to_string();
-        let sort_column = sort_column.map(str::to_string);
-        let sort_direction = sort_direction.map(str::to_string);
         let limit = limit.clamp(1, 500);
-        self.read_conn
-            .call(move |conn: &mut Connection| {
-                let schema = load_table_schema(conn, &table_name)?;
-                let quoted_table = quote_identifier(&schema.name);
-                let total_rows = conn
-                    .query_row(&format!("SELECT COUNT(*) FROM {quoted_table}"), [], |row| {
-                        row.get::<_, i64>(0)
-                    })
-                    .ok()
-                    .and_then(|count| u64::try_from(count).ok())
-                    .unwrap_or(0);
-                let column_list = schema
-                    .columns
-                    .iter()
-                    .map(|column| quote_identifier(&column.name))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let order_by = build_order_clause(&schema, sort_column.as_deref(), sort_direction.as_deref())?;
-                let select_sql = if schema.editable {
-                    format!(
-                        "SELECT rowid AS __zorai_rowid, {column_list} FROM {quoted_table}{order_by} LIMIT ?1 OFFSET ?2"
-                    )
-                } else {
-                    format!("SELECT {column_list} FROM {quoted_table}{order_by} LIMIT ?1 OFFSET ?2")
-                };
-                let mut stmt = conn.prepare(&select_sql)?;
-                let mut result_rows = stmt.query(rusqlite::params![limit as i64, offset as i64])?;
-                let mut rows = Vec::new();
-                while let Some(row) = result_rows.next()? {
-                    let rowid = if schema.editable {
-                        Some(row.get::<_, i64>(0)?)
-                    } else {
-                        None
-                    };
-                    let value_offset = usize::from(schema.editable);
-                    let mut values = BTreeMap::new();
-                    for (index, column) in schema.columns.iter().enumerate() {
-                        let value = sqlite_value_to_json(row.get_ref(index + value_offset)?);
-                        values.insert(column.name.clone(), value);
-                    }
-                    rows.push(DatabaseRow { rowid, values });
-                }
-                Ok::<DatabaseTablePage, tokio_rusqlite::Error>(DatabaseTablePage {
-                    table_name: schema.name,
-                    columns: schema.columns,
-                    rows,
-                    total_rows,
-                    offset,
-                    limit,
-                    editable: schema.editable,
-                })
-            })
+        let schema = load_table_schema(&*self.read_db, table_name).await?;
+        let quoted_table = quote_identifier(&schema.name);
+        let total_rows = self
+            .read_db
+            .query_opt(
+                &format!("SELECT COUNT(*) FROM {quoted_table}"),
+                db::Params::None,
+            )
             .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .ok()
+            .flatten()
+            .and_then(|row| row.get::<i64>(0).ok())
+            .and_then(|count| u64::try_from(count).ok())
+            .unwrap_or(0);
+        let column_list = schema
+            .columns
+            .iter()
+            .map(|column| quote_identifier(&column.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let order_by = build_order_clause(&schema, sort_column, sort_direction)?;
+        let select_sql = if schema.editable {
+            format!(
+                "SELECT rowid AS __zorai_rowid, {column_list} FROM {quoted_table}{order_by} LIMIT ?1 OFFSET ?2"
+            )
+        } else {
+            format!("SELECT {column_list} FROM {quoted_table}{order_by} LIMIT ?1 OFFSET ?2")
+        };
+        let result_rows = self
+            .read_db
+            .query(&select_sql, db::db_params![limit as i64, offset as i64])
+            .await?;
+        let value_offset = usize::from(schema.editable);
+        let mut rows = Vec::with_capacity(result_rows.len());
+        for row in result_rows.iter() {
+            let rowid = if schema.editable {
+                Some(row.get::<i64>(0)?)
+            } else {
+                None
+            };
+            let cells = row.values();
+            let mut values = BTreeMap::new();
+            for (index, column) in schema.columns.iter().enumerate() {
+                let value = cells
+                    .get(index + value_offset)
+                    .map(db_value_to_json)
+                    .unwrap_or(serde_json::Value::Null);
+                values.insert(column.name.clone(), value);
+            }
+            rows.push(DatabaseRow { rowid, values });
+        }
+        Ok(DatabaseTablePage {
+            table_name: schema.name,
+            columns: schema.columns,
+            rows,
+            total_rows,
+            offset,
+            limit,
+            editable: schema.editable,
+        })
     }
 
     pub async fn update_database_table_rows(
@@ -166,60 +170,46 @@ impl HistoryStore {
         table_name: &str,
         updates: Vec<DatabaseRowUpdate>,
     ) -> Result<usize> {
-        let table_name = table_name.to_string();
-        self.conn
-            .call(move |conn: &mut Connection| {
-                let schema = load_table_schema(conn, &table_name)?;
-                if !schema.editable {
-                    return Err(tokio_rusqlite::Error::Rusqlite(
-                        rusqlite::Error::InvalidParameterName(format!(
-                            "table is not editable: {}",
-                            schema.name
-                        )),
-                    ));
+        let schema = load_table_schema(&*self.conn_db, table_name).await?;
+        if !schema.editable {
+            anyhow::bail!("table is not editable: {}", schema.name);
+        }
+        let known_columns = schema
+            .columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect::<BTreeSet<_>>();
+        let quoted_table = quote_identifier(&schema.name);
+        let mut txn = self.conn_db.transaction().await?;
+        let mut changed_rows = 0u64;
+        for update in updates {
+            if update.values.is_empty() {
+                continue;
+            }
+            for column in update.values.keys() {
+                if !known_columns.contains(column.as_str()) {
+                    anyhow::bail!("unknown column: {column}");
                 }
-                let known_columns = schema
-                    .columns
-                    .iter()
-                    .map(|column| column.name.as_str())
-                    .collect::<BTreeSet<_>>();
-                let quoted_table = quote_identifier(&schema.name);
-                let transaction = conn.unchecked_transaction()?;
-                let mut changed_rows = 0;
-                for update in updates {
-                    if update.values.is_empty() {
-                        continue;
-                    }
-                    for column in update.values.keys() {
-                        if !known_columns.contains(column.as_str()) {
-                            return Err(tokio_rusqlite::Error::Rusqlite(
-                                rusqlite::Error::InvalidParameterName(format!(
-                                    "unknown column: {column}"
-                                )),
-                            ));
-                        }
-                    }
-                    let assignments = update
-                        .values
-                        .keys()
-                        .map(|column| format!("{} = ?", quote_identifier(column)))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let sql = format!("UPDATE {quoted_table} SET {assignments} WHERE rowid = ?");
-                    let mut bind_values = update
-                        .values
-                        .values()
-                        .map(json_to_sql_value)
-                        .collect::<Vec<_>>();
-                    bind_values.push(Value::Integer(update.rowid));
-                    changed_rows += transaction
-                        .execute(&sql, rusqlite::params_from_iter(bind_values.iter()))?;
-                }
-                transaction.commit()?;
-                Ok::<usize, tokio_rusqlite::Error>(changed_rows)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            }
+            let assignments = update
+                .values
+                .keys()
+                .map(|column| format!("{} = ?", quote_identifier(column)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sql = format!("UPDATE {quoted_table} SET {assignments} WHERE rowid = ?");
+            let mut bind_values = update
+                .values
+                .values()
+                .map(json_to_db_value)
+                .collect::<Vec<_>>();
+            bind_values.push(db::Value::Integer(update.rowid));
+            changed_rows += txn
+                .execute(&sql, db::Params::Positional(bind_values))
+                .await?;
+        }
+        txn.commit().await?;
+        Ok(changed_rows as usize)
     }
 
     pub async fn execute_database_sql(&self, sql: &str) -> Result<DatabaseSqlResult> {
@@ -227,67 +217,84 @@ impl HistoryStore {
         if sql.is_empty() {
             anyhow::bail!("SQL query is empty");
         }
-        self.conn
-            .call(move |conn: &mut Connection| {
-                let statement_count = count_sql_statements(&sql);
-                if statement_count == 1 {
-                    let mut stmt = conn.prepare(&sql)?;
-                    let column_count = stmt.column_count();
-                    if column_count > 0 {
-                        let columns = (0..column_count)
-                            .map(|index| {
-                                stmt.column_name(index)
-                                    .map(str::to_string)
-                                    .unwrap_or_else(|_| format!("column_{}", index + 1))
+        let statement_count = count_sql_statements(&sql);
+        if statement_count == 1 {
+            // A single statement is prepared+stepped via `query_with_columns`,
+            // which executes it exactly once regardless of whether it returns
+            // rows. SELECT-like statements report named columns; mutating
+            // statements report empty columns and we surface the change count.
+            let before_changes = self.conn_db.total_changes().await?;
+            let (columns, result_rows) = self
+                .conn_db
+                .query_with_columns(&sql, db::Params::None)
+                .await?;
+            if !columns.is_empty() {
+                let rows = result_rows
+                    .iter()
+                    .map(|row| {
+                        let cells = row.values();
+                        columns
+                            .iter()
+                            .enumerate()
+                            .map(|(index, column)| {
+                                let value = cells
+                                    .get(index)
+                                    .map(db_value_to_json)
+                                    .unwrap_or(serde_json::Value::Null);
+                                (column.clone(), value)
                             })
-                            .collect::<Vec<_>>();
-                        let mut result_rows = stmt.query([])?;
-                        let mut rows = Vec::new();
-                        while let Some(row) = result_rows.next()? {
-                            let mut values = BTreeMap::new();
-                            for (index, column) in columns.iter().enumerate() {
-                                values.insert(
-                                    column.clone(),
-                                    sqlite_value_to_json(row.get_ref(index)?),
-                                );
-                            }
-                            rows.push(values);
-                        }
-                        let message = format!(
-                            "Returned {} row{}.",
-                            rows.len(),
-                            if rows.len() == 1 { "" } else { "s" },
-                        );
-                        return Ok::<DatabaseSqlResult, tokio_rusqlite::Error>(DatabaseSqlResult {
-                            columns,
-                            rows,
-                            rows_affected: 0,
-                            statement_count,
-                            message,
-                        });
-                    }
-                    drop(stmt);
-                }
-
-                let before_changes = conn.total_changes();
-                conn.execute_batch(&sql)?;
-                let rows_affected = conn.total_changes().saturating_sub(before_changes) as usize;
-                Ok::<DatabaseSqlResult, tokio_rusqlite::Error>(DatabaseSqlResult {
-                    columns: Vec::new(),
-                    rows: Vec::new(),
-                    rows_affected,
+                            .collect::<BTreeMap<String, serde_json::Value>>()
+                    })
+                    .collect::<Vec<_>>();
+                let message = format!(
+                    "Returned {} row{}.",
+                    rows.len(),
+                    if rows.len() == 1 { "" } else { "s" },
+                );
+                return Ok(DatabaseSqlResult {
+                    columns,
+                    rows,
+                    rows_affected: 0,
                     statement_count,
-                    message: format!(
-                        "Executed {} statement{}; {} row{} affected.",
-                        statement_count,
-                        if statement_count == 1 { "" } else { "s" },
-                        rows_affected,
-                        if rows_affected == 1 { "" } else { "s" },
-                    ),
-                })
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                    message,
+                });
+            }
+            let rows_affected = self
+                .conn_db
+                .total_changes()
+                .await?
+                .saturating_sub(before_changes) as usize;
+            return Ok(DatabaseSqlResult {
+                columns: Vec::new(),
+                rows: Vec::new(),
+                rows_affected,
+                statement_count,
+                message: format!(
+                    "Executed 1 statement; {} row{} affected.",
+                    rows_affected,
+                    if rows_affected == 1 { "" } else { "s" },
+                ),
+            });
+        }
+
+        let before_changes = self.conn_db.total_changes().await?;
+        self.conn_db.execute_batch(&sql).await?;
+        let rows_affected = self
+            .conn_db
+            .total_changes()
+            .await?
+            .saturating_sub(before_changes) as usize;
+        Ok(DatabaseSqlResult {
+            columns: Vec::new(),
+            rows: Vec::new(),
+            rows_affected,
+            statement_count,
+            message: format!(
+                "Executed {statement_count} statements; {} row{} affected.",
+                rows_affected,
+                if rows_affected == 1 { "" } else { "s" },
+            ),
+        })
     }
 }
 
@@ -298,32 +305,39 @@ fn count_sql_statements(sql: &str) -> usize {
         .max(1)
 }
 
-fn load_table_schema(conn: &Connection, table_name: &str) -> rusqlite::Result<TableSchema> {
-    let table_type = conn.query_row(
-        "SELECT type FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?1 AND name NOT LIKE 'sqlite_%'",
-        [table_name],
-        |row| row.get::<_, String>(0),
-    )?;
-    let editable = table_type == "table" && table_has_rowid(conn, table_name);
+async fn load_table_schema(conn: &dyn db::DbConn, table_name: &str) -> Result<TableSchema> {
+    let table_type: String = conn
+        .query_opt(
+            "SELECT type FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?1 AND name NOT LIKE 'sqlite_%'",
+            db::db_params![table_name],
+        )
+        .await?
+        .map(|row| row.get::<String>(0))
+        .transpose()?
+        .ok_or_else(|| anyhow::anyhow!("unknown table: {table_name}"))?;
+    let editable = table_type == "table" && table_has_rowid(conn, table_name).await;
     let quoted_table = quote_identifier(table_name);
-    let mut stmt = conn.prepare(&format!("PRAGMA table_info({quoted_table})"))?;
-    let rows = stmt.query_map([], |row| {
-        let name = row.get::<_, String>(1)?;
-        let not_null = row.get::<_, i64>(3)?;
-        let primary_key = row.get::<_, i64>(5)? > 0;
-        Ok(DatabaseColumnInfo {
-            name,
-            declared_type: row.get::<_, String>(2)?,
-            nullable: not_null == 0,
-            primary_key,
-            editable,
+    let rows = conn
+        .query(
+            &format!("PRAGMA table_info({quoted_table})"),
+            db::Params::None,
+        )
+        .await?;
+    let columns = rows
+        .iter()
+        .map(|row| {
+            let not_null = row.get::<i64>(3)?;
+            Ok(DatabaseColumnInfo {
+                name: row.get(1)?,
+                declared_type: row.get(2)?,
+                nullable: not_null == 0,
+                primary_key: row.get::<i64>(5)? > 0,
+                editable,
+            })
         })
-    })?;
-    let columns = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        .collect::<Result<Vec<_>>>()?;
     if columns.is_empty() {
-        return Err(rusqlite::Error::InvalidParameterName(format!(
-            "table has no visible columns: {table_name}"
-        )));
+        anyhow::bail!("table has no visible columns: {table_name}");
     }
     Ok(TableSchema {
         name: table_name.to_string(),
@@ -333,11 +347,12 @@ fn load_table_schema(conn: &Connection, table_name: &str) -> rusqlite::Result<Ta
     })
 }
 
-fn table_has_rowid(conn: &Connection, table_name: &str) -> bool {
-    conn.prepare(&format!(
-        "SELECT rowid FROM {} LIMIT 0",
-        quote_identifier(table_name)
-    ))
+async fn table_has_rowid(conn: &dyn db::DbConn, table_name: &str) -> bool {
+    conn.query(
+        &format!("SELECT rowid FROM {} LIMIT 0", quote_identifier(table_name)),
+        db::Params::None,
+    )
+    .await
     .is_ok()
 }
 
@@ -345,7 +360,7 @@ fn build_order_clause(
     schema: &TableSchema,
     sort_column: Option<&str>,
     sort_direction: Option<&str>,
-) -> std::result::Result<String, tokio_rusqlite::Error> {
+) -> Result<String> {
     let Some(sort_column) = sort_column.filter(|column| !column.trim().is_empty()) else {
         return Ok(String::new());
     };
@@ -354,9 +369,7 @@ fn build_order_clause(
         .iter()
         .any(|column| column.name == sort_column)
     {
-        return Err(tokio_rusqlite::Error::Rusqlite(
-            rusqlite::Error::InvalidParameterName(format!("unknown sort column: {sort_column}")),
-        ));
+        anyhow::bail!("unknown sort column: {sort_column}");
     }
     let direction = match sort_direction
         .unwrap_or("desc")
@@ -365,11 +378,7 @@ fn build_order_clause(
     {
         "asc" => "ASC",
         "desc" => "DESC",
-        other => {
-            return Err(tokio_rusqlite::Error::Rusqlite(
-                rusqlite::Error::InvalidParameterName(format!("unknown sort direction: {other}")),
-            ));
-        }
+        other => anyhow::bail!("unknown sort direction: {other}"),
     };
     let tie_breaker = if schema.editable { ", rowid ASC" } else { "" };
     Ok(format!(
@@ -382,15 +391,15 @@ fn quote_identifier(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
 }
 
-fn sqlite_value_to_json(value: ValueRef<'_>) -> serde_json::Value {
+fn db_value_to_json(value: &db::Value) -> serde_json::Value {
     match value {
-        ValueRef::Null => serde_json::Value::Null,
-        ValueRef::Integer(value) => serde_json::json!(value),
-        ValueRef::Real(value) => serde_json::Number::from_f64(value)
+        db::Value::Null => serde_json::Value::Null,
+        db::Value::Integer(value) => serde_json::json!(value),
+        db::Value::Real(value) => serde_json::Number::from_f64(*value)
             .map(serde_json::Value::Number)
             .unwrap_or_else(|| serde_json::json!(value.to_string())),
-        ValueRef::Text(value) => serde_json::json!(String::from_utf8_lossy(value).to_string()),
-        ValueRef::Blob(value) => serde_json::json!({
+        db::Value::Text(value) => serde_json::json!(value),
+        db::Value::Blob(value) => serde_json::json!({
             "type": "blob",
             "bytes": value.len(),
             "preview": value.iter().take(16).map(|byte| format!("{byte:02x}")).collect::<String>(),
@@ -398,22 +407,22 @@ fn sqlite_value_to_json(value: ValueRef<'_>) -> serde_json::Value {
     }
 }
 
-fn json_to_sql_value(value: &serde_json::Value) -> Value {
+fn json_to_db_value(value: &serde_json::Value) -> db::Value {
     match value {
-        serde_json::Value::Null => Value::Null,
-        serde_json::Value::Bool(value) => Value::Integer(i64::from(*value)),
+        serde_json::Value::Null => db::Value::Null,
+        serde_json::Value::Bool(value) => db::Value::Integer(i64::from(*value)),
         serde_json::Value::Number(value) => {
             if let Some(value) = value.as_i64() {
-                Value::Integer(value)
+                db::Value::Integer(value)
             } else if let Some(value) = value.as_u64().and_then(|value| i64::try_from(value).ok()) {
-                Value::Integer(value)
+                db::Value::Integer(value)
             } else if let Some(value) = value.as_f64() {
-                Value::Real(value)
+                db::Value::Real(value)
             } else {
-                Value::Text(value.to_string())
+                db::Value::Text(value.to_string())
             }
         }
-        serde_json::Value::String(value) => Value::Text(value.clone()),
-        other => Value::Text(other.to_string()),
+        serde_json::Value::String(value) => db::Value::Text(value.clone()),
+        other => db::Value::Text(other.to_string()),
     }
 }

@@ -1713,7 +1713,7 @@ async fn tui_bash_command_falls_back_to_goal_run_surface_when_thread_surface_is_
         ToolFunction {
             name: tool_names::UPDATE_TODO.to_string(),
             arguments: serde_json::json!({
-                "items": [
+                "todos": [
                     { "content": "Verify shell routing stays headless", "status": "in_progress" }
                 ]
             })

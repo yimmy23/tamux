@@ -725,9 +725,10 @@ pub(crate) async fn execute_update_todo(
     }
 
     let raw_items = args
-        .get("items")
+        .get("todos")
+        .or_else(|| args.get("items"))
         .and_then(|value| value.as_array())
-        .ok_or_else(|| anyhow::anyhow!("missing 'items' argument"))?;
+        .ok_or_else(|| anyhow::anyhow!("missing 'todos' argument"))?;
 
     let now = super::now_millis();
     let mut items = Vec::new();

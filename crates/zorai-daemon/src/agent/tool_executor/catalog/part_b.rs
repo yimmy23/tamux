@@ -105,7 +105,7 @@ pub(crate) fn add_available_tools_part_b(
                     "type": "string",
                     "description": "Required for goal-run main tasks; binds list to active goal step"
                 },
-                "items": {
+                "todos": {
                     "type": "array",
                     "description": "Ordered todo items for the current plan",
                     "items": {
@@ -119,7 +119,7 @@ pub(crate) fn add_available_tools_part_b(
                     }
                 }
             },
-            "required": ["items"]
+            "required": ["todos"]
         }),
     ));
 

@@ -24,65 +24,65 @@ impl HistoryStore {
             return Ok(Vec::new());
         }
         let context_tags = context_tags.to_vec();
-        self.conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
-                     FROM skill_variants",
-                )?;
-                let rows = stmt.query_map([], map_skill_variant_row)?;
-                let mut variants = rows
-                    .filter_map(|row| row.ok())
-                    .filter(|record| skill_variant_matches(record, &normalized))
-                    .collect::<Vec<_>>();
-                let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
-                variants.sort_by(|left, right| {
-                    compare_skill_variants(left, right, &context_tags, &trend_by_variant)
-                });
-                let selected_id = variants.first().map(|record| record.variant_id.clone());
-                let now = now_ts();
-                Ok(variants
-                    .into_iter()
-                    .map(|record| {
-                        let mut history_stmt = conn.prepare(
-                            "SELECT id, variant_id, recorded_at, outcome, fitness_score \
-                             FROM skill_variant_history WHERE variant_id = ?1 \
-                             ORDER BY recorded_at ASC, rowid ASC",
-                        )?;
-                        let fitness_history = history_stmt
-                            .query_map(params![record.variant_id.as_str()], |row| {
-                                Ok(SkillVariantFitnessHistoryRow {
-                                    id: row.get(0)?,
-                                    variant_id: row.get(1)?,
-                                    recorded_at: row.get(2)?,
-                                    outcome: row.get(3)?,
-                                    fitness_score: row.get(4)?,
-                                })
-                            })?
-                            .collect::<std::result::Result<Vec<_>, _>>()?;
-                        Ok(SkillVariantInspection {
-                            lifecycle_summary: describe_skill_variant_lifecycle(&record, now),
-                            selection_summary: describe_skill_variant_selection(
-                                &record,
-                                &context_tags,
-                            ),
-                            selected_for_context: selected_id.as_deref()
-                                == Some(record.variant_id.as_str()),
-                            fitness_score: record.fitness_score,
-                            fitness_snapshot: SkillVariantFitnessSnapshot {
-                                recorded_at: record.updated_at,
-                                fitness_score: record.fitness_score,
-                                use_count: record.use_count,
-                                success_rate: record.success_rate(),
-                            },
-                            fitness_history,
-                            record,
-                        })
+        let rows = self
+            .conn_db
+            .query(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants",
+                db::Params::None,
+            )
+            .await?;
+        let mut variants = rows
+            .iter()
+            .filter_map(|row| map_skill_variant_row_db(row).ok())
+            .filter(|record| skill_variant_matches(record, &normalized))
+            .collect::<Vec<_>>();
+        let trend_by_variant =
+            load_skill_variant_trends_db(&mut db::ConnExecutor(&*self.conn_db), &variants, 8).await?;
+        variants.sort_by(|left, right| {
+            compare_skill_variants(left, right, &context_tags, &trend_by_variant)
+        });
+        let selected_id = variants.first().map(|record| record.variant_id.clone());
+        let now = now_ts();
+        let mut inspections = Vec::with_capacity(variants.len());
+        for record in variants {
+            let history_rows = self
+                .conn_db
+                .query(
+                    "SELECT id, variant_id, recorded_at, outcome, fitness_score \
+                     FROM skill_variant_history WHERE variant_id = ?1 \
+                     ORDER BY recorded_at ASC, rowid ASC",
+                    db::db_params![record.variant_id.as_str()],
+                )
+                .await?;
+            let fitness_history = history_rows
+                .iter()
+                .map(|row| {
+                    Ok(SkillVariantFitnessHistoryRow {
+                        id: row.get(0)?,
+                        variant_id: row.get(1)?,
+                        recorded_at: row.get(2)?,
+                        outcome: row.get(3)?,
+                        fitness_score: row.get(4)?,
                     })
-                    .collect::<rusqlite::Result<Vec<_>>>()?)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            inspections.push(SkillVariantInspection {
+                lifecycle_summary: describe_skill_variant_lifecycle(&record, now),
+                selection_summary: describe_skill_variant_selection(&record, &context_tags),
+                selected_for_context: selected_id.as_deref() == Some(record.variant_id.as_str()),
+                fitness_score: record.fitness_score,
+                fitness_snapshot: SkillVariantFitnessSnapshot {
+                    recorded_at: record.updated_at,
+                    fitness_score: record.fitness_score,
+                    use_count: record.use_count,
+                    success_rate: record.success_rate(),
+                },
+                fitness_history,
+                record,
+            });
+        }
+        Ok(inspections)
     }
 
     pub async fn register_skill_document(&self, path: &Path) -> Result<SkillVariantRecord> {
@@ -111,108 +111,111 @@ impl HistoryStore {
         let variant_name = metadata.variant_name.clone();
 
         let _path = path;
-        let variant_id = self.conn.call(move |conn| {
-            let existing: Option<SkillVariantRecord> = conn
-                .query_row(
-                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
-                     FROM skill_variants WHERE relative_path = ?1",
-                    params![relative_path],
-                    map_skill_variant_row,
-                )
-                .optional()?;
+        let mut txn = self.conn_db.transaction().await?;
+        let existing: Option<SkillVariantRecord> = txn
+            .query_opt(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants WHERE relative_path = ?1",
+                db::db_params![relative_path.clone()],
+            )
+            .await?
+            .map(|row| map_skill_variant_row_db(&row))
+            .transpose()?;
 
-            let variant_id = existing
-                .as_ref()
-                .map(|record| record.variant_id.clone())
-                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            let version = existing
-                .as_ref()
-                .map(|record| record.version.clone())
-                .unwrap_or_else(|| {
-                    let version_num: i64 = conn
-                        .query_row(
-                            "SELECT COUNT(*) FROM skill_variants WHERE skill_name = ?1",
-                            params![skill_name.as_str()],
-                            |row| row.get(0),
-                        )
-                        .unwrap_or(0);
-                    format!("v{}.0", version_num + 1)
-                });
-            let parent_variant_id: Option<String> = if variant_name == "canonical" {
-                None
-            } else {
-                conn.query_row(
-                    "SELECT variant_id FROM skill_variants WHERE skill_name = ?1 AND variant_name = 'canonical' LIMIT 1",
-                    params![skill_name.as_str()],
-                    |row| row.get(0),
-                )
-                .optional()?
-            };
-            let created_at = existing
-                .as_ref()
-                .map(|record| record.created_at)
-                .unwrap_or(now);
-            let last_used_at = existing.as_ref().and_then(|record| record.last_used_at);
-            let use_count = existing
-                .as_ref()
-                .map(|record| record.use_count)
-                .unwrap_or(0);
-            let success_count = existing
-                .as_ref()
-                .map(|record| record.success_count)
-                .unwrap_or(0);
-            let failure_count = existing
-                .as_ref()
-                .map(|record| record.failure_count)
-                .unwrap_or(0);
-            let status = existing
-                .as_ref()
-                .map(|record| record.status.clone())
-                .unwrap_or_else(|| "active".to_string());
+        let variant_id = existing
+            .as_ref()
+            .map(|record| record.variant_id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let version = match existing.as_ref().map(|record| record.version.clone()) {
+            Some(version) => version,
+            None => {
+                let version_num: i64 = txn
+                    .query_opt(
+                        "SELECT COUNT(*) FROM skill_variants WHERE skill_name = ?1",
+                        db::db_params![skill_name.as_str()],
+                    )
+                    .await?
+                    .map(|row| row.get::<i64>(0))
+                    .transpose()?
+                    .unwrap_or(0);
+                format!("v{}.0", version_num + 1)
+            }
+        };
+        let parent_variant_id: Option<String> = if variant_name == "canonical" {
+            None
+        } else {
+            txn.query_opt(
+                "SELECT variant_id FROM skill_variants WHERE skill_name = ?1 AND variant_name = 'canonical' LIMIT 1",
+                db::db_params![skill_name.as_str()],
+            )
+            .await?
+            .map(|row| row.get::<String>(0))
+            .transpose()?
+        };
+        let created_at = existing
+            .as_ref()
+            .map(|record| record.created_at)
+            .unwrap_or(now);
+        let last_used_at = existing.as_ref().and_then(|record| record.last_used_at);
+        let use_count = existing
+            .as_ref()
+            .map(|record| record.use_count)
+            .unwrap_or(0);
+        let success_count = existing
+            .as_ref()
+            .map(|record| record.success_count)
+            .unwrap_or(0);
+        let failure_count = existing
+            .as_ref()
+            .map(|record| record.failure_count)
+            .unwrap_or(0);
+        let status = existing
+            .as_ref()
+            .map(|record| record.status.clone())
+            .unwrap_or_else(|| "active".to_string());
 
-            let fitness_score = existing
-                .as_ref()
-                .map(|record| record.fitness_score)
-                .unwrap_or_else(|| f64::from(success_count) - f64::from(failure_count));
+        let fitness_score = existing
+            .as_ref()
+            .map(|record| record.fitness_score)
+            .unwrap_or_else(|| f64::from(success_count) - f64::from(failure_count));
 
-            conn.execute(
-                "INSERT OR REPLACE INTO skill_variants \
-                 (variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                params![
-                    variant_id,
-                    skill_name,
-                    variant_name,
-                    relative_path,
-                    parent_variant_id,
-                    version,
-                    context_tags_json,
-                    use_count as i64,
-                    success_count as i64,
-                    failure_count as i64,
-                    fitness_score,
-                    status,
-                    last_used_at.map(|value| value as i64),
-                    created_at as i64,
-                    now as i64,
-                ],
-            )?;
-
-            Ok(variant_id)
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        txn.execute(
+            "INSERT OR REPLACE INTO skill_variants \
+             (variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            db::db_params![
+                variant_id.clone(),
+                skill_name,
+                variant_name,
+                relative_path,
+                parent_variant_id,
+                version,
+                context_tags_json,
+                use_count as i64,
+                success_count as i64,
+                failure_count as i64,
+                fitness_score,
+                status,
+                last_used_at.map(|value| value as i64),
+                created_at as i64,
+                now as i64,
+            ],
+        )
+        .await?;
+        txn.commit().await?;
 
         self.rebalance_skill_variants(&metadata.skill_name).await?;
 
-        let vid = variant_id.clone();
-        self.conn.call(move |conn| {
-            conn.query_row(
+        self.conn_db
+            .query_opt(
                 "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
                  FROM skill_variants WHERE variant_id = ?1",
-                params![vid],
-                map_skill_variant_row,
+                db::db_params![variant_id],
             )
-            .map_err(Into::into)
-        }).await.context("failed to load rebalanced skill variant")
+            .await?
+            .map(|row| map_skill_variant_row_db(&row))
+            .transpose()?
+            .context("failed to load rebalanced skill variant")
     }
 
     pub async fn list_skill_variants(
@@ -229,37 +232,37 @@ impl HistoryStore {
         limit: usize,
     ) -> Result<Vec<SkillVariantRecord>> {
         let limit = limit.clamp(1, 2000) as i64;
-        self.conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
-                     FROM skill_variants \
-                     WHERE status NOT IN ('archived', 'merged', 'draft') \
-                       AND relative_path LIKE '%.md' \
-                     ORDER BY CASE status \
-                         WHEN 'promoted-to-canonical' THEN 4 \
-                         WHEN 'active' THEN 3 \
-                         WHEN 'deprecated' THEN 2 \
-                         ELSE 0 \
-                       END DESC, \
-                       fitness_score DESC, \
-                       CASE WHEN use_count > 0 THEN CAST(success_count AS REAL) / CAST(use_count AS REAL) ELSE 0.0 END DESC, \
-                       use_count DESC, \
-                       CASE WHEN variant_name = 'canonical' THEN 1 ELSE 0 END DESC, \
-                       updated_at DESC, \
-                       relative_path ASC \
-                     LIMIT ?1",
-                )?;
-                let rows = stmt.query_map(params![limit], map_skill_variant_row)?;
-                let mut variants = rows.collect::<std::result::Result<Vec<_>, _>>()?;
-                let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
-                variants.sort_by(|left, right| {
-                    compare_skill_variants(left, right, &[], &trend_by_variant)
-                });
-                Ok(variants)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let rows = self
+            .conn_db
+            .query(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants \
+                 WHERE status NOT IN ('archived', 'merged', 'draft') \
+                   AND relative_path LIKE '%.md' \
+                 ORDER BY CASE status \
+                     WHEN 'promoted-to-canonical' THEN 4 \
+                     WHEN 'active' THEN 3 \
+                     WHEN 'deprecated' THEN 2 \
+                     ELSE 0 \
+                   END DESC, \
+                   fitness_score DESC, \
+                   CASE WHEN use_count > 0 THEN CAST(success_count AS REAL) / CAST(use_count AS REAL) ELSE 0.0 END DESC, \
+                   use_count DESC, \
+                   CASE WHEN variant_name = 'canonical' THEN 1 ELSE 0 END DESC, \
+                   updated_at DESC, \
+                   relative_path ASC \
+                 LIMIT ?1",
+                db::db_params![limit],
+            )
+            .await?;
+        let mut variants = rows
+            .iter()
+            .map(map_skill_variant_row_db)
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let trend_by_variant =
+            load_skill_variant_trends_db(&mut db::ConnExecutor(&*self.conn_db), &variants, 8).await?;
+        variants.sort_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant));
+        Ok(variants)
     }
 
     /// Update the maturity status of a skill variant and bump `updated_at`.
@@ -271,19 +274,13 @@ impl HistoryStore {
         self.caches
             .skill_variant
             .invalidate(&variant_id.to_string());
-        let variant_id = variant_id.to_string();
-        let new_status = new_status.to_string();
-        self.conn
-            .call(move |conn| {
-                let now = now_ts() as i64;
-                conn.execute(
-                    "UPDATE skill_variants SET status = ?2, updated_at = ?3 WHERE variant_id = ?1",
-                    params![variant_id, new_status, now],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        self.conn_db
+            .execute(
+                "UPDATE skill_variants SET status = ?2, updated_at = ?3 WHERE variant_id = ?1",
+                db::db_params![variant_id, new_status, now_ts() as i64],
+            )
+            .await?;
+        Ok(())
     }
 
     /// Retrieve a single skill variant by its `variant_id`.
@@ -292,21 +289,16 @@ impl HistoryStore {
         if let Some(cached) = self.caches.skill_variant.get(&variant_id_owned) {
             return Ok(cached);
         }
-        let variant_id = variant_id_owned.clone();
         let value: Option<SkillVariantRecord> = self
-            .conn
-            .call(move |conn| {
-                conn.query_row(
-                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
-                     FROM skill_variants WHERE variant_id = ?1",
-                    params![variant_id],
-                    map_skill_variant_row,
-                )
-                .optional()
-                .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .conn_db
+            .query_opt(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants WHERE variant_id = ?1",
+                db::db_params![variant_id_owned.as_str()],
+            )
+            .await?
+            .map(|row| map_skill_variant_row_db(&row))
+            .transpose()?;
         self.caches
             .skill_variant
             .insert(variant_id_owned, value.clone());
@@ -325,40 +317,43 @@ impl HistoryStore {
         let context_tags = context_tags.to_vec();
         let skills_root = self.skills_root();
 
-        let _skill = skill.to_string();
-        self.conn.call(move |conn| {
-            let mut stmt = conn.prepare(
+        let rows = self
+            .conn_db
+            .query(
                 "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
                  FROM skill_variants",
-            )?;
-            let rows = stmt.query_map([], map_skill_variant_row)?;
-            let mut candidates = rows
-                .filter_map(|row| row.ok())
-                .filter(|record| skill_variant_matches(record, &normalized))
-                .filter(|record| record.status != "archived" && record.status != "merged")
-                .collect::<Vec<_>>();
-            if candidates.is_empty() {
-                return Ok(None);
-            }
-            let live_candidates = candidates
-                .iter()
-                .filter(|record| skill_variant_document_exists(&skills_root, record))
-                .cloned()
-                .collect::<Vec<_>>();
-            if !live_candidates.is_empty() {
-                candidates = live_candidates;
-            }
-            let trend_by_variant = load_skill_variant_trends(conn, &candidates, 8)?;
-            candidates.sort_by(|left, right| {
-                let left_current_path = skill_variant_matches_current_relative_path(&skills_root, left);
-                let right_current_path =
-                    skill_variant_matches_current_relative_path(&skills_root, right);
-                right_current_path
-                    .cmp(&left_current_path)
-                    .then_with(|| compare_skill_variants(left, right, &context_tags, &trend_by_variant))
-            });
-            Ok(candidates.into_iter().next())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+                db::Params::None,
+            )
+            .await?;
+        let mut candidates = rows
+            .iter()
+            .filter_map(|row| map_skill_variant_row_db(row).ok())
+            .filter(|record| skill_variant_matches(record, &normalized))
+            .filter(|record| record.status != "archived" && record.status != "merged")
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+        let live_candidates = candidates
+            .iter()
+            .filter(|record| skill_variant_document_exists(&skills_root, record))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !live_candidates.is_empty() {
+            candidates = live_candidates;
+        }
+        let trend_by_variant =
+            load_skill_variant_trends_db(&mut db::ConnExecutor(&*self.conn_db), &candidates, 8)
+                .await?;
+        candidates.sort_by(|left, right| {
+            let left_current_path = skill_variant_matches_current_relative_path(&skills_root, left);
+            let right_current_path =
+                skill_variant_matches_current_relative_path(&skills_root, right);
+            right_current_path
+                .cmp(&left_current_path)
+                .then_with(|| compare_skill_variants(left, right, &context_tags, &trend_by_variant))
+        });
+        Ok(candidates.into_iter().next())
     }
 
     pub async fn record_skill_variant_use(
@@ -366,38 +361,40 @@ impl HistoryStore {
         variant_id: &str,
         outcome: Option<bool>,
     ) -> Result<()> {
-        let variant_id = variant_id.to_string();
-        let variant_id = variant_id.to_string();
-        self.conn.call(move |conn| {
-            let now = now_ts() as i64;
-            match outcome {
-                Some(true) => {
-                    conn.execute(
+        let now = now_ts() as i64;
+        match outcome {
+            Some(true) => {
+                self.conn_db
+                    .execute(
                         "UPDATE skill_variants \
                          SET use_count = use_count + 1, success_count = success_count + 1, fitness_score = fitness_score + 1.0, last_used_at = ?2, updated_at = ?2 \
                          WHERE variant_id = ?1",
-                        params![variant_id, now],
-                    )?;
-                }
-                Some(false) => {
-                    conn.execute(
+                        db::db_params![variant_id, now],
+                    )
+                    .await?;
+            }
+            Some(false) => {
+                self.conn_db
+                    .execute(
                         "UPDATE skill_variants \
                          SET use_count = use_count + 1, failure_count = failure_count + 1, fitness_score = fitness_score - 1.0, last_used_at = ?2, updated_at = ?2 \
                          WHERE variant_id = ?1",
-                        params![variant_id, now],
-                    )?;
-                }
-                None => {
-                    conn.execute(
+                        db::db_params![variant_id, now],
+                    )
+                    .await?;
+            }
+            None => {
+                self.conn_db
+                    .execute(
                         "UPDATE skill_variants \
                          SET use_count = use_count + 1, last_used_at = ?2, updated_at = ?2 \
                          WHERE variant_id = ?1",
-                        params![variant_id, now],
-                    )?;
-                }
+                        db::db_params![variant_id, now],
+                    )
+                    .await?;
             }
-            Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        }
+        Ok(())
     }
 
     pub async fn record_skill_variant_consultation(
@@ -413,13 +410,12 @@ impl HistoryStore {
         let goal_run_id = record.goal_run_id.map(str::to_string);
         let context_tags_owned: Vec<String> = record.context_tags.to_vec();
 
-        let record = record;
-        self.conn.call(move |conn| {
-            conn.execute(
+        self.conn_db
+            .execute(
                 "INSERT OR REPLACE INTO skill_variant_usage \
                  (usage_id, variant_id, thread_id, task_id, goal_run_id, context_tags_json, consulted_at, resolved_at, outcome) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL)",
-                params![
+                db::db_params![
                     usage_id,
                     variant_id,
                     thread_id,
@@ -428,9 +424,8 @@ impl HistoryStore {
                     context_tags_json,
                     now,
                 ],
-            )?;
-            Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            )
+            .await?;
         self.append_telemetry(
             "cognitive",
             json!({
@@ -579,32 +574,34 @@ impl HistoryStore {
             .filter(|value| !value.is_empty())
             .map(|value| value.to_ascii_lowercase());
 
-        self.conn
-            .call(move |conn| {
-                let mut variants = if let Some(query) = normalized_query.as_deref() {
-                    let like = format!("%{query}%");
-                    let mut stmt = conn.prepare(
-                        "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
-                         FROM skill_variants \
-                         WHERE skill_name LIKE ?1 OR variant_name LIKE ?1 OR relative_path LIKE ?1 OR context_tags_json LIKE ?1",
-                    )?;
-                    let rows = stmt.query_map(params![like], map_skill_variant_row)?;
-                    rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
-                } else {
-                    let mut stmt = conn.prepare(
-                        "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
-                         FROM skill_variants",
-                    )?;
-                    let rows = stmt.query_map([], map_skill_variant_row)?;
-                    rows.filter_map(|row| row.ok()).collect::<Vec<_>>()
-                };
+        let rows = if let Some(query) = normalized_query.as_deref() {
+            let like = format!("%{query}%");
+            self.conn_db
+                .query(
+                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
+                     FROM skill_variants \
+                     WHERE skill_name LIKE ?1 OR variant_name LIKE ?1 OR relative_path LIKE ?1 OR context_tags_json LIKE ?1",
+                    db::db_params![like],
+                )
+                .await?
+        } else {
+            self.conn_db
+                .query(
+                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
+                     FROM skill_variants",
+                    db::Params::None,
+                )
+                .await?
+        };
+        let mut variants = rows
+            .iter()
+            .filter_map(|row| map_skill_variant_row_db(row).ok())
+            .collect::<Vec<_>>();
 
-                let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
-                variants.sort_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant));
-                Ok(variants)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let trend_by_variant =
+            load_skill_variant_trends_db(&mut db::ConnExecutor(&*self.conn_db), &variants, 8).await?;
+        variants.sort_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant));
+        Ok(variants)
     }
 }
 

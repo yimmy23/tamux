@@ -164,50 +164,81 @@ pub(super) fn compute_fitness_trend(history: &[SkillVariantFitnessHistoryRow]) -
     }
 }
 
-pub(super) fn load_skill_variant_trends(
-    conn: &Connection,
+pub(super) fn map_skill_variant_row_db(row: &db::Row) -> anyhow::Result<SkillVariantRecord> {
+    let context_tags_json: String = row.get(6)?;
+    let context_tags =
+        serde_json::from_str::<Vec<String>>(&context_tags_json).unwrap_or_else(|_| Vec::new());
+    Ok(SkillVariantRecord {
+        variant_id: row.get(0)?,
+        skill_name: row.get(1)?,
+        variant_name: row.get(2)?,
+        relative_path: row.get(3)?,
+        parent_variant_id: row.get(4)?,
+        version: row.get(5)?,
+        context_tags,
+        use_count: row.get::<i64>(7)? as u32,
+        success_count: row.get::<i64>(8)? as u32,
+        failure_count: row.get::<i64>(9)? as u32,
+        fitness_score: row.get(10)?,
+        status: row.get(11)?,
+        last_used_at: row.get::<Option<i64>>(12)?.map(|value| value as u64),
+        created_at: row.get::<i64>(13)? as u64,
+        updated_at: row.get::<i64>(14)? as u64,
+    })
+}
+
+pub(super) async fn load_skill_variant_trends_db<E: db::DbExecutor + ?Sized>(
+    exec: &mut E,
     variants: &[SkillVariantRecord],
     limit: usize,
-) -> rusqlite::Result<BTreeMap<String, i8>> {
+) -> anyhow::Result<BTreeMap<String, i8>> {
     let limit = limit.max(2) as i64;
-    let mut stmt = conn.prepare(
-        "SELECT id, variant_id, recorded_at, outcome, fitness_score FROM (\
-            SELECT rowid, id, variant_id, recorded_at, outcome, fitness_score \
-            FROM skill_variant_history WHERE variant_id = ?1 \
-            ORDER BY recorded_at DESC, rowid DESC LIMIT ?2\
-         ) ORDER BY recorded_at ASC, rowid ASC",
-    )?;
     let mut trends = BTreeMap::new();
     for variant in variants {
-        let history = stmt
-            .query_map(params![variant.variant_id.as_str(), limit], |row| {
-                Ok(SkillVariantFitnessHistoryRow {
+        let rows = exec
+            .query(
+                "SELECT id, variant_id, recorded_at, outcome, fitness_score FROM (\
+                    SELECT rowid, id, variant_id, recorded_at, outcome, fitness_score \
+                    FROM skill_variant_history WHERE variant_id = ?1 \
+                    ORDER BY recorded_at DESC, rowid DESC LIMIT ?2\
+                 ) ORDER BY recorded_at ASC, rowid ASC",
+                db::db_params![variant.variant_id.as_str(), limit],
+            )
+            .await?;
+        let history = rows
+            .iter()
+            .map(|row| {
+                Ok::<SkillVariantFitnessHistoryRow, anyhow::Error>(SkillVariantFitnessHistoryRow {
                     id: row.get(0)?,
                     variant_id: row.get(1)?,
                     recorded_at: row.get(2)?,
                     outcome: row.get(3)?,
                     fitness_score: row.get(4)?,
                 })
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
         trends.insert(variant.variant_id.clone(), compute_fitness_trend(&history));
     }
     Ok(trends)
 }
 
-pub(super) fn recent_skill_variant_outcomes_allow_promotion(
-    conn: &Connection,
+pub(super) async fn recent_skill_variant_outcomes_allow_promotion_db<E: db::DbExecutor + ?Sized>(
+    exec: &mut E,
     variant_id: &str,
     limit: usize,
-) -> rusqlite::Result<bool> {
+) -> anyhow::Result<bool> {
     let limit = limit.max(1) as i64;
-    let mut stmt = conn.prepare(
-        "SELECT outcome FROM skill_variant_history WHERE variant_id = ?1 \
-         ORDER BY recorded_at DESC, rowid DESC LIMIT ?2",
-    )?;
-    let outcomes = stmt
-        .query_map(params![variant_id, limit], |row| row.get::<_, String>(0))?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let rows = exec
+        .query(
+            "SELECT outcome FROM skill_variant_history WHERE variant_id = ?1 \
+             ORDER BY recorded_at DESC, rowid DESC LIMIT ?2",
+            db::db_params![variant_id, limit],
+        )
+        .await?;
+    let outcomes = rows
+        .iter()
+        .map(|row| row.get::<String>(0))
+        .collect::<anyhow::Result<Vec<_>>>()?;
     Ok(outcomes
         .iter()
         .all(|outcome| outcome.eq_ignore_ascii_case("success")))
@@ -551,27 +582,3 @@ pub(super) fn append_skill_merge_sections(canonical_content: &str, sections: &[S
     next
 }
 
-pub(super) fn map_skill_variant_row(
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<SkillVariantRecord> {
-    let context_tags_json: String = row.get(6)?;
-    let context_tags =
-        serde_json::from_str::<Vec<String>>(&context_tags_json).unwrap_or_else(|_| Vec::new());
-    Ok(SkillVariantRecord {
-        variant_id: row.get(0)?,
-        skill_name: row.get(1)?,
-        variant_name: row.get(2)?,
-        relative_path: row.get(3)?,
-        parent_variant_id: row.get(4)?,
-        version: row.get(5)?,
-        context_tags,
-        use_count: row.get::<_, i64>(7)? as u32,
-        success_count: row.get::<_, i64>(8)? as u32,
-        failure_count: row.get::<_, i64>(9)? as u32,
-        fitness_score: row.get(10)?,
-        status: row.get(11)?,
-        last_used_at: row.get::<_, Option<i64>>(12)?.map(|value| value as u64),
-        created_at: row.get::<_, i64>(13)? as u64,
-        updated_at: row.get::<_, i64>(14)? as u64,
-    })
-}

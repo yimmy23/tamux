@@ -1,7 +1,31 @@
 use anyhow::Result;
-use rusqlite::{params, OptionalExtension};
 
+use super::db;
 use super::HistoryStore;
+
+fn map_memory_node_row_at(row: &db::Row, base: usize) -> anyhow::Result<MemoryNodeRow> {
+    Ok(MemoryNodeRow {
+        id: row.get(base)?,
+        label: row.get(base + 1)?,
+        node_type: row.get(base + 2)?,
+        embedding_blob: row.get(base + 3)?,
+        created_at_ms: row.get::<i64>(base + 4)?.max(0) as u64,
+        last_accessed_ms: row.get::<i64>(base + 5)?.max(0) as u64,
+        access_count: row.get::<i64>(base + 6)?.max(0) as u64,
+        summary_text: row.get(base + 7)?,
+    })
+}
+
+fn map_memory_edge_row_at(row: &db::Row, base: usize) -> anyhow::Result<MemoryEdgeRow> {
+    Ok(MemoryEdgeRow {
+        id: row.get(base)?,
+        source_node_id: row.get(base + 1)?,
+        target_node_id: row.get(base + 2)?,
+        relation_type: row.get(base + 3)?,
+        weight: row.get(base + 4)?,
+        last_updated_ms: row.get::<i64>(base + 5)?.max(0) as u64,
+    })
+}
 
 /// Shared insert shape for `memory_nodes` rows. The conflict policy differs per
 /// caller (upsert overwrites, stubs preserve existing rows), but the column
@@ -65,64 +89,40 @@ impl HistoryStore {
         summary_text: Option<&str>,
         accessed_at_ms: u64,
     ) -> Result<()> {
-        let id = id.to_string();
-        let label = label.to_string();
-        let node_type = node_type.to_string();
-        let summary_text = summary_text.map(str::to_string);
-
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    &format!(
-                        "{MEMORY_NODE_INSERT}
+        self.conn_db
+            .execute(
+                &format!(
+                    "{MEMORY_NODE_INSERT}
                         ON CONFLICT(id) DO UPDATE SET
                             label = excluded.label,
                             node_type = excluded.node_type,
                             last_accessed_ms = MAX(memory_nodes.last_accessed_ms, excluded.last_accessed_ms),
                             access_count = memory_nodes.access_count + 1,
                             summary_text = COALESCE(excluded.summary_text, memory_nodes.summary_text)"
-                    ),
-                    params![
-                        id,
-                        label,
-                        node_type,
-                        accessed_at_ms as i64,
-                        summary_text,
-                    ],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                ),
+                db::db_params![
+                    id,
+                    label,
+                    node_type,
+                    accessed_at_ms as i64,
+                    summary_text,
+                ],
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn get_memory_node(&self, id: &str) -> Result<Option<MemoryNodeRow>> {
-        let id = id.to_string();
-        self.read_conn
-            .call(move |conn| {
-                conn.query_row(
-                    "SELECT id, label, node_type, embedding_blob, created_at_ms, last_accessed_ms, access_count, summary_text
+        let row = self
+            .read_db
+            .query_opt(
+                "SELECT id, label, node_type, embedding_blob, created_at_ms, last_accessed_ms, access_count, summary_text
                      FROM memory_nodes
                      WHERE id = ?1",
-                    params![id],
-                    |row| {
-                        Ok(MemoryNodeRow {
-                            id: row.get(0)?,
-                            label: row.get(1)?,
-                            node_type: row.get(2)?,
-                            embedding_blob: row.get(3)?,
-                            created_at_ms: row.get::<_, i64>(4)?.max(0) as u64,
-                            last_accessed_ms: row.get::<_, i64>(5)?.max(0) as u64,
-                            access_count: row.get::<_, i64>(6)?.max(0) as u64,
-                            summary_text: row.get(7)?,
-                        })
-                    },
-                )
-                .optional()
-                .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                db::db_params![id],
+            )
+            .await?;
+        row.map(|row| map_memory_node_row_at(&row, 0)).transpose()
     }
 
     pub async fn upsert_memory_edge(
@@ -133,14 +133,9 @@ impl HistoryStore {
         weight: f64,
         updated_at_ms: u64,
     ) -> Result<()> {
-        let source_node_id = source_node_id.to_string();
-        let target_node_id = target_node_id.to_string();
-        let relation_type = relation_type.to_string();
-
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT INTO memory_edges (
+        self.conn_db
+            .execute(
+                "INSERT INTO memory_edges (
                         source_node_id,
                         target_node_id,
                         relation_type,
@@ -150,18 +145,16 @@ impl HistoryStore {
                     ON CONFLICT(source_node_id, target_node_id, relation_type) DO UPDATE SET
                         weight = memory_edges.weight + excluded.weight,
                         last_updated_ms = MAX(memory_edges.last_updated_ms, excluded.last_updated_ms)",
-                    params![
-                        source_node_id,
-                        target_node_id,
-                        relation_type,
-                        weight,
-                        updated_at_ms as i64,
-                    ],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                db::db_params![
+                    source_node_id,
+                    target_node_id,
+                    relation_type,
+                    weight,
+                    updated_at_ms as i64,
+                ],
+            )
+            .await?;
+        Ok(())
     }
 
     /// Record a `delegated_to` edge from a parent task to a subagent child task,
@@ -183,62 +176,57 @@ impl HistoryStore {
         let parent_label = parent_task_id.to_string();
         let child_label = child_label.to_string();
 
-        self.conn
-            .call(move |conn| {
-                let ensure_node = |conn: &rusqlite::Connection, id: &str, label: &str| {
-                    conn.execute(
-                        &format!("{MEMORY_NODE_INSERT}\nON CONFLICT(id) DO NOTHING"),
-                        params![
-                            id,
-                            label,
-                            "task",
-                            updated_at_ms as i64,
-                            None::<String>,
-                        ],
-                    )
-                };
-                ensure_node(conn, &parent_node_id, &parent_label)?;
-                ensure_node(conn, &child_node_id, &child_label)?;
-                conn.execute(
-                    "INSERT INTO memory_edges (
+        let ensure_sql = format!("{MEMORY_NODE_INSERT}\nON CONFLICT(id) DO NOTHING");
+        self.conn_db
+            .execute(
+                &ensure_sql,
+                db::db_params![
+                    parent_node_id.clone(),
+                    parent_label,
+                    "task",
+                    updated_at_ms as i64,
+                    Option::<String>::None,
+                ],
+            )
+            .await?;
+        self.conn_db
+            .execute(
+                &ensure_sql,
+                db::db_params![
+                    child_node_id.clone(),
+                    child_label,
+                    "task",
+                    updated_at_ms as i64,
+                    Option::<String>::None,
+                ],
+            )
+            .await?;
+        self.conn_db
+            .execute(
+                "INSERT INTO memory_edges (
                         source_node_id, target_node_id, relation_type, weight, last_updated_ms
                     ) VALUES (?1, ?2, 'delegated_to', 1.0, ?3)
                     ON CONFLICT(source_node_id, target_node_id, relation_type) DO UPDATE SET
                         weight = memory_edges.weight + excluded.weight,
                         last_updated_ms = MAX(memory_edges.last_updated_ms, excluded.last_updated_ms)",
-                    params![parent_node_id, child_node_id, updated_at_ms as i64],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                db::db_params![parent_node_id, child_node_id, updated_at_ms as i64],
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn list_memory_edges_for_node(&self, node_id: &str) -> Result<Vec<MemoryEdgeRow>> {
-        let node_id = node_id.to_string();
-        self.read_conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT id, source_node_id, target_node_id, relation_type, weight, last_updated_ms
+        let rows = self
+            .read_db
+            .query(
+                "SELECT id, source_node_id, target_node_id, relation_type, weight, last_updated_ms
                      FROM memory_edges
                      WHERE source_node_id = ?1 OR target_node_id = ?1
                      ORDER BY relation_type ASC, source_node_id ASC, target_node_id ASC",
-                )?;
-                let rows = stmt.query_map(params![node_id], |row| {
-                    Ok(MemoryEdgeRow {
-                        id: row.get(0)?,
-                        source_node_id: row.get(1)?,
-                        target_node_id: row.get(2)?,
-                        relation_type: row.get(3)?,
-                        weight: row.get(4)?,
-                        last_updated_ms: row.get::<_, i64>(5)?.max(0) as u64,
-                    })
-                })?;
-                rows.collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                db::db_params![node_id],
+            )
+            .await?;
+        rows.iter().map(|row| map_memory_edge_row_at(row, 0)).collect()
     }
 
     pub async fn list_memory_graph_neighbors(
@@ -246,12 +234,11 @@ impl HistoryStore {
         node_id: &str,
         limit: usize,
     ) -> Result<Vec<MemoryGraphNeighborRow>> {
-        let node_id = node_id.to_string();
         let limit = limit.max(1) as i64;
-        self.read_conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT
+        let rows = self
+            .read_db
+            .query(
+                "SELECT
                         n.id,
                         n.label,
                         n.node_type,
@@ -275,34 +262,17 @@ impl HistoryStore {
                      WHERE e.source_node_id = ?1 OR e.target_node_id = ?1
                      ORDER BY e.weight DESC, e.last_updated_ms DESC, n.last_accessed_ms DESC
                      LIMIT ?2",
-                )?;
-                let rows = stmt.query_map(params![node_id, limit], |row| {
-                    Ok(MemoryGraphNeighborRow {
-                        node: MemoryNodeRow {
-                            id: row.get(0)?,
-                            label: row.get(1)?,
-                            node_type: row.get(2)?,
-                            embedding_blob: row.get(3)?,
-                            created_at_ms: row.get::<_, i64>(4)?.max(0) as u64,
-                            last_accessed_ms: row.get::<_, i64>(5)?.max(0) as u64,
-                            access_count: row.get::<_, i64>(6)?.max(0) as u64,
-                            summary_text: row.get(7)?,
-                        },
-                        via_edge: MemoryEdgeRow {
-                            id: row.get(8)?,
-                            source_node_id: row.get(9)?,
-                            target_node_id: row.get(10)?,
-                            relation_type: row.get(11)?,
-                            weight: row.get(12)?,
-                            last_updated_ms: row.get::<_, i64>(13)?.max(0) as u64,
-                        },
-                    })
-                })?;
-                rows.collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(Into::into)
+                db::db_params![node_id, limit],
+            )
+            .await?;
+        rows.iter()
+            .map(|row| -> anyhow::Result<MemoryGraphNeighborRow> {
+                Ok(MemoryGraphNeighborRow {
+                    node: map_memory_node_row_at(row, 0)?,
+                    via_edge: map_memory_edge_row_at(row, 8)?,
+                })
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .collect()
     }
 
     pub async fn upsert_memory_cluster(
@@ -313,39 +283,41 @@ impl HistoryStore {
         member_node_ids: &[String],
         created_at_ms: u64,
     ) -> Result<()> {
-        let name = name.to_string();
-        let summary_text = summary_text.to_string();
-        let center_node_id = center_node_id.map(str::to_string);
         let member_node_ids = member_node_ids.to_vec();
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT INTO memory_graph_clusters (name, summary_text, center_node_id, created_at_ms)
+        self.conn_db
+            .execute(
+                "INSERT INTO memory_graph_clusters (name, summary_text, center_node_id, created_at_ms)
                      VALUES (?1, ?2, ?3, ?4)
                      ON CONFLICT(name) DO UPDATE SET
                         summary_text = excluded.summary_text,
                         center_node_id = excluded.center_node_id",
-                    params![name, summary_text, center_node_id, created_at_ms as i64],
-                )?;
-                let cluster_id = conn.query_row(
-                    "SELECT id FROM memory_graph_clusters WHERE name = ?1",
-                    params![name],
-                    |row| row.get::<_, i64>(0),
-                )?;
-                conn.execute(
-                    "UPDATE memory_cluster_members SET deleted_at = ?2 WHERE cluster_id = ?1 AND deleted_at IS NULL",
-                    params![cluster_id, crate::history::now_ts() as i64],
-                )?;
-                for node_id in member_node_ids {
-                    conn.execute(
-                        "INSERT OR REPLACE INTO memory_cluster_members (cluster_id, node_id, deleted_at) VALUES (?1, ?2, NULL)",
-                        params![cluster_id, node_id],
-                    )?;
-                }
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                db::db_params![name, summary_text, center_node_id, created_at_ms as i64],
+            )
+            .await?;
+        let cluster_id: i64 = self
+            .conn_db
+            .query_opt(
+                "SELECT id FROM memory_graph_clusters WHERE name = ?1",
+                db::db_params![name],
+            )
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("memory cluster missing after upsert"))?
+            .get::<i64>(0)?;
+        self.conn_db
+            .execute(
+                "UPDATE memory_cluster_members SET deleted_at = ?2 WHERE cluster_id = ?1 AND deleted_at IS NULL",
+                db::db_params![cluster_id, crate::history::now_ts() as i64],
+            )
+            .await?;
+        for node_id in member_node_ids {
+            self.conn_db
+                .execute(
+                    "INSERT OR REPLACE INTO memory_cluster_members (cluster_id, node_id, deleted_at) VALUES (?1, ?2, NULL)",
+                    db::db_params![cluster_id, node_id],
+                )
+                .await?;
+        }
+        Ok(())
     }
 
     pub async fn list_memory_clusters_for_node(
@@ -353,50 +325,54 @@ impl HistoryStore {
         node_id: &str,
         limit: usize,
     ) -> Result<Vec<MemoryGraphClusterRow>> {
-        let node_id = node_id.to_string();
         let limit = limit.max(1) as i64;
-        self.read_conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT c.id, c.name, c.summary_text, c.center_node_id, c.created_at_ms
+        let cluster_rows = self
+            .read_db
+            .query(
+                "SELECT c.id, c.name, c.summary_text, c.center_node_id, c.created_at_ms
                      FROM memory_cluster_members m
                      JOIN memory_graph_clusters c ON c.id = m.cluster_id
                      WHERE m.node_id = ?1 AND m.deleted_at IS NULL
                      ORDER BY c.created_at_ms DESC, c.id DESC
                      LIMIT ?2",
-                )?;
-                let rows = stmt
-                    .query_map(params![node_id, limit], |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, Option<String>>(2)?,
-                            row.get::<_, Option<String>>(3)?,
-                            row.get::<_, i64>(4)?.max(0) as u64,
-                        ))
-                    })?
-                    .collect::<std::result::Result<Vec<_>, _>>()?;
-                let mut clusters = Vec::new();
-                for (id, name, summary_text, center_node_id, created_at_ms) in rows {
-                    let mut member_stmt = conn.prepare(
-                        "SELECT node_id FROM memory_cluster_members WHERE cluster_id = ?1 AND deleted_at IS NULL ORDER BY node_id ASC",
-                    )?;
-                    let member_node_ids = member_stmt
-                        .query_map(params![id], |row| row.get::<_, String>(0))?
-                        .collect::<std::result::Result<Vec<_>, _>>()?;
-                    clusters.push(MemoryGraphClusterRow {
-                        id,
-                        name,
-                        summary_text,
-                        center_node_id,
-                        created_at_ms,
-                        member_node_ids,
-                    });
-                }
-                Ok(clusters)
+                db::db_params![node_id, limit],
+            )
+            .await?;
+        let bases: Vec<(i64, String, Option<String>, Option<String>, u64)> = cluster_rows
+            .iter()
+            .map(|row| -> anyhow::Result<_> {
+                Ok((
+                    row.get::<i64>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<Option<String>>(2)?,
+                    row.get::<Option<String>>(3)?,
+                    row.get::<i64>(4)?.max(0) as u64,
+                ))
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let mut clusters = Vec::new();
+        for (id, name, summary_text, center_node_id, created_at_ms) in bases {
+            let member_rows = self
+                .read_db
+                .query(
+                    "SELECT node_id FROM memory_cluster_members WHERE cluster_id = ?1 AND deleted_at IS NULL ORDER BY node_id ASC",
+                    db::db_params![id],
+                )
+                .await?;
+            let member_node_ids = member_rows
+                .iter()
+                .map(|row| row.get::<String>(0))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            clusters.push(MemoryGraphClusterRow {
+                id,
+                name,
+                summary_text,
+                center_node_id,
+                created_at_ms,
+                member_node_ids,
+            });
+        }
+        Ok(clusters)
     }
 
     /// Batched cluster-summary lookup for the BFS in `query_memory_graph`.
@@ -417,14 +393,12 @@ impl HistoryStore {
         }
         let node_ids = node_ids.to_vec();
         let limit_per_node = limit_per_node as i64;
-        self.read_conn
-            .call(move |conn| {
-                let placeholders = std::iter::repeat("?")
-                    .take(node_ids.len())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let sql = format!(
-                    "WITH ranked AS (
+        let placeholders = std::iter::repeat("?")
+            .take(node_ids.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "WITH ranked AS (
                          SELECT
                              m.node_id,
                              c.summary_text,
@@ -442,29 +416,23 @@ impl HistoryStore {
                      WHERE rn <= ?{limit_param}
                        AND summary_text IS NOT NULL
                        AND length(summary_text) > 0",
-                    limit_param = node_ids.len() + 1
-                );
-                let mut stmt = conn.prepare(&sql)?;
-                let mut params: Vec<rusqlite::types::Value> = node_ids
-                    .into_iter()
-                    .map(rusqlite::types::Value::Text)
-                    .collect();
-                params.push(rusqlite::types::Value::Integer(limit_per_node));
-                let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
-                    row.get::<_, Option<String>>(0)
-                })?;
-                let mut seen = std::collections::HashSet::new();
-                let mut deduped: Vec<String> = Vec::new();
-                for row in rows {
-                    if let Some(summary) = row? {
-                        if seen.insert(summary.clone()) {
-                            deduped.push(summary);
-                        }
-                    }
+            limit_param = node_ids.len() + 1
+        );
+        let mut values: Vec<db::Value> = node_ids.into_iter().map(db::Value::Text).collect();
+        values.push(db::Value::Integer(limit_per_node));
+        let rows = self
+            .read_db
+            .query(&sql, db::Params::Positional(values))
+            .await?;
+        let mut seen = std::collections::HashSet::new();
+        let mut deduped: Vec<String> = Vec::new();
+        for row in &rows {
+            if let Some(summary) = row.get::<Option<String>>(0)? {
+                if seen.insert(summary.clone()) {
+                    deduped.push(summary);
                 }
-                Ok(deduped)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            }
+        }
+        Ok(deduped)
     }
 }

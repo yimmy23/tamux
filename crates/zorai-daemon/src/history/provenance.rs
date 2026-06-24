@@ -1,5 +1,4 @@
 use super::*;
-use rusqlite::OptionalExtension;
 use uuid::Uuid;
 
 fn overlapping_fact_keys(left: &[String], right: &[String]) -> Vec<String> {
@@ -10,21 +9,25 @@ fn overlapping_fact_keys(left: &[String], right: &[String]) -> Vec<String> {
         .collect()
 }
 
-fn relationship_rows_for_entry(
-    conn: &rusqlite::Connection,
+async fn relationship_rows_for_entry_db(
+    conn: &dyn db::DbConn,
     entry_id: &str,
-) -> rusqlite::Result<Vec<MemoryProvenanceRelationship>> {
-    let mut stmt = conn.prepare(
-        "SELECT target_entry_id, relation_type, fact_key FROM memory_provenance_relationships WHERE source_entry_id = ?1 ORDER BY created_at DESC",
-    )?;
-    let rows = stmt.query_map(params![entry_id], |row| {
-        Ok(MemoryProvenanceRelationship {
-            related_entry_id: row.get(0)?,
-            relation_type: row.get(1)?,
-            fact_key: row.get(2)?,
+) -> anyhow::Result<Vec<MemoryProvenanceRelationship>> {
+    let rows = conn
+        .query(
+            "SELECT target_entry_id, relation_type, fact_key FROM memory_provenance_relationships WHERE source_entry_id = ?1 ORDER BY created_at DESC",
+            db::db_params![entry_id],
+        )
+        .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(MemoryProvenanceRelationship {
+                related_entry_id: row.get(0)?,
+                relation_type: row.get(1)?,
+                fact_key: row.get(2)?,
+            })
         })
-    })?;
-    rows.collect()
+        .collect()
 }
 
 fn finalize_memory_provenance_entry(
@@ -140,34 +143,30 @@ impl HistoryStore {
         created_at: u64,
         updated_at: u64,
     ) -> Result<()> {
-        let task_id = task_id.to_string();
-        let parent_task_id = parent_task_id.map(str::to_string);
-        let thread_id = thread_id.map(str::to_string);
-        let health_state = health_state.to_string();
-        self.conn.call(move |conn| {
-        conn.execute(
-            "INSERT OR REPLACE INTO subagent_metrics \
-             (task_id, parent_task_id, thread_id, tool_calls_total, tool_calls_succeeded, tool_calls_failed, tokens_consumed, context_budget_tokens, progress_rate, last_progress_at, stuck_score, health_state, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![
-                task_id,
-                parent_task_id,
-                thread_id,
-                tool_calls_total,
-                tool_calls_succeeded,
-                tool_calls_failed,
-                tokens_consumed,
-                context_budget_tokens,
-                progress_rate,
-                last_progress_at.map(|v| v as i64),
-                stuck_score,
-                health_state,
-                created_at as i64,
-                updated_at as i64,
-            ],
-        )?;
+        self.conn_db
+            .execute(
+                "INSERT OR REPLACE INTO subagent_metrics \
+                 (task_id, parent_task_id, thread_id, tool_calls_total, tool_calls_succeeded, tool_calls_failed, tokens_consumed, context_budget_tokens, progress_rate, last_progress_at, stuck_score, health_state, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                db::db_params![
+                    task_id,
+                    parent_task_id.map(str::to_string),
+                    thread_id.map(str::to_string),
+                    tool_calls_total,
+                    tool_calls_succeeded,
+                    tool_calls_failed,
+                    tokens_consumed,
+                    context_budget_tokens,
+                    progress_rate,
+                    last_progress_at.map(|v| v as i64),
+                    stuck_score,
+                    health_state,
+                    created_at as i64,
+                    updated_at as i64,
+                ],
+            )
+            .await?;
         Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn record_memory_provenance(
@@ -226,56 +225,65 @@ impl HistoryStore {
             _ => None,
         };
 
-        let record = record;
-        self.conn.call(move |conn| {
-            conn.execute(
-                "INSERT OR REPLACE INTO memory_provenance \
-                 (id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, NULL)",
-                params![
-                    id,
-                    target,
-                    mode,
-                    source_kind,
-                    content,
-                    fact_keys_json,
-                    thread_id,
-                    task_id,
-                    goal_run_id,
-                    created_at as i64,
-                    entry_hash,
-                    signature,
-                    signature_scheme,
-                ],
-            )?;
-            if let Some((target, source_entry_id, fact_keys, created_at, relation_type)) = relationship_target {
-                let mut stmt = conn.prepare(
+        let mut txn = self.conn_db.transaction().await?;
+        txn.execute(
+            "INSERT OR REPLACE INTO memory_provenance \
+             (id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, NULL, NULL)",
+            db::db_params![
+                id,
+                target,
+                mode,
+                source_kind,
+                content,
+                fact_keys_json,
+                thread_id,
+                task_id,
+                goal_run_id,
+                created_at as i64,
+                entry_hash,
+                signature,
+                signature_scheme,
+            ],
+        )
+        .await?;
+        if let Some((target, source_entry_id, fact_keys, created_at, relation_type)) =
+            relationship_target
+        {
+            let candidates = txn
+                .query(
                     "SELECT id, fact_keys_json FROM memory_provenance WHERE target = ?1 AND id != ?2 AND mode NOT IN ('remove', 'conflict', 'repaired_conflict') ORDER BY created_at DESC LIMIT 64",
-                )?;
-                let rows = stmt.query_map(params![target, source_entry_id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?;
-                for row in rows {
-                    let (target_entry_id, fact_keys_json) = row?;
-                    let target_fact_keys = serde_json::from_str::<Vec<String>>(&fact_keys_json)
-                        .unwrap_or_default();
-                    for fact_key in overlapping_fact_keys(&fact_keys, &target_fact_keys) {
-                        conn.execute(
-                            "INSERT OR IGNORE INTO memory_provenance_relationships (id, source_entry_id, target_entry_id, relation_type, fact_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                            params![
-                                format!("memrel_{}", Uuid::new_v4()),
-                                source_entry_id,
-                                target_entry_id,
-                                relation_type,
-                                fact_key,
-                                created_at as i64,
-                            ],
-                        )?;
+                    db::db_params![target, source_entry_id.clone()],
+                )
+                .await?
+                .iter()
+                .filter_map(|row| match (row.get::<String>(0), row.get::<String>(1)) {
+                    (Ok(target_entry_id), Ok(fact_keys_json)) => {
+                        Some((target_entry_id, fact_keys_json))
                     }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            for (target_entry_id, fact_keys_json) in candidates {
+                let target_fact_keys =
+                    serde_json::from_str::<Vec<String>>(&fact_keys_json).unwrap_or_default();
+                for fact_key in overlapping_fact_keys(&fact_keys, &target_fact_keys) {
+                    txn.execute(
+                        "INSERT OR IGNORE INTO memory_provenance_relationships (id, source_entry_id, target_entry_id, relation_type, fact_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        db::db_params![
+                            format!("memrel_{}", Uuid::new_v4()),
+                            source_entry_id.clone(),
+                            target_entry_id.clone(),
+                            relation_type,
+                            fact_key,
+                            created_at as i64,
+                        ],
+                    )
+                    .await?;
                 }
             }
-            Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
+        txn.commit().await?;
         self.append_telemetry(
             "cognitive",
             json!({
@@ -300,19 +308,13 @@ impl HistoryStore {
         confirmed_at: u64,
     ) -> Result<bool> {
         self.ensure_valid_memory_provenance_entry(entry_id).await?;
-        let entry_id = entry_id.to_string();
-        let confirmed_at = confirmed_at as i64;
         let updated = self
-            .conn
-            .call(move |conn| {
-                let updated = conn.execute(
-                    "UPDATE memory_provenance SET confirmed_at = ?2, retracted_at = NULL WHERE id = ?1",
-                    params![entry_id, confirmed_at],
-                )?;
-                Ok(updated)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .conn_db
+            .execute(
+                "UPDATE memory_provenance SET confirmed_at = ?2, retracted_at = NULL WHERE id = ?1",
+                db::db_params![entry_id, confirmed_at as i64],
+            )
+            .await?;
         Ok(updated > 0)
     }
 
@@ -322,19 +324,13 @@ impl HistoryStore {
         retracted_at: u64,
     ) -> Result<bool> {
         self.ensure_valid_memory_provenance_entry(entry_id).await?;
-        let entry_id = entry_id.to_string();
-        let retracted_at = retracted_at as i64;
         let updated = self
-            .conn
-            .call(move |conn| {
-                let updated = conn.execute(
-                    "UPDATE memory_provenance SET retracted_at = ?2, confirmed_at = NULL WHERE id = ?1",
-                    params![entry_id, retracted_at],
-                )?;
-                Ok(updated)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .conn_db
+            .execute(
+                "UPDATE memory_provenance SET retracted_at = ?2, confirmed_at = NULL WHERE id = ?1",
+                db::db_params![entry_id, retracted_at as i64],
+            )
+            .await?;
         Ok(updated > 0)
     }
 
@@ -348,45 +344,46 @@ impl HistoryStore {
             return Ok(Vec::new());
         }
 
-        let target = target.to_string();
         let fact_keys = fact_keys.to_vec();
         let retracted_at = retracted_at as i64;
-        self.conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT id, fact_keys_json FROM memory_provenance WHERE target = ?1 AND mode NOT IN ('remove', 'conflict') AND retracted_at IS NULL",
-                )?;
-                let rows = stmt.query_map(params![target], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?;
-
-                let mut matching_ids = Vec::new();
-                for row in rows {
-                    let (entry_id, fact_keys_json) = row?;
-                    let candidate_keys = serde_json::from_str::<Vec<String>>(&fact_keys_json)
-                        .unwrap_or_default();
-                    if !overlapping_fact_keys(&fact_keys, &candidate_keys).is_empty() {
-                        matching_ids.push(entry_id);
-                    }
-                }
-
-                for entry_id in &matching_ids {
-                    conn.execute(
-                        "UPDATE memory_provenance SET retracted_at = ?2, confirmed_at = NULL WHERE id = ?1",
-                        params![entry_id, retracted_at],
-                    )?;
-                }
-
-                Ok(matching_ids)
+        let mut txn = self.conn_db.transaction().await?;
+        let candidates = txn
+            .query(
+                "SELECT id, fact_keys_json FROM memory_provenance WHERE target = ?1 AND mode NOT IN ('remove', 'conflict') AND retracted_at IS NULL",
+                db::db_params![target],
+            )
+            .await?
+            .iter()
+            .filter_map(|row| match (row.get::<String>(0), row.get::<String>(1)) {
+                (Ok(entry_id), Ok(fact_keys_json)) => Some((entry_id, fact_keys_json)),
+                _ => None,
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .collect::<Vec<_>>();
+
+        let mut matching_ids = Vec::new();
+        for (entry_id, fact_keys_json) in candidates {
+            let candidate_keys =
+                serde_json::from_str::<Vec<String>>(&fact_keys_json).unwrap_or_default();
+            if !overlapping_fact_keys(&fact_keys, &candidate_keys).is_empty() {
+                matching_ids.push(entry_id);
+            }
+        }
+
+        for entry_id in &matching_ids {
+            txn.execute(
+                "UPDATE memory_provenance SET retracted_at = ?2, confirmed_at = NULL WHERE id = ?1",
+                db::db_params![entry_id, retracted_at],
+            )
+            .await?;
+        }
+        txn.commit().await?;
+
+        Ok(matching_ids)
     }
 
     async fn ensure_valid_memory_provenance_entry(&self, entry_id: &str) -> Result<()> {
         let signing_material = self.stored_provenance_signing_material();
         let legacy_signing_key = self.legacy_provenance_signing_key();
-        let entry_id = entry_id.to_string();
         let row: Option<(
             String,
             String,
@@ -401,33 +398,29 @@ impl HistoryStore {
             Option<String>,
             Option<String>,
         )> = self
-            .conn
-            .call(move |conn| {
-                Ok(conn
-                    .query_row(
-                        "SELECT target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme FROM memory_provenance WHERE id = ?1",
-                        params![entry_id],
-                        |row| {
-                            Ok((
-                                row.get::<_, String>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, String>(2)?,
-                                row.get::<_, String>(3)?,
-                                row.get::<_, String>(4)?,
-                                row.get::<_, Option<String>>(5)?,
-                                row.get::<_, Option<String>>(6)?,
-                                row.get::<_, Option<String>>(7)?,
-                                row.get::<_, i64>(8)?.max(0) as u64,
-                                row.get::<_, String>(9)?,
-                                row.get::<_, Option<String>>(10)?,
-                                row.get::<_, Option<String>>(11)?,
-                            ))
-                        },
-                    )
-                    .optional()?)
+            .conn_db
+            .query_opt(
+                "SELECT target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme FROM memory_provenance WHERE id = ?1",
+                db::db_params![entry_id],
+            )
+            .await?
+            .map(|row| -> anyhow::Result<_> {
+                Ok((
+                    row.get::<String>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<String>(2)?,
+                    row.get::<String>(3)?,
+                    row.get::<String>(4)?,
+                    row.get::<Option<String>>(5)?,
+                    row.get::<Option<String>>(6)?,
+                    row.get::<Option<String>>(7)?,
+                    row.get::<i64>(8)?.max(0) as u64,
+                    row.get::<String>(9)?,
+                    row.get::<Option<String>>(10)?,
+                    row.get::<Option<String>>(11)?,
+                ))
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .transpose()?;
 
         let Some((
             target,
@@ -507,7 +500,6 @@ impl HistoryStore {
         let target = target.map(str::to_string);
         let signing_material = self.stored_provenance_signing_material();
         let legacy_signing_key = self.legacy_provenance_signing_key();
-        self.conn.call(move |conn| {
         let limit = limit.clamp(1, 200);
         let normalized_target = target
             .as_deref()
@@ -524,55 +516,41 @@ impl HistoryStore {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        match normalized_target.as_deref() {
+        let rows = match normalized_target.as_deref() {
             Some(target) => {
-                let mut stmt = conn.prepare(
-                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at \
-                     FROM memory_provenance WHERE target = ?1 ORDER BY created_at DESC LIMIT ?2",
-                )?;
-                let rows = stmt.query_map(params![target, limit as i64], |row| {
-                    Ok(memory_provenance_entry_from_row(row, now_ms))
-                })?;
-                for row in rows {
-                    let mut entry = row?;
-                    finalize_memory_provenance_entry(
-                        &mut entry,
-                        signing_material.as_ref(),
-                        legacy_signing_key.as_deref(),
-                    );
-                    entry.relationships = relationship_rows_for_entry(conn, &entry.id)?;
-                    *summary_by_target.entry(entry.target.clone()).or_insert(0) += 1;
-                    *summary_by_source
-                        .entry(entry.source_kind.clone())
-                        .or_insert(0) += 1;
-                    *summary_by_status.entry(entry.status.clone()).or_insert(0) += 1;
-                    entries.push(entry);
-                }
+                self.conn_db
+                    .query(
+                        "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at \
+                         FROM memory_provenance WHERE target = ?1 ORDER BY created_at DESC LIMIT ?2",
+                        db::db_params![target, limit as i64],
+                    )
+                    .await?
             }
             None => {
-                let mut stmt = conn.prepare(
-                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at \
-                     FROM memory_provenance ORDER BY created_at DESC LIMIT ?1",
-                )?;
-                let rows = stmt.query_map(params![limit as i64], |row| {
-                    Ok(memory_provenance_entry_from_row(row, now_ms))
-                })?;
-                for row in rows {
-                    let mut entry = row?;
-                    finalize_memory_provenance_entry(
-                        &mut entry,
-                        signing_material.as_ref(),
-                        legacy_signing_key.as_deref(),
-                    );
-                    entry.relationships = relationship_rows_for_entry(conn, &entry.id)?;
-                    *summary_by_target.entry(entry.target.clone()).or_insert(0) += 1;
-                    *summary_by_source
-                        .entry(entry.source_kind.clone())
-                        .or_insert(0) += 1;
-                    *summary_by_status.entry(entry.status.clone()).or_insert(0) += 1;
-                    entries.push(entry);
-                }
+                self.conn_db
+                    .query(
+                        "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at \
+                         FROM memory_provenance ORDER BY created_at DESC LIMIT ?1",
+                        db::db_params![limit as i64],
+                    )
+                    .await?
             }
+        };
+        for row in rows.iter() {
+            let mut entry = memory_provenance_entry_from_row_db(row, now_ms);
+            finalize_memory_provenance_entry(
+                &mut entry,
+                signing_material.as_ref(),
+                legacy_signing_key.as_deref(),
+            );
+            entry.relationships =
+                relationship_rows_for_entry_db(&*self.conn_db, &entry.id).await?;
+            *summary_by_target.entry(entry.target.clone()).or_insert(0) += 1;
+            *summary_by_source
+                .entry(entry.source_kind.clone())
+                .or_insert(0) += 1;
+            *summary_by_status.entry(entry.status.clone()).or_insert(0) += 1;
+            entries.push(entry);
         }
 
         Ok(MemoryProvenanceReport {
@@ -583,7 +561,6 @@ impl HistoryStore {
             summary_by_status,
             entries,
         })
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     pub async fn list_active_memory_provenance_conventions(
@@ -599,69 +576,65 @@ impl HistoryStore {
         let limit = limit.clamp(1, 200) as i64;
         let signing_material = self.stored_provenance_signing_material();
         let legacy_signing_key = self.legacy_provenance_signing_key();
-        self.read_conn
-            .call(move |conn| {
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                let haystack = "lower(COALESCE(target, '') || ' ' || COALESCE(source_kind, '') || ' ' || COALESCE(content, '') || ' ' || COALESCE(fact_keys_json, ''))";
-                let mut sql = String::from(
-                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at \
-                     FROM memory_provenance \
-                     WHERE mode != 'remove' AND retracted_at IS NULL",
-                );
-                let mut values = Vec::<rusqlite::types::Value>::new();
-                if tokens.is_empty() {
-                    sql.push_str(" AND target IN ('MEMORY.md', 'USER.md')");
-                } else {
-                    let all_terms = std::iter::repeat(format!("{haystack} LIKE ?"))
-                        .take(tokens.len())
-                        .collect::<Vec<_>>()
-                        .join(" AND ");
-                    let any_fact_terms = std::iter::repeat("lower(COALESCE(fact_keys_json, '')) LIKE ?")
-                        .take(tokens.len())
-                        .collect::<Vec<_>>()
-                        .join(" OR ");
-                    sql.push_str(" AND ((");
-                    sql.push_str(&all_terms);
-                    sql.push_str(") OR (");
-                    sql.push_str(&any_fact_terms);
-                    sql.push_str("))");
-                    values.extend(
-                        tokens
-                            .iter()
-                            .map(|token| rusqlite::types::Value::Text(format!("%{token}%"))),
-                    );
-                    values.extend(
-                        tokens
-                            .iter()
-                            .map(|token| rusqlite::types::Value::Text(format!("%{token}%"))),
-                    );
-                }
-                sql.push_str(
-                    " ORDER BY CASE WHEN confirmed_at IS NOT NULL THEN 3 WHEN mode = 'conflict' THEN 1 ELSE 2 END DESC, created_at DESC LIMIT ?",
-                );
-                values.push(rusqlite::types::Value::Integer(limit));
-                let mut stmt = conn.prepare(&sql)?;
-                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
-                    Ok(memory_provenance_entry_from_row(row, now_ms))
-                })?;
-                let mut entries = Vec::new();
-                for row in rows {
-                    let mut entry = row?;
-                    finalize_memory_provenance_entry(
-                        &mut entry,
-                        signing_material.as_ref(),
-                        legacy_signing_key.as_deref(),
-                    );
-                    entry.relationships = relationship_rows_for_entry(conn, &entry.id)?;
-                    entries.push(entry);
-                }
-                Ok(entries)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let haystack = "lower(COALESCE(target, '') || ' ' || COALESCE(source_kind, '') || ' ' || COALESCE(content, '') || ' ' || COALESCE(fact_keys_json, ''))";
+        let mut sql = String::from(
+            "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at \
+             FROM memory_provenance \
+             WHERE mode != 'remove' AND retracted_at IS NULL",
+        );
+        let mut values = Vec::<db::Value>::new();
+        if tokens.is_empty() {
+            sql.push_str(" AND target IN ('MEMORY.md', 'USER.md')");
+        } else {
+            let all_terms = std::iter::repeat(format!("{haystack} LIKE ?"))
+                .take(tokens.len())
+                .collect::<Vec<_>>()
+                .join(" AND ");
+            let any_fact_terms = std::iter::repeat("lower(COALESCE(fact_keys_json, '')) LIKE ?")
+                .take(tokens.len())
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            sql.push_str(" AND ((");
+            sql.push_str(&all_terms);
+            sql.push_str(") OR (");
+            sql.push_str(&any_fact_terms);
+            sql.push_str("))");
+            values.extend(
+                tokens
+                    .iter()
+                    .map(|token| db::Value::Text(format!("%{token}%"))),
+            );
+            values.extend(
+                tokens
+                    .iter()
+                    .map(|token| db::Value::Text(format!("%{token}%"))),
+            );
+        }
+        sql.push_str(
+            " ORDER BY CASE WHEN confirmed_at IS NOT NULL THEN 3 WHEN mode = 'conflict' THEN 1 ELSE 2 END DESC, created_at DESC LIMIT ?",
+        );
+        values.push(db::Value::Integer(limit));
+        let rows = self
+            .read_db
+            .query(&sql, db::Params::Positional(values))
+            .await?;
+        let mut entries = Vec::new();
+        for row in rows.iter() {
+            let mut entry = memory_provenance_entry_from_row_db(row, now_ms);
+            finalize_memory_provenance_entry(
+                &mut entry,
+                signing_material.as_ref(),
+                legacy_signing_key.as_deref(),
+            );
+            entry.relationships =
+                relationship_rows_for_entry_db(&*self.read_db, &entry.id).await?;
+            entries.push(entry);
+        }
+        Ok(entries)
     }
 
     pub async fn list_active_memory_provenance_for_target(
@@ -676,36 +649,33 @@ impl HistoryStore {
         let limit = limit.clamp(1, 200) as i64;
         let signing_material = self.stored_provenance_signing_material();
         let legacy_signing_key = self.legacy_provenance_signing_key();
-        self.read_conn
-            .call(move |conn| {
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64;
-                let mut stmt = conn.prepare(
-                    "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at \
-                     FROM memory_provenance \
-                     WHERE target = ?1 AND mode != 'remove' AND retracted_at IS NULL \
-                     ORDER BY created_at DESC LIMIT ?2",
-                )?;
-                let rows = stmt.query_map(params![target, limit], |row| {
-                    Ok(memory_provenance_entry_from_row(row, now_ms))
-                })?;
-                let mut entries = Vec::new();
-                for row in rows {
-                    let mut entry = row?;
-                    finalize_memory_provenance_entry(
-                        &mut entry,
-                        signing_material.as_ref(),
-                        legacy_signing_key.as_deref(),
-                    );
-                    entry.relationships = relationship_rows_for_entry(conn, &entry.id)?;
-                    entries.push(entry);
-                }
-                Ok(entries)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let rows = self
+            .read_db
+            .query(
+                "SELECT id, target, mode, source_kind, content, fact_keys_json, thread_id, task_id, goal_run_id, created_at, entry_hash, signature, signature_scheme, confirmed_at, retracted_at \
+                 FROM memory_provenance \
+                 WHERE target = ?1 AND mode != 'remove' AND retracted_at IS NULL \
+                 ORDER BY created_at DESC LIMIT ?2",
+                db::db_params![target, limit],
+            )
+            .await?;
+        let mut entries = Vec::new();
+        for row in rows.iter() {
+            let mut entry = memory_provenance_entry_from_row_db(row, now_ms);
+            finalize_memory_provenance_entry(
+                &mut entry,
+                signing_material.as_ref(),
+                legacy_signing_key.as_deref(),
+            );
+            entry.relationships =
+                relationship_rows_for_entry_db(&*self.read_db, &entry.id).await?;
+            entries.push(entry);
+        }
+        Ok(entries)
     }
 
     pub async fn latest_memory_provenance_created_at_by_fact_keys(
@@ -723,38 +693,34 @@ impl HistoryStore {
         if fact_keys.is_empty() {
             return Ok(BTreeMap::new());
         }
-        self.read_conn
-            .call(move |conn| {
-                let placeholders = std::iter::repeat("?")
-                    .take(fact_keys.len())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let sql = format!(
-                    "SELECT json_each.value, MAX(memory_provenance.created_at) \
-                     FROM memory_provenance, json_each(memory_provenance.fact_keys_json) \
-                     WHERE memory_provenance.target = ? \
-                       AND json_valid(memory_provenance.fact_keys_json) \
-                       AND json_each.value IN ({placeholders}) \
-                     GROUP BY json_each.value",
-                );
-                let mut values = Vec::<rusqlite::types::Value>::new();
-                values.push(rusqlite::types::Value::Text(target));
-                values.extend(fact_keys.into_iter().map(rusqlite::types::Value::Text));
-                let mut stmt = conn.prepare(&sql)?;
-                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                })?;
-                let mut timestamps = BTreeMap::new();
-                for row in rows {
-                    let (fact_key, created_at) = row?;
-                    if created_at >= 0 {
-                        timestamps.insert(fact_key, created_at as u64);
-                    }
-                }
-                Ok(timestamps)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let placeholders = std::iter::repeat("?")
+            .take(fact_keys.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT json_each.value, MAX(memory_provenance.created_at) \
+             FROM memory_provenance, json_each(memory_provenance.fact_keys_json) \
+             WHERE memory_provenance.target = ? \
+               AND json_valid(memory_provenance.fact_keys_json) \
+               AND json_each.value IN ({placeholders}) \
+             GROUP BY json_each.value",
+        );
+        let mut values = Vec::<db::Value>::new();
+        values.push(db::Value::Text(target));
+        values.extend(fact_keys.into_iter().map(db::Value::Text));
+        let rows = self
+            .read_db
+            .query(&sql, db::Params::Positional(values))
+            .await?;
+        let mut timestamps = BTreeMap::new();
+        for row in rows.iter() {
+            let fact_key = row.get::<String>(0)?;
+            let created_at = row.get::<i64>(1)?;
+            if created_at >= 0 {
+                timestamps.insert(fact_key, created_at as u64);
+            }
+        }
+        Ok(timestamps)
     }
 
     pub async fn record_provenance_event(&self, record: &ProvenanceEventRecord<'_>) -> Result<()> {
@@ -954,34 +920,32 @@ impl HistoryStore {
     }
 
     pub async fn get_subagent_metrics(&self, task_id: &str) -> Result<Option<SubagentMetrics>> {
-        let task_id = task_id.to_string();
-        self.conn.call(move |conn| {
-        conn
-            .query_row(
+        let row = self
+            .conn_db
+            .query_opt(
                 "SELECT task_id, parent_task_id, thread_id, tool_calls_total, tool_calls_succeeded, tool_calls_failed, tokens_consumed, context_budget_tokens, progress_rate, last_progress_at, stuck_score, health_state, created_at, updated_at \
                  FROM subagent_metrics WHERE task_id = ?1",
-                params![task_id],
-                |row| {
-                    Ok(SubagentMetrics {
-                        task_id: row.get(0)?,
-                        parent_task_id: row.get(1)?,
-                        thread_id: row.get(2)?,
-                        tool_calls_total: row.get(3)?,
-                        tool_calls_succeeded: row.get(4)?,
-                        tool_calls_failed: row.get(5)?,
-                        tokens_consumed: row.get(6)?,
-                        context_budget_tokens: row.get(7)?,
-                        progress_rate: row.get(8)?,
-                        last_progress_at: row.get::<_, Option<i64>>(9)?.map(|v| v as u64),
-                        stuck_score: row.get(10)?,
-                        health_state: row.get(11)?,
-                        created_at: row.get::<_, i64>(12)? as u64,
-                        updated_at: row.get::<_, i64>(13)? as u64,
-                    })
-                },
+                db::db_params![task_id],
             )
-            .optional()
-            .map_err(Into::into)
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+            .await?;
+        row.map(|row| -> anyhow::Result<SubagentMetrics> {
+            Ok(SubagentMetrics {
+                task_id: row.get(0)?,
+                parent_task_id: row.get(1)?,
+                thread_id: row.get(2)?,
+                tool_calls_total: row.get(3)?,
+                tool_calls_succeeded: row.get(4)?,
+                tool_calls_failed: row.get(5)?,
+                tokens_consumed: row.get(6)?,
+                context_budget_tokens: row.get(7)?,
+                progress_rate: row.get(8)?,
+                last_progress_at: row.get::<Option<i64>>(9)?.map(|v| v as u64),
+                stuck_score: row.get(10)?,
+                health_state: row.get(11)?,
+                created_at: row.get::<i64>(12)? as u64,
+                updated_at: row.get::<i64>(13)? as u64,
+            })
+        })
+        .transpose()
     }
 }

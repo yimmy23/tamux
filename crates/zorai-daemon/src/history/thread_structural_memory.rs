@@ -10,16 +10,14 @@ pub struct ThreadStructuralMemoryRow {
 }
 
 fn map_thread_structural_memory_row(
-    row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<ThreadStructuralMemoryRow> {
-    let state_json_raw = row.get::<_, String>(1)?;
-    let state_json = serde_json::from_str(&state_json_raw).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(error))
-    })?;
+    row: &db::Row,
+) -> anyhow::Result<ThreadStructuralMemoryRow> {
+    let state_json_raw = row.get::<String>(1)?;
+    let state_json = serde_json::from_str(&state_json_raw)?;
     Ok(ThreadStructuralMemoryRow {
         thread_id: row.get(0)?,
         state_json,
-        updated_at: row.get::<_, i64>(2)?.max(0) as u64,
+        updated_at: row.get::<i64>(2)?.max(0) as u64,
     })
 }
 
@@ -30,38 +28,28 @@ impl HistoryStore {
         state_json: &serde_json::Value,
         updated_at: u64,
     ) -> Result<()> {
-        let thread_id = thread_id.to_string();
         let state_json = serde_json::to_string(state_json)?;
-
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT OR REPLACE INTO thread_structural_memory (thread_id, state_json, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
-                    params![thread_id, state_json, updated_at as i64],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        self.conn_db
+            .execute(
+                "INSERT OR REPLACE INTO thread_structural_memory (thread_id, state_json, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
+                db::db_params![thread_id, state_json, updated_at as i64],
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn get_thread_structural_memory(
         &self,
         thread_id: &str,
     ) -> Result<Option<ThreadStructuralMemoryRow>> {
-        let thread_id = thread_id.to_string();
-        self.read_conn
-            .call(move |conn| {
-                conn.query_row(
-                    "SELECT thread_id, state_json, updated_at FROM thread_structural_memory WHERE thread_id = ?1 AND deleted_at IS NULL",
-                    params![thread_id],
-                    map_thread_structural_memory_row,
-                )
-                .optional()
-                .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let row = self
+            .read_db
+            .query_opt(
+                "SELECT thread_id, state_json, updated_at FROM thread_structural_memory WHERE thread_id = ?1 AND deleted_at IS NULL",
+                db::db_params![thread_id],
+            )
+            .await?;
+        row.map(|row| map_thread_structural_memory_row(&row)).transpose()
     }
 
     pub async fn list_thread_structural_memory_for_threads(
@@ -89,33 +77,22 @@ impl HistoryStore {
              WHERE deleted_at IS NULL AND thread_id IN ({placeholders}) \
              ORDER BY thread_id ASC"
         );
-
-        self.read_conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(&sql)?;
-                let rows = stmt.query_map(
-                    rusqlite::params_from_iter(thread_ids.iter()),
-                    map_thread_structural_memory_row,
-                )?;
-                rows.collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let values = thread_ids.into_iter().map(db::Value::Text).collect();
+        let rows = self
+            .read_db
+            .query(&sql, db::Params::Positional(values))
+            .await?;
+        rows.iter().map(map_thread_structural_memory_row).collect()
     }
 
     pub async fn delete_thread_structural_memory(&self, thread_id: &str) -> Result<()> {
-        let thread_id = thread_id.to_string();
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    "UPDATE thread_structural_memory SET deleted_at = ?2 WHERE thread_id = ?1 AND deleted_at IS NULL",
-                    params![thread_id, now_ts() as i64],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        self.conn_db
+            .execute(
+                "UPDATE thread_structural_memory SET deleted_at = ?2 WHERE thread_id = ?1 AND deleted_at IS NULL",
+                db::db_params![thread_id, now_ts() as i64],
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn upsert_thread_structural_memory_state<T: Serialize>(

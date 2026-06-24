@@ -9,6 +9,18 @@ pub struct ThreadProtocolCandidatesRow {
     pub updated_at: u64,
 }
 
+fn map_thread_protocol_candidates_row(
+    row: &db::Row,
+) -> anyhow::Result<ThreadProtocolCandidatesRow> {
+    let state_json_raw = row.get::<String>(1)?;
+    let state_json = serde_json::from_str(&state_json_raw)?;
+    Ok(ThreadProtocolCandidatesRow {
+        thread_id: row.get(0)?,
+        state_json,
+        updated_at: row.get::<i64>(2)?.max(0) as u64,
+    })
+}
+
 impl HistoryStore {
     pub async fn upsert_thread_protocol_candidates(
         &self,
@@ -16,84 +28,46 @@ impl HistoryStore {
         state_json: &serde_json::Value,
         updated_at: u64,
     ) -> Result<()> {
-        let thread_id = thread_id.to_string();
         let state_json = serde_json::to_string(state_json)?;
-
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT OR REPLACE INTO thread_protocol_candidates (thread_id, state_json, updated_at) VALUES (?1, ?2, ?3)",
-                    params![thread_id, state_json, updated_at as i64],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        self.conn_db
+            .execute(
+                "INSERT OR REPLACE INTO thread_protocol_candidates (thread_id, state_json, updated_at) VALUES (?1, ?2, ?3)",
+                db::db_params![thread_id, state_json, updated_at as i64],
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn get_thread_protocol_candidates(
         &self,
         thread_id: &str,
     ) -> Result<Option<ThreadProtocolCandidatesRow>> {
-        let thread_id = thread_id.to_string();
-        self.conn
-            .call(move |conn| {
-                conn.query_row(
-                    "SELECT thread_id, state_json, updated_at FROM thread_protocol_candidates WHERE thread_id = ?1",
-                    params![thread_id],
-                    |row| {
-                        let state_json_raw = row.get::<_, String>(1)?;
-                        let state_json = serde_json::from_str(&state_json_raw).map_err(|error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                1,
-                                rusqlite::types::Type::Text,
-                                Box::new(error),
-                            )
-                        })?;
-                        Ok(ThreadProtocolCandidatesRow {
-                            thread_id: row.get(0)?,
-                            state_json,
-                            updated_at: row.get::<_, i64>(2)?.max(0) as u64,
-                        })
-                    },
-                )
-                .optional()
-                .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let row = self
+            .conn_db
+            .query_opt(
+                "SELECT thread_id, state_json, updated_at FROM thread_protocol_candidates WHERE thread_id = ?1",
+                db::db_params![thread_id],
+            )
+            .await?;
+        row.map(|row| map_thread_protocol_candidates_row(&row))
+            .transpose()
     }
 
     pub async fn list_thread_protocol_candidates(
         &self,
     ) -> Result<Vec<ThreadProtocolCandidatesRow>> {
-        self.read_conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT thread_id, state_json, updated_at
+        let rows = self
+            .read_db
+            .query(
+                "SELECT thread_id, state_json, updated_at
                      FROM thread_protocol_candidates
                      ORDER BY updated_at DESC",
-                )?;
-                let rows = stmt.query_map([], |row| {
-                    let state_json_raw = row.get::<_, String>(1)?;
-                    let state_json = serde_json::from_str(&state_json_raw).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            1,
-                            rusqlite::types::Type::Text,
-                            Box::new(error),
-                        )
-                    })?;
-                    Ok(ThreadProtocolCandidatesRow {
-                        thread_id: row.get(0)?,
-                        state_json,
-                        updated_at: row.get::<_, i64>(2)?.max(0) as u64,
-                    })
-                })?;
-                rows.collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                db::Params::None,
+            )
+            .await?;
+        rows.iter()
+            .map(map_thread_protocol_candidates_row)
+            .collect()
     }
 
     pub async fn upsert_thread_protocol_candidates_state<T: Serialize>(
