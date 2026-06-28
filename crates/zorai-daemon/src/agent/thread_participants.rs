@@ -1367,9 +1367,9 @@ impl AgentEngine {
                     .rev()
                     .take_while(|message| {
                         !(message.role == MessageRole::System
-                            && message
-                                .content
-                                .starts_with(crate::agent::thread_handoffs::THREAD_HANDOFF_SYSTEM_MARKER))
+                            && message.content.starts_with(
+                                crate::agent::thread_handoffs::THREAD_HANDOFF_SYSTEM_MARKER,
+                            ))
                     })
                     .find_map(|message| {
                         if !matches!(message.role, MessageRole::Assistant) {

@@ -421,6 +421,14 @@ pub enum ClientEvent {
     },
     WorkspaceNoticeUpdated(zorai_protocol::WorkspaceNotice),
 
+    DatabaseSyncResult { ok: bool, message: String },
+    DatabaseBackendState {
+        backend: Option<String>,
+        sync_url: Option<String>,
+        has_token: bool,
+        seeded_at: Option<i64>,
+    },
+
     Error(String),
 }
 

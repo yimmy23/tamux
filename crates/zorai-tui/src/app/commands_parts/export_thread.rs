@@ -28,6 +28,9 @@ impl TuiModel {
             thread_id: thread_id.clone(),
             message_id,
         });
-        self.status_line = format!("Exporting thread {thread_id} through message {}...", index + 1);
+        self.status_line = format!(
+            "Exporting thread {thread_id} through message {}...",
+            index + 1
+        );
     }
 }

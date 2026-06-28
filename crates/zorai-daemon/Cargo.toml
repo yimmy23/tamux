@@ -32,6 +32,7 @@ regex = "1"
 dirs = "6"
 rusqlite = { version = "0.32", features = ["bundled"] }
 tokio-rusqlite = "0.6"
+libsql = "0.9"
 sha2 = "0.10"
 sysinfo = "0.30"
 tree-sitter = "0.22"

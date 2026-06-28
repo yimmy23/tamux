@@ -54,24 +54,20 @@ impl AgentEngine {
         let include_legacy = crate::agent::is_main_agent_scope(&agent_id) as i64;
         let related: Option<(String, String)> = self
             .history
-            .conn
-            .call(move |conn| {
-                Ok(conn
-                    .query_row(
-                        "SELECT id, outcome FROM episodes
+            .read_db
+            .query_opt(
+                "SELECT id, outcome FROM episodes
                      WHERE goal_text = ?1
                        AND id != ?2
                        AND (agent_id = ?3 OR (?4 = 1 AND agent_id IS NULL))
                        AND deleted_at IS NULL
                      ORDER BY created_at DESC
                      LIMIT 1",
-                        params![goal_text, current_episode_id, agent_id, include_legacy],
-                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-                    )
-                    .optional()?)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+                db::db_params![goal_text, current_episode_id, agent_id, include_legacy],
+            )
+            .await?
+            .map(|row| Ok::<_, anyhow::Error>((row.get::<String>(0)?, row.get::<String>(1)?)))
+            .transpose()?;
 
         let Some((target_episode_id, outcome)) = related else {
             return Ok(());

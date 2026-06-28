@@ -1704,6 +1704,42 @@ async fn copilot_responses_parser_errors_on_malformed_event_payload() {
 }
 
 #[tokio::test]
+async fn responses_parser_accepts_data_lines_without_space_after_colon() {
+    let body = concat!(
+        "data:{\"type\":\"response.created\",\"response\":{\"id\":\"resp_no_space\"}}\n",
+        "data:{\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n",
+        "data:{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_no_space\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":2,\"output_tokens\":3,\"total_tokens\":5},\"error\":null}}\n",
+        "data:[DONE]\n"
+    );
+    let (response, server) = responses_sse_test_response(body).await;
+
+    let (tx, mut rx) = mpsc::channel(8);
+    parse_openai_responses_sse(response, zorai_shared::providers::PROVIDER_ID_OPENAI, &tx)
+        .await
+        .expect("parse should succeed");
+    drop(tx);
+
+    let mut streamed = String::new();
+    let mut done = None;
+    while let Some(chunk) = rx.recv().await {
+        match chunk.expect("chunk") {
+            CompletionChunk::Delta { content, .. } => streamed.push_str(&content),
+            CompletionChunk::Done {
+                content,
+                input_tokens,
+                output_tokens,
+                ..
+            } => done = Some((content, input_tokens, output_tokens)),
+            _ => {}
+        }
+    }
+
+    assert_eq!(streamed, "hello");
+    assert_eq!(done, Some(("hello".to_string(), 2, 3)));
+    server.await.expect("server task");
+}
+
+#[tokio::test]
 async fn chat_completions_parser_provider_final_result_uses_normalized_tool_calls() {
     let body = concat!(
             "data: {\"id\":\"chatcmpl_tool_final\",\"model\":\"gpt-5.4\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"name\":\"second\",\"arguments\":\"\"}}]}}]}\n",
@@ -1813,7 +1849,8 @@ async fn chat_sse_split_test_response(
 
 #[tokio::test]
 async fn chat_completions_parser_reassembles_data_line_split_across_chunks() {
-    let first = "data: {\"id\":\"c1\",\"model\":\"glm-5.2\",\"choices\":[{\"delta\":{\"content\":\"hel";
+    let first =
+        "data: {\"id\":\"c1\",\"model\":\"glm-5.2\",\"choices\":[{\"delta\":{\"content\":\"hel";
     let second = concat!(
         "lo world\"}}]}\n",
         "data: {\"id\":\"c1\",\"model\":\"glm-5.2\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n",
@@ -1839,6 +1876,88 @@ async fn chat_completions_parser_reassembles_data_line_split_across_chunks() {
 
     assert_eq!(streamed, "hello world");
     assert_eq!(done_content.as_deref(), Some("hello world"));
+    server.await.expect("server task");
+}
+
+#[tokio::test]
+async fn chat_completions_parser_accepts_data_lines_without_space_after_colon() {
+    let body = concat!(
+        "data:{\"id\":\"chatcmpl_kimi\",\"model\":\"kimi-k2.6\",\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":null}}]}\n",
+        "data:{\"id\":\"chatcmpl_kimi\",\"model\":\"kimi-k2.6\",\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking\"}}]}\n",
+        "data:{\"id\":\"chatcmpl_kimi\",\"model\":\"kimi-k2.6\",\"choices\":[{\"delta\":{\"content\":\"p\"}}]}\n",
+        "data:{\"id\":\"chatcmpl_kimi\",\"model\":\"kimi-k2.6\",\"choices\":[{\"delta\":{\"content\":\"ong\"}}]}\n",
+        "data:{\"id\":\"chatcmpl_kimi\",\"model\":\"kimi-k2.6\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n",
+        "data:{\"id\":\"chatcmpl_kimi\",\"model\":\"kimi-k2.6\",\"choices\":[],\"usage\":{\"prompt_tokens\":13,\"completion_tokens\":50,\"total_tokens\":63}}\n",
+        "data: [DONE]\n"
+    );
+    let (response, server) = responses_sse_test_response(body).await;
+
+    let (tx, mut rx) = mpsc::channel(8);
+    parse_openai_sse(response, &tx)
+        .await
+        .expect("parse should succeed");
+    drop(tx);
+
+    let mut streamed = String::new();
+    let mut reasoning_deltas = Vec::new();
+    let mut done = None;
+    while let Some(chunk) = rx.recv().await {
+        match chunk.expect("chunk") {
+            CompletionChunk::Delta { content, reasoning } => {
+                streamed.push_str(&content);
+                if let Some(reasoning) = reasoning {
+                    reasoning_deltas.push(reasoning);
+                }
+            }
+            CompletionChunk::Done {
+                content,
+                reasoning,
+                input_tokens,
+                output_tokens,
+                provider_final_result,
+                ..
+            } => {
+                let final_result = match provider_final_result.expect("provider result") {
+                    crate::agent::types::CompletionProviderFinalResult::OpenAiChatCompletions(
+                        response,
+                    ) => response,
+                    other => panic!("expected chat completions provider result, got {other:?}"),
+                };
+                done = Some((
+                    content,
+                    reasoning,
+                    input_tokens,
+                    output_tokens,
+                    final_result.output_text,
+                    final_result.reasoning,
+                    final_result.input_tokens,
+                    final_result.output_tokens,
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    let (
+        done_content,
+        done_reasoning,
+        input_tokens,
+        output_tokens,
+        final_output_text,
+        final_reasoning,
+        final_input_tokens,
+        final_output_tokens,
+    ) = done.expect("expected terminal done chunk");
+    assert_eq!(streamed, "pong");
+    assert_eq!(reasoning_deltas, vec!["thinking".to_string()]);
+    assert_eq!(done_content, "pong");
+    assert_eq!(done_reasoning.as_deref(), Some("thinking"));
+    assert_eq!(input_tokens, 13);
+    assert_eq!(output_tokens, 50);
+    assert_eq!(final_output_text, "pong");
+    assert_eq!(final_reasoning.as_deref(), Some("thinking"));
+    assert_eq!(final_input_tokens, Some(13));
+    assert_eq!(final_output_tokens, Some(50));
     server.await.expect("server task");
 }
 

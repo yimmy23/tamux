@@ -222,7 +222,12 @@ fn thread_picker_shift_r_requests_refresh() {
     );
 
     assert!(!handled);
-    assert!(matches!(daemon_rx.try_recv(), Ok(DaemonCommand::Refresh)));
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::RefreshThreadsForAgent {
+            agent_filter: Some(filter),
+        }) if filter == zorai_protocol::AGENT_HANDLE_SVAROG
+    ));
 }
 
 #[test]

@@ -401,7 +401,7 @@ async fn list_agent_threads_reads_bounded_recent_threads_from_db() {
 }
 
 #[tokio::test]
-async fn agent_list_threads_without_limit_reads_bounded_recent_threads_from_db() {
+async fn agent_list_threads_with_explicit_limit_reads_bounded_recent_threads_from_db() {
     let mut conn = spawn_test_connection().await;
     let expected_limit = 128;
     let total_threads = expected_limit + 5;
@@ -429,7 +429,7 @@ async fn agent_list_threads_without_limit_reads_bounded_recent_threads_from_db()
 
     conn.framed
         .send(ClientMessage::AgentListThreads {
-            limit: None,
+            limit: Some(expected_limit),
             offset: None,
             include_internal: false,
             agent_filter: None,
@@ -449,6 +449,62 @@ async fn agent_list_threads_without_limit_reads_bounded_recent_threads_from_db()
             assert_eq!(
                 threads.last().map(|thread| thread.id.as_str()),
                 Some("agent-list-thread-005")
+            );
+        }
+        other => panic!("expected agent thread list, got {other:?}"),
+    }
+
+    conn.shutdown().await;
+}
+
+#[tokio::test]
+async fn agent_list_threads_without_limit_reads_all_thread_summaries_from_db() {
+    let mut conn = spawn_test_connection().await;
+    let total_threads = 133;
+
+    for index in 0..total_threads {
+        conn.agent
+            .history
+            .create_thread(&zorai_protocol::AgentDbThread {
+                id: format!("agent-list-all-thread-{index:03}"),
+                workspace_id: None,
+                surface_id: None,
+                pane_id: None,
+                agent_name: Some("main".to_string()),
+                title: format!("Agent list all thread {index:03}"),
+                created_at: index as i64,
+                updated_at: index as i64,
+                message_count: 0,
+                total_tokens: 0,
+                last_preview: String::new(),
+                metadata_json: None,
+            })
+            .await
+            .expect("persist thread");
+    }
+
+    conn.framed
+        .send(ClientMessage::AgentListThreads {
+            limit: None,
+            offset: None,
+            include_internal: false,
+            agent_filter: None,
+        })
+        .await
+        .expect("request all agent thread summaries");
+
+    match conn.recv().await {
+        DaemonMessage::AgentThreadList { threads_json } => {
+            let threads: Vec<crate::agent::types::AgentThread> =
+                serde_json::from_str(&threads_json).expect("decode threads");
+            assert_eq!(threads.len(), total_threads);
+            assert_eq!(
+                threads.first().map(|thread| thread.id.as_str()),
+                Some("agent-list-all-thread-132")
+            );
+            assert_eq!(
+                threads.last().map(|thread| thread.id.as_str()),
+                Some("agent-list-all-thread-000")
             );
         }
         other => panic!("expected agent thread list, got {other:?}"),

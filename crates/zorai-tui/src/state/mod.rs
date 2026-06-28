@@ -33,9 +33,9 @@ pub enum FocusArea {
 #[derive(Debug, Clone)]
 pub enum DaemonCommand {
     Refresh,
-    /// Request the unbounded thread list for a specific agent filter. The
-    /// daemon drops its 128-thread cap when an agent_filter is supplied; the
-    /// TUI caches the result client-side and refreshes on demand.
+    /// Request an unbounded thread list, optionally narrowed to a specific
+    /// agent filter. The TUI caches the result client-side and refreshes on
+    /// demand.
     RefreshThreadsForAgent {
         agent_filter: Option<String>,
     },
@@ -330,6 +330,8 @@ pub enum DaemonCommand {
     WhatsAppLinkSubscribe,
     WhatsAppLinkUnsubscribe,
     WhatsAppLinkReset,
+    DatabaseSyncNow,
+    DatabaseGetBackend,
     DeleteMessages {
         thread_id: String,
         message_ids: Vec<String>,

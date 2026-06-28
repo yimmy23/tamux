@@ -1,5 +1,15 @@
 use super::*;
 
+type HealthLogTuple = (
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    u64,
+);
+
 impl HistoryStore {
     /// Insert or replace a checkpoint row in the `agent_checkpoints` table.
     pub async fn upsert_checkpoint(
@@ -13,13 +23,6 @@ impl HistoryStore {
         context_summary: Option<&str>,
         created_at: u64,
     ) -> Result<()> {
-        let id = id.to_string();
-        let goal_run_id = goal_run_id.to_string();
-        let thread_id = thread_id.map(str::to_string);
-        let task_id = task_id.map(str::to_string);
-        let state_json = state_json.to_string();
-        let context_summary = context_summary.map(str::to_string);
-        self.conn.call(move |conn| {
         let type_str = match checkpoint_type {
             CheckpointType::PreStep => "pre_step",
             CheckpointType::PostStep => "post_step",
@@ -27,56 +30,52 @@ impl HistoryStore {
             CheckpointType::PreRecovery => "pre_recovery",
             CheckpointType::Periodic => "periodic",
         };
-        conn.execute(
-            "INSERT OR REPLACE INTO agent_checkpoints \
+        self.conn_db
+            .execute(
+                "INSERT OR REPLACE INTO agent_checkpoints \
              (id, goal_run_id, thread_id, task_id, checkpoint_type, state_json, context_summary, created_at, deleted_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)",
-            params![
-                id,
-                goal_run_id,
-                thread_id,
-                task_id,
-                type_str,
-                state_json,
-                context_summary,
-                created_at as i64,
-            ],
-        )?;
+                db::db_params![
+                    id,
+                    goal_run_id,
+                    thread_id,
+                    task_id,
+                    type_str,
+                    state_json,
+                    context_summary,
+                    created_at as i64,
+                ],
+            )
+            .await?;
         Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
     /// Load all checkpoint JSON blobs for a given goal run, ordered by
     /// `created_at` descending.
     pub async fn list_checkpoints_for_goal_run(&self, goal_run_id: &str) -> Result<Vec<String>> {
-        let goal_run_id = goal_run_id.to_string();
-        self.conn.call(move |conn| {
-        let mut stmt = conn.prepare(
-            "SELECT state_json FROM agent_checkpoints WHERE goal_run_id = ?1 AND deleted_at IS NULL ORDER BY created_at DESC",
-        )?;
-        let rows = stmt
-            .query_map(params![goal_run_id], |row| row.get::<_, String>(0))?
-            .filter_map(|r| r.ok())
-            .collect();
-        Ok(rows)
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        let rows = self
+            .conn_db
+            .query(
+                "SELECT state_json FROM agent_checkpoints WHERE goal_run_id = ?1 AND deleted_at IS NULL ORDER BY created_at DESC",
+                db::db_params![goal_run_id],
+            )
+            .await?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| row.get::<String>(0).ok())
+            .collect())
     }
 
     /// Load a single checkpoint by ID.
     pub async fn get_checkpoint(&self, id: &str) -> Result<Option<String>> {
-        let id = id.to_string();
-        self.conn
-            .call(move |conn| {
-                conn.query_row(
-                    "SELECT state_json FROM agent_checkpoints WHERE id = ?1 AND deleted_at IS NULL",
-                    params![id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()
-                .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let row = self
+            .conn_db
+            .query_opt(
+                "SELECT state_json FROM agent_checkpoints WHERE id = ?1 AND deleted_at IS NULL",
+                db::db_params![id],
+            )
+            .await?;
+        row.map(|row| row.get::<String>(0)).transpose()
     }
 
     /// Delete checkpoints by their IDs.
@@ -84,39 +83,28 @@ impl HistoryStore {
         if ids.is_empty() {
             return Ok(0);
         }
-        let ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
-        self.conn
-            .call(move |conn| {
-                let placeholders: Vec<&str> = vec!["?"; ids.len()];
-                let sql = format!(
-                    "UPDATE agent_checkpoints SET deleted_at = ? WHERE deleted_at IS NULL AND id IN ({})",
-                    placeholders.join(", ")
-                );
-                let deleted_at = now_ts() as i64;
-                let mut params: Vec<&dyn rusqlite::types::ToSql> = vec![&deleted_at];
-                params.extend(ids
-                    .iter()
-                    .map(|id| id as &dyn rusqlite::types::ToSql)
-                );
-                let deleted = conn.execute(&sql, params.as_slice())?;
-                Ok(deleted)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let placeholders = vec!["?"; ids.len()].join(", ");
+        let sql = format!(
+            "UPDATE agent_checkpoints SET deleted_at = ? WHERE deleted_at IS NULL AND id IN ({placeholders})"
+        );
+        let mut values = vec![db::Value::Integer(now_ts() as i64)];
+        values.extend(ids.iter().map(|id| db::Value::Text(id.to_string())));
+        let deleted = self
+            .conn_db
+            .execute(&sql, db::Params::Positional(values))
+            .await?;
+        Ok(deleted as usize)
     }
 
     pub async fn delete_checkpoints_for_goal_run(&self, goal_run_id: &str) -> Result<usize> {
-        let goal_run_id = goal_run_id.to_string();
-        self.conn
-            .call(move |conn| {
-                let deleted = conn.execute(
-                    "UPDATE agent_checkpoints SET deleted_at = ?2 WHERE goal_run_id = ?1 AND deleted_at IS NULL",
-                    params![goal_run_id, now_ts() as i64],
-                )?;
-                Ok(deleted)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let deleted = self
+            .conn_db
+            .execute(
+                "UPDATE agent_checkpoints SET deleted_at = ?2 WHERE goal_run_id = ?1 AND deleted_at IS NULL",
+                db::db_params![goal_run_id, now_ts() as i64],
+            )
+            .await?;
+        Ok(deleted as usize)
     }
 
     pub async fn insert_health_log(
@@ -129,53 +117,36 @@ impl HistoryStore {
         intervention: Option<&str>,
         created_at: u64,
     ) -> Result<()> {
-        let id = id.to_string();
-        let entity_type = entity_type.to_string();
-        let entity_id = entity_id.to_string();
-        let health_state = health_state.to_string();
-        let indicators_json = indicators_json.map(str::to_string);
-        let intervention = intervention.map(str::to_string);
-        self.conn.call(move |conn| {
-        conn.execute(
-            "INSERT INTO agent_health_log (id, entity_type, entity_id, health_state, indicators_json, intervention, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![id, entity_type, entity_id, health_state, indicators_json, intervention, created_at as i64],
-        )?;
+        self.conn_db
+            .execute(
+                "INSERT INTO agent_health_log (id, entity_type, entity_id, health_state, indicators_json, intervention, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                db::db_params![id, entity_type, entity_id, health_state, indicators_json, intervention, created_at as i64],
+            )
+            .await?;
         Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
     }
 
-    pub async fn list_health_log(
-        &self,
-        limit: u32,
-    ) -> Result<
-        Vec<(
-            String,
-            String,
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            u64,
-        )>,
-    > {
-        self.conn.call(move |conn| {
-        let mut stmt = conn.prepare(
-            "SELECT id, entity_type, entity_id, health_state, indicators_json, intervention, created_at FROM agent_health_log ORDER BY created_at DESC LIMIT ?1",
-        )?;
-        let rows = stmt.query_map(params![limit], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
-                row.get::<_, Option<String>>(5)?,
-                row.get::<_, i64>(6)? as u64,
-            ))
-        })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+    pub async fn list_health_log(&self, limit: u32) -> Result<Vec<HealthLogTuple>> {
+        let rows = self
+            .conn_db
+            .query(
+                "SELECT id, entity_type, entity_id, health_state, indicators_json, intervention, created_at FROM agent_health_log ORDER BY created_at DESC LIMIT ?1",
+                db::db_params![limit as i64],
+            )
+            .await?;
+        rows.iter()
+            .map(|row| -> anyhow::Result<HealthLogTuple> {
+                Ok((
+                    row.get::<String>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<String>(2)?,
+                    row.get::<String>(3)?,
+                    row.get::<Option<String>>(4)?,
+                    row.get::<Option<String>>(5)?,
+                    row.get::<i64>(6)? as u64,
+                ))
+            })
+            .collect()
     }
 
     pub async fn list_degraded_health_log_since(
@@ -183,61 +154,46 @@ impl HistoryStore {
         since: u64,
         intervention_contains: Option<&str>,
         limit: u32,
-    ) -> Result<
-        Vec<(
-            String,
-            String,
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            u64,
-        )>,
-    > {
+    ) -> Result<Vec<HealthLogTuple>> {
         let intervention_contains = intervention_contains
             .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string);
-        self.read_conn
-            .call(move |conn| {
-                let limit = limit.max(1) as i64;
-                let since = since as i64;
-                let sql = if intervention_contains.is_some() {
-                    "SELECT id, entity_type, entity_id, health_state, indicators_json, intervention, created_at
+            .filter(|value| !value.is_empty());
+        let limit = limit.max(1) as i64;
+        let since = since as i64;
+        let (sql, params) = match intervention_contains {
+            Some(text) => (
+                "SELECT id, entity_type, entity_id, health_state, indicators_json, intervention, created_at
                      FROM agent_health_log
                      WHERE health_state != 'healthy'
                        AND created_at >= ?1
                        AND intervention LIKE ?2
                      ORDER BY created_at DESC
-                     LIMIT ?3"
-                } else {
-                    "SELECT id, entity_type, entity_id, health_state, indicators_json, intervention, created_at
+                     LIMIT ?3",
+                db::db_params![since, format!("%{text}%"), limit],
+            ),
+            None => (
+                "SELECT id, entity_type, entity_id, health_state, indicators_json, intervention, created_at
                      FROM agent_health_log
                      WHERE health_state != 'healthy'
                        AND created_at >= ?1
                      ORDER BY created_at DESC
-                     LIMIT ?2"
-                };
-                let mut stmt = conn.prepare(sql)?;
-                let mapper = |row: &rusqlite::Row<'_>| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                        row.get::<_, i64>(6)?.max(0) as u64,
-                    ))
-                };
-                let rows = match intervention_contains {
-                    Some(text) => stmt.query_map(params![since, format!("%{text}%"), limit], mapper)?,
-                    None => stmt.query_map(params![since, limit], mapper)?,
-                };
-                rows.collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(Into::into)
+                     LIMIT ?2",
+                db::db_params![since, limit],
+            ),
+        };
+        let rows = self.read_db.query(sql, params).await?;
+        rows.iter()
+            .map(|row| -> anyhow::Result<HealthLogTuple> {
+                Ok((
+                    row.get::<String>(0)?,
+                    row.get::<String>(1)?,
+                    row.get::<String>(2)?,
+                    row.get::<String>(3)?,
+                    row.get::<Option<String>>(4)?,
+                    row.get::<Option<String>>(5)?,
+                    row.get::<i64>(6)?.max(0) as u64,
+                ))
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .collect()
     }
 }

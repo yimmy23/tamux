@@ -22,15 +22,9 @@ impl TuiModel {
         &mut self,
         tab: &crate::state::modal::ThreadPickerTab,
     ) {
-        let Some(filter) = tab.agent_filter() else {
-            self.pending_thread_picker_refresh = None;
-            self.thread_picker_loading_tab = None;
-            return;
-        };
-
         self.pending_thread_picker_refresh = Some(PendingThreadPickerRefresh {
             tab: tab.clone(),
-            agent_filter: filter,
+            agent_filter: tab.agent_filter(),
             ready_at_tick: self
                 .tick_counter
                 .saturating_add(THREAD_PICKER_AGENT_REFRESH_DEBOUNCE_TICKS),
@@ -47,23 +41,17 @@ impl TuiModel {
     }
 
     /// Dispatch a thread-list refresh keyed on the current picker tab. For
-    /// agent-scoped tabs the daemon returns *all* matching threads (no cap);
-    /// for tabs not scoped to an agent (Goals/Workspace/etc.) we skip — those
-    /// already render from in-memory caches keyed by their own criteria.
+    /// agent-scoped tabs the daemon returns all matching threads; for tabs not
+    /// scoped to an agent it returns the full thread summary list.
     pub(crate) fn refresh_threads_for_picker_tab(
         &mut self,
         tab: &crate::state::modal::ThreadPickerTab,
     ) {
-        if let Some(filter) = tab.agent_filter() {
-            self.pending_thread_picker_refresh = None;
-            self.thread_picker_loading_tab = Some(tab.clone());
-            self.send_daemon_command(crate::state::DaemonCommand::RefreshThreadsForAgent {
-                agent_filter: Some(filter),
-            });
-        } else {
-            self.pending_thread_picker_refresh = None;
-            self.thread_picker_loading_tab = None;
-        }
+        self.pending_thread_picker_refresh = None;
+        self.thread_picker_loading_tab = Some(tab.clone());
+        self.send_daemon_command(crate::state::DaemonCommand::RefreshThreadsForAgent {
+            agent_filter: tab.agent_filter(),
+        });
     }
     pub(super) fn handle_key_modal(
         &mut self,
@@ -1021,14 +1009,24 @@ impl TuiModel {
                     return false;
                 }
                 KeyCode::Down => {
+                    let before = self.settings.field_cursor();
                     self.settings.navigate_field(1, self.settings_field_count());
-                    self.sync_settings_modal_scroll_to_selection();
+                    if self.settings.field_cursor() == before {
+                        self.set_settings_modal_scroll(self.settings_modal_scroll.saturating_add(1));
+                    } else {
+                        self.sync_settings_modal_scroll_to_selection();
+                    }
                     return false;
                 }
                 KeyCode::Up => {
+                    let before = self.settings.field_cursor();
                     self.settings
                         .navigate_field(-1, self.settings_field_count());
-                    self.sync_settings_modal_scroll_to_selection();
+                    if self.settings.field_cursor() == before {
+                        self.set_settings_modal_scroll(self.settings_modal_scroll.saturating_sub(1));
+                    } else {
+                        self.sync_settings_modal_scroll_to_selection();
+                    }
                     return false;
                 }
                 KeyCode::PageDown => {
@@ -1444,11 +1442,13 @@ impl TuiModel {
                 }
                 KeyCode::Home => {
                     self.sync_thread_participants_modal_item_count();
-                    self.modal.reduce(modal::ModalAction::Navigate(i32::MIN / 2))
+                    self.modal
+                        .reduce(modal::ModalAction::Navigate(i32::MIN / 2))
                 }
                 KeyCode::End => {
                     self.sync_thread_participants_modal_item_count();
-                    self.modal.reduce(modal::ModalAction::Navigate(i32::MAX / 2))
+                    self.modal
+                        .reduce(modal::ModalAction::Navigate(i32::MAX / 2))
                 }
                 _ => {}
             }

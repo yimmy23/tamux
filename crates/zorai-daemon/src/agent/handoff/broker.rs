@@ -416,9 +416,7 @@ impl AgentEngine {
                 Some(
                     candidate_profiles
                         .iter()
-                        .map(|profile| {
-                            cache.vectors.get(&profile.id).cloned().unwrap_or_default()
-                        })
+                        .map(|profile| cache.vectors.get(&profile.id).cloned().unwrap_or_default())
                         .collect::<Vec<_>>(),
                 )
             } else {

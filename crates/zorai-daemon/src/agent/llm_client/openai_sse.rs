@@ -30,11 +30,9 @@ pub(crate) async fn parse_openai_sse(
         }
         for line in &lines {
             let line = line.as_str();
-            if !line.starts_with("data: ") {
+            let Some(data) = line.strip_prefix("data:").map(str::trim) else {
                 continue;
-            }
-
-            let data = line[6..].trim();
+            };
             if data == "[DONE]" {
                 if !pending_tool_calls.is_empty() {
                     let tool_calls = drain_tool_calls(&mut pending_tool_calls);
@@ -372,15 +370,15 @@ fn apply_openai_responses_function_call_item(
 }
 
 fn openai_responses_sse_data_line<'a>(line: &'a str, remaining: &mut String) -> Option<&'a str> {
-    if !line.starts_with("data: ") {
+    let Some(data) = line.strip_prefix("data:").map(str::trim) else {
         if !line.is_empty() && !line.starts_with(':') && !line.starts_with("event:") {
             remaining.push_str(line);
             remaining.push('\n');
         }
         return None;
-    }
+    };
 
-    match line[6..].trim() {
+    match data {
         "" | "[DONE]" => None,
         data => Some(data),
     }

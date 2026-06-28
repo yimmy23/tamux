@@ -5,8 +5,8 @@
 //! Records every handoff to the WORM telemetry ledger (immutable) and
 //! to the handoff_log SQLite table (queryable detail).
 
+use crate::history::db;
 use anyhow::Result;
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -156,37 +156,34 @@ impl AgentEngine {
         let now = now_ts() as i64;
 
         self.history
-            .conn
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT INTO handoff_log (
-                        id, from_task_id, to_specialist_id, to_task_id,
-                        task_description, acceptance_criteria_json, context_bundle_json,
-                        capability_tags_json, handoff_depth, outcome, confidence_band,
-                        routing_method, routing_score, fallback_used, created_at
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-                    params![
-                        handoff_log_id,
-                        from_task_id,
-                        to_specialist_id,
-                        to_task_id,
-                        task_description,
-                        acceptance_criteria_json,
-                        context_bundle_json,
-                        capability_tags_json,
-                        handoff_depth as i64,
-                        outcome,
-                        confidence_band,
-                        routing_method,
-                        routing_score,
-                        fallback_used as i64,
-                        now,
-                    ],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .conn_db
+            .execute(
+                "INSERT INTO handoff_log (
+                    id, from_task_id, to_specialist_id, to_task_id,
+                    task_description, acceptance_criteria_json, context_bundle_json,
+                    capability_tags_json, handoff_depth, outcome, confidence_band,
+                    routing_method, routing_score, fallback_used, created_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                db::db_params![
+                    handoff_log_id,
+                    from_task_id,
+                    to_specialist_id,
+                    to_task_id,
+                    task_description,
+                    acceptance_criteria_json,
+                    context_bundle_json,
+                    capability_tags_json,
+                    handoff_depth as i64,
+                    outcome,
+                    confidence_band,
+                    routing_method,
+                    routing_score,
+                    fallback_used as i64,
+                    now,
+                ],
+            )
+            .await?;
+        Ok(())
     }
 
     /// Update the outcome of an existing handoff log entry.
@@ -203,23 +200,20 @@ impl AgentEngine {
         let completed_at = is_terminal_handoff_outcome(&outcome).then(|| now_ts() as i64);
 
         self.history
-            .conn
-            .call(move |conn| {
-                conn.execute(
-                    "UPDATE handoff_log SET outcome = ?1, duration_ms = ?2, \
-                     completed_at = ?3, error_message = ?4 WHERE id = ?5",
-                    params![
-                        outcome,
-                        duration_ms.map(|d| d as i64),
-                        completed_at,
-                        error_message,
-                        handoff_log_id,
-                    ],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .conn_db
+            .execute(
+                "UPDATE handoff_log SET outcome = ?1, duration_ms = ?2, \
+                 completed_at = ?3, error_message = ?4 WHERE id = ?5",
+                db::db_params![
+                    outcome,
+                    duration_ms.map(|d| d as i64),
+                    completed_at,
+                    error_message,
+                    handoff_log_id,
+                ],
+            )
+            .await?;
+        Ok(())
     }
 
     /// Bind a dispatched specialist task ID to an existing handoff log entry.
@@ -232,16 +226,13 @@ impl AgentEngine {
         let to_task_id = to_task_id.to_string();
 
         self.history
-            .conn
-            .call(move |conn| {
-                conn.execute(
-                    "UPDATE handoff_log SET to_task_id = ?1 WHERE id = ?2",
-                    params![to_task_id, handoff_log_id],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .conn_db
+            .execute(
+                "UPDATE handoff_log SET to_task_id = ?1 WHERE id = ?2",
+                db::db_params![to_task_id, handoff_log_id],
+            )
+            .await?;
+        Ok(())
     }
 
     /// Resolve handoff log ID from persisted specialist task linkage.
@@ -251,20 +242,14 @@ impl AgentEngine {
     ) -> Result<Option<String>> {
         let task_id = task_id.to_string();
         self.history
-            .conn
-            .call(move |conn| {
-                let mut stmt =
-                    conn.prepare("SELECT id FROM handoff_log WHERE to_task_id = ?1 LIMIT 1")?;
-                let mut rows = stmt.query(params![task_id])?;
-                if let Some(row) = rows.next()? {
-                    let id: String = row.get(0)?;
-                    Ok(Some(id))
-                } else {
-                    Ok(None)
-                }
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .read_db
+            .query_opt(
+                "SELECT id FROM handoff_log WHERE to_task_id = ?1 LIMIT 1",
+                db::db_params![task_id],
+            )
+            .await?
+            .map(|row| row.get::<String>(0))
+            .transpose()
     }
 
     pub(crate) async fn get_handoff_learning_context_by_task_id(
@@ -272,35 +257,32 @@ impl AgentEngine {
         task_id: &str,
     ) -> Result<Option<HandoffLearningContext>> {
         let task_id = task_id.to_string();
-        self.history
-            .conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT id, to_specialist_id, capability_tags_json, routing_score \
-                     FROM handoff_log WHERE to_task_id = ?1 LIMIT 1",
-                )?;
-                let mut rows = stmt.query(params![task_id])?;
-                if let Some(row) = rows.next()? {
-                    let handoff_log_id: String = row.get(0)?;
-                    let to_specialist_id: String = row.get(1)?;
-                    let capability_tags_json: Option<String> = row.get(2)?;
-                    let routing_score: f64 = row.get(3)?;
-                    let capability_tags = capability_tags_json
-                        .as_deref()
-                        .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok())
-                        .unwrap_or_default();
-                    Ok(Some(HandoffLearningContext {
-                        handoff_log_id,
-                        to_specialist_id,
-                        capability_tags,
-                        routing_score,
-                    }))
-                } else {
-                    Ok(None)
-                }
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let Some(row) = self
+            .history
+            .read_db
+            .query_opt(
+                "SELECT id, to_specialist_id, capability_tags_json, routing_score \
+                 FROM handoff_log WHERE to_task_id = ?1 LIMIT 1",
+                db::db_params![task_id],
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        let handoff_log_id: String = row.get(0)?;
+        let to_specialist_id: String = row.get(1)?;
+        let capability_tags_json: Option<String> = row.get(2)?;
+        let routing_score: f64 = row.get(3)?;
+        let capability_tags = capability_tags_json
+            .as_deref()
+            .and_then(|json| serde_json::from_str::<Vec<String>>(json).ok())
+            .unwrap_or_default();
+        Ok(Some(HandoffLearningContext {
+            handoff_log_id,
+            to_specialist_id,
+            capability_tags,
+            routing_score,
+        }))
     }
 
     pub(crate) async fn load_capability_score_rows(
@@ -308,37 +290,33 @@ impl AgentEngine {
         capability_tags: &[String],
     ) -> Result<Vec<CapabilityScoreRow>> {
         let capability_tags = capability_tags.to_vec();
-        self.history
-            .conn
-            .call(move |conn| {
-                let mut rows_out = Vec::new();
-                let mut stmt = conn.prepare(
+        let mut rows_out = Vec::new();
+        for capability_tag in capability_tags {
+            let rows = self
+                .history
+                .read_db
+                .query(
                     "SELECT agent_id, capability_tag, attempts, successes, failures, partials, \
                             last_attempt_ms, avg_confidence_score, total_tokens_used \
                      FROM agent_capability_scores WHERE capability_tag = ?1",
-                )?;
-                for capability_tag in capability_tags {
-                    let mapped = stmt.query_map(params![capability_tag], |row| {
-                        Ok(CapabilityScoreRow {
-                            agent_id: row.get(0)?,
-                            capability_tag: row.get(1)?,
-                            attempts: row.get::<_, i64>(2)? as u64,
-                            successes: row.get::<_, i64>(3)? as u64,
-                            failures: row.get::<_, i64>(4)? as u64,
-                            partials: row.get::<_, i64>(5)? as u64,
-                            last_attempt_ms: row.get::<_, Option<i64>>(6)?.map(|v| v as u64),
-                            avg_confidence_score: row.get(7)?,
-                            total_tokens_used: row.get::<_, i64>(8)? as u64,
-                        })
-                    })?;
-                    for row in mapped {
-                        rows_out.push(row?);
-                    }
-                }
-                Ok(rows_out)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                    db::db_params![capability_tag],
+                )
+                .await?;
+            for row in &rows {
+                rows_out.push(CapabilityScoreRow {
+                    agent_id: row.get(0)?,
+                    capability_tag: row.get(1)?,
+                    attempts: row.get::<i64>(2)? as u64,
+                    successes: row.get::<i64>(3)? as u64,
+                    failures: row.get::<i64>(4)? as u64,
+                    partials: row.get::<i64>(5)? as u64,
+                    last_attempt_ms: row.get::<Option<i64>>(6)?.map(|v| v as u64),
+                    avg_confidence_score: row.get(7)?,
+                    total_tokens_used: row.get::<i64>(8)? as u64,
+                });
+            }
+        }
+        Ok(rows_out)
     }
 
     pub(crate) async fn record_capability_outcome(
@@ -368,26 +346,29 @@ impl AgentEngine {
         };
         let now_ms = (now_ts() as i64) * 1000;
 
-        self.history
-            .conn
-            .call(move |conn| {
-                for capability_tag in capability_tags {
-                    conn.execute(
+        {
+            for capability_tag in capability_tags {
+                self.history
+                    .conn_db
+                    .execute(
                         "INSERT INTO agent_capability_scores (
                             agent_id, capability_tag, attempts, successes, failures, partials,
                             last_attempt_ms, avg_confidence_score, total_tokens_used
                         ) VALUES (?1, ?2, 0, 0, 0, 0, NULL, 0.5, 0)
                         ON CONFLICT(agent_id, capability_tag) DO NOTHING",
-                        params![&agent_id, &capability_tag],
-                    )?;
+                        db::db_params![agent_id.clone(), capability_tag.clone()],
+                    )
+                    .await?;
 
-                    let (success_delta, failure_delta, partial_delta) = match outcome.as_str() {
-                        "success" | "completed" | "accepted" => (1_i64, 0_i64, 0_i64),
-                        "partial" | "rejected" => (0_i64, 0_i64, 1_i64),
-                        _ => (0_i64, 1_i64, 0_i64),
-                    };
+                let (success_delta, failure_delta, partial_delta) = match outcome.as_str() {
+                    "success" | "completed" | "accepted" => (1_i64, 0_i64, 0_i64),
+                    "partial" | "rejected" => (0_i64, 0_i64, 1_i64),
+                    _ => (0_i64, 1_i64, 0_i64),
+                };
 
-                    conn.execute(
+                self.history
+                    .conn_db
+                    .execute(
                         "UPDATE agent_capability_scores
                          SET attempts = attempts + 1,
                              successes = successes + ?3,
@@ -397,9 +378,9 @@ impl AgentEngine {
                              avg_confidence_score = ((1.0 - ?7) * avg_confidence_score) + (?7 * ?8),
                              total_tokens_used = total_tokens_used + ?9
                          WHERE agent_id = ?1 AND capability_tag = ?2",
-                        params![
-                            &agent_id,
-                            &capability_tag,
+                        db::db_params![
+                            agent_id.clone(),
+                            capability_tag.clone(),
                             success_delta,
                             failure_delta,
                             partial_delta,
@@ -408,12 +389,10 @@ impl AgentEngine {
                             confidence,
                             tokens_used as i64,
                         ],
-                    )?;
-                }
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+                    )
+                    .await?;
+            }
+        }
 
         self.record_morphogenesis_outcome(
             &morphogenesis_agent_id,

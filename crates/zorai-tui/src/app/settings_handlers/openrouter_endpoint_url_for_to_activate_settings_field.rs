@@ -6,6 +6,8 @@ mod activate_advanced_settings_field;
 mod activate_compaction_settings_field;
 #[path = "activate_concierge_settings_field.rs"]
 mod activate_concierge_settings_field;
+#[path = "activate_database_settings_field.rs"]
+mod activate_database_settings_field;
 #[path = "activate_features_settings_field.rs"]
 mod activate_features_settings_field;
 #[path = "activate_gateway_settings_field.rs"]
@@ -134,6 +136,7 @@ impl TuiModel {
             || self.activate_advanced_settings_field(field)
             || self.activate_compaction_settings_field(field)
             || self.activate_concierge_settings_field(field)
+            || self.activate_database_settings_field(field)
         {
             return;
         }

@@ -1,5 +1,5 @@
 use super::*;
-use crate::history::schema_helpers::table_has_column;
+use crate::history::schema_helpers::table_has_column_sync;
 
 #[test]
 fn table_has_column_detects_generated_columns() -> Result<()> {
@@ -14,7 +14,7 @@ fn table_has_column_detects_generated_columns() -> Result<()> {
         );",
     )?;
 
-    assert!(table_has_column(&conn, "agent_threads", "pinned")?);
+    assert!(table_has_column_sync(&conn, "agent_threads", "pinned")?);
     Ok(())
 }
 
@@ -158,7 +158,7 @@ async fn init_schema_adds_visible_thread_list_index_after_deleted_at_migration()
     let (has_deleted_at, index_sql) = store
         .conn
         .call(|conn| {
-            let has_deleted_at = table_has_column(conn, "agent_threads", "deleted_at")?;
+            let has_deleted_at = table_has_column_sync(conn, "agent_threads", "deleted_at")?;
             let index_sql = conn.query_row(
                 "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_threads_visible_updated'",
                 [],
@@ -215,7 +215,7 @@ async fn init_schema_handles_existing_generated_pinned_thread_column() -> Result
     let (has_pinned, index_sql) = store
         .conn
         .call(|conn| {
-            let has_pinned = table_has_column(conn, "agent_threads", "pinned")?;
+            let has_pinned = table_has_column_sync(conn, "agent_threads", "pinned")?;
             let index_sql = conn.query_row(
                 "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'idx_threads_pinned_active_updated'",
                 [],
@@ -1759,7 +1759,7 @@ async fn init_schema_migrates_legacy_agent_messages_before_deleted_at_index() ->
     let (has_deleted_at, index_columns) = store
         .conn
         .call(|conn| {
-            let has_deleted_at = table_has_column(conn, "agent_messages", "deleted_at")?;
+            let has_deleted_at = table_has_column_sync(conn, "agent_messages", "deleted_at")?;
             let mut stmt =
                 conn.prepare("PRAGMA index_info('idx_messages_thread_deleted_created')")?;
             let rows = stmt.query_map([], |row| row.get::<_, String>(2))?;
@@ -3155,7 +3155,7 @@ async fn ensure_column_adds_user_action_to_action_audit() -> Result<()> {
     let (store, root) = make_test_store().await?;
     let has = store
         .conn
-        .call(|conn| Ok(table_has_column(conn, "action_audit", "user_action")?))
+        .call(|conn| Ok(table_has_column_sync(conn, "action_audit", "user_action")?))
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     assert!(has, "user_action column should exist after init_schema");
@@ -3194,7 +3194,7 @@ async fn init_schema_migrates_legacy_causal_traces_before_family_index() -> Resu
     let (has_trace_family, index_columns) = store
         .conn
         .call(|conn| {
-            let has_trace_family = table_has_column(conn, "causal_traces", "trace_family")?;
+            let has_trace_family = table_has_column_sync(conn, "causal_traces", "trace_family")?;
             let mut stmt = conn.prepare("PRAGMA index_info('idx_causal_traces_family')")?;
             let rows = stmt.query_map([], |row| row.get::<_, String>(2))?;
             let index_columns = rows.collect::<std::result::Result<Vec<_>, _>>()?;

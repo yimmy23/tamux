@@ -21,71 +21,58 @@ async fn init_schema_adds_elastic_context_tables_to_legacy_db() -> Result<()> {
 
     store.init_schema().await?;
 
-    let status = store
-        .conn
-        .call(|conn| {
-            let has_offloaded_thread = table_has_column(conn, "offloaded_payloads", "thread_id")?;
-            let has_offloaded_summary = table_has_column(conn, "offloaded_payloads", "summary")?;
-            let summary_notnull: i64 = conn.query_row(
-                "SELECT \"notnull\" FROM pragma_table_info('offloaded_payloads') WHERE name = 'summary'",
-                [],
-                |row| row.get(0),
-            )?;
-            let offloaded_index: Option<String> = conn
-                .query_row(
-                    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_offloaded_payloads_thread_created'",
-                    [],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let has_structural_state =
-                table_has_column(conn, "thread_structural_memory", "state_json")?;
-            let has_structural_updated =
-                table_has_column(conn, "thread_structural_memory", "updated_at")?;
-            let has_memory_nodes_label = table_has_column(conn, "memory_nodes", "label")?;
-            let has_memory_nodes_type = table_has_column(conn, "memory_nodes", "node_type")?;
-            let has_memory_edges_relation =
-                table_has_column(conn, "memory_edges", "relation_type")?;
-            let has_memory_edges_weight = table_has_column(conn, "memory_edges", "weight")?;
-            let structural_index: Option<String> = conn
-                .query_row(
-                    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_thread_structural_memory_updated'",
-                    [],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let memory_node_index: Option<String> = conn
-                .query_row(
-                    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_memory_nodes_type_accessed'",
-                    [],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let memory_edge_unique_index: Option<String> = conn
-                .query_row(
-                    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_memory_edges_unique'",
-                    [],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            Ok((
-                has_offloaded_thread,
-                has_offloaded_summary,
-                summary_notnull,
-                offloaded_index,
-                has_structural_state,
-                has_structural_updated,
-                structural_index,
-                has_memory_nodes_label,
-                has_memory_nodes_type,
-                has_memory_edges_relation,
-                has_memory_edges_weight,
-                memory_node_index,
-                memory_edge_unique_index,
-            ))
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    async fn index_name(
+        conn: &dyn crate::history::db::DbConn,
+        name: &str,
+    ) -> Result<Option<String>> {
+        Ok(conn
+            .query_opt(
+                &format!("SELECT name FROM sqlite_master WHERE type = 'index' AND name = '{name}'"),
+                crate::history::db::Params::None,
+            )
+            .await?
+            .map(|row| row.get::<String>(0))
+            .transpose()?)
+    }
+    let mut exec = crate::history::db::ConnExecutor(&*store.read_db);
+    let has_offloaded_thread =
+        table_has_column(&mut exec, "offloaded_payloads", "thread_id").await?;
+    let has_offloaded_summary =
+        table_has_column(&mut exec, "offloaded_payloads", "summary").await?;
+    let has_structural_state =
+        table_has_column(&mut exec, "thread_structural_memory", "state_json").await?;
+    let has_structural_updated =
+        table_has_column(&mut exec, "thread_structural_memory", "updated_at").await?;
+    let has_memory_nodes_label = table_has_column(&mut exec, "memory_nodes", "label").await?;
+    let has_memory_nodes_type = table_has_column(&mut exec, "memory_nodes", "node_type").await?;
+    let has_memory_edges_relation =
+        table_has_column(&mut exec, "memory_edges", "relation_type").await?;
+    let has_memory_edges_weight = table_has_column(&mut exec, "memory_edges", "weight").await?;
+    let summary_notnull: i64 = store
+        .read_db
+        .query_opt(
+            "SELECT \"notnull\" FROM pragma_table_info('offloaded_payloads') WHERE name = 'summary'",
+            crate::history::db::Params::None,
+        )
+        .await?
+        .map(|row| row.get::<i64>(0))
+        .transpose()?
+        .unwrap_or(0);
+    let status = (
+        has_offloaded_thread,
+        has_offloaded_summary,
+        summary_notnull,
+        index_name(&*store.read_db, "idx_offloaded_payloads_thread_created").await?,
+        has_structural_state,
+        has_structural_updated,
+        index_name(&*store.read_db, "idx_thread_structural_memory_updated").await?,
+        has_memory_nodes_label,
+        has_memory_nodes_type,
+        has_memory_edges_relation,
+        has_memory_edges_weight,
+        index_name(&*store.read_db, "idx_memory_nodes_type_accessed").await?,
+        index_name(&*store.read_db, "idx_memory_edges_unique").await?,
+    );
 
     assert!(status.0);
     assert!(status.1);

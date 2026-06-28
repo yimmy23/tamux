@@ -184,7 +184,7 @@ impl TuiModel {
 
         self.pending_thread_picker_refresh = None;
         self.send_daemon_command(DaemonCommand::RefreshThreadsForAgent {
-            agent_filter: Some(pending.agent_filter),
+            agent_filter: pending.agent_filter,
         });
         self.status_line = "Refreshing threads…".to_string();
     }

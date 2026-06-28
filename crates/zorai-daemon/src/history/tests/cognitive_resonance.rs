@@ -22,30 +22,33 @@ async fn init_schema_adds_cognitive_resonance_tables() -> Result<()> {
 
     store.init_schema().await?;
 
-    let status = store
-        .conn
-        .call(|conn| {
-            let has_state = table_has_column(conn, "cognitive_resonance_samples", "cognitive_state")?;
-            let has_score = table_has_column(conn, "cognitive_resonance_samples", "resonance_score")?;
-            let sample_index: Option<String> = conn
-                .query_row(
-                    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_cognitive_resonance_samples_sampled'",
-                    [],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let has_parameter = table_has_column(conn, "behavior_adjustments_log", "parameter")?;
-            let log_index: Option<String> = conn
-                .query_row(
-                    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_behavior_adjustments_log_adjusted'",
-                    [],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            Ok((has_state, has_score, sample_index, has_parameter, log_index))
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    async fn index_name(
+        conn: &dyn crate::history::db::DbConn,
+        name: &str,
+    ) -> Result<Option<String>> {
+        Ok(conn
+            .query_opt(
+                &format!("SELECT name FROM sqlite_master WHERE type = 'index' AND name = '{name}'"),
+                crate::history::db::Params::None,
+            )
+            .await?
+            .map(|row| row.get::<String>(0))
+            .transpose()?)
+    }
+    let mut exec = crate::history::db::ConnExecutor(&*store.read_db);
+    let has_state =
+        table_has_column(&mut exec, "cognitive_resonance_samples", "cognitive_state").await?;
+    let has_score =
+        table_has_column(&mut exec, "cognitive_resonance_samples", "resonance_score").await?;
+    let has_parameter =
+        table_has_column(&mut exec, "behavior_adjustments_log", "parameter").await?;
+    let status = (
+        has_state,
+        has_score,
+        index_name(&*store.read_db, "idx_cognitive_resonance_samples_sampled").await?,
+        has_parameter,
+        index_name(&*store.read_db, "idx_behavior_adjustments_log_adjusted").await?,
+    );
 
     assert!(status.0);
     assert!(status.1);

@@ -931,7 +931,9 @@ mod tests {
     fn no_message_is_treated_like_no_suggestion() {
         assert!(participant_response_is_no_suggestion("NO_MESSAGE"));
         assert!(participant_response_is_no_suggestion("NO MESSAGE"));
-        assert!(participant_response_is_no_suggestion("Response: NO_MESSAGE"));
+        assert!(participant_response_is_no_suggestion(
+            "Response: NO_MESSAGE"
+        ));
         assert_eq!(parse_participant_suggestion_response("NO_MESSAGE"), None);
         assert_eq!(
             parse_participant_suggestion_response("FORCE: yes\nMESSAGE: NO_MESSAGE"),

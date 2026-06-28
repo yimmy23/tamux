@@ -709,6 +709,11 @@ fn spawn_lancedb_indexer_runtime(
                 let semantic_engine = engine.clone();
                 let embedding_shutdown = shutdown.clone();
                 let semantic_shutdown = shutdown.clone();
+                let sync_conn_db = engine.history.conn_db.clone();
+                let sync_shutdown = shutdown.clone();
+                let sync_interval = zorai_protocol::ZoraiConfig::load()
+                    .db_sync_interval_secs
+                    .unwrap_or(60);
                 let embedding_handle = tokio::spawn(async move {
                     embedding_engine
                         .run_embedding_index_loop(embedding_shutdown)
@@ -719,7 +724,11 @@ fn spawn_lancedb_indexer_runtime(
                         .run_semantic_document_index_loop(semantic_shutdown)
                         .await;
                 });
-                let _ = tokio::join!(embedding_handle, semantic_handle);
+                let sync_handle = tokio::spawn(async move {
+                    crate::history::run_db_sync_loop(sync_conn_db, sync_interval, sync_shutdown)
+                        .await;
+                });
+                let _ = tokio::join!(embedding_handle, semantic_handle, sync_handle);
             });
             tracing::info!("lancedb indexer runtime exiting");
         });

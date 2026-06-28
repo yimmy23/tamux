@@ -7,7 +7,9 @@ use crate::agent::types::{
 };
 use crate::governance::{GovernanceConstraint, TransitionKind};
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+#[cfg(test)]
+use rusqlite::OptionalExtension;
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio_rusqlite;
@@ -235,6 +237,15 @@ pub struct HistoryStore {
     /// seen the unified pool wedge for hundreds of seconds under load — split
     /// pools are the only architectural fix that survives bursty workloads.
     pub(crate) interactive_read_conn: ReadPool,
+    /// Engine-neutral facade over the writer connection. Call sites are being
+    /// migrated from the raw `conn`/`read_conn` `.call(...)` closures onto these
+    /// (`db::DbConn`) handles so an alternate engine (libSQL) can be swapped in.
+    /// During the migration both the raw connection and its facade wrapper point
+    /// at the same underlying SQLite connection.
+    pub(crate) conn_db: std::sync::Arc<dyn db::DbConn>,
+    pub(crate) embedding_writer_db: std::sync::Arc<dyn db::DbConn>,
+    pub(crate) read_db: std::sync::Arc<dyn db::DbConn>,
+    pub(crate) interactive_read_db: std::sync::Arc<dyn db::DbConn>,
     pub(crate) caches: std::sync::Arc<HistoryCaches>,
     skill_dir: PathBuf,
     telemetry_dir: PathBuf,
@@ -1733,7 +1744,9 @@ mod command_log;
 mod consolidation;
 mod context_archive;
 mod core;
+pub(crate) use core::run_db_sync_loop;
 mod critique;
+pub(crate) mod db;
 mod debate;
 mod dream_state;
 mod embedding_queue;
@@ -1757,6 +1770,7 @@ mod provenance;
 mod routines;
 mod row_mapping;
 mod schema;
+pub(crate) use schema::init_schema_on_connection;
 mod schema_helpers;
 mod schema_migrations;
 mod schema_sql;

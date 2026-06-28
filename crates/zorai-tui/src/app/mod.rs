@@ -70,7 +70,7 @@ struct PendingDeleteBackfillFetch {
 #[derive(Debug, Clone)]
 struct PendingThreadPickerRefresh {
     tab: modal::ThreadPickerTab,
-    agent_filter: String,
+    agent_filter: Option<String>,
     ready_at_tick: u64,
 }
 

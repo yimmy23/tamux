@@ -74,6 +74,7 @@ pub(crate) fn render_tab_content<'a>(
         SettingsTab::Features => render_features_tab(settings, config, tier, theme),
         SettingsTab::Advanced => render_advanced_tab(settings, config, theme),
         SettingsTab::Plugins => render_plugins_tab(settings, plugin_settings, content_width, theme),
+        SettingsTab::Database => render_database_tab(settings, config, theme),
         SettingsTab::About => render_about_tab(theme),
     }
 }

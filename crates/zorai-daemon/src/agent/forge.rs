@@ -8,8 +8,8 @@
 //! timestamped `[forge]` provenance prefix.
 
 use super::*;
+use crate::history::db;
 use chrono::{SecondsFormat, Utc};
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -310,28 +310,25 @@ async fn list_recent_trace_rows(
     limit: usize,
 ) -> anyhow::Result<Vec<ForgeTraceRow>> {
     let agent_id = agent_id.to_string();
-    db.conn
-        .call(move |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT tool_sequence_json, metrics_json
-                 FROM execution_traces
-                 WHERE agent_id = ?1 AND started_at_ms >= ?2
-                 ORDER BY started_at_ms DESC
-                 LIMIT ?3",
-            )?;
-            let rows = stmt.query_map(
-                params![agent_id, period_start_ms as i64, limit as i64],
-                |row| {
-                    Ok(ForgeTraceRow {
-                        tool_sequence_json: row.get(0)?,
-                        metrics_json: row.get(1)?,
-                    })
-                },
-            )?;
-            Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    let rows = db
+        .read_db
+        .query(
+            "SELECT tool_sequence_json, metrics_json
+             FROM execution_traces
+             WHERE agent_id = ?1 AND started_at_ms >= ?2
+             ORDER BY started_at_ms DESC
+             LIMIT ?3",
+            db::db_params![agent_id, period_start_ms as i64, limit as i64],
+        )
+        .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(ForgeTraceRow {
+                tool_sequence_json: row.get(0)?,
+                metrics_json: row.get(1)?,
+            })
         })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))
+        .collect()
 }
 
 fn detect_patterns(traces: &[ForgeTraceRow], min_frequency: usize) -> Vec<ExecutionPattern> {
@@ -559,27 +556,24 @@ async fn log_forge_pass(
     let hints_logged = result.hints_logged_only as i64;
     let completed_at_ms = now_millis() as i64;
 
-    db.conn
-        .call(move |conn| {
-            conn.execute(
-                "INSERT INTO forge_pass_log \
-                 (agent_id, period_start_ms, period_end_ms, traces_analyzed, patterns_found, hints_applied, hints_logged, completed_at_ms) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    agent_id,
-                    period_start_ms as i64,
-                    period_end_ms as i64,
-                    traces_analyzed,
-                    patterns_found,
-                    hints_applied,
-                    hints_logged,
-                    completed_at_ms,
-                ],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))
+    db.conn_db
+        .execute(
+            "INSERT INTO forge_pass_log \
+             (agent_id, period_start_ms, period_end_ms, traces_analyzed, patterns_found, hints_applied, hints_logged, completed_at_ms) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            db::db_params![
+                agent_id,
+                period_start_ms as i64,
+                period_end_ms as i64,
+                traces_analyzed,
+                patterns_found,
+                hints_applied,
+                hints_logged,
+                completed_at_ms,
+            ],
+        )
+        .await?;
+    Ok(())
 }
 
 #[cfg(test)]

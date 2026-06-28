@@ -220,32 +220,27 @@ async fn load_graph_seed_nodes(history: &HistoryStore, query: &str) -> Result<Ve
     let exact = query.to_ascii_lowercase();
     let like = format!("%{}%", exact);
     let matched = history
-        .conn
-        .call(move |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT id FROM memory_nodes
-                 WHERE node_type != 'skill_variant'
-                   AND (
-                        lower(label) = ?1 OR
-                        lower(label) LIKE ?2 OR
-                        lower(COALESCE(summary_text, '')) LIKE ?2
-                   )
-                 ORDER BY
-                    CASE WHEN lower(label) = ?1 THEN 0 ELSE 1 END,
-                    access_count DESC,
-                    last_accessed_ms DESC,
-                    id ASC
-                 LIMIT ?3",
-            )?;
-            let rows = stmt.query_map(
-                rusqlite::params![exact, like, MAX_GRAPH_SIGNAL_SEEDS as i64],
-                |row| row.get::<_, String>(0),
-            )?;
-            rows.collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(Into::into)
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+        .read_db
+        .query(
+            "SELECT id FROM memory_nodes
+             WHERE node_type != 'skill_variant'
+               AND (
+                    lower(label) = ?1 OR
+                    lower(label) LIKE ?2 OR
+                    lower(COALESCE(summary_text, '')) LIKE ?2
+               )
+             ORDER BY
+                CASE WHEN lower(label) = ?1 THEN 0 ELSE 1 END,
+                access_count DESC,
+                last_accessed_ms DESC,
+                id ASC
+             LIMIT ?3",
+            crate::history::db::db_params![exact, like, MAX_GRAPH_SIGNAL_SEEDS as i64],
+        )
+        .await?
+        .iter()
+        .map(|row| row.get::<String>(0))
+        .collect::<Result<Vec<_>>>()?;
 
     let mut seeds = Vec::with_capacity(1 + matched.len());
     seeds.push(intent_node_id);

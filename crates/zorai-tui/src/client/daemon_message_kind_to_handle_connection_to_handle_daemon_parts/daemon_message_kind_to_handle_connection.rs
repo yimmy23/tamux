@@ -307,7 +307,7 @@ impl DaemonClient {
                 limit: None,
                 offset: None,
                 include_internal: true,
-                agent_filter: Some(zorai_protocol::AGENT_HANDLE_SVAROG.to_string()),
+                agent_filter: None,
             },
         ] {
             if let Err(err) = zorai_protocol::validate_client_message_size(&request) {

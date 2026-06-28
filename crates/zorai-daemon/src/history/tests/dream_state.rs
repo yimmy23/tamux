@@ -22,37 +22,36 @@ async fn init_schema_adds_dream_state_tables() -> Result<()> {
 
     store.init_schema().await?;
 
-    let status = store
-        .conn
-        .call(|conn| {
-            let has_idle_duration = table_has_column(conn, "dream_cycles", "idle_duration_ms")?;
-            let has_status = table_has_column(conn, "dream_cycles", "status")?;
-            let cycle_index: Option<String> = conn
-                .query_row(
-                    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_dream_cycles_started'",
-                    [],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let has_variation_type =
-                table_has_column(conn, "counterfactual_evaluations", "variation_type")?;
-            let eval_index: Option<String> = conn
-                .query_row(
-                    "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_counterfactual_evaluations_cycle'",
-                    [],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            Ok((
-                has_idle_duration,
-                has_status,
-                cycle_index,
-                has_variation_type,
-                eval_index,
-            ))
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let mut exec = crate::history::db::ConnExecutor(&*store.read_db);
+    let has_idle_duration = table_has_column(&mut exec, "dream_cycles", "idle_duration_ms").await?;
+    let has_status = table_has_column(&mut exec, "dream_cycles", "status").await?;
+    let has_variation_type =
+        table_has_column(&mut exec, "counterfactual_evaluations", "variation_type").await?;
+    let cycle_index: Option<String> = store
+        .read_db
+        .query_opt(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_dream_cycles_started'",
+            crate::history::db::Params::None,
+        )
+        .await?
+        .map(|row| row.get::<String>(0))
+        .transpose()?;
+    let eval_index: Option<String> = store
+        .read_db
+        .query_opt(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_counterfactual_evaluations_cycle'",
+            crate::history::db::Params::None,
+        )
+        .await?
+        .map(|row| row.get::<String>(0))
+        .transpose()?;
+    let status = (
+        has_idle_duration,
+        has_status,
+        cycle_index,
+        has_variation_type,
+        eval_index,
+    );
 
     assert!(status.0);
     assert!(status.1);

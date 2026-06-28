@@ -289,6 +289,20 @@ function registerDbIpcHandlers(ipcMain, runtime) {
             return { error: error?.message || String(error) };
         }
     });
+    ipcMain.handle('db-get-backend', async () => {
+        try {
+            return await sendDbQuery({ type: 'database-get-backend' }, 'database-backend-state');
+        } catch (error) {
+            return { error: error?.message || String(error) };
+        }
+    });
+    ipcMain.handle('db-sync-now', async () => {
+        try {
+            return await sendDbQuery({ type: 'database-sync-now' }, 'database-sync-result', 30000);
+        } catch (error) {
+            return { ok: false, message: error?.message || String(error) };
+        }
+    });
 }
 
 module.exports = { registerDbIpcHandlers };

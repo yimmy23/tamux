@@ -4,8 +4,8 @@ use crate::agent::consensus::bid_priors::effective_bid_confidence;
 use crate::agent::consensus::outcome_feedback::build_quality_metric;
 use crate::agent::consensus::role_assigner::build_role_assignment;
 use crate::agent::explanation::{confidence_band, generate_explanation, ExplanationResult};
+use crate::history::db;
 use crate::history::AuditEntryRow;
-use rusqlite::OptionalExtension;
 
 const MIN_CONSENSUS_BID_CONFIDENCE: f64 = 0.3;
 use super::*;
@@ -420,25 +420,21 @@ impl AgentEngine {
     ) -> Result<HashMap<String, f64>> {
         let parent_task_id = parent_task_id.to_string();
         let task_ids = task_ids.to_vec();
-        self.history
-            .read_conn
-            .call(move |conn| {
-                let mut scores = HashMap::new();
-                let mut stmt = conn.prepare(
+        let mut scores = HashMap::new();
+        for task_id in task_ids {
+            if let Some(row) = self
+                .history
+                .read_db
+                .query_opt(
                     "SELECT task_id, learned_score FROM collaboration_agent_outcomes WHERE parent_task_id = ?1 AND task_id = ?2",
-                )?;
-                for task_id in task_ids {
-                    if let Some(score) = stmt
-                        .query_row(rusqlite::params![&parent_task_id, &task_id], |row| row.get::<_, f64>(1))
-                        .optional()?
-                    {
-                        scores.insert(task_id, score);
-                    }
-                }
-                Ok(scores)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                    db::db_params![parent_task_id.clone(), task_id.clone()],
+                )
+                .await?
+            {
+                scores.insert(task_id, row.get::<f64>(1)?);
+            }
+        }
+        Ok(scores)
     }
 
     async fn record_collaboration_agent_outcome(
@@ -451,46 +447,46 @@ impl AgentEngine {
         let task_id = task_id.to_string();
         let outcome = outcome.to_string();
         let updated_at_ms = now_millis();
+        let existing = self
+            .history
+            .conn_db
+            .query_opt(
+                "SELECT success_count, failure_count FROM collaboration_agent_outcomes WHERE parent_task_id = ?1 AND task_id = ?2",
+                db::db_params![parent_task_id.clone(), task_id.clone()],
+            )
+            .await?
+            .map(|row| Ok::<_, anyhow::Error>((row.get::<i64>(0)? as u64, row.get::<i64>(1)? as u64)))
+            .transpose()?;
+        let (mut success_count, mut failure_count) = existing.unwrap_or((0, 0));
+        match outcome.as_str() {
+            "success" | "completed" | "accepted" => success_count += 1,
+            _ => failure_count += 1,
+        }
+        let learned_score = clamp_collaboration_learned_score(success_count, failure_count);
         self.history
-            .conn
-            .call(move |conn| {
-                let existing = conn
-                    .query_row(
-                        "SELECT success_count, failure_count FROM collaboration_agent_outcomes WHERE parent_task_id = ?1 AND task_id = ?2",
-                        rusqlite::params![&parent_task_id, &task_id],
-                        |row| Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64)),
-                    )
-                    .optional()?;
-                let (mut success_count, mut failure_count) = existing.unwrap_or((0, 0));
-                match outcome.as_str() {
-                    "success" | "completed" | "accepted" => success_count += 1,
-                    _ => failure_count += 1,
-                }
-                let learned_score = clamp_collaboration_learned_score(success_count, failure_count);
-                conn.execute(
-                    "INSERT INTO collaboration_agent_outcomes (
-                        parent_task_id, task_id, success_count, failure_count, learned_score, last_outcome, updated_at_ms
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                     ON CONFLICT(parent_task_id, task_id) DO UPDATE SET
-                        success_count = excluded.success_count,
-                        failure_count = excluded.failure_count,
-                        learned_score = excluded.learned_score,
-                        last_outcome = excluded.last_outcome,
-                        updated_at_ms = excluded.updated_at_ms",
-                    rusqlite::params![
-                        parent_task_id,
-                        task_id,
-                        success_count as i64,
-                        failure_count as i64,
-                        learned_score,
-                        outcome,
-                        updated_at_ms as i64,
-                    ],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .conn_db
+            .execute(
+                "INSERT INTO collaboration_agent_outcomes (
+                    parent_task_id, task_id, success_count, failure_count, learned_score, last_outcome, updated_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(parent_task_id, task_id) DO UPDATE SET
+                    success_count = excluded.success_count,
+                    failure_count = excluded.failure_count,
+                    learned_score = excluded.learned_score,
+                    last_outcome = excluded.last_outcome,
+                    updated_at_ms = excluded.updated_at_ms",
+                db::db_params![
+                    parent_task_id,
+                    task_id,
+                    success_count as i64,
+                    failure_count as i64,
+                    learned_score,
+                    outcome,
+                    updated_at_ms as i64,
+                ],
+            )
+            .await?;
+        Ok(())
     }
 
     async fn ensure_task_collaboration_session(

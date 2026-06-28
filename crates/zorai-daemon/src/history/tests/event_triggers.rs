@@ -1,5 +1,5 @@
 use super::*;
-use crate::history::schema_helpers::table_has_column;
+use crate::history::schema_helpers::table_has_column_sync;
 
 #[tokio::test]
 async fn init_schema_adds_event_trigger_registry_table() -> Result<()> {
@@ -23,19 +23,19 @@ async fn init_schema_adds_event_trigger_registry_table() -> Result<()> {
     let status = store
         .conn
         .call(|conn| {
-            let has_event_family = table_has_column(conn, "event_triggers", "event_family")?;
-            let has_event_kind = table_has_column(conn, "event_triggers", "event_kind")?;
-            let has_agent_id = table_has_column(conn, "event_triggers", "agent_id")?;
-            let has_target_state = table_has_column(conn, "event_triggers", "target_state")?;
-            let has_cooldown_secs = table_has_column(conn, "event_triggers", "cooldown_secs")?;
-            let has_risk_label = table_has_column(conn, "event_triggers", "risk_label")?;
+            let has_event_family = table_has_column_sync(conn, "event_triggers", "event_family")?;
+            let has_event_kind = table_has_column_sync(conn, "event_triggers", "event_kind")?;
+            let has_agent_id = table_has_column_sync(conn, "event_triggers", "agent_id")?;
+            let has_target_state = table_has_column_sync(conn, "event_triggers", "target_state")?;
+            let has_cooldown_secs = table_has_column_sync(conn, "event_triggers", "cooldown_secs")?;
+            let has_risk_label = table_has_column_sync(conn, "event_triggers", "risk_label")?;
             let has_notification_kind =
-                table_has_column(conn, "event_triggers", "notification_kind")?;
+                table_has_column_sync(conn, "event_triggers", "notification_kind")?;
             let has_prompt_template =
-                table_has_column(conn, "event_triggers", "prompt_template")?;
-            let has_tool_name = table_has_column(conn, "event_triggers", "tool_name")?;
+                table_has_column_sync(conn, "event_triggers", "prompt_template")?;
+            let has_tool_name = table_has_column_sync(conn, "event_triggers", "tool_name")?;
             let has_tool_payload_json =
-                table_has_column(conn, "event_triggers", "tool_payload_json")?;
+                table_has_column_sync(conn, "event_triggers", "tool_payload_json")?;
             let trigger_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_event_triggers_family_kind_enabled'",

@@ -6,8 +6,8 @@ use super::{CorrectionPattern, CounterWhoState, EpisodeOutcome, TriedApproach};
 use crate::agent::engine::AgentEngine;
 use crate::agent::types::AgentEvent;
 
+use crate::history::db;
 use anyhow::Result;
-use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
 
 /// Compute a stable hash for a tool+args combination.
@@ -287,17 +287,14 @@ impl AgentEngine {
         let updated_at = state.updated_at as i64;
 
         self.history
-            .conn
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT OR REPLACE INTO counter_who_state (id, agent_id, goal_run_id, thread_id, state_json, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                    rusqlite::params![id, agent_id, goal_run_id, thread_id, state_json, updated_at],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .conn_db
+            .execute(
+                "INSERT OR REPLACE INTO counter_who_state (id, agent_id, goal_run_id, thread_id, state_json, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                db::db_params![id, agent_id, goal_run_id, thread_id, state_json, updated_at],
+            )
+            .await?;
+        Ok(())
     }
 
     /// Restore counter-who state from SQLite (CWHO-04).
@@ -308,19 +305,14 @@ impl AgentEngine {
 
         let state_json: Option<String> = self
             .history
-            .conn
-            .call(move |conn| {
-                let result = conn
-                    .query_row(
-                        "SELECT state_json FROM counter_who_state WHERE id = ?1 AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL))",
-                        rusqlite::params![gid, agent_id, include_legacy],
-                        |row| row.get(0),
-                    )
-                    .optional()?;
-                Ok(result)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .read_db
+            .query_opt(
+                "SELECT state_json FROM counter_who_state WHERE id = ?1 AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL))",
+                db::db_params![gid, agent_id, include_legacy],
+            )
+            .await?
+            .map(|row| row.get::<String>(0))
+            .transpose()?;
 
         if let Some(json) = state_json {
             let state: CounterWhoState =

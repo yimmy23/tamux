@@ -1,7 +1,7 @@
 use super::super::super::schema::init_episodic_schema;
 use super::super::*;
 use crate::agent::{types::AgentConfig, SessionManager};
-use rusqlite::{params, Connection};
+use crate::history::db::{self, sqlite::SqliteWriteConn, DbConn};
 use tempfile::tempdir;
 
 pub(super) fn make_constraint(subject: &str, valid_until: Option<u64>) -> NegativeConstraint {
@@ -79,25 +79,28 @@ pub(super) fn make_failure_episode(summary: &str, confidence: Option<f64>) -> Ep
     }
 }
 
-pub(super) fn select_constraint_by_id(
-    conn: &Connection,
+pub(super) async fn select_constraint_by_id(
+    conn: &dyn DbConn,
     id: &str,
-) -> rusqlite::Result<NegativeConstraint> {
-    conn.query_row(
-        "SELECT id, agent_id, episode_id, constraint_type, subject, solution_class,
-                description, confidence, state, evidence_count, direct_observation,
-                derived_from_constraint_ids, related_subject_tokens, valid_until, created_at
-         FROM negative_knowledge
-         WHERE id = ?1",
-        params![id],
-        row_to_constraint,
-    )
+) -> anyhow::Result<NegativeConstraint> {
+    let row = conn
+        .query_opt(
+            "SELECT id, agent_id, episode_id, constraint_type, subject, solution_class,
+                    description, confidence, state, evidence_count, direct_observation,
+                    derived_from_constraint_ids, related_subject_tokens, valid_until, created_at
+             FROM negative_knowledge
+             WHERE id = ?1",
+            db::db_params![id],
+        )
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("constraint not found: {id}"))?;
+    row_to_constraint(&row)
 }
 
 pub(super) async fn make_test_engine() -> std::sync::Arc<AgentEngine> {
-    let root = tempdir().expect("tempdir");
-    let manager = SessionManager::new_test(root.path()).await;
-    AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await
+    let root = tempdir().expect("tempdir").keep();
+    let manager = SessionManager::new_test(&root).await;
+    AgentEngine::new_test(manager, AgentConfig::default(), &root).await
 }
 
 pub(super) async fn insert_constraint_for_engine(
@@ -105,15 +108,12 @@ pub(super) async fn insert_constraint_for_engine(
     constraint: NegativeConstraint,
 ) -> anyhow::Result<()> {
     let agent_id = crate::agent::agent_identity::current_agent_scope_id();
-    engine
-        .history
-        .conn
-        .call(move |conn| {
-            persist_constraint(conn, &constraint, &agent_id)?;
-            Ok(())
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    persist_constraint(
+        &mut db::ConnExecutor(&*engine.history.conn_db),
+        &constraint,
+        &agent_id,
+    )
+    .await?;
     Ok(())
 }
 
@@ -121,47 +121,37 @@ pub(super) async fn select_constraints_for_subject(
     engine: &AgentEngine,
     subject: &str,
 ) -> anyhow::Result<Vec<NegativeConstraint>> {
-    let subject = subject.to_string();
-    engine
+    let rows = engine
         .history
-        .conn
-        .call(move |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT id, agent_id, episode_id, constraint_type, subject, solution_class,
-                        description, confidence, state, evidence_count, direct_observation,
-                        derived_from_constraint_ids, related_subject_tokens, valid_until, created_at
-                 FROM negative_knowledge
-                 WHERE subject = ?1
-                 ORDER BY created_at DESC",
-            )?;
-            let rows = stmt.query_map(params![subject], row_to_constraint)?;
-            let mut constraints = Vec::new();
-            for row in rows {
-                constraints.push(row?);
-            }
-            Ok(constraints)
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))
+        .read_db
+        .query(
+            "SELECT id, agent_id, episode_id, constraint_type, subject, solution_class,
+                    description, confidence, state, evidence_count, direct_observation,
+                    derived_from_constraint_ids, related_subject_tokens, valid_until, created_at
+             FROM negative_knowledge
+             WHERE subject = ?1
+             ORDER BY created_at DESC",
+            db::db_params![subject],
+        )
+        .await?;
+    rows.iter().map(row_to_constraint).collect()
 }
 
 pub(super) async fn count_negative_knowledge_rows(engine: &AgentEngine) -> anyhow::Result<u32> {
-    engine
+    let count = engine
         .history
-        .conn
-        .call(|conn| {
-            let count: u32 =
-                conn.query_row("SELECT COUNT(*) FROM negative_knowledge", [], |row| {
-                    row.get(0)
-                })?;
-            Ok(count)
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))
+        .read_db
+        .query_opt("SELECT COUNT(*) FROM negative_knowledge", db::Params::None)
+        .await?
+        .map(|row| row.get::<i64>(0))
+        .transpose()?
+        .unwrap_or(0);
+    Ok(count as u32)
 }
 
-pub(super) fn init_memory_conn() -> anyhow::Result<Connection> {
-    let conn = Connection::open_in_memory()?;
-    init_episodic_schema(&conn)?;
+pub(super) async fn init_memory_conn() -> anyhow::Result<SqliteWriteConn> {
+    let raw = tokio_rusqlite::Connection::open_in_memory().await?;
+    let conn = SqliteWriteConn::new(raw, std::path::PathBuf::from(":memory:"));
+    init_episodic_schema(&mut db::ConnExecutor(&conn)).await?;
     Ok(conn)
 }

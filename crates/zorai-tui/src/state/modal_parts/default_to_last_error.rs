@@ -85,7 +85,7 @@ impl ThreadPickerTab {
     ///
     /// `None` means "no agent-based filter" — used for tabs that aren't
     /// scoped to a specific agent (Goals, Workspace, Playgrounds, Internal,
-    /// Gateway). For those the legacy paginated fetch still applies.
+    /// Gateway). For those the daemon returns the full thread summary list.
     pub fn agent_filter(&self) -> Option<String> {
         match self {
             Self::Swarog => Some(zorai_protocol::AGENT_HANDLE_SVAROG.to_string()),

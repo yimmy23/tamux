@@ -110,7 +110,30 @@ impl DaemonClient {
                 answer,
             } => {
                 let _ = event_tx
-                    .send(ClientEvent::OperatorQuestionResolved { question_id, answer })
+                    .send(ClientEvent::OperatorQuestionResolved {
+                        question_id,
+                        answer,
+                    })
+                    .await;
+            }
+            DaemonMessage::DatabaseSyncResult { ok, message } => {
+                let _ = event_tx
+                    .send(ClientEvent::DatabaseSyncResult { ok, message })
+                    .await;
+            }
+            DaemonMessage::DatabaseBackendState {
+                backend,
+                sync_url,
+                has_token,
+                seeded_at,
+            } => {
+                let _ = event_tx
+                    .send(ClientEvent::DatabaseBackendState {
+                        backend,
+                        sync_url,
+                        has_token,
+                        seeded_at,
+                    })
                     .await;
             }
             DaemonMessage::Pong => {}

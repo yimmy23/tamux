@@ -97,6 +97,40 @@ fn status_modal_failure_replaces_loading_body_with_error_text() {
 }
 
 #[test]
+fn database_sync_result_updates_status_line() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::DatabaseSyncResult {
+        ok: true,
+        message: "database sync complete".to_string(),
+    });
+    assert_eq!(model.status_line, "database sync complete");
+
+    model.handle_client_event(ClientEvent::DatabaseSyncResult {
+        ok: false,
+        message: "boom".to_string(),
+    });
+    assert_eq!(model.status_line, "Database sync failed: boom");
+}
+
+#[test]
+fn database_backend_state_updates_config() {
+    let mut model = make_model();
+
+    model.handle_client_event(ClientEvent::DatabaseBackendState {
+        backend: Some("remote-replica".to_string()),
+        sync_url: Some("libsql://example".to_string()),
+        has_token: true,
+        seeded_at: Some(123),
+    });
+
+    assert_eq!(model.config.db_backend, "remote-replica");
+    assert_eq!(model.config.db_sync_url, "libsql://example");
+    assert!(model.config.db_has_token);
+    assert_eq!(model.config.db_seeded_at, Some(123));
+}
+
+#[test]
 fn pin_budget_exceeded_event_opens_app_flow() {
     let mut model = make_model();
 

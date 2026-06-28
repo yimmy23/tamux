@@ -1,5 +1,39 @@
 use super::*;
 
+fn map_memory_tombstone_row(row: &db::Row) -> anyhow::Result<MemoryTombstoneRow> {
+    Ok(MemoryTombstoneRow {
+        id: row.get(0)?,
+        target: row.get(1)?,
+        original_content: row.get(2)?,
+        fact_key: row.get(3)?,
+        replaced_by: row.get(4)?,
+        replaced_at: row.get(5)?,
+        source_kind: row.get(6)?,
+        provenance_id: row.get(7)?,
+        created_at: row.get(8)?,
+    })
+}
+
+fn map_execution_trace_row(row: &db::Row) -> anyhow::Result<ExecutionTraceRow> {
+    Ok(ExecutionTraceRow {
+        id: row.get(0)?,
+        goal_run_id: row.get(1)?,
+        task_id: row.get(2)?,
+        task_type: row.get(3)?,
+        outcome: row.get(4)?,
+        quality_score: row.get(5)?,
+        tool_sequence_json: row.get(6)?,
+        metrics_json: row.get(7)?,
+        duration_ms: row.get(8)?,
+        tokens_used: row.get(9)?,
+        created_at: row.get(10)?,
+    })
+}
+
+const MEMORY_TOMBSTONE_COLUMNS: &str = "id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at";
+
+const EXECUTION_TRACE_COLUMNS: &str = "id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms, tokens_used, created_at";
+
 impl HistoryStore {
     pub async fn insert_memory_tombstone(
         &self,
@@ -12,21 +46,24 @@ impl HistoryStore {
         provenance_id: Option<&str>,
         created_at: u64,
     ) -> Result<()> {
-        let id = id.to_string();
-        let target = target.to_string();
-        let original_content = original_content.to_string();
-        let fact_key = fact_key.map(str::to_string);
-        let replaced_by = replaced_by.map(str::to_string);
-        let source_kind = source_kind.to_string();
-        let provenance_id = provenance_id.map(str::to_string);
         let now = created_at as i64;
-        self.conn.call(move |conn| {
-            conn.execute(
+        self.conn_db
+            .execute(
                 "INSERT OR REPLACE INTO memory_tombstones (id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)",
-                params![id, target, original_content, fact_key, replaced_by, now, source_kind, provenance_id, now],
-            )?;
-            Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+                db::db_params![
+                    id,
+                    target,
+                    original_content,
+                    fact_key.map(str::to_string),
+                    replaced_by.map(str::to_string),
+                    now,
+                    source_kind,
+                    provenance_id.map(str::to_string),
+                    now
+                ],
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn list_memory_tombstones(
@@ -34,110 +71,69 @@ impl HistoryStore {
         target: Option<&str>,
         limit: usize,
     ) -> Result<Vec<MemoryTombstoneRow>> {
-        let target = target.map(str::to_string);
-        self.read_conn.call(move |conn| {
-            if let Some(target) = target {
-                let mut stmt = conn.prepare(
-                    "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones WHERE target = ?1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ?2",
-                )?;
-                let rows = stmt.query_map(params![target, limit as i64], |row| {
-                    Ok(MemoryTombstoneRow {
-                        id: row.get(0)?,
-                        target: row.get(1)?,
-                        original_content: row.get(2)?,
-                        fact_key: row.get(3)?,
-                        replaced_by: row.get(4)?,
-                        replaced_at: row.get(5)?,
-                        source_kind: row.get(6)?,
-                        provenance_id: row.get(7)?,
-                        created_at: row.get(8)?,
-                    })
-                })?;
-                rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
-            } else {
-                let mut stmt = conn.prepare(
-                    "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?1",
-                )?;
-                let rows = stmt.query_map(params![limit as i64], |row| {
-                    Ok(MemoryTombstoneRow {
-                        id: row.get(0)?,
-                        target: row.get(1)?,
-                        original_content: row.get(2)?,
-                        fact_key: row.get(3)?,
-                        replaced_by: row.get(4)?,
-                        replaced_at: row.get(5)?,
-                        source_kind: row.get(6)?,
-                        provenance_id: row.get(7)?,
-                        created_at: row.get(8)?,
-                    })
-                })?;
-                rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
-            }
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        let rows = if let Some(target) = target {
+            self.read_db
+                .query(
+                    &format!("SELECT {MEMORY_TOMBSTONE_COLUMNS} FROM memory_tombstones WHERE target = ?1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT ?2"),
+                    db::db_params![target, limit as i64],
+                )
+                .await?
+        } else {
+            self.read_db
+                .query(
+                    &format!("SELECT {MEMORY_TOMBSTONE_COLUMNS} FROM memory_tombstones WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?1"),
+                    db::db_params![limit as i64],
+                )
+                .await?
+        };
+        rows.iter().map(map_memory_tombstone_row).collect()
     }
 
     pub async fn delete_expired_tombstones(&self, max_age_ms: u64, now: u64) -> Result<usize> {
         let cutoff = (now as i64) - (max_age_ms as i64);
-        self.conn
-            .call(move |conn| {
-                let count = conn.execute(
-                    "UPDATE memory_tombstones SET deleted_at = ?2 WHERE created_at < ?1 AND deleted_at IS NULL",
-                    params![cutoff, now_ts() as i64],
-                )?;
-                Ok(count)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let count = self
+            .conn_db
+            .execute(
+                "UPDATE memory_tombstones SET deleted_at = ?2 WHERE created_at < ?1 AND deleted_at IS NULL",
+                db::db_params![cutoff, now_ts() as i64],
+            )
+            .await?;
+        Ok(count as usize)
     }
 
     pub async fn restore_tombstone(
         &self,
         tombstone_id: &str,
     ) -> Result<Option<MemoryTombstoneRow>> {
-        let tombstone_id = tombstone_id.to_string();
-        self.conn.call(move |conn| {
-            let row: Option<MemoryTombstoneRow> = conn.query_row(
-                "SELECT id, target, original_content, fact_key, replaced_by, replaced_at, source_kind, provenance_id, created_at FROM memory_tombstones WHERE id = ?1 AND deleted_at IS NULL",
-                params![tombstone_id],
-                |row| {
-                    Ok(MemoryTombstoneRow {
-                        id: row.get(0)?,
-                        target: row.get(1)?,
-                        original_content: row.get(2)?,
-                        fact_key: row.get(3)?,
-                        replaced_by: row.get(4)?,
-                        replaced_at: row.get(5)?,
-                        source_kind: row.get(6)?,
-                        provenance_id: row.get(7)?,
-                        created_at: row.get(8)?,
-                    })
-                },
-            ).optional()?;
-            if row.is_some() {
-                conn.execute(
-                    "UPDATE memory_tombstones SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
-                    params![tombstone_id, now_ts() as i64],
-                )?;
-            }
-            Ok(row)
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        let mut txn = self.conn_db.transaction().await?;
+        let row = txn
+            .query_opt(
+                &format!("SELECT {MEMORY_TOMBSTONE_COLUMNS} FROM memory_tombstones WHERE id = ?1 AND deleted_at IS NULL"),
+                db::db_params![tombstone_id],
+            )
+            .await?
+            .map(|row| map_memory_tombstone_row(&row))
+            .transpose()?;
+        if row.is_some() {
+            txn.execute(
+                "UPDATE memory_tombstones SET deleted_at = ?2 WHERE id = ?1 AND deleted_at IS NULL",
+                db::db_params![tombstone_id, now_ts() as i64],
+            )
+            .await?;
+        }
+        txn.commit().await?;
+        Ok(row)
     }
 
     pub async fn get_consolidation_state(&self, key: &str) -> Result<Option<String>> {
-        let key = key.to_string();
-        self.read_conn
-            .call(move |conn| {
-                let value: Option<String> = conn
-                    .query_row(
-                        "SELECT value FROM consolidation_state WHERE key = ?1 AND deleted_at IS NULL",
-                        params![key],
-                        |row| row.get(0),
-                    )
-                    .optional()?;
-                Ok(value)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let row = self
+            .read_db
+            .query_opt(
+                "SELECT value FROM consolidation_state WHERE key = ?1 AND deleted_at IS NULL",
+                db::db_params![key],
+            )
+            .await?;
+        row.map(|row| row.get::<String>(0)).transpose()
     }
 
     /// Batched variant of `get_consolidation_state`. Returns a map of
@@ -152,56 +148,47 @@ impl HistoryStore {
         if keys.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
-        let keys = keys.to_vec();
-        self.read_conn
-            .call(move |conn| {
-                let placeholders = std::iter::repeat("?")
-                    .take(keys.len())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let sql = format!(
-                    "SELECT key, value FROM consolidation_state \
-                     WHERE key IN ({placeholders}) AND deleted_at IS NULL"
-                );
-                let mut stmt = conn.prepare(&sql)?;
-                let rows = stmt.query_map(rusqlite::params_from_iter(keys.iter()), |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?;
-                let mut out = std::collections::HashMap::with_capacity(keys.len());
-                for row in rows {
-                    let (key, value) = row?;
-                    out.insert(key, value);
-                }
-                Ok(out)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let placeholders = std::iter::repeat("?")
+            .take(keys.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT key, value FROM consolidation_state \
+             WHERE key IN ({placeholders}) AND deleted_at IS NULL"
+        );
+        let values = keys
+            .iter()
+            .map(|key| db::Value::Text(key.clone()))
+            .collect();
+        let rows = self
+            .read_db
+            .query(&sql, db::Params::Positional(values))
+            .await?;
+        let mut out = std::collections::HashMap::with_capacity(keys.len());
+        for row in rows.iter() {
+            out.insert(row.get::<String>(0)?, row.get::<String>(1)?);
+        }
+        Ok(out)
     }
 
     pub async fn set_consolidation_state(&self, key: &str, value: &str, now: u64) -> Result<()> {
-        let key = key.to_string();
-        let value = value.to_string();
-        self.conn.call(move |conn| {
-            conn.execute(
+        self.conn_db
+            .execute(
                 "INSERT OR REPLACE INTO consolidation_state (key, value, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
-                params![key, value, now as i64],
-            )?;
-            Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+                db::db_params![key, value, now as i64],
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn delete_consolidation_state(&self, key: &str) -> Result<()> {
-        let key = key.to_string();
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    "UPDATE consolidation_state SET deleted_at = ?2 WHERE key = ?1 AND deleted_at IS NULL",
-                    params![key, now_ts() as i64],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        self.conn_db
+            .execute(
+                "UPDATE consolidation_state SET deleted_at = ?2 WHERE key = ?1 AND deleted_at IS NULL",
+                db::db_params![key, now_ts() as i64],
+            )
+            .await?;
+        Ok(())
     }
 
     /// List consolidation_state entries whose key starts with `prefix`.
@@ -210,17 +197,20 @@ impl HistoryStore {
         prefix: &str,
     ) -> Result<Vec<(String, String)>> {
         let like = format!("{}%", prefix);
-        self.read_conn
-            .call(move |conn| {
-                let mut stmt =
-                    conn.prepare("SELECT key, value FROM consolidation_state WHERE key LIKE ?1 AND deleted_at IS NULL")?;
-                let rows = stmt.query_map(params![like], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?;
-                Ok(rows.filter_map(|r| r.ok()).collect())
+        let rows = self
+            .read_db
+            .query(
+                "SELECT key, value FROM consolidation_state WHERE key LIKE ?1 AND deleted_at IS NULL",
+                db::db_params![like],
+            )
+            .await?;
+        rows.iter()
+            .filter_map(|row| match (row.get::<String>(0), row.get::<String>(1)) {
+                (Ok(a), Ok(b)) => Some((a, b)),
+                _ => None,
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .map(Ok)
+            .collect()
     }
 
     pub async fn first_consolidation_state_by_prefix_value(
@@ -229,23 +219,19 @@ impl HistoryStore {
         value: &str,
     ) -> Result<Option<(String, String)>> {
         let like = format!("{}%", prefix);
-        let value = value.to_string();
-        self.read_conn
-            .call(move |conn| {
-                conn.query_row(
-                    "SELECT key, value \
-                     FROM consolidation_state \
-                     WHERE key LIKE ?1 AND value = ?2 AND deleted_at IS NULL \
-                     ORDER BY updated_at ASC, key ASC \
-                     LIMIT 1",
-                    params![like, value],
-                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-                )
-                .optional()
-                .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let row = self
+            .read_db
+            .query_opt(
+                "SELECT key, value \
+                 FROM consolidation_state \
+                 WHERE key LIKE ?1 AND value = ?2 AND deleted_at IS NULL \
+                 ORDER BY updated_at ASC, key ASC \
+                 LIMIT 1",
+                db::db_params![like, value],
+            )
+            .await?;
+        row.map(|row| Ok((row.get::<String>(0)?, row.get::<String>(1)?)))
+            .transpose()
     }
 
     /// List skill variants matching a given status string, up to `limit` rows.
@@ -266,19 +252,17 @@ impl HistoryStore {
         cursor: Option<&str>,
         limit: usize,
     ) -> Result<SkillVariantPage> {
-        let status = status.to_string();
         let variants = self
-            .conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
-                     FROM skill_variants WHERE status = ?1 ORDER BY updated_at ASC",
-                )?;
-                let rows = stmt.query_map(params![status], map_skill_variant_row)?;
-                Ok(rows.filter_map(|r| r.ok()).collect())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .conn_db
+            .query(
+                "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
+                 FROM skill_variants WHERE status = ?1 ORDER BY updated_at ASC",
+                db::db_params![status],
+            )
+            .await?
+            .iter()
+            .filter_map(|row| map_skill_variant_row_db(row).ok())
+            .collect();
         super::page_skill_variants(variants, cursor, limit)
     }
 
@@ -287,63 +271,33 @@ impl HistoryStore {
         after_timestamp: u64,
         limit: usize,
     ) -> Result<Vec<ExecutionTraceRow>> {
-        self.read_conn.call(move |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms, tokens_used, created_at FROM execution_traces WHERE outcome = 'success' AND created_at > ?1 ORDER BY created_at ASC LIMIT ?2",
-            )?;
-            let rows = stmt.query_map(params![after_timestamp as i64, limit as i64], |row| {
-                Ok(ExecutionTraceRow {
-                    id: row.get(0)?,
-                    goal_run_id: row.get(1)?,
-                    task_id: row.get(2)?,
-                    task_type: row.get(3)?,
-                    outcome: row.get(4)?,
-                    quality_score: row.get(5)?,
-                    tool_sequence_json: row.get(6)?,
-                    metrics_json: row.get(7)?,
-                    duration_ms: row.get(8)?,
-                    tokens_used: row.get(9)?,
-                    created_at: row.get(10)?,
-                })
-            })?;
-            rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        let rows = self
+            .read_db
+            .query(
+                &format!("SELECT {EXECUTION_TRACE_COLUMNS} FROM execution_traces WHERE outcome = 'success' AND created_at > ?1 ORDER BY created_at ASC LIMIT ?2"),
+                db::db_params![after_timestamp as i64, limit as i64],
+            )
+            .await?;
+        rows.iter().map(map_execution_trace_row).collect()
     }
 
     pub async fn get_successful_execution_trace_by_id(
         &self,
         trace_id: &str,
     ) -> Result<Option<ExecutionTraceRow>> {
-        let trace_id = trace_id.to_string();
-        self.read_conn
-            .call(move |conn| {
-                conn.query_row(
-                    "SELECT id, goal_run_id, task_id, task_type, outcome, quality_score, tool_sequence_json, metrics_json, duration_ms, tokens_used, created_at \
+        let row = self
+            .read_db
+            .query_opt(
+                &format!(
+                    "SELECT {EXECUTION_TRACE_COLUMNS} \
                      FROM execution_traces \
                      WHERE id = ?1 AND outcome = 'success' \
-                     LIMIT 1",
-                    params![trace_id],
-                    |row| {
-                        Ok(ExecutionTraceRow {
-                            id: row.get(0)?,
-                            goal_run_id: row.get(1)?,
-                            task_id: row.get(2)?,
-                            task_type: row.get(3)?,
-                            outcome: row.get(4)?,
-                            quality_score: row.get(5)?,
-                            tool_sequence_json: row.get(6)?,
-                            metrics_json: row.get(7)?,
-                            duration_ms: row.get(8)?,
-                            tokens_used: row.get(9)?,
-                            created_at: row.get(10)?,
-                        })
-                    },
-                )
-                .optional()
-                .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                     LIMIT 1"
+                ),
+                db::db_params![trace_id],
+            )
+            .await?;
+        row.map(|row| map_execution_trace_row(&row)).transpose()
     }
 
     pub async fn trace_has_skill_consultation(
@@ -352,25 +306,26 @@ impl HistoryStore {
         task_id: Option<&str>,
         goal_run_id: Option<&str>,
     ) -> Result<bool> {
-        let thread_id = thread_id.map(str::to_string);
-        let task_id = task_id.map(str::to_string);
-        let goal_run_id = goal_run_id.map(str::to_string);
-        self.read_conn
-            .call(move |conn| {
-                let count: i64 = conn.query_row(
-                    "SELECT COUNT(1) FROM skill_variant_usage \
-                     WHERE ( \
-                        (?1 IS NOT NULL AND task_id = ?1) OR \
-                        (?2 IS NOT NULL AND goal_run_id = ?2) OR \
-                        (?3 IS NOT NULL AND task_id IS NULL AND goal_run_id IS NULL AND thread_id = ?3) \
-                     )",
-                    params![task_id, goal_run_id, thread_id],
-                    |row| row.get(0),
-                )?;
-                Ok(count > 0)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let row = self
+            .read_db
+            .query_opt(
+                "SELECT COUNT(1) FROM skill_variant_usage \
+                 WHERE ( \
+                    (?1 IS NOT NULL AND task_id = ?1) OR \
+                    (?2 IS NOT NULL AND goal_run_id = ?2) OR \
+                    (?3 IS NOT NULL AND task_id IS NULL AND goal_run_id IS NULL AND thread_id = ?3) \
+                 )",
+                db::db_params![
+                    task_id.map(str::to_string),
+                    goal_run_id.map(str::to_string),
+                    thread_id.map(str::to_string)
+                ],
+            )
+            .await?;
+        Ok(match row {
+            Some(row) => row.get::<i64>(0)? > 0,
+            None => false,
+        })
     }
 
     pub(crate) async fn append_telemetry(
@@ -410,58 +365,57 @@ impl HistoryStore {
     /// Detect sequences of 3+ consecutive successful managed commands
     /// that completed within a 5-minute window.
     pub async fn detect_skill_candidates(&self) -> Result<Vec<(String, Vec<HistorySearchHit>)>> {
-        self.conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT id, kind, title, excerpt, path, timestamp FROM history_entries \
+        let rows = self
+            .conn_db
+            .query(
+                "SELECT id, kind, title, excerpt, path, timestamp FROM history_entries \
              WHERE kind = 'managed-command' \
              ORDER BY timestamp DESC LIMIT 20",
-                )?;
-                let rows = stmt.query_map([], |row| {
-                    Ok(HistorySearchHit {
-                        id: row.get(0)?,
-                        kind: row.get(1)?,
-                        title: row.get(2)?,
-                        excerpt: row.get(3)?,
-                        path: row.get(4)?,
-                        timestamp: row.get::<_, i64>(5)? as u64,
-                        score: 0.0,
-                    })
-                })?;
+                db::Params::None,
+            )
+            .await?;
 
-                let hits: Vec<_> = rows.filter_map(|r| r.ok()).collect();
-                let mut candidates = Vec::new();
+        let hits: Vec<HistorySearchHit> = rows
+            .iter()
+            .filter_map(|row| {
+                Some(HistorySearchHit {
+                    id: row.get(0).ok()?,
+                    kind: row.get(1).ok()?,
+                    title: row.get(2).ok()?,
+                    excerpt: row.get(3).ok()?,
+                    path: row.get(4).ok()?,
+                    timestamp: row.get::<i64>(5).ok()? as u64,
+                    score: 0.0,
+                })
+            })
+            .collect();
+        let mut candidates = Vec::new();
 
-                let mut run: Vec<HistorySearchHit> = Vec::new();
-                for hit in &hits {
-                    if hit.excerpt.contains("exit=Some(0)") {
-                        if run.is_empty()
-                            || (run.last().unwrap().timestamp.abs_diff(hit.timestamp) < 300)
-                        {
-                            run.push(hit.clone());
-                        } else {
-                            if run.len() >= 3 {
-                                let title = format!("Workflow: {}", run.first().unwrap().title);
-                                candidates.push((title, run.clone()));
-                            }
-                            run = vec![hit.clone()];
-                        }
-                    } else {
-                        if run.len() >= 3 {
-                            let title = format!("Workflow: {}", run.first().unwrap().title);
-                            candidates.push((title, run.clone()));
-                        }
-                        run.clear();
+        let mut run: Vec<HistorySearchHit> = Vec::new();
+        for hit in &hits {
+            if hit.excerpt.contains("exit=Some(0)") {
+                if run.is_empty() || (run.last().unwrap().timestamp.abs_diff(hit.timestamp) < 300) {
+                    run.push(hit.clone());
+                } else {
+                    if run.len() >= 3 {
+                        let title = format!("Workflow: {}", run.first().unwrap().title);
+                        candidates.push((title, run.clone()));
                     }
+                    run = vec![hit.clone()];
                 }
+            } else {
                 if run.len() >= 3 {
                     let title = format!("Workflow: {}", run.first().unwrap().title);
-                    candidates.push((title, run));
+                    candidates.push((title, run.clone()));
                 }
+                run.clear();
+            }
+        }
+        if run.len() >= 3 {
+            let title = format!("Workflow: {}", run.first().unwrap().title);
+            candidates.push((title, run));
+        }
 
-                Ok(candidates)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        Ok(candidates)
     }
 }

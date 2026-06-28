@@ -4,6 +4,8 @@ use ratatui::prelude::*;
 mod advanced_single_line_edit_layout_to_subagent_row_action_offsets;
 #[path = "render_about_tab.rs"]
 mod render_about_tab;
+#[path = "render_database_tab.rs"]
+mod render_database_tab;
 #[path = "render_advanced_value_to_render_advanced_tab.rs"]
 mod render_advanced_value_to_render_advanced_tab;
 #[path = "render_auth_tab_to_render_agent_tab.rs"]

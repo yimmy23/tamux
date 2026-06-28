@@ -12,7 +12,8 @@ pub(crate) fn emit_workflow_notice_for_tool(
     let (kind, message, details) = match tool_name {
         tool_names::UPDATE_TODO => {
             let count = args
-                .get("items")
+                .get("todos")
+                .or_else(|| args.get("items"))
                 .and_then(|value| value.as_array())
                 .map(|items| items.len())
                 .unwrap_or(0);

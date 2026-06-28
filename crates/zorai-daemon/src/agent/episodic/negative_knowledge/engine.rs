@@ -14,66 +14,53 @@ impl AgentEngine {
         let agent_id_for_db = agent_id.clone();
         let incoming_constraint = constraint.clone();
 
-        let (persisted_constraint, propagated_constraints) = self
-            .history
-            .conn
-            .call(move |conn| {
-                let include_legacy = crate::agent::is_main_agent_scope(&agent_id_for_db) as i64;
-                let mut active_constraints = load_all_active_constraints(
-                    conn,
-                    &agent_id_for_db,
-                    include_legacy,
-                    now_ms as i64,
-                )?;
+        let include_legacy = crate::agent::is_main_agent_scope(&agent_id_for_db) as i64;
+        let mut active_constraints = load_all_active_constraints(
+            &mut db::ConnExecutor(&*self.history.conn_db),
+            &agent_id_for_db,
+            include_legacy,
+            now_ms as i64,
+        )
+        .await?;
 
-                let merge_idx = active_constraints.iter().position(|existing| {
-                    constraints_match_for_merge(existing, &incoming_constraint)
-                });
+        let merge_idx = active_constraints
+            .iter()
+            .position(|existing| constraints_match_for_merge(existing, &incoming_constraint));
 
-                let (persisted_constraint, reached_dead) = if let Some(idx) = merge_idx {
-                    let existing = active_constraints[idx].clone();
-                    let merged = merge_constraint_evidence(&existing, &incoming_constraint);
-                    let reached_dead = existing.state != ConstraintState::Dead
-                        && merged.state == ConstraintState::Dead;
-                    active_constraints[idx] = merged.clone();
-                    (merged, reached_dead)
-                } else {
-                    let reached_dead = incoming_constraint.state == ConstraintState::Dead;
-                    active_constraints.push(incoming_constraint.clone());
-                    (incoming_constraint.clone(), reached_dead)
-                };
+        let (persisted_constraint, reached_dead) = if let Some(idx) = merge_idx {
+            let existing = active_constraints[idx].clone();
+            let merged = merge_constraint_evidence(&existing, &incoming_constraint);
+            let reached_dead =
+                existing.state != ConstraintState::Dead && merged.state == ConstraintState::Dead;
+            active_constraints[idx] = merged.clone();
+            (merged, reached_dead)
+        } else {
+            let reached_dead = incoming_constraint.state == ConstraintState::Dead;
+            active_constraints.push(incoming_constraint.clone());
+            (incoming_constraint.clone(), reached_dead)
+        };
 
-                let propagated_constraints = if reached_dead {
-                    let propagated =
-                        propagate_dead_constraint(&persisted_constraint, &active_constraints);
-                    for propagated_constraint in &propagated {
-                        if let Some(idx) = active_constraints
-                            .iter()
-                            .position(|existing| existing.id == propagated_constraint.id)
-                        {
-                            active_constraints[idx] = propagated_constraint.clone();
-                        }
-                    }
-                    propagated
-                } else {
-                    Vec::new()
-                };
-
-                let tx = conn.unchecked_transaction()?;
-                persist_constraint_in_transaction(&tx, &persisted_constraint, &agent_id_for_db)?;
-                for propagated_constraint in &propagated_constraints {
-                    persist_constraint_in_transaction(
-                        &tx,
-                        propagated_constraint,
-                        &agent_id_for_db,
-                    )?;
+        let propagated_constraints = if reached_dead {
+            let propagated = propagate_dead_constraint(&persisted_constraint, &active_constraints);
+            for propagated_constraint in &propagated {
+                if let Some(idx) = active_constraints
+                    .iter()
+                    .position(|existing| existing.id == propagated_constraint.id)
+                {
+                    active_constraints[idx] = propagated_constraint.clone();
                 }
-                tx.commit()?;
+            }
+            propagated
+        } else {
+            Vec::new()
+        };
 
-                Ok((persisted_constraint, propagated_constraints))
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut txn = self.history.conn_db.transaction().await?;
+        persist_constraint(&mut *txn, &persisted_constraint, &agent_id_for_db).await?;
+        for propagated_constraint in &propagated_constraints {
+            persist_constraint(&mut *txn, propagated_constraint, &agent_id_for_db).await?;
+        }
+        txn.commit().await?;
 
         let mut stores = self.episodic_store.write().await;
         let store = stores.entry(scope_id).or_default();
@@ -187,56 +174,41 @@ impl AgentEngine {
         let agent_id = crate::agent::agent_identity::current_agent_scope_id();
         let include_legacy = crate::agent::is_main_agent_scope(&agent_id) as i64;
 
-        self.history
-            .conn
-            .call(move |conn| {
-                if let Some(ref pattern) = filter {
-                    let mut stmt = conn.prepare(
-                        "SELECT id, agent_id, episode_id, constraint_type, subject, solution_class,
-                                description, confidence, state, evidence_count, direct_observation,
-                                derived_from_constraint_ids, related_subject_tokens, valid_until, created_at
-                         FROM negative_knowledge
-                         WHERE (agent_id = ?1 OR (?2 = 1 AND agent_id IS NULL))
-                         AND (valid_until IS NULL OR valid_until > ?3)
-                         AND (subject LIKE ?4 OR solution_class LIKE ?4)
-                         AND deleted_at IS NULL
-                         ORDER BY created_at DESC
-                         LIMIT 20",
-                    )?;
-                    let rows = stmt.query_map(
-                        params![agent_id, include_legacy, now_ms, pattern],
-                        row_to_constraint,
-                    )?;
-                    let mut constraints = Vec::new();
-                    for row in rows {
-                        constraints.push(row?);
-                    }
-                    Ok(constraints)
-                } else {
-                    let mut stmt = conn.prepare(
-                        "SELECT id, agent_id, episode_id, constraint_type, subject, solution_class,
-                                description, confidence, state, evidence_count, direct_observation,
-                                derived_from_constraint_ids, related_subject_tokens, valid_until, created_at
-                         FROM negative_knowledge
-                         WHERE (agent_id = ?1 OR (?2 = 1 AND agent_id IS NULL))
-                           AND (valid_until IS NULL OR valid_until > ?3)
-                           AND deleted_at IS NULL
-                         ORDER BY created_at DESC
-                         LIMIT 20",
-                    )?;
-                    let rows = stmt.query_map(
-                        params![agent_id, include_legacy, now_ms],
-                        row_to_constraint,
-                    )?;
-                    let mut constraints = Vec::new();
-                    for row in rows {
-                        constraints.push(row?);
-                    }
-                    Ok(constraints)
-                }
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let rows = if let Some(pattern) = filter {
+            self.history
+                .read_db
+                .query(
+                    "SELECT id, agent_id, episode_id, constraint_type, subject, solution_class,
+                            description, confidence, state, evidence_count, direct_observation,
+                            derived_from_constraint_ids, related_subject_tokens, valid_until, created_at
+                     FROM negative_knowledge
+                     WHERE (agent_id = ?1 OR (?2 = 1 AND agent_id IS NULL))
+                     AND (valid_until IS NULL OR valid_until > ?3)
+                     AND (subject LIKE ?4 OR solution_class LIKE ?4)
+                     AND deleted_at IS NULL
+                     ORDER BY created_at DESC
+                     LIMIT 20",
+                    db::db_params![agent_id, include_legacy, now_ms, pattern],
+                )
+                .await?
+        } else {
+            self.history
+                .read_db
+                .query(
+                    "SELECT id, agent_id, episode_id, constraint_type, subject, solution_class,
+                            description, confidence, state, evidence_count, direct_observation,
+                            derived_from_constraint_ids, related_subject_tokens, valid_until, created_at
+                     FROM negative_knowledge
+                     WHERE (agent_id = ?1 OR (?2 = 1 AND agent_id IS NULL))
+                       AND (valid_until IS NULL OR valid_until > ?3)
+                       AND deleted_at IS NULL
+                     ORDER BY created_at DESC
+                     LIMIT 20",
+                    db::db_params![agent_id, include_legacy, now_ms],
+                )
+                .await?
+        };
+        rows.iter().map(row_to_constraint).collect()
     }
 
     pub(crate) async fn expire_negative_constraints(&self) -> Result<usize> {
@@ -244,16 +216,12 @@ impl AgentEngine {
 
         let deleted = self
             .history
-            .conn
-            .call(move |conn| {
-                let count = conn.execute(
-                    "UPDATE negative_knowledge SET deleted_at = ?2 WHERE valid_until IS NOT NULL AND valid_until <= ?1 AND deleted_at IS NULL",
-                    params![now_ms, now_ms],
-                )?;
-                Ok(count)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .conn_db
+            .execute(
+                "UPDATE negative_knowledge SET deleted_at = ?2 WHERE valid_until IS NOT NULL AND valid_until <= ?1 AND deleted_at IS NULL",
+                db::db_params![now_ms, now_ms],
+            )
+            .await? as usize;
 
         if deleted > 0 {
             let now_ms = now_millis();
@@ -272,19 +240,13 @@ impl AgentEngine {
         let agent_id = crate::agent::agent_identity::current_agent_scope_id();
         let include_legacy = crate::agent::is_main_agent_scope(&agent_id) as i64;
         let now_ms = crate::agent::now_millis() as i64;
-        let constraints = self
-            .history
-            .conn
-            .call(move |conn| {
-                Ok(load_all_active_constraints(
-                    conn,
-                    &agent_id,
-                    include_legacy,
-                    now_ms,
-                )?)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let constraints = load_all_active_constraints(
+            &mut db::ConnExecutor(&*self.history.conn_db),
+            &agent_id,
+            include_legacy,
+            now_ms,
+        )
+        .await?;
         let scope_id = crate::agent::agent_identity::current_agent_scope_id();
         let mut stores = self.episodic_store.write().await;
         let store = stores.entry(scope_id).or_default();

@@ -4,37 +4,39 @@
 //! - `specialist_profiles` — registered specialist agent profiles
 //! - `handoff_log` — audit trail for every handoff dispatch
 
+use crate::history::db::{self, DbExecutor};
 use anyhow::Result;
 
-fn table_has_column(
-    conn: &rusqlite::Connection,
+async fn table_has_column<E: DbExecutor + ?Sized>(
+    exec: &mut E,
     table: &str,
     column: &str,
-) -> std::result::Result<bool, rusqlite::Error> {
-    let pragma = format!("PRAGMA table_info({table})");
-    let mut stmt = conn.prepare(&pragma)?;
-    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
-    for row in rows {
-        if row? == column {
+) -> Result<bool> {
+    let rows = exec
+        .query(&format!("PRAGMA table_info({table})"), db::Params::None)
+        .await?;
+    for row in &rows {
+        if row.get::<String>(1)? == column {
             return Ok(true);
         }
     }
     Ok(false)
 }
 
-fn ensure_column(
-    conn: &rusqlite::Connection,
+async fn ensure_column<E: DbExecutor + ?Sized>(
+    exec: &mut E,
     table: &str,
     column: &str,
     definition: &str,
-) -> std::result::Result<(), rusqlite::Error> {
-    if table_has_column(conn, table, column)? {
+) -> Result<()> {
+    if table_has_column(&mut *exec, table, column).await? {
         return Ok(());
     }
-    conn.execute(
+    exec.execute(
         &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
-        [],
-    )?;
+        db::Params::None,
+    )
+    .await?;
     Ok(())
 }
 
@@ -100,38 +102,43 @@ pub const HANDOFF_SCHEMA: &str = "
 ///
 /// Creates specialist_profiles, handoff_log, and agent_capability_scores tables with indexes.
 /// Safe to call multiple times (all statements use IF NOT EXISTS).
-pub fn init_handoff_schema(conn: &rusqlite::Connection) -> Result<()> {
-    conn.execute_batch(HANDOFF_SCHEMA)?;
-    ensure_column(conn, "handoff_log", "capability_tags_json", "TEXT")?;
+pub(crate) async fn init_handoff_schema<E: DbExecutor + ?Sized>(exec: &mut E) -> Result<()> {
+    exec.execute_batch(HANDOFF_SCHEMA).await?;
+    ensure_column(&mut *exec, "handoff_log", "capability_tags_json", "TEXT").await?;
     ensure_column(
-        conn,
+        &mut *exec,
         "handoff_log",
         "routing_method",
         "TEXT NOT NULL DEFAULT 'deterministic'",
-    )?;
+    )
+    .await?;
     ensure_column(
-        conn,
+        &mut *exec,
         "handoff_log",
         "routing_score",
         "REAL NOT NULL DEFAULT 0.0",
-    )?;
+    )
+    .await?;
     ensure_column(
-        conn,
+        &mut *exec,
         "handoff_log",
         "fallback_used",
         "INTEGER NOT NULL DEFAULT 0",
-    )?;
+    )
+    .await?;
     ensure_column(
-        conn,
+        &mut *exec,
         "agent_capability_scores",
         "avg_confidence_score",
         "REAL NOT NULL DEFAULT 0.5",
-    )?;
+    )
+    .await?;
     ensure_column(
-        conn,
+        &mut *exec,
         "agent_capability_scores",
         "total_tokens_used",
         "INTEGER NOT NULL DEFAULT 0",
-    )?;
+    )
+    .await?;
     Ok(())
 }

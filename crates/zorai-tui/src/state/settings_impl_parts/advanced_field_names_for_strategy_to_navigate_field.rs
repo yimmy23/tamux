@@ -354,6 +354,10 @@ impl SettingsState {
                 _ => "",
             },
             SettingsTab::Plugins => "plugin_field",
+            SettingsTab::Database => match self.field_cursor {
+                0 => "db_sync_now",
+                _ => "",
+            },
             SettingsTab::About => "",
         }
     }
@@ -410,6 +414,7 @@ impl SettingsState {
             SettingsTab::Features => 29,
             SettingsTab::Advanced => 25,
             SettingsTab::Plugins => 1,
+            SettingsTab::Database => 1,
             SettingsTab::About => 0,
         }
     }

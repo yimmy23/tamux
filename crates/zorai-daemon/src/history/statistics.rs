@@ -1,6 +1,5 @@
 use super::*;
 use chrono::{Datelike, Duration, Local, TimeZone};
-use rusqlite::params;
 
 #[derive(Debug)]
 struct StatisticsTotalsRow {
@@ -13,17 +12,37 @@ struct StatisticsTotalsRow {
     missing_cost_rows: i64,
 }
 
+fn map_provider_statistics_row(row: &db::Row) -> anyhow::Result<ProviderStatisticsRow> {
+    Ok(ProviderStatisticsRow {
+        provider: row.get(0)?,
+        input_tokens: row.get::<i64>(1)?.max(0) as u64,
+        output_tokens: row.get::<i64>(2)?.max(0) as u64,
+        total_tokens: row.get::<i64>(3)?.max(0) as u64,
+        cost_usd: row.get(4)?,
+    })
+}
+
+fn map_model_statistics_row(row: &db::Row) -> anyhow::Result<ModelStatisticsRow> {
+    Ok(ModelStatisticsRow {
+        provider: row.get(0)?,
+        model: row.get(1)?,
+        input_tokens: row.get::<i64>(2)?.max(0) as u64,
+        output_tokens: row.get::<i64>(3)?.max(0) as u64,
+        total_tokens: row.get::<i64>(4)?.max(0) as u64,
+        cost_usd: row.get(5)?,
+    })
+}
+
 impl HistoryStore {
     pub async fn get_agent_statistics(
         &self,
         window: AgentStatisticsWindow,
     ) -> Result<AgentStatisticsSnapshot> {
         let cutoff_ms = window_cutoff_ms(window);
-        let totals_row = self
-            .read_conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT
+        let totals_db_row = self
+            .read_db
+            .query_opt(
+                "SELECT
                         COALESCE(SUM(COALESCE(input_tokens, 0)), 0) AS input_tokens,
                         COALESCE(SUM(COALESCE(output_tokens, 0)), 0) AS output_tokens,
                         COALESCE(SUM(COALESCE(total_tokens, COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0))), 0) AS total_tokens,
@@ -35,28 +54,24 @@ impl HistoryStore {
                      WHERE role = 'assistant'
                        AND deleted_at IS NULL
                        AND (?1 IS NULL OR created_at >= ?1)",
-                )?;
-                let row = stmt.query_row(params![cutoff_ms], |row| {
-                    Ok(StatisticsTotalsRow {
-                        input_tokens: row.get(0)?,
-                        output_tokens: row.get(1)?,
-                        total_tokens: row.get(2)?,
-                        cost_usd: row.get(3)?,
-                        provider_count: row.get(4)?,
-                        model_count: row.get(5)?,
-                        missing_cost_rows: row.get(6)?,
-                    })
-                })?;
-                Ok(row)
-            })
-            .await?;
+                db::db_params![cutoff_ms],
+            )
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("statistics totals query returned no row"))?;
+        let totals_row = StatisticsTotalsRow {
+            input_tokens: totals_db_row.get(0)?,
+            output_tokens: totals_db_row.get(1)?,
+            total_tokens: totals_db_row.get(2)?,
+            cost_usd: totals_db_row.get(3)?,
+            provider_count: totals_db_row.get(4)?,
+            model_count: totals_db_row.get(5)?,
+            missing_cost_rows: totals_db_row.get(6)?,
+        };
 
-        let provider_cutoff_ms = cutoff_ms;
-        let mut providers = self
-            .read_conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT
+        let provider_rows = self
+            .read_db
+            .query(
+                "SELECT
                         CASE WHEN provider IS NULL OR TRIM(provider) = '' THEN 'unknown' ELSE provider END AS provider_key,
                         COALESCE(SUM(COALESCE(input_tokens, 0)), 0) AS input_tokens,
                         COALESCE(SUM(COALESCE(output_tokens, 0)), 0) AS output_tokens,
@@ -67,19 +82,13 @@ impl HistoryStore {
                        AND deleted_at IS NULL
                        AND (?1 IS NULL OR created_at >= ?1)
                      GROUP BY provider_key",
-                )?;
-                let rows = stmt.query_map(params![provider_cutoff_ms], |row| {
-                    Ok(ProviderStatisticsRow {
-                        provider: row.get(0)?,
-                        input_tokens: row.get::<_, i64>(1)?.max(0) as u64,
-                        output_tokens: row.get::<_, i64>(2)?.max(0) as u64,
-                        total_tokens: row.get::<_, i64>(3)?.max(0) as u64,
-                        cost_usd: row.get(4)?,
-                    })
-                })?;
-                Ok(rows.filter_map(|row| row.ok()).collect::<Vec<_>>())
-            })
+                db::db_params![cutoff_ms],
+            )
             .await?;
+        let mut providers = provider_rows
+            .iter()
+            .filter_map(|row| map_provider_statistics_row(row).ok())
+            .collect::<Vec<_>>();
 
         providers.sort_by(|left, right| {
             right
@@ -89,12 +98,10 @@ impl HistoryStore {
                 .then_with(|| left.provider.cmp(&right.provider))
         });
 
-        let model_cutoff_ms = cutoff_ms;
-        let models = self
-            .read_conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT
+        let model_rows = self
+            .read_db
+            .query(
+                "SELECT
                         CASE WHEN provider IS NULL OR TRIM(provider) = '' THEN 'unknown' ELSE provider END AS provider_key,
                         CASE WHEN model IS NULL OR TRIM(model) = '' THEN 'unknown' ELSE model END AS model_key,
                         COALESCE(SUM(COALESCE(input_tokens, 0)), 0) AS input_tokens,
@@ -110,20 +117,13 @@ impl HistoryStore {
                            AND (model IS NULL OR TRIM(model) = '')
                        )
                      GROUP BY provider_key, model_key",
-                )?;
-                let rows = stmt.query_map(params![model_cutoff_ms], |row| {
-                    Ok(ModelStatisticsRow {
-                        provider: row.get(0)?,
-                        model: row.get(1)?,
-                        input_tokens: row.get::<_, i64>(2)?.max(0) as u64,
-                        output_tokens: row.get::<_, i64>(3)?.max(0) as u64,
-                        total_tokens: row.get::<_, i64>(4)?.max(0) as u64,
-                        cost_usd: row.get(5)?,
-                    })
-                })?;
-                Ok(rows.filter_map(|row| row.ok()).collect::<Vec<_>>())
-            })
+                db::db_params![cutoff_ms],
+            )
             .await?;
+        let models = model_rows
+            .iter()
+            .filter_map(|row| map_model_statistics_row(row).ok())
+            .collect::<Vec<_>>();
 
         let mut sorted_models = models.clone();
         sorted_models.sort_by(|left, right| {

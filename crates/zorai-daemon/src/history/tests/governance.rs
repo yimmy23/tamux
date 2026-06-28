@@ -1,5 +1,5 @@
 use super::*;
-use crate::history::schema_helpers::table_has_column;
+use crate::history::schema_helpers::table_has_column_sync;
 use serde_json::json;
 
 #[tokio::test]
@@ -26,13 +26,13 @@ async fn init_schema_adds_governance_tables_to_legacy_db() -> Result<()> {
         .conn
         .call(|conn| {
             let has_approval_transition =
-                table_has_column(conn, "approval_records", "transition_kind")?;
+                table_has_column_sync(conn, "approval_records", "transition_kind")?;
             let has_approval_policy =
-                table_has_column(conn, "approval_records", "policy_fingerprint")?;
+                table_has_column_sync(conn, "approval_records", "policy_fingerprint")?;
             let has_eval_transition =
-                table_has_column(conn, "governance_evaluations", "transition_kind")?;
+                table_has_column_sync(conn, "governance_evaluations", "transition_kind")?;
             let has_eval_verdict =
-                table_has_column(conn, "governance_evaluations", "verdict_json")?;
+                table_has_column_sync(conn, "governance_evaluations", "verdict_json")?;
             let approval_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_approval_records_policy'",

@@ -46,51 +46,130 @@ impl HistoryStore {
         std::fs::create_dir_all(&worm_dir)?;
 
         let db_path = history_dir.join("command-history.db");
-        let conn = tokio_rusqlite::Connection::open(&db_path)
-            .await
-            .context("failed to open SQLite connection via tokio-rusqlite")?;
-        apply_sqlite_connection_pragmas(&conn, false).await?;
-
         let offloaded_payloads_dir = root.join("offloaded-payloads");
-        conn.call(move |connection| {
-            Ok(super::schema::init_schema_on_connection(
-                connection,
-                &offloaded_payloads_dir,
-            )?)
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let mut read_conns = Vec::with_capacity(READ_POOL_SIZE);
-        for _ in 0..READ_POOL_SIZE {
-            let read_conn = tokio_rusqlite::Connection::open(&db_path)
+        let backend = std::env::var("ZORAI_DB_BACKEND")
+            .map(|value| value.trim().to_ascii_lowercase())
+            .unwrap_or_default();
+        let use_remote_replica = backend == "remote-replica" || backend == "remote";
+        let use_libsql = use_remote_replica || backend == "libsql" || backend == "local-libsql";
+
+        let (
+            conn,
+            embedding_writer_conn,
+            read_conn,
+            interactive_read_conn,
+            conn_db,
+            embedding_writer_db,
+            read_db,
+            interactive_read_db,
+        ): (
+            tokio_rusqlite::Connection,
+            tokio_rusqlite::Connection,
+            super::ReadPool,
+            super::ReadPool,
+            std::sync::Arc<dyn db::DbConn>,
+            std::sync::Arc<dyn db::DbConn>,
+            std::sync::Arc<dyn db::DbConn>,
+            std::sync::Arc<dyn db::DbConn>,
+        ) = if use_libsql {
+            let libsql_conn: std::sync::Arc<dyn db::DbConn> = if use_remote_replica {
+                let sync_url = std::env::var("ZORAI_DB_SYNC_URL").map_err(|_| {
+                    anyhow::anyhow!(
+                        "ZORAI_DB_BACKEND=remote-replica requires a sync URL (ZORAI_DB_SYNC_URL or config db_sync_url)"
+                    )
+                })?;
+                let auth_token = zorai_protocol::ZoraiConfig::db_auth_token().unwrap_or_default();
+                std::sync::Arc::new(
+                    db::libsql::LibsqlConn::open_remote_replica(&db_path, sync_url, auth_token)
+                        .await?,
+                )
+            } else {
+                std::sync::Arc::new(db::libsql::LibsqlConn::open_local(&db_path).await?)
+            };
+            let placeholder = tokio_rusqlite::Connection::open_in_memory()
                 .await
-                .context("failed to open read SQLite connection via tokio-rusqlite")?;
-            apply_sqlite_connection_pragmas(&read_conn, true).await?;
-            read_conns.push(read_conn);
-        }
-        let read_conn = super::ReadPool::new(read_conns);
-
-        let mut interactive_read_conns = Vec::with_capacity(INTERACTIVE_READ_POOL_SIZE);
-        for _ in 0..INTERACTIVE_READ_POOL_SIZE {
+                .context("failed to open in-memory placeholder connection for libSQL mode")?;
+            (
+                placeholder.clone(),
+                placeholder.clone(),
+                super::ReadPool::new(vec![placeholder.clone()]),
+                super::ReadPool::new(vec![placeholder]),
+                libsql_conn.clone(),
+                libsql_conn.clone(),
+                libsql_conn.clone(),
+                libsql_conn,
+            )
+        } else {
             let conn = tokio_rusqlite::Connection::open(&db_path)
                 .await
-                .context("failed to open interactive reader SQLite connection")?;
-            apply_sqlite_connection_pragmas(&conn, true).await?;
-            interactive_read_conns.push(conn);
-        }
-        let interactive_read_conn = super::ReadPool::new(interactive_read_conns);
+                .context("failed to open SQLite connection via tokio-rusqlite")?;
+            apply_sqlite_connection_pragmas(&conn, false).await?;
 
-        let embedding_writer_conn = tokio_rusqlite::Connection::open(&db_path)
-            .await
-            .context("failed to open embedding writer SQLite connection")?;
-        apply_sqlite_connection_pragmas(&embedding_writer_conn, false).await?;
+            let mut read_conns = Vec::with_capacity(READ_POOL_SIZE);
+            for _ in 0..READ_POOL_SIZE {
+                let read_conn = tokio_rusqlite::Connection::open(&db_path)
+                    .await
+                    .context("failed to open read SQLite connection via tokio-rusqlite")?;
+                apply_sqlite_connection_pragmas(&read_conn, true).await?;
+                read_conns.push(read_conn);
+            }
+            let read_conn = super::ReadPool::new(read_conns);
+
+            let mut interactive_read_conns = Vec::with_capacity(INTERACTIVE_READ_POOL_SIZE);
+            for _ in 0..INTERACTIVE_READ_POOL_SIZE {
+                let conn = tokio_rusqlite::Connection::open(&db_path)
+                    .await
+                    .context("failed to open interactive reader SQLite connection")?;
+                apply_sqlite_connection_pragmas(&conn, true).await?;
+                interactive_read_conns.push(conn);
+            }
+            let interactive_read_conn = super::ReadPool::new(interactive_read_conns);
+
+            let embedding_writer_conn = tokio_rusqlite::Connection::open(&db_path)
+                .await
+                .context("failed to open embedding writer SQLite connection")?;
+            apply_sqlite_connection_pragmas(&embedding_writer_conn, false).await?;
+
+            let conn_db: std::sync::Arc<dyn db::DbConn> = std::sync::Arc::new(
+                db::sqlite::SqliteWriteConn::new(conn.clone(), db_path.clone()),
+            );
+            let embedding_writer_db: std::sync::Arc<dyn db::DbConn> = std::sync::Arc::new(
+                db::sqlite::SqliteWriteConn::new(embedding_writer_conn.clone(), db_path.clone()),
+            );
+            let read_db: std::sync::Arc<dyn db::DbConn> =
+                std::sync::Arc::new(db::sqlite::SqliteReadConn::new(read_conn.clone()));
+            let interactive_read_db: std::sync::Arc<dyn db::DbConn> = std::sync::Arc::new(
+                db::sqlite::SqliteReadConn::new(interactive_read_conn.clone()),
+            );
+
+            (
+                conn,
+                embedding_writer_conn,
+                read_conn,
+                interactive_read_conn,
+                conn_db,
+                embedding_writer_db,
+                read_db,
+                interactive_read_db,
+            )
+        };
+
+        super::schema::init_schema_on_connection(
+            &mut db::ConnExecutor(&*conn_db),
+            &offloaded_payloads_dir,
+        )
+        .await?;
 
         let store = Self {
             conn,
             embedding_writer_conn,
             read_conn,
             interactive_read_conn,
+            conn_db,
+            embedding_writer_db,
+            read_db,
+            interactive_read_db,
             caches: std::sync::Arc::new(super::HistoryCaches::new()),
             skill_dir,
             telemetry_dir,
@@ -146,24 +225,21 @@ impl HistoryStore {
     }
 
     pub async fn list_agent_config_items(&self) -> Result<Vec<(String, serde_json::Value)>> {
-        self.read_conn.call(|conn| {
-            let mut stmt = conn.prepare(
+        let rows = self
+            .read_db
+            .query(
                 "SELECT key_path, value_json FROM agent_config_items WHERE deleted_at IS NULL ORDER BY length(key_path) ASC, key_path ASC",
-            )?;
-            let rows = stmt.query_map([], |row| {
-                let key_path = row.get::<_, String>(0)?;
-                let value_json = row.get::<_, String>(1)?;
-                Ok((key_path, value_json))
-            })?;
-            let mut items = Vec::new();
-            for row in rows {
-                let (key_path, value_json) = row?;
-                let value = serde_json::from_str::<serde_json::Value>(&value_json)
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-                items.push((key_path, value));
-            }
-            Ok(items)
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+                db::Params::None,
+            )
+            .await?;
+        let mut items = Vec::new();
+        for row in &rows {
+            let key_path = row.get::<String>(0)?;
+            let value_json = row.get::<String>(1)?;
+            let value = serde_json::from_str::<serde_json::Value>(&value_json)?;
+            items.push((key_path, value));
+        }
+        Ok(items)
     }
 
     pub async fn replace_agent_config_items(
@@ -174,23 +250,22 @@ impl HistoryStore {
             .iter()
             .map(|(k, v)| Ok((k.clone(), serde_json::to_string(v)?)))
             .collect::<Result<Vec<_>>>()?;
-        let items = items.clone();
-        self.conn.call(move |conn| {
-            let transaction = conn.unchecked_transaction()?;
-            let now = now_ts() as i64;
-            transaction.execute(
-                "UPDATE agent_config_items SET deleted_at = ?1 WHERE deleted_at IS NULL",
-                params![now],
-            )?;
-            for (key_path, value_json) in &items {
-                transaction.execute(
-                    "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
-                    params![key_path, value_json, now],
-                )?;
-            }
-            transaction.commit()?;
-            Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        let mut txn = self.conn_db.transaction().await?;
+        let now = now_ts() as i64;
+        txn.execute(
+            "UPDATE agent_config_items SET deleted_at = ?1 WHERE deleted_at IS NULL",
+            db::db_params![now],
+        )
+        .await?;
+        for (key_path, value_json) in &items {
+            txn.execute(
+                "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
+                db::db_params![key_path.clone(), value_json.clone(), now],
+            )
+            .await?;
+        }
+        txn.commit().await?;
+        Ok(())
     }
 
     pub async fn upsert_agent_config_item(
@@ -200,27 +275,27 @@ impl HistoryStore {
     ) -> Result<()> {
         let key_path = key_path.to_string();
         let value_json = serde_json::to_string(value)?;
-        let _value = value.clone();
-        self.conn.call(move |conn| {
-            let transaction = conn.unchecked_transaction()?;
-            let prefix = format!("{key_path}/%");
-            let now = now_ts() as i64;
-            transaction.execute(
-                "UPDATE agent_config_items SET deleted_at = ?3 \
-                 WHERE deleted_at IS NULL AND (key_path = ?1 OR key_path LIKE ?2 OR ?1 LIKE key_path || '/%')",
-                params![key_path, prefix, now],
-            )?;
-            transaction.execute(
-                "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
-                params![key_path, value_json.clone(), now],
-            )?;
-            transaction.execute(
-                "INSERT INTO agent_config_updates (id, key_path, value_json, updated_at) VALUES (?1, ?2, ?3, ?4)",
-                params![uuid::Uuid::new_v4().to_string(), key_path, value_json, now],
-            )?;
-            transaction.commit()?;
-            Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        let mut txn = self.conn_db.transaction().await?;
+        let prefix = format!("{key_path}/%");
+        let now = now_ts() as i64;
+        txn.execute(
+            "UPDATE agent_config_items SET deleted_at = ?3 \
+             WHERE deleted_at IS NULL AND (key_path = ?1 OR key_path LIKE ?2 OR ?1 LIKE key_path || '/%')",
+            db::db_params![key_path.clone(), prefix, now],
+        )
+        .await?;
+        txn.execute(
+            "INSERT OR REPLACE INTO agent_config_items (key_path, value_json, updated_at, deleted_at) VALUES (?1, ?2, ?3, NULL)",
+            db::db_params![key_path.clone(), value_json.clone(), now],
+        )
+        .await?;
+        txn.execute(
+            "INSERT INTO agent_config_updates (id, key_path, value_json, updated_at) VALUES (?1, ?2, ?3, ?4)",
+            db::db_params![uuid::Uuid::new_v4().to_string(), key_path, value_json, now],
+        )
+        .await?;
+        txn.commit().await?;
+        Ok(())
     }
 
     pub async fn load_provider_auth_state(
@@ -230,33 +305,26 @@ impl HistoryStore {
     ) -> Result<Option<ProviderAuthStateRow>> {
         let provider_id = provider_id.to_string();
         let auth_mode = auth_mode.to_string();
-        self.read_conn
-            .call(move |conn| {
-                let row = conn
-                    .query_row(
-                        "SELECT provider_id, auth_mode, state_json, updated_at
-                         FROM provider_auth_state
-                         WHERE provider_id = ?1 AND auth_mode = ?2 AND deleted_at IS NULL",
-                        params![provider_id, auth_mode],
-                        |row| {
-                            let state_json = row.get::<_, String>(2)?;
-                            let parsed = serde_json::from_str::<serde_json::Value>(&state_json)
-                                .map_err(|e| {
-                                    rusqlite::Error::ToSqlConversionFailure(Box::new(e))
-                                })?;
-                            Ok(ProviderAuthStateRow {
-                                provider_id: row.get(0)?,
-                                auth_mode: row.get(1)?,
-                                state_json: parsed,
-                                updated_at: row.get(3)?,
-                            })
-                        },
-                    )
-                    .optional()?;
-                Ok(row)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let row = self
+            .read_db
+            .query_opt(
+                "SELECT provider_id, auth_mode, state_json, updated_at
+                 FROM provider_auth_state
+                 WHERE provider_id = ?1 AND auth_mode = ?2 AND deleted_at IS NULL",
+                db::db_params![provider_id, auth_mode],
+            )
+            .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let state_json = row.get::<String>(2)?;
+        let parsed = serde_json::from_str::<serde_json::Value>(&state_json)?;
+        Ok(Some(ProviderAuthStateRow {
+            provider_id: row.get(0)?,
+            auth_mode: row.get(1)?,
+            state_json: parsed,
+            updated_at: row.get(3)?,
+        }))
     }
 
     pub async fn save_provider_auth_state(
@@ -268,18 +336,15 @@ impl HistoryStore {
         let provider_id = provider_id.to_string();
         let auth_mode = auth_mode.to_string();
         let state_json = serde_json::to_string(state)?;
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT OR REPLACE INTO provider_auth_state
-                     (provider_id, auth_mode, state_json, updated_at, deleted_at)
-                     VALUES (?1, ?2, ?3, ?4, NULL)",
-                    params![provider_id, auth_mode, state_json, now_ts() as i64],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        self.conn_db
+            .execute(
+                "INSERT OR REPLACE INTO provider_auth_state
+                 (provider_id, auth_mode, state_json, updated_at, deleted_at)
+                 VALUES (?1, ?2, ?3, ?4, NULL)",
+                db::db_params![provider_id, auth_mode, state_json, now_ts() as i64],
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn delete_provider_auth_state(
@@ -289,16 +354,13 @@ impl HistoryStore {
     ) -> Result<()> {
         let provider_id = provider_id.to_string();
         let auth_mode = auth_mode.to_string();
-        self.conn
-            .call(move |conn| {
-                conn.execute(
-                    "UPDATE provider_auth_state SET deleted_at = ?3 WHERE provider_id = ?1 AND auth_mode = ?2 AND deleted_at IS NULL",
-                    params![provider_id, auth_mode, now_ts() as i64],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        self.conn_db
+            .execute(
+                "UPDATE provider_auth_state SET deleted_at = ?3 WHERE provider_id = ?1 AND auth_mode = ?2 AND deleted_at IS NULL",
+                db::db_params![provider_id, auth_mode, now_ts() as i64],
+            )
+            .await?;
+        Ok(())
     }
 
     pub(crate) async fn new_test_store(root: &Path) -> Result<Self> {
@@ -325,25 +387,26 @@ impl HistoryStore {
         let snapshot_path = record.snapshot_path.clone();
         let excerpt_clone = excerpt.clone();
         let record = record;
-        self.conn.call(move |conn| {
-            conn.execute(
+        self.conn_db
+            .execute(
                 "INSERT OR REPLACE INTO history_entries (id, kind, title, excerpt, content, path, timestamp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![
-                    execution_id,
+                db::db_params![
+                    execution_id.clone(),
                     "managed-command",
-                    command,
-                    excerpt_clone,
+                    command.clone(),
+                    excerpt_clone.clone(),
                     format!("{}\n{}", command, rationale),
                     snapshot_path,
                     timestamp,
                 ],
-            )?;
-            conn.execute(
+            )
+            .await?;
+        self.conn_db
+            .execute(
                 "INSERT OR REPLACE INTO history_fts (id, title, excerpt, content) VALUES (?1, ?2, ?3, ?4)",
-                params![execution_id, command, excerpt_clone, rationale],
-            )?;
-            Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                db::db_params![execution_id, command, excerpt_clone, rationale],
+            )
+            .await?;
 
         self.append_telemetry(
             "operational",
@@ -370,7 +433,7 @@ impl HistoryStore {
         )
         .await?;
 
-        let mut system = System::new_all();
+        let mut system = System::new();
         system.refresh_memory();
         system.refresh_cpu();
         self.append_telemetry(
@@ -393,29 +456,26 @@ impl HistoryStore {
         execution_id: &str,
     ) -> Result<Option<ManagedCommandFinishedRecord>> {
         let execution_id = execution_id.to_string();
-        self.read_conn
-            .call(move |conn| {
-                Ok(conn
-                    .query_row(
-                    "SELECT title, excerpt, path FROM history_entries WHERE id = ?1 AND kind = 'managed-command'",
-                    params![execution_id],
-                    |row| {
-                        let command: String = row.get(0)?;
-                        let excerpt: String = row.get(1)?;
-                        let snapshot_path: Option<String> = row.get(2)?;
-                        let (exit_code, duration_ms) = parse_managed_history_excerpt(&excerpt);
-                        Ok(ManagedCommandFinishedRecord {
-                            command,
-                            exit_code,
-                            duration_ms,
-                            snapshot_path,
-                        })
-                    },
-                )
-                .optional()?)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let Some(row) = self
+            .read_db
+            .query_opt(
+                "SELECT title, excerpt, path FROM history_entries WHERE id = ?1 AND kind = 'managed-command'",
+                db::db_params![execution_id],
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        let command: String = row.get(0)?;
+        let excerpt: String = row.get(1)?;
+        let snapshot_path: Option<String> = row.get(2)?;
+        let (exit_code, duration_ms) = parse_managed_history_excerpt(&excerpt);
+        Ok(Some(ManagedCommandFinishedRecord {
+            command,
+            exit_code,
+            duration_ms,
+            snapshot_path,
+        }))
     }
 
     pub async fn search(
@@ -432,32 +492,35 @@ impl HistoryStore {
         limit: usize,
     ) -> Result<(String, Vec<HistorySearchHit>)> {
         let query = query.to_string();
-        self.read_conn.call(move |conn| {
-            let mut stmt = conn.prepare(
+        let rows = self
+            .read_db
+            .query(
                 "SELECT history_entries.id, history_entries.kind, history_entries.title, history_entries.excerpt, history_entries.path, history_entries.timestamp, bm25(history_fts) \
                  FROM history_fts JOIN history_entries ON history_entries.id = history_fts.id \
                  WHERE history_fts MATCH ?1 ORDER BY bm25(history_fts) LIMIT ?2",
-            )?;
-            let rows = stmt.query_map(params![query, limit as i64], |row| {
-                Ok(HistorySearchHit {
-                    id: row.get(0)?,
-                    kind: row.get(1)?,
-                    title: row.get(2)?,
-                    excerpt: row.get(3)?,
-                    path: row.get(4)?,
-                    timestamp: row.get::<_, i64>(5)? as u64,
-                    score: row.get(6)?,
+                db::db_params![query.clone(), limit as i64],
+            )
+            .await?;
+        let hits = rows
+            .iter()
+            .filter_map(|row| {
+                Some(HistorySearchHit {
+                    id: row.get(0).ok()?,
+                    kind: row.get(1).ok()?,
+                    title: row.get(2).ok()?,
+                    excerpt: row.get(3).ok()?,
+                    path: row.get(4).ok()?,
+                    timestamp: row.get::<i64>(5).ok()? as u64,
+                    score: row.get(6).ok()?,
                 })
-            })?;
-
-            let hits = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
-            let summary = if hits.is_empty() {
-                format!("No prior runs matched '{query}'.")
-            } else {
-                format!("Found {} historical matches for '{query}'.", hits.len())
-            };
-            Ok((summary, hits))
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+            })
+            .collect::<Vec<_>>();
+        let summary = if hits.is_empty() {
+            format!("No prior runs matched '{query}'.")
+        } else {
+            format!("Found {} historical matches for '{query}'.", hits.len())
+        };
+        Ok((summary, hits))
     }
 
     pub async fn generate_skill(
@@ -499,6 +562,36 @@ impl HistoryStore {
             .with_context(|| format!("failed to write {}", path.display()))?;
         self.register_skill_document(&path).await?;
         Ok((title.to_string(), path.to_string_lossy().into_owned()))
+    }
+}
+
+/// Periodically syncs an embedded libSQL remote replica against its server.
+/// A no-op for the SQLite engine and local libSQL (their `conn_db.sync()`
+/// returns `Ok(())`), so it is harmless to always spawn. Syncs once at startup,
+/// on each interval tick, and once more on shutdown.
+pub(crate) async fn run_db_sync_loop(
+    conn_db: std::sync::Arc<dyn db::DbConn>,
+    interval_secs: u64,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) {
+    if let Err(e) = conn_db.sync().await {
+        tracing::warn!(error = %e, "initial database replica sync failed");
+    }
+    let interval = std::time::Duration::from_secs(interval_secs.max(1));
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {
+                if let Err(e) = conn_db.sync().await {
+                    tracing::warn!(error = %e, "periodic database replica sync failed");
+                }
+            }
+            _ = shutdown.changed() => {
+                if let Err(e) = conn_db.sync().await {
+                    tracing::warn!(error = %e, "final database replica sync on shutdown failed");
+                }
+                return;
+            }
+        }
     }
 }
 

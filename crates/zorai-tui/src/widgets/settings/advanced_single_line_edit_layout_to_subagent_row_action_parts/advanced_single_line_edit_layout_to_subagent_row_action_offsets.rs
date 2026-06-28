@@ -139,6 +139,7 @@ pub(crate) fn single_line_edit_layout(
             _ => None,
         },
         SettingsTab::Plugins => None,
+        SettingsTab::Database => None,
         SettingsTab::About => None,
     }
 }
@@ -396,6 +397,7 @@ pub(crate) fn settings_row_hit(
             _ => None,
         },
         SettingsTab::Plugins => None,
+        SettingsTab::Database => None,
         SettingsTab::About => None,
     }
 }

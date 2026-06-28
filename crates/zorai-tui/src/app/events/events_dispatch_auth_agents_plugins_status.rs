@@ -271,6 +271,26 @@ impl TuiModel {
                 self.handle_divergent_session_event(payload);
                 None
             }
+            ClientEvent::DatabaseSyncResult { ok, message } => {
+                self.status_line = if ok {
+                    message
+                } else {
+                    format!("Database sync failed: {message}")
+                };
+                None
+            }
+            ClientEvent::DatabaseBackendState {
+                backend,
+                sync_url,
+                has_token,
+                seeded_at,
+            } => {
+                self.config.db_backend = backend.unwrap_or_default();
+                self.config.db_sync_url = sync_url.unwrap_or_default();
+                self.config.db_has_token = has_token;
+                self.config.db_seeded_at = seeded_at;
+                None
+            }
             other => Some(other),
         }
     }

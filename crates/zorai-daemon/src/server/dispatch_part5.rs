@@ -20,6 +20,9 @@ pub(crate) async fn dispatch_part5(
             | ClientMessage::AgentGetOperatorProfileSummary
             | ClientMessage::AgentAskQuestion { .. }
             | ClientMessage::AgentAnswerQuestion { .. }
+            | ClientMessage::DatabaseGetBackend
+            | ClientMessage::DatabaseSetBackend { .. }
+            | ClientMessage::DatabaseSyncNow
     ) {
         return Ok(false);
     }
@@ -496,6 +499,61 @@ pub(crate) async fn dispatch_part5(
                     .ok();
             }
         },
+
+        ClientMessage::DatabaseGetBackend => {
+            let cfg = zorai_protocol::ZoraiConfig::load();
+            let seeded_at = agent
+                .history
+                .list_agent_config_items()
+                .await
+                .ok()
+                .and_then(|items| {
+                    items
+                        .into_iter()
+                        .find(|(key, _)| key == "db_seeded_remote_at")
+                        .and_then(|(_, value)| {
+                            value
+                                .as_i64()
+                                .or_else(|| value.as_str().and_then(|s| s.parse().ok()))
+                        })
+                });
+            framed
+                .send(DaemonMessage::DatabaseBackendState {
+                    backend: cfg.db_backend.clone(),
+                    sync_url: cfg.db_sync_url.clone(),
+                    has_token: zorai_protocol::ZoraiConfig::db_auth_token().is_some(),
+                    seeded_at,
+                })
+                .await?;
+        }
+
+        ClientMessage::DatabaseSetBackend { backend, sync_url } => {
+            let mut cfg = zorai_protocol::ZoraiConfig::load();
+            cfg.db_backend = backend.filter(|value| !value.trim().is_empty());
+            cfg.db_sync_url = sync_url.filter(|value| !value.trim().is_empty());
+            match cfg.save() {
+                Ok(()) => {
+                    framed.send(DaemonMessage::DatabaseBackendUpdated).await?;
+                }
+                Err(error) => {
+                    framed
+                        .send(DaemonMessage::Error {
+                            message: format!("failed to save database backend config: {error}"),
+                        })
+                        .await?;
+                }
+            }
+        }
+
+        ClientMessage::DatabaseSyncNow => {
+            let (ok, message) = match agent.history.conn_db.sync().await {
+                Ok(()) => (true, "database sync complete".to_string()),
+                Err(error) => (false, error.to_string()),
+            };
+            framed
+                .send(DaemonMessage::DatabaseSyncResult { ok, message })
+                .await?;
+        }
 
         _ => unreachable!("message chunk should be exhaustive"),
     }

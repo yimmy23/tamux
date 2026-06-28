@@ -7,32 +7,34 @@ impl HistoryStore {
         task_id: Option<&str>,
         goal_run_id: Option<&str>,
     ) -> Result<Vec<PendingSkillVariantConsultation>> {
-        let thread_id = thread_id.map(str::to_string);
-        let task_id = task_id.map(str::to_string);
-        let goal_run_id = goal_run_id.map(str::to_string);
-
-        self.conn.call(move |conn| {
-            let mut stmt = conn.prepare(
+        let rows = self
+            .conn_db
+            .query(
                 "SELECT variant_id, context_tags_json FROM skill_variant_usage \
                  WHERE resolved_at IS NULL AND ( \
                     (?1 IS NOT NULL AND task_id = ?1) OR \
                     (?2 IS NOT NULL AND goal_run_id = ?2) OR \
                     (?3 IS NOT NULL AND task_id IS NULL AND goal_run_id IS NULL AND thread_id = ?3) \
                  )",
-            )?;
-            let rows = stmt.query_map(params![task_id, goal_run_id, thread_id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })?;
-            let pending = rows
-                .filter_map(|row| row.ok())
-                .map(|(variant_id, context_tags_json)| PendingSkillVariantConsultation {
+                db::db_params![
+                    task_id.map(str::to_string),
+                    goal_run_id.map(str::to_string),
+                    thread_id.map(str::to_string)
+                ],
+            )
+            .await?;
+        let pending = rows
+            .iter()
+            .filter_map(|row| match (row.get::<String>(0), row.get::<String>(1)) {
+                (Ok(variant_id), Ok(context_tags_json)) => Some(PendingSkillVariantConsultation {
                     variant_id,
                     context_tags: serde_json::from_str::<Vec<String>>(&context_tags_json)
                         .unwrap_or_default(),
-                })
-                .collect::<Vec<_>>();
-            Ok(pending)
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+                }),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        Ok(pending)
     }
 
     pub async fn settle_skill_variant_usage(
@@ -50,31 +52,33 @@ impl HistoryStore {
             anyhow::bail!("invalid skill usage outcome '{outcome}'");
         }
 
-        let thread_id_owned = thread_id.map(str::to_string);
-        let task_id_owned = task_id.map(str::to_string);
-        let goal_run_id_owned = goal_run_id.map(str::to_string);
-        let outcome_clone = normalized_outcome.clone();
-
         let thread_id = thread_id.map(str::to_string);
         let task_id = task_id.map(str::to_string);
         let goal_run_id = goal_run_id.map(str::to_string);
-        let (pending_len, skill_names) = self.conn.call(move |conn| {
-            let mut stmt = conn.prepare(
+
+        let mut txn = self.conn_db.transaction().await?;
+        let pending = txn
+            .query(
                 "SELECT usage_id, variant_id FROM skill_variant_usage \
                  WHERE resolved_at IS NULL AND ( \
                     (?1 IS NOT NULL AND task_id = ?1) OR \
                     (?2 IS NOT NULL AND goal_run_id = ?2) OR \
                     (?3 IS NOT NULL AND task_id IS NULL AND goal_run_id IS NULL AND thread_id = ?3) \
                  )",
-            )?;
-            let rows = stmt.query_map(params![task_id_owned, goal_run_id_owned, thread_id_owned], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })?;
-            let pending = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
-            if pending.is_empty() {
-                return Ok((0usize, BTreeSet::<String>::new()));
-            }
+                db::db_params![task_id.clone(), goal_run_id.clone(), thread_id.clone()],
+            )
+            .await?
+            .iter()
+            .filter_map(|row| match (row.get::<String>(0), row.get::<String>(1)) {
+                (Ok(usage_id), Ok(variant_id)) => Some((usage_id, variant_id)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
 
+        let (pending_len, skill_names) = if pending.is_empty() {
+            txn.commit().await?;
+            (0usize, BTreeSet::<String>::new())
+        } else {
             let resolved_at = now_ts() as i64;
             let variant_ids = pending
                 .iter()
@@ -83,68 +87,81 @@ impl HistoryStore {
             let mut success_counts = BTreeMap::<String, usize>::new();
             let mut failure_counts = BTreeMap::<String, usize>::new();
             for (usage_id, variant_id) in &pending {
-                conn.execute(
+                txn.execute(
                     "UPDATE skill_variant_usage SET resolved_at = ?2, outcome = ?3 WHERE usage_id = ?1",
-                    params![usage_id, resolved_at, outcome_clone.as_str()],
-                )?;
-                if outcome_clone == "success" {
+                    db::db_params![usage_id, resolved_at, normalized_outcome.as_str()],
+                )
+                .await?;
+                if normalized_outcome == "success" {
                     *success_counts.entry(variant_id.clone()).or_default() += 1;
-                } else if outcome_clone == "failure" {
+                } else if normalized_outcome == "failure" {
                     *failure_counts.entry(variant_id.clone()).or_default() += 1;
                 }
             }
 
             for (variant_id, count) in success_counts {
-                conn.execute(
+                txn.execute(
                     "UPDATE skill_variants \
                      SET use_count = use_count + ?2, success_count = success_count + ?2, fitness_score = fitness_score + ?2, last_used_at = ?3, updated_at = ?3 \
                      WHERE variant_id = ?1",
-                    params![variant_id, count as i64, resolved_at],
-                )?;
-                let fitness_score: f64 = conn.query_row(
-                    "SELECT fitness_score FROM skill_variants WHERE variant_id = ?1",
-                    params![variant_id.as_str()],
-                    |row| row.get(0),
-                )?;
-                conn.execute(
+                    db::db_params![variant_id.clone(), count as i64, resolved_at],
+                )
+                .await?;
+                let fitness_score: f64 = txn
+                    .query_opt(
+                        "SELECT fitness_score FROM skill_variants WHERE variant_id = ?1",
+                        db::db_params![variant_id.as_str()],
+                    )
+                    .await?
+                    .map(|row| row.get::<f64>(0))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                txn.execute(
                     "INSERT INTO skill_variant_history (id, variant_id, recorded_at, outcome, fitness_score) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![uuid::Uuid::new_v4().to_string(), variant_id, resolved_at, "success", fitness_score],
-                )?;
+                    db::db_params![uuid::Uuid::new_v4().to_string(), variant_id, resolved_at, "success", fitness_score],
+                )
+                .await?;
             }
             for (variant_id, count) in failure_counts {
-                conn.execute(
+                txn.execute(
                     "UPDATE skill_variants \
                      SET failure_count = failure_count + ?2, fitness_score = fitness_score - ?2, updated_at = ?3 \
                      WHERE variant_id = ?1",
-                    params![variant_id, count as i64, resolved_at],
-                )?;
-                let fitness_score: f64 = conn.query_row(
-                    "SELECT fitness_score FROM skill_variants WHERE variant_id = ?1",
-                    params![variant_id.as_str()],
-                    |row| row.get(0),
-                )?;
-                conn.execute(
+                    db::db_params![variant_id.clone(), count as i64, resolved_at],
+                )
+                .await?;
+                let fitness_score: f64 = txn
+                    .query_opt(
+                        "SELECT fitness_score FROM skill_variants WHERE variant_id = ?1",
+                        db::db_params![variant_id.as_str()],
+                    )
+                    .await?
+                    .map(|row| row.get::<f64>(0))
+                    .transpose()?
+                    .unwrap_or(0.0);
+                txn.execute(
                     "INSERT INTO skill_variant_history (id, variant_id, recorded_at, outcome, fitness_score) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![uuid::Uuid::new_v4().to_string(), variant_id, resolved_at, "failure", fitness_score],
-                )?;
+                    db::db_params![uuid::Uuid::new_v4().to_string(), variant_id, resolved_at, "failure", fitness_score],
+                )
+                .await?;
             }
 
-            let skill_names = variant_ids
-                .into_iter()
-                .filter_map(|variant_id| {
-                    conn.query_row(
+            let mut skill_names = BTreeSet::<String>::new();
+            for variant_id in variant_ids {
+                if let Some(row) = txn
+                    .query_opt(
                         "SELECT skill_name FROM skill_variants WHERE variant_id = ?1",
-                        params![variant_id],
-                        |row| row.get::<_, String>(0),
+                        db::db_params![variant_id],
                     )
-                    .optional()
-                    .ok()
-                    .flatten()
-                })
-                .collect::<BTreeSet<_>>();
-
-            Ok((pending.len(), skill_names))
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                    .await?
+                {
+                    skill_names.insert(row.get::<String>(0)?);
+                }
+            }
+            let pending_len = pending.len();
+            txn.commit().await?;
+            (pending_len, skill_names)
+        };
 
         if pending_len == 0 {
             return Ok((0, Vec::new()));
@@ -179,83 +196,74 @@ impl HistoryStore {
         variant_id: &str,
         limit: usize,
     ) -> Result<Vec<SkillVariantFitnessHistoryRow>> {
-        let variant_id = variant_id.to_string();
-        self.conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT id, variant_id, recorded_at, outcome, fitness_score \
-                     FROM skill_variant_history WHERE variant_id = ?1 \
-                     ORDER BY recorded_at ASC, rowid ASC LIMIT ?2",
-                )?;
-                let rows = stmt
-                    .query_map(params![variant_id, limit as i64], |row| {
-                        Ok(SkillVariantFitnessHistoryRow {
-                            id: row.get(0)?,
-                            variant_id: row.get(1)?,
-                            recorded_at: row.get(2)?,
-                            outcome: row.get(3)?,
-                            fitness_score: row.get(4)?,
-                        })
-                    })?
-                    .collect::<std::result::Result<Vec<_>, _>>()?;
-                Ok(rows)
+        let rows = self
+            .conn_db
+            .query(
+                "SELECT id, variant_id, recorded_at, outcome, fitness_score \
+                 FROM skill_variant_history WHERE variant_id = ?1 \
+                 ORDER BY recorded_at ASC, rowid ASC LIMIT ?2",
+                db::db_params![variant_id, limit as i64],
+            )
+            .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(SkillVariantFitnessHistoryRow {
+                    id: row.get(0)?,
+                    variant_id: row.get(1)?,
+                    recorded_at: row.get(2)?,
+                    outcome: row.get(3)?,
+                    fitness_score: row.get(4)?,
+                })
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .collect()
     }
 
     pub(crate) async fn record_gene_fitness_history(
         &self,
         rows: &[crate::agent::gene_pool::types::GenePoolFitnessSnapshot],
     ) -> Result<()> {
-        let rows = rows.to_vec();
-        self.conn
-            .call(move |conn| {
-                for row in rows {
-                    conn.execute(
-                        "INSERT INTO gene_fitness_history (
-                            variant_id, recorded_at_ms, fitness_score, use_count, success_rate
-                         ) VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![
-                            row.variant_id,
-                            row.recorded_at_ms as i64,
-                            row.fitness_score,
-                            row.use_count as i64,
-                            row.success_rate,
-                        ],
-                    )?;
-                }
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let mut txn = self.conn_db.transaction().await?;
+        for row in rows {
+            txn.execute(
+                "INSERT INTO gene_fitness_history (
+                    variant_id, recorded_at_ms, fitness_score, use_count, success_rate
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                db::db_params![
+                    row.variant_id.clone(),
+                    row.recorded_at_ms as i64,
+                    row.fitness_score,
+                    row.use_count as i64,
+                    row.success_rate,
+                ],
+            )
+            .await?;
+        }
+        txn.commit().await?;
+        Ok(())
     }
 
     pub(crate) async fn record_gene_crossbreed_proposals(
         &self,
         proposals: &[crate::agent::gene_pool::types::GenePoolCrossBreedProposal],
     ) -> Result<()> {
-        let proposals = proposals.to_vec();
-        self.conn
-            .call(move |conn| {
-                for proposal in proposals {
-                    conn.execute(
-                        "INSERT INTO gene_crossbreeds (
-                            left_parent_variant_id, right_parent_variant_id, skill_name, co_usage_rate, proposed_at_ms
-                         ) VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![
-                            proposal.left_parent_variant_id,
-                            proposal.right_parent_variant_id,
-                            proposal.skill_name,
-                            proposal.co_usage_rate,
-                            proposal.proposed_at_ms as i64,
-                        ],
-                    )?;
-                }
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let mut txn = self.conn_db.transaction().await?;
+        for proposal in proposals {
+            txn.execute(
+                "INSERT INTO gene_crossbreeds (
+                    left_parent_variant_id, right_parent_variant_id, skill_name, co_usage_rate, proposed_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                db::db_params![
+                    proposal.left_parent_variant_id.clone(),
+                    proposal.right_parent_variant_id.clone(),
+                    proposal.skill_name.clone(),
+                    proposal.co_usage_rate,
+                    proposal.proposed_at_ms as i64,
+                ],
+            )
+            .await?;
+        }
+        txn.commit().await?;
+        Ok(())
     }
 
     pub async fn get_gene_pool_entry(
@@ -268,27 +276,24 @@ impl HistoryStore {
             right_parent_variant_id.to_string(),
         ];
         parent_pair.sort();
-        self.conn
-            .call(move |conn| {
-                Ok(conn
-                    .query_row(
-                        "SELECT parent_a, parent_b, offspring_id, lifecycle_state, created_at \
-                     FROM gene_pool WHERE parent_a = ?1 AND parent_b = ?2",
-                        params![parent_pair[0], parent_pair[1]],
-                        |row| {
-                            Ok(GenePoolEntry {
-                                parent_a: row.get(0)?,
-                                parent_b: row.get(1)?,
-                                offspring_id: row.get(2)?,
-                                lifecycle_state: row.get(3)?,
-                                created_at: row.get(4)?,
-                            })
-                        },
-                    )
-                    .optional()?)
+        let row = self
+            .conn_db
+            .query_opt(
+                "SELECT parent_a, parent_b, offspring_id, lifecycle_state, created_at \
+                 FROM gene_pool WHERE parent_a = ?1 AND parent_b = ?2",
+                db::db_params![parent_pair[0].clone(), parent_pair[1].clone()],
+            )
+            .await?;
+        row.map(|row| -> anyhow::Result<GenePoolEntry> {
+            Ok(GenePoolEntry {
+                parent_a: row.get(0)?,
+                parent_b: row.get(1)?,
+                offspring_id: row.get(2)?,
+                lifecycle_state: row.get(3)?,
+                created_at: row.get(4)?,
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        })
+        .transpose()
     }
 
     pub async fn promote_skill_variant(&self, variant_id: &str) -> Result<()> {
@@ -309,113 +314,129 @@ impl HistoryStore {
         self.caches
             .skill_variant
             .invalidate(&variant_id.to_string());
-        let variant_id = variant_id.to_string();
-        let next_status = next_status.to_string();
-        self.conn
-            .call(move |conn| {
-                let now = now_ts() as i64;
-                conn.execute(
-                    "UPDATE skill_variants SET status = ?2, updated_at = ?3 WHERE variant_id = ?1",
-                    params![variant_id, next_status, now],
-                )?;
-                conn.execute(
-                    "UPDATE gene_pool SET lifecycle_state = ?2 WHERE offspring_id = ?1",
-                    params![variant_id, next_status],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let now = now_ts() as i64;
+        let mut txn = self.conn_db.transaction().await?;
+        txn.execute(
+            "UPDATE skill_variants SET status = ?2, updated_at = ?3 WHERE variant_id = ?1",
+            db::db_params![variant_id, next_status, now],
+        )
+        .await?;
+        txn.execute(
+            "UPDATE gene_pool SET lifecycle_state = ?2 WHERE offspring_id = ?1",
+            db::db_params![variant_id, next_status],
+        )
+        .await?;
+        txn.commit().await?;
+        Ok(())
     }
 
     pub async fn rebalance_skill_variants(
         &self,
         skill_name: &str,
     ) -> Result<Vec<SkillVariantRecord>> {
-        let skill_name = skill_name.to_string();
-        self.conn.call(move |conn| {
-            let mut stmt = conn.prepare(
+        let rows = self
+            .conn_db
+            .query(
                 "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
                  FROM skill_variants WHERE skill_name = ?1",
-            )?;
-            let rows = stmt.query_map(params![skill_name], map_skill_variant_row)?;
-            let mut variants = rows.filter_map(|row| row.ok()).collect::<Vec<_>>();
-            if variants.is_empty() {
-                return Ok(Vec::new());
-            }
+                db::db_params![skill_name],
+            )
+            .await?;
+        let mut variants = rows
+            .iter()
+            .filter_map(|row| map_skill_variant_row_db(row).ok())
+            .collect::<Vec<_>>();
+        if variants.is_empty() {
+            return Ok(Vec::new());
+        }
 
-            let now = now_ts();
-            let canonical = variants
-                .iter()
-                .find(|variant| variant.is_canonical())
-                .cloned();
-            let canonical_wilson_lower = canonical
-                .as_ref()
-                .map(|c| wilson_lower_bound(c.success_count, c.use_count))
-                .unwrap_or(0.0);
-            let promoted_variant_id = {
-                let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
-                variants
-                .iter()
-                .filter(|variant| !variant.is_canonical())
-                .filter(|variant| {
-                    let variant_wilson_lower =
-                        wilson_lower_bound(variant.success_count, variant.use_count);
-                    variant.use_count >= SKILL_PROMOTION_MIN_USES
-                        && variant.success_count >= SKILL_PROMOTION_MIN_SUCCESS_COUNT
-                        && variant.success_rate() >= SKILL_PROMOTION_SUCCESS_RATE_THRESHOLD
-                        && variant_wilson_lower
-                            > canonical_wilson_lower + SKILL_PROMOTION_MARGIN
-                        && recent_skill_variant_outcomes_allow_promotion(conn, &variant.variant_id, 3)
-                            .unwrap_or(false)
-                })
-                .max_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant))
-                .map(|variant| variant.variant_id.clone())
-            };
+        let now = now_ts();
+        let canonical = variants
+            .iter()
+            .find(|variant| variant.is_canonical())
+            .cloned();
+        let canonical_wilson_lower = canonical
+            .as_ref()
+            .map(|c| wilson_lower_bound(c.success_count, c.use_count))
+            .unwrap_or(0.0);
 
-            for variant in &mut variants {
-                let next_status =
-                    rebalance_skill_variant_status(variant, promoted_variant_id.as_deref(), now);
-                if next_status != variant.status {
-                    conn.execute(
-                        "UPDATE skill_variants SET status = ?2, updated_at = ?3 WHERE variant_id = ?1",
-                        params![variant.variant_id, next_status, now as i64],
-                    )?;
-                    variant.status = next_status.to_string();
-                    variant.updated_at = now;
+        let mut txn = self.conn_db.transaction().await?;
+        let promoted_variant_id = {
+            let trend_by_variant = load_skill_variant_trends_db(&mut *txn, &variants, 8).await?;
+            let mut eligible: Vec<&SkillVariantRecord> = Vec::new();
+            for variant in variants.iter().filter(|variant| !variant.is_canonical()) {
+                let variant_wilson_lower =
+                    wilson_lower_bound(variant.success_count, variant.use_count);
+                let cheap_ok = variant.use_count >= SKILL_PROMOTION_MIN_USES
+                    && variant.success_count >= SKILL_PROMOTION_MIN_SUCCESS_COUNT
+                    && variant.success_rate() >= SKILL_PROMOTION_SUCCESS_RATE_THRESHOLD
+                    && variant_wilson_lower > canonical_wilson_lower + SKILL_PROMOTION_MARGIN;
+                if cheap_ok
+                    && recent_skill_variant_outcomes_allow_promotion_db(
+                        &mut *txn,
+                        &variant.variant_id,
+                        3,
+                    )
+                    .await
+                    .unwrap_or(false)
+                {
+                    eligible.push(variant);
                 }
             }
+            eligible
+                .into_iter()
+                .max_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant))
+                .map(|variant| variant.variant_id.clone())
+        };
 
-            let trend_by_variant = load_skill_variant_trends(conn, &variants, 8)?;
-            variants.sort_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant));
-            Ok(variants)
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))
+        for variant in &mut variants {
+            let next_status =
+                rebalance_skill_variant_status(variant, promoted_variant_id.as_deref(), now);
+            if next_status != variant.status {
+                txn.execute(
+                    "UPDATE skill_variants SET status = ?2, updated_at = ?3 WHERE variant_id = ?1",
+                    db::db_params![variant.variant_id.clone(), next_status, now as i64],
+                )
+                .await?;
+                variant.status = next_status.to_string();
+                variant.updated_at = now;
+            }
+        }
+
+        let trend_by_variant = load_skill_variant_trends_db(&mut *txn, &variants, 8).await?;
+        txn.commit().await?;
+        variants.sort_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant));
+        Ok(variants)
     }
 
     pub async fn maybe_branch_skill_variants(
         &self,
         skill_name: &str,
     ) -> Result<Vec<SkillVariantRecord>> {
-        let skill_name_owned = skill_name.to_string();
         let skill_name = skill_name.to_string();
-        let candidates = self.conn.call(move |conn| {
-            let mut stmt = conn.prepare(
+        let rows = self
+            .conn_db
+            .query(
                 "SELECT skill_variants.variant_id, skill_variants.relative_path, skill_variants.context_tags_json, skill_variant_usage.context_tags_json \
                  FROM skill_variant_usage \
                  JOIN skill_variants ON skill_variants.variant_id = skill_variant_usage.variant_id \
                  WHERE skill_variants.skill_name = ?1 AND skill_variant_usage.outcome = 'success'",
-            )?;
-            let rows = stmt.query_map(params![skill_name_owned], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            })?;
-
+                db::db_params![skill_name.clone()],
+            )
+            .await?;
+        let candidates = {
             let mut candidates = BTreeMap::<(String, String), BranchCandidate>::new();
-            for row in rows.filter_map(|row| row.ok()) {
+            for row in rows.iter().filter_map(|row| {
+                match (
+                    row.get::<String>(0),
+                    row.get::<String>(1),
+                    row.get::<String>(2),
+                    row.get::<String>(3),
+                ) {
+                    (Ok(a), Ok(b), Ok(c), Ok(d)) => Some((a, b, c, d)),
+                    _ => None,
+                }
+            }) {
                 let (variant_id, relative_path, variant_tags_json, usage_tags_json) = row;
                 let variant_tags =
                     serde_json::from_str::<Vec<String>>(&variant_tags_json).unwrap_or_default();
@@ -445,8 +466,8 @@ impl HistoryStore {
                     });
                 entry.success_count += 1;
             }
-            Ok(candidates)
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            candidates
+        };
 
         let existing = self.list_skill_variants(Some(&skill_name), 200).await?;
         let mut created = Vec::new();
@@ -478,16 +499,18 @@ impl HistoryStore {
         &self,
         skill_name: &str,
     ) -> Result<Vec<SkillVariantRecord>> {
-        let skill_name_owned = skill_name.to_string();
         let skill_name = skill_name.to_string();
-        let variants = self.conn.call(move |conn| {
-            let mut stmt = conn.prepare(
+        let variants = self
+            .conn_db
+            .query(
                 "SELECT variant_id, skill_name, variant_name, relative_path, parent_variant_id, version, context_tags_json, use_count, success_count, failure_count, fitness_score, status, last_used_at, created_at, updated_at \
                  FROM skill_variants WHERE skill_name = ?1",
-            )?;
-            let rows = stmt.query_map(params![skill_name_owned], map_skill_variant_row)?;
-            Ok(rows.filter_map(|row| row.ok()).collect::<Vec<_>>())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                db::db_params![skill_name.clone()],
+            )
+            .await?
+            .iter()
+            .filter_map(|row| map_skill_variant_row_db(row).ok())
+            .collect::<Vec<_>>();
 
         if variants.is_empty() {
             return Ok(Vec::new());
@@ -559,16 +582,15 @@ impl HistoryStore {
             let _ = self.register_skill_document(&canonical_path).await?;
         }
 
-        let merged_ids_clone = merged_ids.clone();
-        self.conn.call(move |conn| {
-            for variant_id in &merged_ids_clone {
-                conn.execute(
-                    "UPDATE skill_variants SET status = 'merged', updated_at = ?2 WHERE variant_id = ?1",
-                    params![variant_id, now as i64],
-                )?;
-            }
-            Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+        let mut txn = self.conn_db.transaction().await?;
+        for variant_id in &merged_ids {
+            txn.execute(
+                "UPDATE skill_variants SET status = 'merged', updated_at = ?2 WHERE variant_id = ?1",
+                db::db_params![variant_id, now as i64],
+            )
+            .await?;
+        }
+        txn.commit().await?;
 
         let merged_notes_len = merged_notes.len();
         self.append_telemetry(
@@ -667,13 +689,12 @@ impl HistoryStore {
             let parent_a = parent_ids[0].clone();
             let parent_b = parent_ids[1].clone();
             let offspring_id = record.variant_id.clone();
-            self.conn.call(move |conn| {
-                conn.execute(
+            self.conn_db
+                .execute(
                     "INSERT OR REPLACE INTO gene_pool (parent_a, parent_b, offspring_id, lifecycle_state, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![parent_a, parent_b, offspring_id, "draft", created_at],
-                )?;
-                Ok(())
-            }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                    db::db_params![parent_a, parent_b, offspring_id, "draft", created_at],
+                )
+                .await?;
             return self.get_skill_variant(&record.variant_id).await;
         }
 
@@ -707,13 +728,12 @@ impl HistoryStore {
         let parent_a = parent_ids[0].clone();
         let parent_b = parent_ids[1].clone();
         let offspring_id = record.variant_id.clone();
-        self.conn.call(move |conn| {
-            conn.execute(
+        self.conn_db
+            .execute(
                 "INSERT OR REPLACE INTO gene_pool (parent_a, parent_b, offspring_id, lifecycle_state, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![parent_a, parent_b, offspring_id, "draft", created_at],
-            )?;
-            Ok(())
-        }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                db::db_params![parent_a, parent_b, offspring_id, "draft", created_at],
+            )
+            .await?;
         self.get_skill_variant(&record.variant_id).await
     }
 

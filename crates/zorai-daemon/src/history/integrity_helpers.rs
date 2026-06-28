@@ -55,33 +55,33 @@ pub(super) fn compute_memory_provenance_hash(
     )
 }
 
-pub(super) fn memory_provenance_entry_from_row(
-    row: &rusqlite::Row<'_>,
+pub(super) fn memory_provenance_entry_from_row_db(
+    row: &db::Row,
     now_ms: u64,
 ) -> MemoryProvenanceReportEntry {
-    let created_at = row.get::<_, i64>(9).unwrap_or_default().max(0) as u64;
+    let created_at = row.get::<i64>(9).unwrap_or_default().max(0) as u64;
     let target: String = row.get(1).unwrap_or_default();
     let mode: String = row.get(2).unwrap_or_default();
     let source_kind: String = row.get(3).unwrap_or_default();
     let content: String = row.get(4).unwrap_or_default();
     let confirmed_at = row
-        .get::<_, Option<i64>>(13)
+        .get::<Option<i64>>(13)
         .ok()
         .flatten()
         .map(|value| value.max(0) as u64);
     let retracted_at = row
-        .get::<_, Option<i64>>(14)
+        .get::<Option<i64>>(14)
         .ok()
         .flatten()
         .map(|value| value.max(0) as u64);
     let fact_keys_json: String = row.get(5).unwrap_or_else(|_| "[]".to_string());
     let fact_keys = serde_json::from_str::<Vec<String>>(&fact_keys_json).unwrap_or_default();
     let entry_hash: String = row.get(10).unwrap_or_default();
-    let signature: Option<String> = row.get(11).ok().flatten();
-    let signature_scheme: Option<String> = row.get(12).ok().flatten();
-    let thread_id: Option<String> = row.get(6).ok();
-    let task_id: Option<String> = row.get(7).ok();
-    let goal_run_id: Option<String> = row.get(8).ok();
+    let signature: Option<String> = row.get::<Option<String>>(11).ok().flatten();
+    let signature_scheme: Option<String> = row.get::<Option<String>>(12).ok().flatten();
+    let thread_id: Option<String> = row.get::<String>(6).ok();
+    let task_id: Option<String> = row.get::<String>(7).ok();
+    let goal_run_id: Option<String> = row.get::<String>(8).ok();
     let age_days = now_ms.saturating_sub(created_at) as f64 / 86_400_000.0;
     let mut confidence = memory_provenance_confidence(age_days);
     let hash_valid = if entry_hash.is_empty() {

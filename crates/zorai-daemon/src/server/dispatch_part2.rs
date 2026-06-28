@@ -499,48 +499,44 @@ pub(crate) async fn dispatch_part2(
         ClientMessage::ExportAgentThread {
             thread_id,
             message_id,
-        } => {
-            match manager.export_agent_thread(&thread_id, &message_id).await {
-                Ok(file_path) => {
-                    framed
-                        .send(DaemonMessage::AgentThreadExported {
-                            thread_id,
-                            file_path: file_path.to_string_lossy().into_owned(),
-                        })
-                        .await?;
-                }
-                Err(e) => {
-                    framed
-                        .send(DaemonMessage::Error {
-                            message: e.to_string(),
-                        })
-                        .await?;
-                }
+        } => match manager.export_agent_thread(&thread_id, &message_id).await {
+            Ok(file_path) => {
+                framed
+                    .send(DaemonMessage::AgentThreadExported {
+                        thread_id,
+                        file_path: file_path.to_string_lossy().into_owned(),
+                    })
+                    .await?;
             }
-        }
+            Err(e) => {
+                framed
+                    .send(DaemonMessage::Error {
+                        message: e.to_string(),
+                    })
+                    .await?;
+            }
+        },
 
         ClientMessage::ForkAgentThread {
             thread_id,
             message_id,
-        } => {
-            match manager.fork_agent_thread(&thread_id, &message_id).await {
-                Ok((new_thread_id, title)) => {
-                    framed
-                        .send(DaemonMessage::AgentThreadForked {
-                            thread_id: new_thread_id,
-                            title,
-                        })
-                        .await?;
-                }
-                Err(e) => {
-                    framed
-                        .send(DaemonMessage::Error {
-                            message: e.to_string(),
-                        })
-                        .await?;
-                }
+        } => match manager.fork_agent_thread(&thread_id, &message_id).await {
+            Ok((new_thread_id, title)) => {
+                framed
+                    .send(DaemonMessage::AgentThreadForked {
+                        thread_id: new_thread_id,
+                        title,
+                    })
+                    .await?;
             }
-        }
+            Err(e) => {
+                framed
+                    .send(DaemonMessage::Error {
+                        message: e.to_string(),
+                    })
+                    .await?;
+            }
+        },
 
         ClientMessage::AddAgentMessage { message_json } => {
             match serde_json::from_str::<zorai_protocol::AgentDbMessage>(&message_json) {
