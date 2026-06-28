@@ -1009,14 +1009,24 @@ impl TuiModel {
                     return false;
                 }
                 KeyCode::Down => {
+                    let before = self.settings.field_cursor();
                     self.settings.navigate_field(1, self.settings_field_count());
-                    self.sync_settings_modal_scroll_to_selection();
+                    if self.settings.field_cursor() == before {
+                        self.set_settings_modal_scroll(self.settings_modal_scroll.saturating_add(1));
+                    } else {
+                        self.sync_settings_modal_scroll_to_selection();
+                    }
                     return false;
                 }
                 KeyCode::Up => {
+                    let before = self.settings.field_cursor();
                     self.settings
                         .navigate_field(-1, self.settings_field_count());
-                    self.sync_settings_modal_scroll_to_selection();
+                    if self.settings.field_cursor() == before {
+                        self.set_settings_modal_scroll(self.settings_modal_scroll.saturating_sub(1));
+                    } else {
+                        self.sync_settings_modal_scroll_to_selection();
+                    }
                     return false;
                 }
                 KeyCode::PageDown => {
