@@ -7,6 +7,7 @@ pub(super) struct OperationWakeup {
     pub(super) tool_name: String,
     pub(super) registered_at: u64,
     pub(super) terminal_observed_at: Option<u64>,
+    pub(super) notify_on_completion: bool,
 }
 
 struct OperationWakeupPayloadRef {
@@ -21,6 +22,7 @@ impl AgentEngine {
         thread_id: &str,
         tool_name: &str,
         operation_id: &str,
+        notify_on_completion: bool,
     ) {
         let thread_id = thread_id.trim();
         let operation_id = operation_id.trim();
@@ -37,6 +39,7 @@ impl AgentEngine {
                 tool_name: tool_name.to_string(),
                 registered_at: now_millis(),
                 terminal_observed_at: None,
+                notify_on_completion,
             });
     }
 
@@ -45,6 +48,7 @@ impl AgentEngine {
         thread_id: &str,
         tool_name: &str,
         content: &str,
+        notify_on_completion: bool,
     ) {
         if matches!(
             tool_name,
@@ -55,7 +59,7 @@ impl AgentEngine {
         }
 
         for operation_id in extract_operation_ids(content) {
-            self.register_operation_wakeup(thread_id, tool_name, &operation_id)
+            self.register_operation_wakeup(thread_id, tool_name, &operation_id, notify_on_completion)
                 .await;
         }
     }
@@ -124,9 +128,13 @@ impl AgentEngine {
             if claimed_wakeups.is_empty() {
                 continue;
             }
+            let should_resume_thread = claimed_wakeups
+                .iter()
+                .any(|(wakeup, _)| wakeup.notify_on_completion);
             if self
                 .perform_operation_completion_wakeup_batch(&thread_id, &claimed_wakeups)
                 .await
+                && should_resume_thread
             {
                 self.enqueue_operation_completion_continuation(&thread_id)
                     .await;
@@ -582,6 +590,7 @@ mod tests {
                 thread_id,
                 zorai_protocol::tool_names::BASH_COMMAND,
                 &operation.operation_id,
+                true,
             )
             .await;
         crate::server::operation_registry().mark_completed_with_terminal_result(
@@ -646,6 +655,86 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn completed_operation_without_notify_flag_records_message_but_skips_continuation() {
+        let root = tempdir().expect("tempdir should succeed");
+        let manager = SessionManager::new_test(root.path()).await;
+        let engine =
+            Arc::new(AgentEngine::new_test(manager, AgentConfig::default(), root.path()).await);
+        let thread_id = "thread-operation-wakeup-no-notify";
+        let now = now_millis();
+        {
+            let mut threads = engine.threads.write().await;
+            threads.insert(
+                thread_id.to_string(),
+                AgentThread {
+                    id: thread_id.to_string(),
+                    agent_name: None,
+                    title: "Operation wakeup without notify".to_string(),
+                    messages: vec![AgentMessage::user("run the long command", now)],
+                    pinned: false,
+                    upstream_thread_id: None,
+                    upstream_transport: None,
+                    upstream_provider: None,
+                    upstream_model: None,
+                    upstream_assistant_id: None,
+                    created_at: now,
+                    updated_at: now,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
+                },
+            );
+        }
+
+        let operation = crate::server::operation_registry()
+            .accept_operation(zorai_protocol::tool_names::BASH_COMMAND, None);
+        crate::server::operation_registry().mark_started(&operation.operation_id);
+        engine
+            .register_operation_wakeup(
+                thread_id,
+                zorai_protocol::tool_names::BASH_COMMAND,
+                &operation.operation_id,
+                false,
+            )
+            .await;
+        crate::server::operation_registry().mark_completed_with_terminal_result(
+            &operation.operation_id,
+            serde_json::json!({
+                "command": "sleep 1 && echo done",
+                "exit_code": 0,
+                "duration_ms": 1000,
+                "stdout": "done",
+            }),
+        );
+        mark_operation_wakeup_debounce_elapsed(&engine, &operation.operation_id).await;
+
+        engine
+            .supervise_operation_completion_wakeups()
+            .await
+            .expect("operation wakeup supervision should succeed");
+
+        let threads = engine.threads.read().await;
+        let thread = threads
+            .get(thread_id)
+            .expect("thread should remain available");
+        assert!(
+            thread
+                .messages
+                .iter()
+                .any(|message| message.content.contains("Background operation finished")),
+            "completion must still be recorded in the thread so the next turn can see it"
+        );
+        drop(threads);
+        assert!(
+            engine
+                .deferred_visible_thread_continuations_for(thread_id)
+                .await
+                .is_empty(),
+            "default notify_on_completion=false must not start an autonomous resume turn"
+        );
+        assert_eq!(engine.pending_operation_wakeup_count().await, 0);
+    }
+
+    #[tokio::test]
     async fn completed_operation_wakeup_waits_for_debounce_window() {
         let root = tempdir().expect("tempdir should succeed");
         let manager = SessionManager::new_test(root.path()).await;
@@ -683,6 +772,7 @@ mod tests {
                 thread_id,
                 zorai_protocol::tool_names::BASH_COMMAND,
                 &operation.operation_id,
+                true,
             )
             .await;
         crate::server::operation_registry().mark_completed_with_terminal_result(
@@ -774,6 +864,7 @@ mod tests {
                 thread_id,
                 zorai_protocol::tool_names::BASH_COMMAND,
                 &operation.operation_id,
+                true,
             )
             .await;
         crate::server::operation_registry().mark_completed_with_terminal_result(
@@ -910,6 +1001,7 @@ mod tests {
                     thread_id,
                     zorai_protocol::tool_names::BASH_COMMAND,
                     &operation.operation_id,
+                    true,
                 )
                 .await;
             crate::server::operation_registry().mark_completed_with_terminal_result(
@@ -1133,6 +1225,7 @@ mod tests {
                 thread_id,
                 zorai_protocol::tool_names::BASH_COMMAND,
                 &operation.operation_id,
+                true,
             )
             .await;
         crate::server::operation_registry().mark_completed_with_terminal_result(
@@ -1584,6 +1677,7 @@ mod tests {
                 thread_id,
                 zorai_protocol::tool_names::BASH_COMMAND,
                 &operation.operation_id,
+                true,
             )
             .await;
         crate::server::operation_registry().mark_completed_with_terminal_result(

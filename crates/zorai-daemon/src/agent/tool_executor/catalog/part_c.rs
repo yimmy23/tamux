@@ -155,7 +155,8 @@ pub(crate) fn add_available_tools_part_c(
                 "code": { "type": "string", "description": "Python source code to execute" },
                 "cwd": { "type": "string", "description": "Optional working directory" },
                 "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true). On the TUI surface, long-running executions detach after a short foreground grace and continue as a background operation." },
-                "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the execution auto-backgrounds, returns an `operation_id`, and will auto-notify the thread on completion." }
+                "timeout_seconds": { "type": "integer", "minimum": 0, "maximum": 600, "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the execution auto-backgrounds, returns an `operation_id`, and will auto-notify the thread on completion." },
+                "notify_on_completion": { "type": "boolean", "description": "When backgrounded, automatically resume this thread on completion (default: false). When false the completion is still recorded in the thread for your next turn, but no autonomous turn is started; poll get_operation_status if you need the result sooner. Set true only when you must act on the result immediately." }
             },
             "required": ["code"]
         }),
@@ -282,7 +283,8 @@ pub(crate) fn add_available_tools_part_c(
             "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
             "language_hint": { "type": "string", "description": "Optional language hint for validation" },
             "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds, returns an `operation_id`, and will auto-notify the thread on completion." }
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds, returns an `operation_id`, and will auto-notify the thread on completion." },
+            "notify_on_completion": { "type": "boolean", "description": "When backgrounded, automatically resume this thread on completion (default: false). When false the completion is still recorded in the thread for your next turn, but no autonomous turn is started; poll get_operation_status if you need the result sooner. Set true only when you must act on the result immediately." }
         },
         "required": ["command"]
     })));
@@ -298,7 +300,8 @@ pub(crate) fn add_available_tools_part_c(
             "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
             "language_hint": { "type": "string", "description": "Optional language hint for validation" },
             "wait_for_completion": { "type": "boolean", "description": "Wait for completion and return exit status/output summary (default: true)" },
-            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds, returns an `operation_id`, and will auto-notify the thread on completion." }
+            "timeout_seconds": { "type": "integer", "description": "Wait timeout when wait_for_completion=true (default: 30, max: 600). Above 600 the command auto-backgrounds, returns an `operation_id`, and will auto-notify the thread on completion." },
+            "notify_on_completion": { "type": "boolean", "description": "When backgrounded, automatically resume this thread on completion (default: false). When false the completion is still recorded in the thread for your next turn, but no autonomous turn is started; poll get_operation_status if you need the result sooner. Set true only when you must act on the result immediately." }
         },
         "required": ["command", "rationale"]
     })));

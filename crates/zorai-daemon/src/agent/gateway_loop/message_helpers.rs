@@ -563,13 +563,6 @@ impl AgentEngine {
         true
     }
 
-    pub(super) async fn release_gateway_inflight_channel(&self, channel_key: &str) {
-        self.gateway_inflight_channels
-            .lock()
-            .await
-            .remove(channel_key);
-    }
-
     pub(super) async fn send_gateway_platform_tool(
         &self,
         _thread_id: &str,
