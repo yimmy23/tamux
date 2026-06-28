@@ -78,7 +78,9 @@ impl HistoryStore {
         let row = self
             .read_db
             .query_opt(
-                &format!("SELECT {EMERGENT_PROTOCOL_COLUMNS} FROM emergent_protocols WHERE token = ?1"),
+                &format!(
+                    "SELECT {EMERGENT_PROTOCOL_COLUMNS} FROM emergent_protocols WHERE token = ?1"
+                ),
                 db::db_params![token],
             )
             .await?;

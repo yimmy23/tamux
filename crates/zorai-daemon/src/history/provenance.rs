@@ -543,8 +543,7 @@ impl HistoryStore {
                 signing_material.as_ref(),
                 legacy_signing_key.as_deref(),
             );
-            entry.relationships =
-                relationship_rows_for_entry_db(&*self.conn_db, &entry.id).await?;
+            entry.relationships = relationship_rows_for_entry_db(&*self.conn_db, &entry.id).await?;
             *summary_by_target.entry(entry.target.clone()).or_insert(0) += 1;
             *summary_by_source
                 .entry(entry.source_kind.clone())
@@ -630,8 +629,7 @@ impl HistoryStore {
                 signing_material.as_ref(),
                 legacy_signing_key.as_deref(),
             );
-            entry.relationships =
-                relationship_rows_for_entry_db(&*self.read_db, &entry.id).await?;
+            entry.relationships = relationship_rows_for_entry_db(&*self.read_db, &entry.id).await?;
             entries.push(entry);
         }
         Ok(entries)
@@ -671,8 +669,7 @@ impl HistoryStore {
                 signing_material.as_ref(),
                 legacy_signing_key.as_deref(),
             );
-            entry.relationships =
-                relationship_rows_for_entry_db(&*self.read_db, &entry.id).await?;
+            entry.relationships = relationship_rows_for_entry_db(&*self.read_db, &entry.id).await?;
             entries.push(entry);
         }
         Ok(entries)

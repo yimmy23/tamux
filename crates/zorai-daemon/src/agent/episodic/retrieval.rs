@@ -8,8 +8,8 @@
 use super::{Episode, EpisodeOutcome, EpisodeType};
 use crate::agent::engine::AgentEngine;
 
+use crate::history::db;
 use anyhow::Result;
-use rusqlite::params;
 
 /// Escape and format a raw user query into an FTS5 OR query.
 ///
@@ -113,7 +113,7 @@ fn format_age(created_at: u64) -> String {
     }
 }
 
-fn row_to_episode_with_rank(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Episode, f64)> {
+fn row_to_episode_with_rank(row: &db::Row) -> Result<(Episode, f64)> {
     let episode_type_str: String = row.get(5)?;
     let outcome_str: String = row.get(9)?;
     let entities_json: String = row.get(11)?;
@@ -134,19 +134,19 @@ fn row_to_episode_with_rank(row: &rusqlite::Row<'_>) -> rusqlite::Result<(Episod
         entities: serde_json::from_str(&entities_json).unwrap_or_default(),
         causal_chain: serde_json::from_str(&causal_chain_json).unwrap_or_default(),
         solution_class: row.get(13)?,
-        duration_ms: row.get::<_, Option<i64>>(14)?.map(|v| v as u64),
-        tokens_used: row.get::<_, Option<i32>>(15)?.map(|v| v as u32),
+        duration_ms: row.get::<Option<i64>>(14)?.map(|v| v as u64),
+        tokens_used: row.get::<Option<i32>>(15)?.map(|v| v as u32),
         confidence: row.get(16)?,
         confidence_before: row.get(17)?,
         confidence_after: row.get(18)?,
-        created_at: row.get::<_, i64>(19)? as u64,
-        expires_at: row.get::<_, Option<i64>>(20)?.map(|v| v as u64),
+        created_at: row.get::<i64>(19)? as u64,
+        expires_at: row.get::<Option<i64>>(20)?.map(|v| v as u64),
     };
 
     Ok((episode, rank))
 }
 
-fn row_to_episode_plain(row: &rusqlite::Row<'_>) -> rusqlite::Result<Episode> {
+fn row_to_episode_plain(row: &db::Row) -> Result<Episode> {
     let episode_type_str: String = row.get(7)?;
     let outcome_str: String = row.get(9)?;
     let entities_json: String = row.get(11)?;
@@ -166,13 +166,13 @@ fn row_to_episode_plain(row: &rusqlite::Row<'_>) -> rusqlite::Result<Episode> {
         entities: serde_json::from_str(&entities_json).unwrap_or_default(),
         causal_chain: serde_json::from_str(&causal_chain_json).unwrap_or_default(),
         solution_class: row.get(13)?,
-        duration_ms: row.get::<_, Option<i64>>(14)?.map(|v| v as u64),
-        tokens_used: row.get::<_, Option<i32>>(15)?.map(|v| v as u32),
+        duration_ms: row.get::<Option<i64>>(14)?.map(|v| v as u64),
+        tokens_used: row.get::<Option<i32>>(15)?.map(|v| v as u32),
         confidence: row.get(16)?,
         confidence_before: row.get(17)?,
         confidence_after: row.get(18)?,
-        created_at: row.get::<_, i64>(19)? as u64,
-        expires_at: row.get::<_, Option<i64>>(20)?.map(|v| v as u64),
+        created_at: row.get::<i64>(19)? as u64,
+        expires_at: row.get::<Option<i64>>(20)?.map(|v| v as u64),
     })
 }
 
@@ -228,32 +228,27 @@ impl AgentEngine {
 
         let rows = self
             .history
-            .conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT e.id, e.agent_id, e.goal_run_id, e.thread_id, e.session_id, e.episode_type,
-                            e.goal_text, e.goal_type, e.summary, e.outcome, e.root_cause, e.entities, e.causal_chain,
-                            e.solution_class, e.duration_ms, e.tokens_used, e.confidence, e.confidence_before, e.confidence_after,
-                            e.created_at, e.expires_at,
-                            bm25(episodes_fts) as rank
-                     FROM episodes e
-                     JOIN episodes_fts ON e.rowid = episodes_fts.rowid
-                     WHERE episodes_fts MATCH ?1
-                       AND (e.agent_id = ?2 OR (?3 = 1 AND e.agent_id IS NULL))
-                       AND (e.expires_at IS NULL OR e.expires_at > ?4)
-                       AND e.deleted_at IS NULL
-                     ORDER BY rank
-                     LIMIT ?5",
-                )?;
-                let rows = stmt.query_map(
-                    params![fts5_query, agent_id, include_legacy, now_ms as i64, over_fetch as i64],
-                    row_to_episode_with_rank,
-                )?;
-                rows.collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .read_db
+            .query(
+                "SELECT e.id, e.agent_id, e.goal_run_id, e.thread_id, e.session_id, e.episode_type,
+                        e.goal_text, e.goal_type, e.summary, e.outcome, e.root_cause, e.entities, e.causal_chain,
+                        e.solution_class, e.duration_ms, e.tokens_used, e.confidence, e.confidence_before, e.confidence_after,
+                        e.created_at, e.expires_at,
+                        bm25(episodes_fts) as rank
+                 FROM episodes e
+                 JOIN episodes_fts ON e.rowid = episodes_fts.rowid
+                 WHERE episodes_fts MATCH ?1
+                   AND (e.agent_id = ?2 OR (?3 = 1 AND e.agent_id IS NULL))
+                   AND (e.expires_at IS NULL OR e.expires_at > ?4)
+                   AND e.deleted_at IS NULL
+                 ORDER BY rank
+                 LIMIT ?5",
+                db::db_params![fts5_query, agent_id, include_legacy, now_ms as i64, over_fetch as i64],
+            )
+            .await?
+            .iter()
+            .map(row_to_episode_with_rank)
+            .collect::<Result<Vec<_>>>()?;
 
         let mut scored: Vec<(Episode, f64)> = rows
             .into_iter()
@@ -297,40 +292,35 @@ impl AgentEngine {
 
         let rows = self
             .history
-            .conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT e.id, e.agent_id, e.goal_run_id, e.thread_id, e.session_id, e.episode_type,
-                            e.goal_text, e.goal_type, e.summary, e.outcome, e.root_cause, e.entities, e.causal_chain,
-                            e.solution_class, e.duration_ms, e.tokens_used, e.confidence, e.confidence_before, e.confidence_after,
-                            e.created_at, e.expires_at,
-                            bm25(episodes_fts) as rank
-                     FROM episodes e
-                     JOIN episodes_fts ON e.rowid = episodes_fts.rowid
-                     WHERE episodes_fts MATCH ?1
-                       AND (e.agent_id = ?2 OR (?3 = 1 AND e.agent_id IS NULL))
-                       AND (e.expires_at IS NULL OR e.expires_at > ?4)
-                       AND e.created_at >= ?5
-                       AND e.deleted_at IS NULL
-                     ORDER BY rank
-                     LIMIT ?6",
-                )?;
-                let rows = stmt.query_map(
-                    params![
-                        fts5_query,
-                        agent_id,
-                        include_legacy,
-                        now_ms as i64,
-                        since_ms as i64,
-                        over_fetch as i64
-                    ],
-                    row_to_episode_with_rank,
-                )?;
-                rows.collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .read_db
+            .query(
+                "SELECT e.id, e.agent_id, e.goal_run_id, e.thread_id, e.session_id, e.episode_type,
+                        e.goal_text, e.goal_type, e.summary, e.outcome, e.root_cause, e.entities, e.causal_chain,
+                        e.solution_class, e.duration_ms, e.tokens_used, e.confidence, e.confidence_before, e.confidence_after,
+                        e.created_at, e.expires_at,
+                        bm25(episodes_fts) as rank
+                 FROM episodes e
+                 JOIN episodes_fts ON e.rowid = episodes_fts.rowid
+                 WHERE episodes_fts MATCH ?1
+                   AND (e.agent_id = ?2 OR (?3 = 1 AND e.agent_id IS NULL))
+                   AND (e.expires_at IS NULL OR e.expires_at > ?4)
+                   AND e.created_at >= ?5
+                   AND e.deleted_at IS NULL
+                 ORDER BY rank
+                 LIMIT ?6",
+                db::db_params![
+                    fts5_query,
+                    agent_id,
+                    include_legacy,
+                    now_ms as i64,
+                    since_ms as i64,
+                    over_fetch as i64
+                ],
+            )
+            .await?
+            .iter()
+            .map(row_to_episode_with_rank)
+            .collect::<Result<Vec<_>>>()?;
 
         let mut scored: Vec<(Episode, f64)> = rows
             .into_iter()
@@ -370,37 +360,31 @@ impl AgentEngine {
             .unwrap_or_default()
             .as_millis() as u64;
 
-        self.history
-            .conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT id, agent_id, goal_run_id, thread_id, session_id, goal_text, goal_type, episode_type,
-                            summary, outcome, root_cause, entities, causal_chain,
-                            solution_class, duration_ms, tokens_used, confidence, confidence_before, confidence_after,
-                            created_at, expires_at
-                     FROM episodes
-                     WHERE entities LIKE ?1
-                       AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL))
-                       AND (expires_at IS NULL OR expires_at > ?4)
-                       AND deleted_at IS NULL
-                     ORDER BY created_at DESC
-                     LIMIT ?5",
-                )?;
-                let rows = stmt.query_map(
-                    params![
-                        entity_pattern,
-                        agent_id,
-                        include_legacy,
-                        now_ms as i64,
-                        effective_limit as i64
-                    ],
-                    row_to_episode_plain,
-                )?;
-                rows.collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let rows = self
+            .history
+            .read_db
+            .query(
+                "SELECT id, agent_id, goal_run_id, thread_id, session_id, goal_text, goal_type, episode_type,
+                        summary, outcome, root_cause, entities, causal_chain,
+                        solution_class, duration_ms, tokens_used, confidence, confidence_before, confidence_after,
+                        created_at, expires_at
+                 FROM episodes
+                 WHERE entities LIKE ?1
+                   AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL))
+                   AND (expires_at IS NULL OR expires_at > ?4)
+                   AND deleted_at IS NULL
+                 ORDER BY created_at DESC
+                 LIMIT ?5",
+                db::db_params![
+                    entity_pattern,
+                    agent_id,
+                    include_legacy,
+                    now_ms as i64,
+                    effective_limit as i64
+                ],
+            )
+            .await?;
+        rows.iter().map(row_to_episode_plain).collect()
     }
 }
 

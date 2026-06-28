@@ -881,15 +881,11 @@ fn active_request_messages_excludes_participant_no_suggestion_notices() {
     let mut participant_notice = sample_message("NO_MESSAGE");
     participant_notice.role = MessageRole::Assistant;
     participant_notice.author_agent_id = Some("subagent-hf".to_string());
-    let messages = vec![
-        sample_message("operator request"),
-        participant_notice,
-        {
-            let mut reply = sample_message("here is real progress");
-            reply.role = MessageRole::Assistant;
-            reply
-        },
-    ];
+    let messages = vec![sample_message("operator request"), participant_notice, {
+        let mut reply = sample_message("here is real progress");
+        reply.role = MessageRole::Assistant;
+        reply
+    }];
 
     let request_messages = active_request_messages(&messages);
 

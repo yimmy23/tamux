@@ -41,7 +41,9 @@ impl HistoryStore {
                 db::db_params![limit],
             )
             .await?;
-        rows.iter().map(map_cognitive_resonance_sample_row).collect()
+        rows.iter()
+            .map(map_cognitive_resonance_sample_row)
+            .collect()
     }
 
     pub async fn insert_behavior_adjustment_log(

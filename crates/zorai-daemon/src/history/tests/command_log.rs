@@ -27,7 +27,9 @@ async fn command_log_append_query_complete_clear_round_trip() -> Result<()> {
     let (store, root) = make_test_store().await?;
 
     store.append_command_log(&entry("cmd-1", "ls -la")).await?;
-    store.append_command_log(&entry("cmd-2", "git status")).await?;
+    store
+        .append_command_log(&entry("cmd-2", "git status"))
+        .await?;
 
     let by_workspace = store.query_command_log(Some("ws-1"), None, None).await?;
     assert_eq!(by_workspace.len(), 2);
@@ -35,7 +37,9 @@ async fn command_log_append_query_complete_clear_round_trip() -> Result<()> {
     assert!(by_workspace.iter().all(|e| e.exit_code.is_none()));
 
     // Filter must exclude non-matching workspaces.
-    let other_ws = store.query_command_log(Some("ws-other"), None, None).await?;
+    let other_ws = store
+        .query_command_log(Some("ws-other"), None, None)
+        .await?;
     assert!(other_ws.is_empty());
 
     store

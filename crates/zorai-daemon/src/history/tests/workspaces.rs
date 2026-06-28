@@ -1,5 +1,5 @@
 use super::*;
-use crate::history::schema_helpers::table_has_column;
+use crate::history::schema_helpers::table_has_column_sync;
 use zorai_protocol::{
     WorkspaceActor, WorkspaceNotice, WorkspaceOperator, WorkspacePriority, WorkspaceSettings,
     WorkspaceTask, WorkspaceTaskRuntimeHistoryEntry, WorkspaceTaskStatus, WorkspaceTaskType,
@@ -104,13 +104,13 @@ async fn init_schema_migrates_legacy_workspace_settings_before_repo_monitor_inde
                 |row| row.get::<_, i64>(0),
             )? == 1;
             Ok((
-                table_has_column(conn, "workspace_settings", "repo_monitor_enabled")?,
-                table_has_column(
+                table_has_column_sync(conn, "workspace_settings", "repo_monitor_enabled")?,
+                table_has_column_sync(
                     conn,
                     "workspace_settings",
                     "repo_monitor_include_dirs_json",
                 )?,
-                table_has_column(
+                table_has_column_sync(
                     conn,
                     "workspace_settings",
                     "repo_monitor_exclude_dirs_json",

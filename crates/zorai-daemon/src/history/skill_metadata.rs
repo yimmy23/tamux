@@ -581,4 +581,3 @@ pub(super) fn append_skill_merge_sections(canonical_content: &str, sections: &[S
     }
     next
 }
-

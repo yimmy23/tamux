@@ -135,7 +135,8 @@ impl HistoryStore {
                 db::db_params![runtime],
             )
             .await?;
-        row.map(|row| map_external_runtime_profile_row(&row)).transpose()
+        row.map(|row| map_external_runtime_profile_row(&row))
+            .transpose()
     }
 
     pub async fn upsert_external_runtime_import_session(
@@ -323,6 +324,8 @@ impl HistoryStore {
             .read_db
             .query(&sql, db::Params::Positional(values))
             .await?;
-        rows.iter().map(map_external_runtime_shadow_run_row).collect()
+        rows.iter()
+            .map(map_external_runtime_shadow_run_row)
+            .collect()
     }
 }

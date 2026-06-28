@@ -1,8 +1,11 @@
 use super::*;
 use std::collections::HashSet;
 
-const PARTICIPANT_EXCLUDED_BUILTIN_IDS: [&str; 3] =
-    [zorai_protocol::AGENT_ID_SWAROG, zorai_protocol::AGENT_ID_RAROG, "rod"];
+const PARTICIPANT_EXCLUDED_BUILTIN_IDS: [&str; 3] = [
+    zorai_protocol::AGENT_ID_SWAROG,
+    zorai_protocol::AGENT_ID_RAROG,
+    "rod",
+];
 
 const PARTICIPANT_INSTRUCTION_PREVIEW_CHARS: usize = 64;
 
@@ -163,7 +166,11 @@ impl TuiModel {
             .thread_participant_agent_options()
             .len()
             .saturating_add(4);
-        self.cursor_follow_scroll(modal::ModalKind::ThreadParticipantAgentPicker, 2, total_lines)
+        self.cursor_follow_scroll(
+            modal::ModalKind::ThreadParticipantAgentPicker,
+            2,
+            total_lines,
+        )
     }
 
     pub(crate) fn thread_participant_actions_scroll(&self) -> usize {
@@ -191,8 +198,9 @@ impl TuiModel {
             agent_name: row.agent_name.clone(),
             active: row.active,
         });
-        self.modal
-            .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadParticipantActions));
+        self.modal.reduce(modal::ModalAction::Push(
+            modal::ModalKind::ThreadParticipantActions,
+        ));
         self.modal
             .set_picker_item_count(self.participant_actions_labels().len());
     }
@@ -339,9 +347,7 @@ impl TuiModel {
         let verb = if is_new { "Add" } else { "Edit" };
         self.status_line = format!("{verb} instruction for {agent_name}, then press Enter");
         self.show_input_notice(
-            format!(
-                "Type the instruction for {agent_name} and press Enter (Esc to cancel)"
-            ),
+            format!("Type the instruction for {agent_name} and press Enter (Esc to cancel)"),
             InputNoticeKind::Success,
             240,
             true,
@@ -437,7 +443,10 @@ mod tests {
         subagents.entries = vec![subagent("hf", "hf", true), subagent("off", "Off", false)];
 
         let options = thread_participant_agent_options(&subagents, &HashSet::new());
-        let ids = options.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>();
+        let ids = options
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect::<Vec<_>>();
 
         assert!(!ids.contains(&zorai_protocol::AGENT_ID_SWAROG));
         assert!(!ids.contains(&zorai_protocol::AGENT_ID_RAROG));
@@ -456,7 +465,10 @@ mod tests {
             .collect();
 
         let options = thread_participant_agent_options(&subagents, &active);
-        let ids = options.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>();
+        let ids = options
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect::<Vec<_>>();
 
         assert!(!ids.contains(&"hf"));
         assert!(!ids.contains(&"radogost"));

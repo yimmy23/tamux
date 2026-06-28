@@ -4,7 +4,7 @@ use crate::agent::types::{
     GoalResumeDecision, GoalRoleBinding, GoalRunDossier, GoalRunModelUsage,
     GoalRuntimeOwnerProfile,
 };
-use crate::history::schema_helpers::table_has_column;
+use crate::history::schema_helpers::table_has_column_sync;
 
 fn sample_assignment(
     role_id: &str,
@@ -199,20 +199,20 @@ async fn init_schema_migrates_legacy_agent_tasks_before_goal_run_index() -> Resu
     store.init_schema().await?;
 
     let has_cols = store.conn.call(|conn| {
-        let has_session = table_has_column(conn, "agent_tasks", "session_id")?;
-        let has_scheduled = table_has_column(conn, "agent_tasks", "scheduled_at")?;
-        let has_goal_run = table_has_column(conn, "agent_tasks", "goal_run_id")?;
-        let has_override_provider = table_has_column(conn, "agent_tasks", "override_provider")?;
-        let has_override_prompt = table_has_column(conn, "agent_tasks", "override_system_prompt")?;
-        let has_sub_agent_def = table_has_column(conn, "agent_tasks", "sub_agent_def_id")?;
-        let has_tool_whitelist = table_has_column(conn, "agent_tasks", "tool_whitelist_json")?;
-        let has_tool_blacklist = table_has_column(conn, "agent_tasks", "tool_blacklist_json")?;
-        let has_context_budget = table_has_column(conn, "agent_tasks", "context_budget_tokens")?;
-        let has_context_overflow = table_has_column(conn, "agent_tasks", "context_overflow_action")?;
-        let has_termination_conditions = table_has_column(conn, "agent_tasks", "termination_conditions")?;
-        let has_success_criteria = table_has_column(conn, "agent_tasks", "success_criteria")?;
-        let has_max_duration = table_has_column(conn, "agent_tasks", "max_duration_secs")?;
-        let has_supervisor_config = table_has_column(conn, "agent_tasks", "supervisor_config_json")?;
+        let has_session = table_has_column_sync(conn, "agent_tasks", "session_id")?;
+        let has_scheduled = table_has_column_sync(conn, "agent_tasks", "scheduled_at")?;
+        let has_goal_run = table_has_column_sync(conn, "agent_tasks", "goal_run_id")?;
+        let has_override_provider = table_has_column_sync(conn, "agent_tasks", "override_provider")?;
+        let has_override_prompt = table_has_column_sync(conn, "agent_tasks", "override_system_prompt")?;
+        let has_sub_agent_def = table_has_column_sync(conn, "agent_tasks", "sub_agent_def_id")?;
+        let has_tool_whitelist = table_has_column_sync(conn, "agent_tasks", "tool_whitelist_json")?;
+        let has_tool_blacklist = table_has_column_sync(conn, "agent_tasks", "tool_blacklist_json")?;
+        let has_context_budget = table_has_column_sync(conn, "agent_tasks", "context_budget_tokens")?;
+        let has_context_overflow = table_has_column_sync(conn, "agent_tasks", "context_overflow_action")?;
+        let has_termination_conditions = table_has_column_sync(conn, "agent_tasks", "termination_conditions")?;
+        let has_success_criteria = table_has_column_sync(conn, "agent_tasks", "success_criteria")?;
+        let has_max_duration = table_has_column_sync(conn, "agent_tasks", "max_duration_secs")?;
+        let has_supervisor_config = table_has_column_sync(conn, "agent_tasks", "supervisor_config_json")?;
         let index_name: Option<String> = conn
             .query_row(
                 "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_agent_tasks_goal_run'",
@@ -3469,32 +3469,32 @@ async fn init_schema_migrates_legacy_goal_runs_metadata_columns() -> Result<()> 
         .conn
         .call(|conn| {
             Ok((
-                table_has_column(conn, "goal_runs", "failure_cause")?,
-                table_has_column(conn, "goal_runs", "stopped_reason")?,
-                table_has_column(conn, "goal_runs", "child_task_count")?,
-                table_has_column(conn, "goal_runs", "approval_count")?,
-                table_has_column(conn, "goal_runs", "awaiting_approval_id")?,
-                table_has_column(conn, "goal_runs", "policy_fingerprint")?,
-                table_has_column(conn, "goal_runs", "approval_expires_at")?,
-                table_has_column(conn, "goal_runs", "containment_scope")?,
-                table_has_column(conn, "goal_runs", "compensation_status")?,
-                table_has_column(conn, "goal_runs", "compensation_summary")?,
-                table_has_column(conn, "goal_runs", "active_task_id")?,
-                table_has_column(conn, "goal_runs", "duration_ms")?,
-                table_has_column(conn, "goal_runs", "dossier_json")?,
-                table_has_column(conn, "goal_runs", "total_prompt_tokens")?,
-                table_has_column(conn, "goal_runs", "total_completion_tokens")?,
-                table_has_column(conn, "goal_runs", "estimated_cost_usd")?,
-                table_has_column(conn, "goal_runs", "model_usage_json")?,
-                table_has_column(conn, "goal_runs", "autonomy_level")?,
-                table_has_column(conn, "goal_runs", "authorship_tag")?,
-                table_has_column(conn, "goal_runs", "planner_owner_profile_json")?,
-                table_has_column(conn, "goal_runs", "current_step_owner_profile_json")?,
-                table_has_column(conn, "goal_runs", "launch_assignment_snapshot_json")?,
-                table_has_column(conn, "goal_runs", "runtime_assignment_list_json")?,
-                table_has_column(conn, "goal_runs", "root_thread_id")?,
-                table_has_column(conn, "goal_runs", "active_thread_id")?,
-                table_has_column(conn, "goal_runs", "execution_thread_ids_json")?,
+                table_has_column_sync(conn, "goal_runs", "failure_cause")?,
+                table_has_column_sync(conn, "goal_runs", "stopped_reason")?,
+                table_has_column_sync(conn, "goal_runs", "child_task_count")?,
+                table_has_column_sync(conn, "goal_runs", "approval_count")?,
+                table_has_column_sync(conn, "goal_runs", "awaiting_approval_id")?,
+                table_has_column_sync(conn, "goal_runs", "policy_fingerprint")?,
+                table_has_column_sync(conn, "goal_runs", "approval_expires_at")?,
+                table_has_column_sync(conn, "goal_runs", "containment_scope")?,
+                table_has_column_sync(conn, "goal_runs", "compensation_status")?,
+                table_has_column_sync(conn, "goal_runs", "compensation_summary")?,
+                table_has_column_sync(conn, "goal_runs", "active_task_id")?,
+                table_has_column_sync(conn, "goal_runs", "duration_ms")?,
+                table_has_column_sync(conn, "goal_runs", "dossier_json")?,
+                table_has_column_sync(conn, "goal_runs", "total_prompt_tokens")?,
+                table_has_column_sync(conn, "goal_runs", "total_completion_tokens")?,
+                table_has_column_sync(conn, "goal_runs", "estimated_cost_usd")?,
+                table_has_column_sync(conn, "goal_runs", "model_usage_json")?,
+                table_has_column_sync(conn, "goal_runs", "autonomy_level")?,
+                table_has_column_sync(conn, "goal_runs", "authorship_tag")?,
+                table_has_column_sync(conn, "goal_runs", "planner_owner_profile_json")?,
+                table_has_column_sync(conn, "goal_runs", "current_step_owner_profile_json")?,
+                table_has_column_sync(conn, "goal_runs", "launch_assignment_snapshot_json")?,
+                table_has_column_sync(conn, "goal_runs", "runtime_assignment_list_json")?,
+                table_has_column_sync(conn, "goal_runs", "root_thread_id")?,
+                table_has_column_sync(conn, "goal_runs", "active_thread_id")?,
+                table_has_column_sync(conn, "goal_runs", "execution_thread_ids_json")?,
             ))
         })
         .await

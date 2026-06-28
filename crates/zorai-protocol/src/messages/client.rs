@@ -263,4 +263,7 @@ pub enum ClientMessage {
     AgentMessageFeedback { thread_id: String, message_id: String, #[serde(default)] absolute_message_index: Option<usize>, #[serde(default)] reaction: Option<Reaction> },
     MarkAllNotificationsRead,
     ArchiveReadNotifications,
+    DatabaseGetBackend,
+    DatabaseSetBackend { #[serde(default)] backend: Option<String>, #[serde(default)] sync_url: Option<String> },
+    DatabaseSyncNow,
 }

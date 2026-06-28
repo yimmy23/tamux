@@ -523,114 +523,118 @@ impl HistoryStore {
         );
         let mut values = Vec::<db::Value>::new();
         {
-
-                if let Some(created_after) = query.created_after {
-                    sql.push_str(" AND t.created_at >= ?");
-                    values.push(db::Value::Integer(created_after));
+            if let Some(created_after) = query.created_after {
+                sql.push_str(" AND t.created_at >= ?");
+                values.push(db::Value::Integer(created_after));
+            }
+            if let Some(created_before) = query.created_before {
+                sql.push_str(" AND t.created_at <= ?");
+                values.push(db::Value::Integer(created_before));
+            }
+            if let Some(updated_after) = query.updated_after {
+                sql.push_str(" AND t.updated_at >= ?");
+                values.push(db::Value::Integer(updated_after));
+            }
+            if let Some(updated_before) = query.updated_before {
+                sql.push_str(" AND t.updated_at <= ?");
+                values.push(db::Value::Integer(updated_before));
+            }
+            if let Some(title_query) = query
+                .title_query
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                sql.push_str(" AND instr(lower(t.title), lower(?)) > 0");
+                values.push(db::Value::Text(title_query.to_string()));
+            }
+            for prefix in &query.title_excluded_prefixes {
+                sql.push_str(" AND t.title NOT LIKE ?");
+                values.push(db::Value::Text(format!("{prefix}%")));
+            }
+            if let Some(min_message_count) = query.min_message_count {
+                sql.push_str(" AND t.message_count >= ?");
+                values.push(db::Value::Integer(min_message_count.max(0)));
+            }
+            if let Some(pinned) = query.pinned {
+                sql.push_str(" AND t.pinned = ?");
+                values.push(db::Value::Integer(if pinned { 1 } else { 0 }));
+            }
+            if !query.agent_names.is_empty() || query.include_empty_agent_name {
+                let mut clauses = Vec::new();
+                if query.include_empty_agent_name {
+                    clauses.push("(t.agent_name IS NULL OR trim(t.agent_name) = '')".to_string());
                 }
-                if let Some(created_before) = query.created_before {
-                    sql.push_str(" AND t.created_at <= ?");
-                    values.push(db::Value::Integer(created_before));
-                }
-                if let Some(updated_after) = query.updated_after {
-                    sql.push_str(" AND t.updated_at >= ?");
-                    values.push(db::Value::Integer(updated_after));
-                }
-                if let Some(updated_before) = query.updated_before {
-                    sql.push_str(" AND t.updated_at <= ?");
-                    values.push(db::Value::Integer(updated_before));
-                }
-                if let Some(title_query) = query
-                    .title_query
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                {
-                    sql.push_str(" AND instr(lower(t.title), lower(?)) > 0");
-                    values.push(db::Value::Text(title_query.to_string()));
-                }
-                for prefix in &query.title_excluded_prefixes {
-                    sql.push_str(" AND t.title NOT LIKE ?");
-                    values.push(db::Value::Text(format!("{prefix}%")));
-                }
-                if let Some(min_message_count) = query.min_message_count {
-                    sql.push_str(" AND t.message_count >= ?");
-                    values.push(db::Value::Integer(min_message_count.max(0)));
-                }
-                if let Some(pinned) = query.pinned {
-                    sql.push_str(" AND t.pinned = ?");
-                    values.push(db::Value::Integer(if pinned { 1 } else { 0 }));
-                }
-                if !query.agent_names.is_empty() || query.include_empty_agent_name {
-                    let mut clauses = Vec::new();
-                    if query.include_empty_agent_name {
-                        clauses.push("(t.agent_name IS NULL OR trim(t.agent_name) = '')".to_string());
-                    }
-                    if !query.agent_names.is_empty() {
-                        let placeholders = std::iter::repeat_n("?", query.agent_names.len())
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        clauses.push(format!("lower(trim(t.agent_name)) IN ({placeholders})"));
-                        values.extend(query.agent_names.iter().map(|name| {
-                            db::Value::Text(name.trim().to_ascii_lowercase())
-                        }));
-                    }
-                    sql.push_str(" AND (");
-                    sql.push_str(&clauses.join(" OR "));
-                    sql.push(')');
-                }
-                if !query.excluded_ids.is_empty() {
-                    let placeholders = std::iter::repeat_n("?", query.excluded_ids.len())
+                if !query.agent_names.is_empty() {
+                    let placeholders = std::iter::repeat_n("?", query.agent_names.len())
                         .collect::<Vec<_>>()
                         .join(", ");
-                    sql.push_str(&format!(" AND t.id NOT IN ({placeholders})"));
+                    clauses.push(format!("lower(trim(t.agent_name)) IN ({placeholders})"));
                     values.extend(
                         query
-                            .excluded_ids
+                            .agent_names
                             .iter()
-                            .map(|id| db::Value::Text(id.to_string())),
+                            .map(|name| db::Value::Text(name.trim().to_ascii_lowercase())),
                     );
                 }
-                if !query.include_internal {
-                    for prefix in &query.hidden_id_prefixes {
-                        sql.push_str(" AND t.id NOT LIKE ?");
-                        values.push(db::Value::Text(format!("{prefix}%")));
-                    }
-                    if !query.hidden_message_substrings.is_empty() {
-                        sql.push_str(
-                            " AND NOT EXISTS (
+                sql.push_str(" AND (");
+                sql.push_str(&clauses.join(" OR "));
+                sql.push(')');
+            }
+            if !query.excluded_ids.is_empty() {
+                let placeholders = std::iter::repeat_n("?", query.excluded_ids.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                sql.push_str(&format!(" AND t.id NOT IN ({placeholders})"));
+                values.extend(
+                    query
+                        .excluded_ids
+                        .iter()
+                        .map(|id| db::Value::Text(id.to_string())),
+                );
+            }
+            if !query.include_internal {
+                for prefix in &query.hidden_id_prefixes {
+                    sql.push_str(" AND t.id NOT LIKE ?");
+                    values.push(db::Value::Text(format!("{prefix}%")));
+                }
+                if !query.hidden_message_substrings.is_empty() {
+                    sql.push_str(
+                        " AND NOT EXISTS (
                                 SELECT 1 FROM agent_messages m
                                 WHERE m.thread_id = t.id
                                   AND m.deleted_at IS NULL
                                   AND (",
-                        );
-                        let clauses = std::iter::repeat_n(
-                            "instr(lower(m.content), lower(?)) > 0",
-                            query.hidden_message_substrings.len(),
-                        )
-                        .collect::<Vec<_>>()
-                        .join(" OR ");
-                        sql.push_str(&clauses);
-                        sql.push_str("))");
-                        values.extend(query.hidden_message_substrings.iter().map(|substring| {
-                            db::Value::Text(substring.to_string())
-                        }));
-                    }
+                    );
+                    let clauses = std::iter::repeat_n(
+                        "instr(lower(m.content), lower(?)) > 0",
+                        query.hidden_message_substrings.len(),
+                    )
+                    .collect::<Vec<_>>()
+                    .join(" OR ");
+                    sql.push_str(&clauses);
+                    sql.push_str("))");
+                    values.extend(
+                        query
+                            .hidden_message_substrings
+                            .iter()
+                            .map(|substring| db::Value::Text(substring.to_string())),
+                    );
                 }
+            }
 
-                sql.push_str(" ORDER BY t.updated_at DESC, t.id ASC");
-                if let Some(limit) = query.limit {
-                    sql.push_str(" LIMIT ?");
-                    values.push(db::Value::Integer(limit as i64));
-                    if query.offset > 0 {
-                        sql.push_str(" OFFSET ?");
-                        values.push(db::Value::Integer(query.offset as i64));
-                    }
-                } else if query.offset > 0 {
-                    sql.push_str(" LIMIT -1 OFFSET ?");
+            sql.push_str(" ORDER BY t.updated_at DESC, t.id ASC");
+            if let Some(limit) = query.limit {
+                sql.push_str(" LIMIT ?");
+                values.push(db::Value::Integer(limit as i64));
+                if query.offset > 0 {
+                    sql.push_str(" OFFSET ?");
                     values.push(db::Value::Integer(query.offset as i64));
                 }
-
+            } else if query.offset > 0 {
+                sql.push_str(" LIMIT -1 OFFSET ?");
+                values.push(db::Value::Integer(query.offset as i64));
+            }
         }
         let rows = self
             .interactive_read_db
@@ -669,18 +673,18 @@ impl HistoryStore {
         }
         let thread_limit = thread_limit.max(1) as i64;
         let (sql, values) = {
-                let message_clauses = std::iter::repeat_n("lower(m.content) LIKE ?", tokens.len())
+            let message_clauses = std::iter::repeat_n("lower(m.content) LIKE ?", tokens.len())
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            let exists_clauses =
+                std::iter::repeat_n("lower(candidate.content) LIKE ?", tokens.len())
                     .collect::<Vec<_>>()
                     .join(" OR ");
-                let exists_clauses =
-                    std::iter::repeat_n("lower(candidate.content) LIKE ?", tokens.len())
-                        .collect::<Vec<_>>()
-                        .join(" OR ");
-                let title_clauses = std::iter::repeat_n("lower(t.title) LIKE ?", tokens.len())
-                    .collect::<Vec<_>>()
-                    .join(" OR ");
-                let sql = format!(
-                    "WITH matched_threads AS (
+            let title_clauses = std::iter::repeat_n("lower(t.title) LIKE ?", tokens.len())
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            let sql = format!(
+                "WITH matched_threads AS (
                          SELECT t.id
                            FROM agent_threads t
                           WHERE t.deleted_at IS NULL
@@ -711,25 +715,25 @@ impl HistoryStore {
                         AND m.deleted_at IS NULL
                         AND ({message_clauses})
                       ORDER BY t.updated_at DESC, t.id ASC, m.created_at DESC, m.rowid DESC"
-                );
-                let mut values = Vec::<db::Value>::new();
-                values.extend(
-                    tokens
-                        .iter()
-                        .map(|token| db::Value::Text(format!("%{token}%"))),
-                );
-                values.extend(
-                    tokens
-                        .iter()
-                        .map(|token| db::Value::Text(format!("%{token}%"))),
-                );
-                values.push(db::Value::Integer(thread_limit));
-                values.extend(
-                    tokens
-                        .iter()
-                        .map(|token| db::Value::Text(format!("%{token}%"))),
-                );
-                (sql, values)
+            );
+            let mut values = Vec::<db::Value>::new();
+            values.extend(
+                tokens
+                    .iter()
+                    .map(|token| db::Value::Text(format!("%{token}%"))),
+            );
+            values.extend(
+                tokens
+                    .iter()
+                    .map(|token| db::Value::Text(format!("%{token}%"))),
+            );
+            values.push(db::Value::Integer(thread_limit));
+            values.extend(
+                tokens
+                    .iter()
+                    .map(|token| db::Value::Text(format!("%{token}%"))),
+            );
+            (sql, values)
         };
 
         let rows = self
@@ -1102,7 +1106,7 @@ impl HistoryStore {
     ) -> Result<Vec<String>> {
         let whitespace = "char(9) || char(10) || char(11) || char(12) || char(13) || char(32)";
         let sql = format!(
-                    "WITH matching_messages AS (
+            "WITH matching_messages AS (
                         SELECT
                             message.created_at,
                             message.rowid,
@@ -1155,10 +1159,7 @@ impl HistoryStore {
                      WHERE approval_id != ''
                      ORDER BY created_at DESC, rowid DESC"
         );
-        let rows = self
-            .read_db
-            .query(&sql, db::db_params![thread_id])
-            .await?;
+        let rows = self.read_db.query(&sql, db::db_params![thread_id]).await?;
         rows.iter().map(|row| row.get::<String>(0)).collect()
     }
 
@@ -1169,7 +1170,7 @@ impl HistoryStore {
         let row = self
             .read_db
             .query_opt(
-                    "WITH turn_start AS (
+                "WITH turn_start AS (
                         SELECT message.created_at, message.rowid AS row_id
                         FROM agent_messages message
                         JOIN agent_threads thread
@@ -1586,7 +1587,8 @@ impl HistoryStore {
             "UPDATE agent_messages SET deleted_at = NULL WHERE thread_id = ? AND deleted_at IS NOT NULL AND id IN ({})",
             placeholders.join(", ")
         );
-        txn.execute(&update_sql, db::Params::Positional(values)).await?;
+        txn.execute(&update_sql, db::Params::Positional(values))
+            .await?;
         let workspace_id = txn
             .query_opt(
                 "SELECT workspace_id FROM agent_threads WHERE id = ?1",
@@ -1729,72 +1731,72 @@ impl HistoryStore {
         let thread_id = thread_id.to_string();
         let tail_limit = tail_limit.max(1);
         {
-                let tail_rows = self
-                    .interactive_read_db
-                    .query(
-                        "SELECT role, content, metadata_json \
+            let tail_rows = self
+                .interactive_read_db
+                .query(
+                    "SELECT role, content, metadata_json \
                          FROM agent_messages \
                          WHERE thread_id = ?1 AND deleted_at IS NULL \
                          ORDER BY created_at DESC, id DESC \
                          LIMIT ?2",
-                        db::db_params![thread_id.as_str(), tail_limit as i64],
-                    )
-                    .await?;
-                let mut tail_desc: Vec<(String, String, Option<String>)> = tail_rows
-                    .iter()
-                    .filter_map(|row| {
-                        match (
-                            row.get::<String>(0),
-                            row.get::<String>(1),
-                            row.get::<Option<String>>(2),
-                        ) {
-                            (Ok(a), Ok(b), Ok(c)) => Some((a, b, c)),
-                            _ => None,
-                        }
+                    db::db_params![thread_id.as_str(), tail_limit as i64],
+                )
+                .await?;
+            let mut tail_desc: Vec<(String, String, Option<String>)> = tail_rows
+                .iter()
+                .filter_map(|row| {
+                    match (
+                        row.get::<String>(0),
+                        row.get::<String>(1),
+                        row.get::<Option<String>>(2),
+                    ) {
+                        (Ok(a), Ok(b), Ok(c)) => Some((a, b, c)),
+                        _ => None,
+                    }
+                })
+                .collect();
+
+            let compaction_idx_in_tail = tail_desc.iter().position(|(_, content, meta)| {
+                let kind_is_compaction = meta
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+                    .and_then(|value| {
+                        value
+                            .get("message_kind")
+                            .and_then(|kind| kind.as_str())
+                            .map(|kind| kind == "compaction_artifact")
                     })
-                    .collect();
+                    .unwrap_or(false);
+                kind_is_compaction
+                    || content.starts_with("[Compacted earlier context]")
+                    || content.starts_with("Pre-compaction context:")
+            });
+            if let Some(idx) = compaction_idx_in_tail {
+                tail_desc.truncate(idx + 1);
+            }
+            tail_desc.reverse();
+            let tail: Vec<(String, String)> = tail_desc
+                .into_iter()
+                .map(|(role, content, _)| (role, content))
+                .collect();
 
-                let compaction_idx_in_tail = tail_desc.iter().position(|(_, content, meta)| {
-                    let kind_is_compaction = meta
-                        .as_deref()
-                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
-                        .and_then(|value| {
-                            value
-                                .get("message_kind")
-                                .and_then(|kind| kind.as_str())
-                                .map(|kind| kind == "compaction_artifact")
-                        })
-                        .unwrap_or(false);
-                    kind_is_compaction
-                        || content.starts_with("[Compacted earlier context]")
-                        || content.starts_with("Pre-compaction context:")
-                });
-                if let Some(idx) = compaction_idx_in_tail {
-                    tail_desc.truncate(idx + 1);
-                }
-                tail_desc.reverse();
-                let tail: Vec<(String, String)> = tail_desc
-                    .into_iter()
-                    .map(|(role, content, _)| (role, content))
-                    .collect();
-
-                let opening = self
-                    .interactive_read_db
-                    .query_opt(
-                        "SELECT role, content \
+            let opening = self
+                .interactive_read_db
+                .query_opt(
+                    "SELECT role, content \
                          FROM agent_messages \
                          WHERE thread_id = ?1 AND deleted_at IS NULL AND role = 'user' \
                          ORDER BY created_at ASC, rowid ASC \
                          LIMIT 1",
-                        db::db_params![thread_id.as_str()],
-                    )
-                    .await?
-                    .map(|row| -> anyhow::Result<(String, String)> {
-                        Ok((row.get::<String>(0)?, row.get::<String>(1)?))
-                    })
-                    .transpose()?;
+                    db::db_params![thread_id.as_str()],
+                )
+                .await?
+                .map(|row| -> anyhow::Result<(String, String)> {
+                    Ok((row.get::<String>(0)?, row.get::<String>(1)?))
+                })
+                .transpose()?;
 
-                Ok((opening, tail))
+            Ok((opening, tail))
         }
     }
 
@@ -1932,8 +1934,7 @@ impl HistoryStore {
                 .await?
                 .map(|row| row.get::<i64>(0))
                 .transpose()?;
-            let retained_artifact_index =
-                latest_artifact_index.filter(|index| *index < tail_start);
+            let retained_artifact_index = latest_artifact_index.filter(|index| *index < tail_start);
             let recent_start = if retained_artifact_index.is_some() {
                 total_count.saturating_sub(max_messages.saturating_sub(1))
             } else {
@@ -2194,15 +2195,15 @@ impl HistoryStore {
             .map(|id| id.to_ascii_lowercase())
             .collect::<Vec<_>>();
         let (sql, values) = {
-                let author_exclusion = if participant_agent_ids.is_empty() {
-                    String::new()
-                } else {
-                    let placeholders = std::iter::repeat("?")
-                        .take(participant_agent_ids.len())
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    format!(
-                        " AND ( \
+            let author_exclusion = if participant_agent_ids.is_empty() {
+                String::new()
+            } else {
+                let placeholders = std::iter::repeat("?")
+                    .take(participant_agent_ids.len())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    " AND ( \
                             COALESCE( \
                                 json_extract(latest.valid_metadata_json, '$.author_agent_id'), \
                                 json_extract(latest.valid_metadata_json, '$.authorAgentId') \
@@ -2212,9 +2213,9 @@ impl HistoryStore {
                                 json_extract(latest.valid_metadata_json, '$.authorAgentId') \
                             )) NOT IN ({placeholders}) \
                         )"
-                    )
-                };
-                let sql = format!(
+                )
+            };
+            let sql = format!(
                     "SELECT latest.created_at \
                      FROM ( \
                         SELECT created_at, \
@@ -2273,9 +2274,9 @@ impl HistoryStore {
                      WHERE latest.role = 'assistant' \
                        AND TRIM(latest.content) != ''{author_exclusion}"
                 );
-                let mut values = vec![db::Value::Text(thread_id)];
-                values.extend(participant_agent_ids.into_iter().map(db::Value::Text));
-                (sql, values)
+            let mut values = vec![db::Value::Text(thread_id)];
+            values.extend(participant_agent_ids.into_iter().map(db::Value::Text));
+            (sql, values)
         };
         let row = self
             .read_db
@@ -2882,7 +2883,9 @@ impl HistoryStore {
                 db::db_params![limit],
             )
             .await?;
-        rows.iter().map(map_memory_distillation_log_row_db).collect()
+        rows.iter()
+            .map(map_memory_distillation_log_row_db)
+            .collect()
     }
 
     pub async fn list_memory_distillation_progress(

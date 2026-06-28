@@ -1,10 +1,10 @@
 use super::super::*;
 use super::common::*;
-use rusqlite::params;
+use crate::history::db::{self, DbConn};
 
-#[test]
-fn row_to_constraint_reads_richer_persisted_fields() -> anyhow::Result<()> {
-    let conn = init_memory_conn()?;
+#[tokio::test]
+async fn row_to_constraint_reads_richer_persisted_fields() -> anyhow::Result<()> {
+    let conn = init_memory_conn().await?;
 
     conn.execute(
         "INSERT INTO negative_knowledge
@@ -12,7 +12,7 @@ fn row_to_constraint_reads_richer_persisted_fields() -> anyhow::Result<()> {
           description, confidence, state, evidence_count, direct_observation,
           derived_from_constraint_ids, related_subject_tokens, valid_until, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
-        params![
+        db::db_params![
             "nc-rich",
             "agent-1",
             "ep-123",
@@ -29,9 +29,10 @@ fn row_to_constraint_reads_richer_persisted_fields() -> anyhow::Result<()> {
             1_234_567i64,
             7_654_321i64,
         ],
-    )?;
+    )
+    .await?;
 
-    let constraint = select_constraint_by_id(&conn, "nc-rich")?;
+    let constraint = select_constraint_by_id(&conn, "nc-rich").await?;
 
     assert_eq!(constraint.state, ConstraintState::Dead);
     assert_eq!(constraint.evidence_count, 4);
@@ -48,16 +49,16 @@ fn row_to_constraint_reads_richer_persisted_fields() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[test]
-fn row_to_constraint_defaults_new_fields_for_legacy_rows() -> anyhow::Result<()> {
-    let conn = init_memory_conn()?;
+#[tokio::test]
+async fn row_to_constraint_defaults_new_fields_for_legacy_rows() -> anyhow::Result<()> {
+    let conn = init_memory_conn().await?;
 
     conn.execute(
         "INSERT INTO negative_knowledge
          (id, agent_id, episode_id, constraint_type, subject, solution_class,
           description, confidence, valid_until, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![
+        db::db_params![
             "nc-legacy",
             "agent-1",
             "ep-legacy",
@@ -69,9 +70,10 @@ fn row_to_constraint_defaults_new_fields_for_legacy_rows() -> anyhow::Result<()>
             2_222_222i64,
             3_333_333i64,
         ],
-    )?;
+    )
+    .await?;
 
-    let constraint = select_constraint_by_id(&conn, "nc-legacy")?;
+    let constraint = select_constraint_by_id(&conn, "nc-legacy").await?;
 
     assert_eq!(constraint.state, ConstraintState::Dying);
     assert_eq!(constraint.evidence_count, 1);

@@ -1,5 +1,5 @@
 use super::*;
-use crate::history::schema_helpers::table_has_column;
+use crate::history::schema_helpers::table_has_column_sync;
 use std::fs;
 
 #[tokio::test]
@@ -26,9 +26,9 @@ async fn init_schema_adds_emergent_protocol_registry_tables() -> Result<()> {
     let status = store
         .conn
         .call(|conn| {
-            let has_token = table_has_column(conn, "emergent_protocols", "token")?;
-            let has_pattern = table_has_column(conn, "emergent_protocols", "normalized_pattern")?;
-            let has_signal_kind = table_has_column(conn, "emergent_protocols", "signal_kind")?;
+            let has_token = table_has_column_sync(conn, "emergent_protocols", "token")?;
+            let has_pattern = table_has_column_sync(conn, "emergent_protocols", "normalized_pattern")?;
+            let has_signal_kind = table_has_column_sync(conn, "emergent_protocols", "signal_kind")?;
             let protocol_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_emergent_protocols_thread_activated'",
@@ -36,7 +36,7 @@ async fn init_schema_adds_emergent_protocol_registry_tables() -> Result<()> {
                     |row| row.get(0),
                 )
                 .optional()?;
-            let has_step_intent = table_has_column(conn, "protocol_steps", "intent")?;
+            let has_step_intent = table_has_column_sync(conn, "protocol_steps", "intent")?;
             let step_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_protocol_steps_protocol'",
@@ -44,7 +44,7 @@ async fn init_schema_adds_emergent_protocol_registry_tables() -> Result<()> {
                     |row| row.get(0),
                 )
                 .optional()?;
-            let has_usage_success = table_has_column(conn, "protocol_usage_log", "success")?;
+            let has_usage_success = table_has_column_sync(conn, "protocol_usage_log", "success")?;
             let usage_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_protocol_usage_log_protocol_used'",

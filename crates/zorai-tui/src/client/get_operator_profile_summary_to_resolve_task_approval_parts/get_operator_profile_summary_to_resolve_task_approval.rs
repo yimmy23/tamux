@@ -142,6 +142,14 @@ impl DaemonClient {
         self.send(ClientMessage::AgentWhatsAppLinkReset)
     }
 
+    pub fn database_sync_now(&self) -> Result<()> {
+        self.send(ClientMessage::DatabaseSyncNow)
+    }
+
+    pub fn database_get_backend(&self) -> Result<()> {
+        self.send(ClientMessage::DatabaseGetBackend)
+    }
+
     pub fn list_task_approval_rules(&self) -> Result<()> {
         self.send(ClientMessage::AgentListTaskApprovalRules)
     }

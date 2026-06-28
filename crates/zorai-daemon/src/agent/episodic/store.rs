@@ -13,8 +13,8 @@ mod worm;
 use crate::agent::engine::AgentEngine;
 use crate::agent::types::{AgentEvent, GoalRun};
 
+use crate::history::db;
 use anyhow::Result;
-use rusqlite::{params, OptionalExtension};
 
 fn episode_type_to_str(t: &EpisodeType) -> &'static str {
     match t {
@@ -54,7 +54,7 @@ fn str_to_episode_outcome(s: &str) -> EpisodeOutcome {
     }
 }
 
-fn row_to_episode(row: &rusqlite::Row<'_>) -> rusqlite::Result<Episode> {
+fn row_to_episode(row: &db::Row) -> Result<Episode> {
     let episode_type_str: String = row.get(5)?;
     let outcome_str: String = row.get(9)?;
     let entities_json: String = row.get(11)?;
@@ -74,13 +74,13 @@ fn row_to_episode(row: &rusqlite::Row<'_>) -> rusqlite::Result<Episode> {
         entities: serde_json::from_str(&entities_json).unwrap_or_default(),
         causal_chain: serde_json::from_str(&causal_chain_json).unwrap_or_default(),
         solution_class: row.get(13)?,
-        duration_ms: row.get::<_, Option<i64>>(14)?.map(|v| v as u64),
-        tokens_used: row.get::<_, Option<i32>>(15)?.map(|v| v as u32),
+        duration_ms: row.get::<Option<i64>>(14)?.map(|v| v as u64),
+        tokens_used: row.get::<Option<i32>>(15)?.map(|v| v as u32),
         confidence: row.get(16)?,
         confidence_before: row.get(17)?,
         confidence_after: row.get(18)?,
-        created_at: row.get::<_, i64>(19)? as u64,
-        expires_at: row.get::<_, Option<i64>>(20)?.map(|v| v as u64),
+        created_at: row.get::<i64>(19)? as u64,
+        expires_at: row.get::<Option<i64>>(20)?.map(|v| v as u64),
     })
 }
 
@@ -128,43 +128,39 @@ impl AgentEngine {
         let causal_chain_json = ep.causal_chain_json();
 
         self.history
-            .conn
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT OR REPLACE INTO episodes (
-                        id, agent_id, goal_run_id, thread_id, session_id, goal_text, goal_type,
-                        episode_type, summary, outcome, root_cause, entities, causal_chain,
-                        solution_class, duration_ms, tokens_used, confidence,
-                        confidence_before, confidence_after, created_at, expires_at, deleted_at
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, NULL)",
-                    params![
-                        ep.id,
-                        agent_id,
-                        ep.goal_run_id,
-                        ep.thread_id,
-                        ep.session_id,
-                        ep.goal_text,
-                        ep.goal_type,
-                        episode_type_str,
-                        ep.summary,
-                        outcome_str,
-                        ep.root_cause,
-                        entities_json,
-                        causal_chain_json,
-                        ep.solution_class,
-                        ep.duration_ms.map(|v| v as i64),
-                        ep.tokens_used.map(|v| v as i32),
-                        ep.confidence,
-                        ep.confidence_before,
-                        ep.confidence_after,
-                        ep.created_at as i64,
-                        ep.expires_at.map(|v| v as i64),
-                    ],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            .conn_db
+            .execute(
+                "INSERT OR REPLACE INTO episodes (
+                    id, agent_id, goal_run_id, thread_id, session_id, goal_text, goal_type,
+                    episode_type, summary, outcome, root_cause, entities, causal_chain,
+                    solution_class, duration_ms, tokens_used, confidence,
+                    confidence_before, confidence_after, created_at, expires_at, deleted_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, NULL)",
+                db::db_params![
+                    ep.id,
+                    agent_id,
+                    ep.goal_run_id,
+                    ep.thread_id,
+                    ep.session_id,
+                    ep.goal_text,
+                    ep.goal_type,
+                    episode_type_str,
+                    ep.summary,
+                    outcome_str,
+                    ep.root_cause,
+                    entities_json,
+                    causal_chain_json,
+                    ep.solution_class,
+                    ep.duration_ms.map(|v| v as i64),
+                    ep.tokens_used.map(|v| v as i32),
+                    ep.confidence,
+                    ep.confidence_before,
+                    ep.confidence_after,
+                    ep.created_at as i64,
+                    ep.expires_at.map(|v| v as i64),
+                ],
+            )
+            .await?;
 
         let _ = self.event_tx.send(AgentEvent::EpisodeRecorded {
             episode_id: episode.id.clone(),
@@ -371,23 +367,18 @@ impl AgentEngine {
         let agent_id = crate::agent::agent_identity::current_agent_scope_id();
         let include_legacy = crate::agent::is_main_agent_scope(&agent_id) as i64;
         self.history
-            .conn
-            .call(move |conn| {
-                let result = conn
-                    .query_row(
-                        "SELECT id, agent_id, goal_run_id, thread_id, session_id, episode_type,
-                                goal_text, goal_type, summary, outcome, root_cause, entities, causal_chain,
-                                solution_class, duration_ms, tokens_used, confidence, confidence_before, confidence_after,
-                                created_at, expires_at
-                         FROM episodes WHERE id = ?1 AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL)) AND deleted_at IS NULL",
-                        params![episode_id, agent_id, include_legacy],
-                        row_to_episode,
-                    )
-                    .optional()?;
-                Ok(result)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .read_db
+            .query_opt(
+                "SELECT id, agent_id, goal_run_id, thread_id, session_id, episode_type,
+                        goal_text, goal_type, summary, outcome, root_cause, entities, causal_chain,
+                        solution_class, duration_ms, tokens_used, confidence, confidence_before, confidence_after,
+                        created_at, expires_at
+                 FROM episodes WHERE id = ?1 AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL)) AND deleted_at IS NULL",
+                db::db_params![episode_id, agent_id, include_legacy],
+            )
+            .await?
+            .map(|row| row_to_episode(&row))
+            .transpose()
     }
 
     /// List all episodes for a given goal run, ordered by creation time descending.
@@ -398,47 +389,44 @@ impl AgentEngine {
         let goal_run_id = goal_run_id.to_string();
         let agent_id = crate::agent::agent_identity::current_agent_scope_id();
         let include_legacy = crate::agent::is_main_agent_scope(&agent_id) as i64;
-        self.history
-            .conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT id, agent_id, goal_run_id, thread_id, session_id, episode_type,
-                            goal_text, goal_type, summary, outcome, root_cause, entities, causal_chain,
-                            solution_class, duration_ms, tokens_used, confidence, confidence_before, confidence_after,
-                            created_at, expires_at
-                     FROM episodes WHERE goal_run_id = ?1 AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL)) AND deleted_at IS NULL
-                     ORDER BY created_at DESC",
-                )?;
-                let rows =
-                    stmt.query_map(params![goal_run_id, agent_id, include_legacy], row_to_episode)?;
-                rows.collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(Into::into)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let rows = self
+            .history
+            .read_db
+            .query(
+                "SELECT id, agent_id, goal_run_id, thread_id, session_id, episode_type,
+                        goal_text, goal_type, summary, outcome, root_cause, entities, causal_chain,
+                        solution_class, duration_ms, tokens_used, confidence, confidence_before, confidence_after,
+                        created_at, expires_at
+                 FROM episodes WHERE goal_run_id = ?1 AND (agent_id = ?2 OR (?3 = 1 AND agent_id IS NULL)) AND deleted_at IS NULL
+                 ORDER BY created_at DESC",
+                db::db_params![goal_run_id, agent_id, include_legacy],
+            )
+            .await?;
+        rows.iter().map(row_to_episode).collect()
     }
 
     /// Expire (delete) old episodes past their TTL (EPIS-09).
     /// Rebuilds FTS5 index after deletion to remove stale entries.
     pub(crate) async fn expire_old_episodes(&self) -> Result<usize> {
         let now_ms = super::super::now_millis() as i64;
-        self.history
-            .conn
-            .call(move |conn| {
-                let deleted = conn.execute(
-                    "UPDATE episodes SET deleted_at = ?2 WHERE expires_at IS NOT NULL AND expires_at <= ?1 AND deleted_at IS NULL",
-                    rusqlite::params![now_ms, now_ms],
-                )?;
-                if deleted > 0 {
-                    conn.execute(
-                        "INSERT INTO episodes_fts(episodes_fts) VALUES('rebuild')",
-                        [],
-                    )
-                    .ok();
-                }
-                Ok(deleted)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let deleted = self
+            .history
+            .conn_db
+            .execute(
+                "UPDATE episodes SET deleted_at = ?2 WHERE expires_at IS NOT NULL AND expires_at <= ?1 AND deleted_at IS NULL",
+                db::db_params![now_ms, now_ms],
+            )
+            .await?;
+        if deleted > 0 {
+            self.history
+                .conn_db
+                .execute(
+                    "INSERT INTO episodes_fts(episodes_fts) VALUES('rebuild')",
+                    db::Params::None,
+                )
+                .await
+                .ok();
+        }
+        Ok(deleted as usize)
     }
 }

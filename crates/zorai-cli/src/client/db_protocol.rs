@@ -99,6 +99,8 @@ pub(super) enum DbBridgeCommand {
         embedding_model: String,
         dimensions: u32,
     },
+    DatabaseGetBackend,
+    DatabaseSyncNow,
     Shutdown,
 }
 

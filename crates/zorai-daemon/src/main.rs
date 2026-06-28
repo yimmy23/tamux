@@ -2,6 +2,7 @@
 
 pub mod agent;
 mod criu;
+mod db_cli;
 mod git;
 mod governance;
 mod history;
@@ -75,6 +76,30 @@ fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard> {
 const DAEMON_TOKIO_WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
 
 async fn daemon_main() -> Result<()> {
+    {
+        let cfg = zorai_protocol::ZoraiConfig::load();
+        if std::env::var_os("ZORAI_DB_BACKEND").is_none() {
+            if let Some(backend) = cfg.db_backend.as_deref() {
+                let backend = backend.trim();
+                if !backend.is_empty() {
+                    std::env::set_var("ZORAI_DB_BACKEND", backend);
+                }
+            }
+        }
+        if std::env::var_os("ZORAI_DB_SYNC_URL").is_none() {
+            if let Some(url) = cfg.db_sync_url.as_deref() {
+                let url = url.trim();
+                if !url.is_empty() {
+                    std::env::set_var("ZORAI_DB_SYNC_URL", url);
+                }
+            }
+        }
+    }
+
+    if std::env::args().nth(1).as_deref() == Some("db") {
+        return db_cli::run_db_subcommand().await;
+    }
+
     if std::env::args().nth(1).as_deref()
         == Some(agent::skill_preflight::SKILL_DISCOVERY_WORKER_ARG)
     {

@@ -125,9 +125,14 @@ impl HistoryStore {
             }
         }
 
-        let removed =
-            mark_missing_semantic_documents_removed(&mut *txn, &source_kind, &root_path, &seen, now)
-                .await?;
+        let removed = mark_missing_semantic_documents_removed(
+            &mut *txn,
+            &source_kind,
+            &root_path,
+            &seen,
+            now,
+        )
+        .await?;
         summary.removed = removed;
         txn.commit().await?;
         Ok(summary)

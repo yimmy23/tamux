@@ -226,7 +226,9 @@ impl HistoryStore {
                 db::db_params![node_id],
             )
             .await?;
-        rows.iter().map(|row| map_memory_edge_row_at(row, 0)).collect()
+        rows.iter()
+            .map(|row| map_memory_edge_row_at(row, 0))
+            .collect()
     }
 
     pub async fn list_memory_graph_neighbors(

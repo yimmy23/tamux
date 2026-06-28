@@ -134,6 +134,12 @@ pub async fn run_db_bridge() -> Result<()> {
                             DbBridgeCommand::GetSemanticIndexStatus { embedding_model, dimensions } => {
                                 framed.send(ClientMessage::GetSemanticIndexStatus { embedding_model, dimensions }).await?;
                             }
+                            DbBridgeCommand::DatabaseGetBackend => {
+                                framed.send(ClientMessage::DatabaseGetBackend).await?;
+                            }
+                            DbBridgeCommand::DatabaseSyncNow => {
+                                framed.send(ClientMessage::DatabaseSyncNow).await?;
+                            }
                             DbBridgeCommand::Shutdown => {
                                 break;
                             }
@@ -208,6 +214,14 @@ pub async fn run_db_bridge() -> Result<()> {
                     }
                     Some(Ok(DaemonMessage::DatabaseSqlResult { result_json })) => {
                         let msg = serde_json::json!({"type":"database-sql-result","data":serde_json::from_str::<serde_json::Value>(&result_json).unwrap_or_default()});
+                        emit_db_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::DatabaseBackendState { backend, sync_url, has_token, seeded_at })) => {
+                        let msg = serde_json::json!({"type":"database-backend-state","data":{"backend":backend,"syncUrl":sync_url,"hasToken":has_token,"seededAt":seeded_at}});
+                        emit_db_event(&msg.to_string())?;
+                    }
+                    Some(Ok(DaemonMessage::DatabaseSyncResult { ok, message })) => {
+                        let msg = serde_json::json!({"type":"database-sync-result","data":{"ok":ok,"message":message}});
                         emit_db_event(&msg.to_string())?;
                     }
                     Some(Ok(DaemonMessage::SemanticBackfillQueued { result_json })) => {

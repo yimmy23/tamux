@@ -60,7 +60,10 @@ impl HistoryStore {
                 db::db_params![goal_run_id],
             )
             .await?;
-        Ok(rows.iter().filter_map(|row| row.get::<String>(0).ok()).collect())
+        Ok(rows
+            .iter()
+            .filter_map(|row| row.get::<String>(0).ok())
+            .collect())
     }
 
     /// Load a single checkpoint by ID.

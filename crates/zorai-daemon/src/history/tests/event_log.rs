@@ -1,5 +1,5 @@
 use super::*;
-use crate::history::schema_helpers::table_has_column;
+use crate::history::schema_helpers::table_has_column_sync;
 use std::fs;
 
 #[tokio::test]
@@ -20,8 +20,8 @@ async fn init_schema_adds_event_log_table() -> Result<()> {
     let status = store
         .conn
         .call(|conn| {
-            let has_event_family = table_has_column(conn, "event_log", "event_family")?;
-            let has_payload = table_has_column(conn, "event_log", "payload_json")?;
+            let has_event_family = table_has_column_sync(conn, "event_log", "event_family")?;
+            let has_payload = table_has_column_sync(conn, "event_log", "payload_json")?;
             let log_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_event_log_family_kind_ts'",

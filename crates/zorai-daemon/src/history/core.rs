@@ -46,56 +46,120 @@ impl HistoryStore {
         std::fs::create_dir_all(&worm_dir)?;
 
         let db_path = history_dir.join("command-history.db");
-        let conn = tokio_rusqlite::Connection::open(&db_path)
-            .await
-            .context("failed to open SQLite connection via tokio-rusqlite")?;
-        apply_sqlite_connection_pragmas(&conn, false).await?;
-
         let offloaded_payloads_dir = root.join("offloaded-payloads");
-        conn.call(move |connection| {
-            Ok(super::schema::init_schema_on_connection(
-                connection,
-                &offloaded_payloads_dir,
-            )?)
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let mut read_conns = Vec::with_capacity(READ_POOL_SIZE);
-        for _ in 0..READ_POOL_SIZE {
-            let read_conn = tokio_rusqlite::Connection::open(&db_path)
+        let backend = std::env::var("ZORAI_DB_BACKEND")
+            .map(|value| value.trim().to_ascii_lowercase())
+            .unwrap_or_default();
+        let use_remote_replica = backend == "remote-replica" || backend == "remote";
+        let use_libsql = use_remote_replica || backend == "libsql" || backend == "local-libsql";
+
+        let (
+            conn,
+            embedding_writer_conn,
+            read_conn,
+            interactive_read_conn,
+            conn_db,
+            embedding_writer_db,
+            read_db,
+            interactive_read_db,
+        ): (
+            tokio_rusqlite::Connection,
+            tokio_rusqlite::Connection,
+            super::ReadPool,
+            super::ReadPool,
+            std::sync::Arc<dyn db::DbConn>,
+            std::sync::Arc<dyn db::DbConn>,
+            std::sync::Arc<dyn db::DbConn>,
+            std::sync::Arc<dyn db::DbConn>,
+        ) = if use_libsql {
+            let libsql_conn: std::sync::Arc<dyn db::DbConn> = if use_remote_replica {
+                let sync_url = std::env::var("ZORAI_DB_SYNC_URL").map_err(|_| {
+                    anyhow::anyhow!(
+                        "ZORAI_DB_BACKEND=remote-replica requires a sync URL (ZORAI_DB_SYNC_URL or config db_sync_url)"
+                    )
+                })?;
+                let auth_token = zorai_protocol::ZoraiConfig::db_auth_token().unwrap_or_default();
+                std::sync::Arc::new(
+                    db::libsql::LibsqlConn::open_remote_replica(&db_path, sync_url, auth_token)
+                        .await?,
+                )
+            } else {
+                std::sync::Arc::new(db::libsql::LibsqlConn::open_local(&db_path).await?)
+            };
+            let placeholder = tokio_rusqlite::Connection::open_in_memory()
                 .await
-                .context("failed to open read SQLite connection via tokio-rusqlite")?;
-            apply_sqlite_connection_pragmas(&read_conn, true).await?;
-            read_conns.push(read_conn);
-        }
-        let read_conn = super::ReadPool::new(read_conns);
-
-        let mut interactive_read_conns = Vec::with_capacity(INTERACTIVE_READ_POOL_SIZE);
-        for _ in 0..INTERACTIVE_READ_POOL_SIZE {
+                .context("failed to open in-memory placeholder connection for libSQL mode")?;
+            (
+                placeholder.clone(),
+                placeholder.clone(),
+                super::ReadPool::new(vec![placeholder.clone()]),
+                super::ReadPool::new(vec![placeholder]),
+                libsql_conn.clone(),
+                libsql_conn.clone(),
+                libsql_conn.clone(),
+                libsql_conn,
+            )
+        } else {
             let conn = tokio_rusqlite::Connection::open(&db_path)
                 .await
-                .context("failed to open interactive reader SQLite connection")?;
-            apply_sqlite_connection_pragmas(&conn, true).await?;
-            interactive_read_conns.push(conn);
-        }
-        let interactive_read_conn = super::ReadPool::new(interactive_read_conns);
+                .context("failed to open SQLite connection via tokio-rusqlite")?;
+            apply_sqlite_connection_pragmas(&conn, false).await?;
 
-        let embedding_writer_conn = tokio_rusqlite::Connection::open(&db_path)
-            .await
-            .context("failed to open embedding writer SQLite connection")?;
-        apply_sqlite_connection_pragmas(&embedding_writer_conn, false).await?;
+            let mut read_conns = Vec::with_capacity(READ_POOL_SIZE);
+            for _ in 0..READ_POOL_SIZE {
+                let read_conn = tokio_rusqlite::Connection::open(&db_path)
+                    .await
+                    .context("failed to open read SQLite connection via tokio-rusqlite")?;
+                apply_sqlite_connection_pragmas(&read_conn, true).await?;
+                read_conns.push(read_conn);
+            }
+            let read_conn = super::ReadPool::new(read_conns);
 
-        let conn_db: std::sync::Arc<dyn db::DbConn> = std::sync::Arc::new(
-            db::sqlite::SqliteWriteConn::new(conn.clone(), db_path.clone()),
-        );
-        let embedding_writer_db: std::sync::Arc<dyn db::DbConn> = std::sync::Arc::new(
-            db::sqlite::SqliteWriteConn::new(embedding_writer_conn.clone(), db_path.clone()),
-        );
-        let read_db: std::sync::Arc<dyn db::DbConn> =
-            std::sync::Arc::new(db::sqlite::SqliteReadConn::new(read_conn.clone()));
-        let interactive_read_db: std::sync::Arc<dyn db::DbConn> =
-            std::sync::Arc::new(db::sqlite::SqliteReadConn::new(interactive_read_conn.clone()));
+            let mut interactive_read_conns = Vec::with_capacity(INTERACTIVE_READ_POOL_SIZE);
+            for _ in 0..INTERACTIVE_READ_POOL_SIZE {
+                let conn = tokio_rusqlite::Connection::open(&db_path)
+                    .await
+                    .context("failed to open interactive reader SQLite connection")?;
+                apply_sqlite_connection_pragmas(&conn, true).await?;
+                interactive_read_conns.push(conn);
+            }
+            let interactive_read_conn = super::ReadPool::new(interactive_read_conns);
+
+            let embedding_writer_conn = tokio_rusqlite::Connection::open(&db_path)
+                .await
+                .context("failed to open embedding writer SQLite connection")?;
+            apply_sqlite_connection_pragmas(&embedding_writer_conn, false).await?;
+
+            let conn_db: std::sync::Arc<dyn db::DbConn> = std::sync::Arc::new(
+                db::sqlite::SqliteWriteConn::new(conn.clone(), db_path.clone()),
+            );
+            let embedding_writer_db: std::sync::Arc<dyn db::DbConn> = std::sync::Arc::new(
+                db::sqlite::SqliteWriteConn::new(embedding_writer_conn.clone(), db_path.clone()),
+            );
+            let read_db: std::sync::Arc<dyn db::DbConn> =
+                std::sync::Arc::new(db::sqlite::SqliteReadConn::new(read_conn.clone()));
+            let interactive_read_db: std::sync::Arc<dyn db::DbConn> = std::sync::Arc::new(
+                db::sqlite::SqliteReadConn::new(interactive_read_conn.clone()),
+            );
+
+            (
+                conn,
+                embedding_writer_conn,
+                read_conn,
+                interactive_read_conn,
+                conn_db,
+                embedding_writer_db,
+                read_db,
+                interactive_read_db,
+            )
+        };
+
+        super::schema::init_schema_on_connection(
+            &mut db::ConnExecutor(&*conn_db),
+            &offloaded_payloads_dir,
+        )
+        .await?;
 
         let store = Self {
             conn,
@@ -498,6 +562,36 @@ impl HistoryStore {
             .with_context(|| format!("failed to write {}", path.display()))?;
         self.register_skill_document(&path).await?;
         Ok((title.to_string(), path.to_string_lossy().into_owned()))
+    }
+}
+
+/// Periodically syncs an embedded libSQL remote replica against its server.
+/// A no-op for the SQLite engine and local libSQL (their `conn_db.sync()`
+/// returns `Ok(())`), so it is harmless to always spawn. Syncs once at startup,
+/// on each interval tick, and once more on shutdown.
+pub(crate) async fn run_db_sync_loop(
+    conn_db: std::sync::Arc<dyn db::DbConn>,
+    interval_secs: u64,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) {
+    if let Err(e) = conn_db.sync().await {
+        tracing::warn!(error = %e, "initial database replica sync failed");
+    }
+    let interval = std::time::Duration::from_secs(interval_secs.max(1));
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {
+                if let Err(e) = conn_db.sync().await {
+                    tracing::warn!(error = %e, "periodic database replica sync failed");
+                }
+            }
+            _ = shutdown.changed() => {
+                if let Err(e) = conn_db.sync().await {
+                    tracing::warn!(error = %e, "final database replica sync on shutdown failed");
+                }
+                return;
+            }
+        }
     }
 }
 

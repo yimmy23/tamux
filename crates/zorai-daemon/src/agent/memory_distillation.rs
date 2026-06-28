@@ -6,11 +6,11 @@
 //! MEMORY.md/USER.md with a `[distilled]` provenance prefix.
 
 use super::*;
+use crate::history::db;
 use crate::history::{
     AgentMessageCursor, AgentMessageSpan, HistoryStore, MemoryDistillationProgressRow,
 };
 use chrono::{SecondsFormat, Utc};
-use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -217,10 +217,10 @@ async fn list_undistilled_threads(
     cutoff_ms: u64,
     limit: usize,
 ) -> anyhow::Result<Vec<String>> {
-    db.conn
-        .call(move |conn| {
-            let mut stmt = conn.prepare(
-                "SELECT threads.id
+    let rows = db
+        .read_db
+        .query(
+            "SELECT threads.id
                  FROM agent_threads AS threads
                  JOIN (
                      SELECT current.thread_id,
@@ -267,12 +267,10 @@ async fn list_undistilled_threads(
                    )
                  ORDER BY activity.latest_message_activity_at ASC
                  LIMIT ?2",
-            )?;
-            let rows = stmt.query_map(params![cutoff_ms as i64, limit as i64], |row| row.get(0))?;
-            Ok(rows.collect::<std::result::Result<Vec<String>, _>>()?)
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))
+            db::db_params![cutoff_ms as i64, limit as i64],
+        )
+        .await?;
+    rows.iter().map(|row| row.get::<String>(0)).collect()
 }
 
 fn extract_candidates_from_messages(

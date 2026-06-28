@@ -448,6 +448,8 @@ declare global {
         dbQueryDatabaseRows?: (opts: { tableName: string; offset?: number; limit?: number; sortColumn?: string | null; sortDirection?: "asc" | "desc" | null }) => Promise<unknown>;
         dbUpdateDatabaseRows?: (tableName: string, updates: unknown[]) => Promise<{ updatedRows?: number; error?: string } | unknown>;
         dbExecuteDatabaseSql?: (sql: string) => Promise<unknown>;
+        dbGetBackend?: () => Promise<{ backend?: string | null; syncUrl?: string | null; hasToken?: boolean; seededAt?: number | null; error?: string }>;
+        dbSyncNow?: () => Promise<{ ok?: boolean; message?: string }>;
         dbQueueSemanticBackfill?: (limit?: number | null) => Promise<unknown>;
         dbGetSemanticIndexStatus?: (opts: { embeddingModel: string; dimensions: number }) => Promise<unknown>;
         startTerminalSession?: (options: {

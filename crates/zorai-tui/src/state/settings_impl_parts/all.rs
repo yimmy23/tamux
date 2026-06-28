@@ -12,6 +12,7 @@ impl SettingsTab {
         SettingsTab::Features,
         SettingsTab::Advanced,
         SettingsTab::Plugins,
+        SettingsTab::Database,
         SettingsTab::About,
     ];
 

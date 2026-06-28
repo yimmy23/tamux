@@ -56,7 +56,8 @@ impl HistoryStore {
                 db::Params::None,
             )
             .await?;
-        row.map(|row| map_meta_cognition_model_row(&row)).transpose()
+        row.map(|row| map_meta_cognition_model_row(&row))
+            .transpose()
     }
 
     pub async fn replace_cognitive_biases(

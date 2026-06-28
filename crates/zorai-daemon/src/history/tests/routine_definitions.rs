@@ -1,5 +1,5 @@
 use super::*;
-use crate::history::schema_helpers::table_has_column;
+use crate::history::schema_helpers::table_has_column_sync;
 
 #[tokio::test]
 async fn init_schema_adds_routine_definitions_table() -> Result<()> {
@@ -24,23 +24,23 @@ async fn init_schema_adds_routine_definitions_table() -> Result<()> {
     let status = store
         .conn
         .call(|conn| {
-            let has_title = table_has_column(conn, "routine_definitions", "title")?;
-            let has_description = table_has_column(conn, "routine_definitions", "description")?;
-            let has_enabled = table_has_column(conn, "routine_definitions", "enabled")?;
-            let has_paused_at = table_has_column(conn, "routine_definitions", "paused_at")?;
+            let has_title = table_has_column_sync(conn, "routine_definitions", "title")?;
+            let has_description = table_has_column_sync(conn, "routine_definitions", "description")?;
+            let has_enabled = table_has_column_sync(conn, "routine_definitions", "enabled")?;
+            let has_paused_at = table_has_column_sync(conn, "routine_definitions", "paused_at")?;
             let has_schedule_expression =
-                table_has_column(conn, "routine_definitions", "schedule_expression")?;
-            let has_target_kind = table_has_column(conn, "routine_definitions", "target_kind")?;
+                table_has_column_sync(conn, "routine_definitions", "schedule_expression")?;
+            let has_target_kind = table_has_column_sync(conn, "routine_definitions", "target_kind")?;
             let has_target_payload_json =
-                table_has_column(conn, "routine_definitions", "target_payload_json")?;
-            let has_next_run_at = table_has_column(conn, "routine_definitions", "next_run_at")?;
-            let has_last_run_at = table_has_column(conn, "routine_definitions", "last_run_at")?;
-            let has_schema_version = table_has_column(conn, "routine_definitions", "schema_version")?;
-            let has_last_result = table_has_column(conn, "routine_definitions", "last_result")?;
-            let has_last_error = table_has_column(conn, "routine_definitions", "last_error")?;
+                table_has_column_sync(conn, "routine_definitions", "target_payload_json")?;
+            let has_next_run_at = table_has_column_sync(conn, "routine_definitions", "next_run_at")?;
+            let has_last_run_at = table_has_column_sync(conn, "routine_definitions", "last_run_at")?;
+            let has_schema_version = table_has_column_sync(conn, "routine_definitions", "schema_version")?;
+            let has_last_result = table_has_column_sync(conn, "routine_definitions", "last_result")?;
+            let has_last_error = table_has_column_sync(conn, "routine_definitions", "last_error")?;
             let has_last_success_summary =
-                table_has_column(conn, "routine_definitions", "last_success_summary")?;
-            let has_routine_runs = table_has_column(conn, "routine_runs", "routine_id")?;
+                table_has_column_sync(conn, "routine_definitions", "last_success_summary")?;
+            let has_routine_runs = table_has_column_sync(conn, "routine_runs", "routine_id")?;
             let routine_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_routine_definitions_enabled_next_run'",

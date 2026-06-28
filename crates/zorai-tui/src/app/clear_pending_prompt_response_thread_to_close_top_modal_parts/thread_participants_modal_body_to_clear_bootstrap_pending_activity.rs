@@ -210,7 +210,6 @@ impl TuiModel {
         self.set_help_modal_scroll(next);
     }
 
-
     pub(crate) fn page_help_modal_scroll(&mut self, direction: i32) {
         let page = self
             .current_modal_area()

@@ -372,9 +372,7 @@ fn map_agent_task_row(row: &db::Row) -> anyhow::Result<AgentTask> {
     })
 }
 
-fn map_agent_task_quiet_recovery_ref(
-    row: &db::Row,
-) -> anyhow::Result<AgentTaskQuietRecoveryRef> {
+fn map_agent_task_quiet_recovery_ref(row: &db::Row) -> anyhow::Result<AgentTaskQuietRecoveryRef> {
     Ok(AgentTaskQuietRecoveryRef {
         id: row.get(0)?,
         source: row.get(1)?,
@@ -504,9 +502,8 @@ impl HistoryStore {
             .map(|row| row.get::<Option<String>>(0))
             .transpose()?
             .flatten();
-        Ok(payload_json.and_then(|json| {
-            serde_json::from_str::<zorai_protocol::InboxNotification>(&json).ok()
-        }))
+        Ok(payload_json
+            .and_then(|json| serde_json::from_str::<zorai_protocol::InboxNotification>(&json).ok()))
     }
 
     pub async fn list_notifications(
@@ -997,8 +994,7 @@ impl HistoryStore {
         &self,
         query: &AgentTaskListQuery,
     ) -> Result<Vec<(String, String)>> {
-        let mut task_sql =
-            "SELECT id, title FROM agent_tasks WHERE deleted_at IS NULL".to_string();
+        let mut task_sql = "SELECT id, title FROM agent_tasks WHERE deleted_at IS NULL".to_string();
         let mut task_values = Vec::<db::Value>::new();
         append_agent_task_query_filters(&mut task_sql, &mut task_values, query);
         if query.order_by_recent_activity_desc {

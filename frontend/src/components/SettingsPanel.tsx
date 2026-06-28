@@ -21,6 +21,7 @@ import { ProviderAuthTab } from "./settings-panel/ProviderAuthTab";
 import { SubAgentsTab } from "./settings-panel/SubAgentsTab";
 import { ConciergeSection } from "./settings-panel/ConciergeSection";
 import { PluginsTab } from "./settings-panel/PluginsTab";
+import { DatabaseTab } from "./settings-panel/DatabaseTab";
 import { TierGatedSection } from "./base-components/TierGatedSection";
 import {
   headerBtnStyle,
@@ -28,7 +29,7 @@ import {
 import { useTierStore, type CapabilityTier } from "../lib/tierStore";
 import { CONCIERGE_AGENT_NAME, PRIMARY_AGENT_NAME } from "../lib/agentNames";
 
-type SettingsTab = "appearance" | "terminal" | "behavior" | "auth" | "agent" | "concierge" | "subagents" | "gateway" | "keyboard" | "about" | "plugins";
+type SettingsTab = "appearance" | "terminal" | "behavior" | "auth" | "agent" | "concierge" | "subagents" | "gateway" | "keyboard" | "about" | "plugins" | "database";
 
 type SettingsPanelProps = {
   style?: CSSProperties;
@@ -156,7 +157,7 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
       const requestedTab = customEvent.detail?.tab;
       if (!requestedTab) return;
 
-      if (["appearance", "terminal", "behavior", "auth", "agent", "concierge", "subagents", "gateway", "keyboard", "about", "plugins"].includes(requestedTab)) {
+      if (["appearance", "terminal", "behavior", "auth", "agent", "concierge", "subagents", "gateway", "keyboard", "about", "plugins", "database"].includes(requestedTab)) {
         setTab(requestedTab);
       }
     };
@@ -183,6 +184,7 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
     { id: "keyboard", label: "Bindings" },
     { id: "about", label: "Runtime" },
     { id: "plugins", label: "Plugins" },
+    { id: "database", label: "Database" },
   ];
 
   return (
@@ -349,6 +351,7 @@ export function SettingsPanel({ style, className }: SettingsPanelProps = {}) {
               <PluginsTab />
             </TierGatedSection>
           )}
+          {tab === "database" && <DatabaseTab />}
         </div>
       </div>
     </div>

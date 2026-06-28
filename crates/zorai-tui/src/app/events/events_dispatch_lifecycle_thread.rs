@@ -128,10 +128,8 @@ impl TuiModel {
                     timestamp,
                     ..Default::default()
                 };
-                self.chat.reduce(chat::ChatAction::AppendMessage {
-                    thread_id,
-                    message,
-                });
+                self.chat
+                    .reduce(chat::ChatAction::AppendMessage { thread_id, message });
                 self.status_line = format!("Thread exported to {file_path}");
                 None
             }

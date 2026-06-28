@@ -1,5 +1,4 @@
 use super::schema_helpers::{ensure_column, table_has_column};
-use rusqlite::{Connection, OptionalExtension};
 use std::path::Path;
 
 const OFFLOADED_PAYLOADS_TABLE_SQL: &str = "CREATE TABLE offloaded_payloads (
@@ -29,14 +28,17 @@ const OFFLOADED_PAYLOADS_TABLE_IF_MISSING_SQL: &str =
 
 const OFFLOADED_PAYLOADS_INDEX_SQL: &str = "CREATE INDEX IF NOT EXISTS idx_offloaded_payloads_thread_created ON offloaded_payloads(thread_id, created_at DESC)";
 
-fn offloaded_payloads_summary_is_required(connection: &Connection) -> rusqlite::Result<bool> {
-    let summary_notnull = connection
-        .query_row(
+async fn offloaded_payloads_summary_is_required<E: super::db::DbExecutor + ?Sized>(
+    exec: &mut E,
+) -> anyhow::Result<bool> {
+    let summary_notnull = exec
+        .query_opt(
             "SELECT \"notnull\" FROM pragma_table_info('offloaded_payloads') WHERE name = 'summary'",
-            [],
-            |row| row.get::<_, i64>(0),
+            super::db::Params::None,
         )
-        .optional()?
+        .await?
+        .map(|row| row.get::<i64>(0))
+        .transpose()?
         .unwrap_or(0);
     Ok(summary_notnull == 1)
 }
@@ -53,181 +55,179 @@ fn canonical_offloaded_payload_storage_path(
         .into_owned()
 }
 
-fn rebuild_offloaded_payloads_table(
-    connection: &Connection,
+async fn rebuild_offloaded_payloads_table<E: super::db::DbExecutor + ?Sized>(
+    exec: &mut E,
     offloaded_payloads_dir: &Path,
-) -> rusqlite::Result<()> {
-    let transaction = connection.unchecked_transaction()?;
-
-    transaction.execute_batch(&format!(
+) -> anyhow::Result<()> {
+    exec.execute_batch(&format!(
         "ALTER TABLE offloaded_payloads RENAME TO offloaded_payloads_legacy;
          {OFFLOADED_PAYLOADS_TABLE_SQL};"
-    ))?;
+    ))
+    .await?;
 
-    let legacy_rows = {
-        let mut stmt = transaction.prepare(
+    let legacy_rows = exec
+        .query(
             "SELECT payload_id, thread_id, tool_name, tool_call_id, content_type, byte_size, summary, created_at
              FROM offloaded_payloads_legacy",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, i64>(5)?,
-                row.get::<_, Option<String>>(6)?,
-                row.get::<_, i64>(7)?,
-            ))
-        })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()?
-    };
+            super::db::Params::None,
+        )
+        .await?;
 
-    let mut insert_stmt = transaction.prepare(
-        "INSERT INTO offloaded_payloads (
-             payload_id,
-             thread_id,
-             tool_name,
-             tool_call_id,
-             storage_path,
-             content_type,
-             byte_size,
-             summary,
-             created_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-    )?;
-
-    for (
-        payload_id,
-        thread_id,
-        tool_name,
-        tool_call_id,
-        content_type,
-        byte_size,
-        summary,
-        created_at,
-    ) in legacy_rows
-    {
+    for row in &legacy_rows {
+        let payload_id = row.get::<String>(0)?;
+        let thread_id = row.get::<String>(1)?;
+        let tool_name = row.get::<String>(2)?;
+        let tool_call_id = row.get::<Option<String>>(3)?;
+        let content_type = row.get::<String>(4)?;
+        let byte_size = row.get::<i64>(5)?;
+        let summary = row.get::<Option<String>>(6)?;
+        let created_at = row.get::<i64>(7)?;
         let storage_path = canonical_offloaded_payload_storage_path(
             offloaded_payloads_dir,
             &thread_id,
             &payload_id,
         );
-        insert_stmt.execute(rusqlite::params![
-            payload_id,
-            thread_id,
-            tool_name,
-            tool_call_id,
-            storage_path,
-            content_type,
-            byte_size,
-            summary.unwrap_or_default(),
-            created_at,
-        ])?;
+        exec.execute(
+            "INSERT INTO offloaded_payloads (
+                 payload_id,
+                 thread_id,
+                 tool_name,
+                 tool_call_id,
+                 storage_path,
+                 content_type,
+                 byte_size,
+                 summary,
+                 created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            super::db::db_params![
+                payload_id,
+                thread_id,
+                tool_name,
+                tool_call_id,
+                storage_path,
+                content_type,
+                byte_size,
+                summary.unwrap_or_default(),
+                created_at
+            ],
+        )
+        .await?;
     }
 
-    drop(insert_stmt);
-    transaction.execute_batch(OFFLOADED_PAYLOADS_INDEX_SQL)?;
-    transaction.commit()
-}
-
-fn ensure_offloaded_payloads_schema(
-    connection: &Connection,
-    offloaded_payloads_dir: &Path,
-) -> rusqlite::Result<()> {
-    connection.execute_batch(&format!("{OFFLOADED_PAYLOADS_TABLE_IF_MISSING_SQL};"))?;
-    if table_has_column(connection, "offloaded_payloads", "summary")?
-        && !offloaded_payloads_summary_is_required(connection)?
-    {
-        rebuild_offloaded_payloads_table(connection, offloaded_payloads_dir)?;
-    }
-    connection.execute_batch(&format!("{OFFLOADED_PAYLOADS_INDEX_SQL};"))?;
+    exec.execute_batch(OFFLOADED_PAYLOADS_INDEX_SQL).await?;
     Ok(())
 }
 
-pub(super) fn ensure_context_archive_fts(connection: &Connection) {
-    connection
+async fn ensure_offloaded_payloads_schema<E: super::db::DbExecutor + ?Sized>(
+    exec: &mut E,
+    offloaded_payloads_dir: &Path,
+) -> anyhow::Result<()> {
+    exec.execute_batch(&format!("{OFFLOADED_PAYLOADS_TABLE_IF_MISSING_SQL};"))
+        .await?;
+    if table_has_column(&mut *exec, "offloaded_payloads", "summary").await?
+        && !offloaded_payloads_summary_is_required(&mut *exec).await?
+    {
+        rebuild_offloaded_payloads_table(&mut *exec, offloaded_payloads_dir).await?;
+    }
+    exec.execute_batch(&format!("{OFFLOADED_PAYLOADS_INDEX_SQL};"))
+        .await?;
+    Ok(())
+}
+
+pub(super) async fn ensure_context_archive_fts<E: super::db::DbExecutor + ?Sized>(exec: &mut E) {
+    exec
         .execute_batch(
             "CREATE VIRTUAL TABLE IF NOT EXISTS context_archive_fts USING fts5(summary, compressed_content, content=context_archive, content_rowid=rowid);",
         )
+        .await
         .ok();
 }
 
-pub(super) fn prepare_extended_schema_migrations(connection: &Connection) -> rusqlite::Result<()> {
-    if table_has_column(connection, "external_runtime_profiles", "runtime")? {
+pub(super) async fn prepare_extended_schema_migrations<E: super::db::DbExecutor + ?Sized>(
+    exec: &mut E,
+) -> anyhow::Result<()> {
+    if table_has_column(&mut *exec, "external_runtime_profiles", "runtime").await? {
         ensure_column(
-            connection,
+            &mut *exec,
             "external_runtime_profiles",
             "session_id",
             "TEXT",
-        )?;
+        )
+        .await?;
         ensure_column(
-            connection,
+            &mut *exec,
             "external_runtime_profiles",
             "source_config_path",
             "TEXT",
-        )?;
+        )
+        .await?;
         ensure_column(
-            connection,
+            &mut *exec,
             "external_runtime_profiles",
             "source_fingerprint",
             "TEXT",
-        )?;
+        )
+        .await?;
     }
 
-    if table_has_column(connection, "workspace_settings", "workspace_id")? {
+    if table_has_column(&mut *exec, "workspace_settings", "workspace_id").await? {
         ensure_column(
-            connection,
+            &mut *exec,
             "workspace_settings",
             "repo_monitor_enabled",
             "INTEGER NOT NULL DEFAULT 0",
-        )?;
+        )
+        .await?;
         ensure_column(
-            connection,
+            &mut *exec,
             "workspace_settings",
             "repo_monitor_include_dirs_json",
             "TEXT NOT NULL DEFAULT '[]'",
-        )?;
+        )
+        .await?;
         ensure_column(
-            connection,
+            &mut *exec,
             "workspace_settings",
             "repo_monitor_exclude_dirs_json",
             "TEXT NOT NULL DEFAULT '[]'",
-        )?;
+        )
+        .await?;
     }
 
     Ok(())
 }
 
-pub(super) fn apply_schema_migrations(
-    connection: &Connection,
+pub(super) async fn apply_schema_migrations<E: super::db::DbExecutor + ?Sized>(
+    exec: &mut E,
     offloaded_payloads_dir: &Path,
-) -> rusqlite::Result<()> {
-    ensure_offloaded_payloads_schema(connection, offloaded_payloads_dir)?;
-    ensure_column(connection, "approval_inbox", "gateway_surface", "TEXT")?;
-    ensure_column(connection, "approval_inbox", "gateway_channel", "TEXT")?;
-    ensure_column(connection, "approval_inbox", "gateway_thread", "TEXT")?;
-    ensure_column(connection, "approval_inbox", "rendered_prompt", "TEXT")?;
+) -> anyhow::Result<()> {
+    ensure_offloaded_payloads_schema(&mut *exec, offloaded_payloads_dir).await?;
+    ensure_column(&mut *exec, "approval_inbox", "gateway_surface", "TEXT").await?;
+    ensure_column(&mut *exec, "approval_inbox", "gateway_channel", "TEXT").await?;
+    ensure_column(&mut *exec, "approval_inbox", "gateway_thread", "TEXT").await?;
+    ensure_column(&mut *exec, "approval_inbox", "rendered_prompt", "TEXT").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "external_runtime_profiles",
         "session_id",
         "TEXT",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "external_runtime_profiles",
         "source_config_path",
         "TEXT",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "external_runtime_profiles",
         "source_fingerprint",
         "TEXT",
-    )?;
-    connection.execute_batch(
+    )
+    .await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS external_runtime_import_sessions (
             session_id TEXT PRIMARY KEY,
             runtime TEXT NOT NULL,
@@ -273,8 +273,8 @@ pub(super) fn apply_schema_migrations(
         );
         CREATE INDEX IF NOT EXISTS idx_external_runtime_shadow_runs_runtime ON external_runtime_shadow_runs(runtime, created_at_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_external_runtime_shadow_runs_session ON external_runtime_shadow_runs(session_id, created_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS embedding_jobs (
             source_kind TEXT NOT NULL,
             source_id TEXT NOT NULL,
@@ -315,8 +315,8 @@ pub(super) fn apply_schema_migrations(
             PRIMARY KEY (source_kind, source_id)
         );
         CREATE INDEX IF NOT EXISTS idx_embedding_deletions_claimed ON embedding_deletions(claimed_at, queued_at);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS semantic_documents (
             source_kind       TEXT NOT NULL,
             root_path         TEXT NOT NULL,
@@ -333,16 +333,16 @@ pub(super) fn apply_schema_migrations(
         );
         CREATE INDEX IF NOT EXISTS idx_semantic_documents_source ON semantic_documents(source_kind, source_id);
         CREATE INDEX IF NOT EXISTS idx_semantic_documents_seen ON semantic_documents(source_kind, root_path, last_seen_at);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS thread_structural_memory (
             thread_id TEXT PRIMARY KEY,
             state_json TEXT NOT NULL,
             updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_thread_structural_memory_updated ON thread_structural_memory(updated_at DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS memory_nodes (
             id TEXT PRIMARY KEY,
             label TEXT NOT NULL,
@@ -367,10 +367,10 @@ pub(super) fn apply_schema_migrations(
         CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_edges_unique ON memory_edges(source_node_id, target_node_id, relation_type);
         CREATE INDEX IF NOT EXISTS idx_memory_edges_source_updated ON memory_edges(source_node_id, last_updated_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_memory_edges_target_updated ON memory_edges(target_node_id, last_updated_ms DESC);"
-    )?;
-    ensure_column(connection, "agent_tasks", "session_id", "TEXT")?;
-    ensure_column(connection, "agent_threads", "metadata_json", "TEXT")?;
-    connection.execute_batch(
+    ).await?;
+    ensure_column(&mut *exec, "agent_tasks", "session_id", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_threads", "metadata_json", "TEXT").await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS skill_variant_history (
             id TEXT PRIMARY KEY,
             variant_id TEXT NOT NULL,
@@ -379,8 +379,8 @@ pub(super) fn apply_schema_migrations(
             fitness_score REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_skill_variant_history_variant_ts ON skill_variant_history(variant_id, recorded_at DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS gene_pool (
             parent_a TEXT NOT NULL,
             parent_b TEXT NOT NULL,
@@ -390,8 +390,8 @@ pub(super) fn apply_schema_migrations(
             PRIMARY KEY (parent_a, parent_b)
         );
         CREATE INDEX IF NOT EXISTS idx_gene_pool_offspring ON gene_pool(offspring_id, created_at DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS gene_fitness_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             variant_id TEXT NOT NULL,
@@ -401,8 +401,8 @@ pub(super) fn apply_schema_migrations(
             success_rate REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_gene_fitness_variant_ts ON gene_fitness_history(variant_id, recorded_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS gene_crossbreeds (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             left_parent_variant_id TEXT NOT NULL,
@@ -412,8 +412,8 @@ pub(super) fn apply_schema_migrations(
             proposed_at_ms INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_gene_crossbreeds_skill_ts ON gene_crossbreeds(skill_name, proposed_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS morphogenesis_affinities (
             agent_id TEXT NOT NULL,
             domain TEXT NOT NULL,
@@ -425,8 +425,8 @@ pub(super) fn apply_schema_migrations(
             PRIMARY KEY (agent_id, domain)
         );
         CREATE INDEX IF NOT EXISTS idx_morphogenesis_domain_updated ON morphogenesis_affinities(domain, last_updated_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS affinity_updates_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             agent_id TEXT NOT NULL,
@@ -438,8 +438,8 @@ pub(super) fn apply_schema_migrations(
             updated_at_ms INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_affinity_updates_agent_domain_ts ON affinity_updates_log(agent_id, domain, updated_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS soul_adaptations_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             agent_id TEXT NOT NULL,
@@ -451,8 +451,8 @@ pub(super) fn apply_schema_migrations(
             created_at_ms INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_soul_adaptations_agent_ts ON soul_adaptations_log(agent_id, created_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS consensus_bid_priors (
             role TEXT PRIMARY KEY,
             success_count INTEGER NOT NULL DEFAULT 0,
@@ -461,8 +461,8 @@ pub(super) fn apply_schema_migrations(
             last_updated_ms INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_consensus_bid_priors_updated ON consensus_bid_priors(last_updated_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS consensus_bids (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id TEXT NOT NULL,
@@ -475,8 +475,8 @@ pub(super) fn apply_schema_migrations(
             submitted_at_ms INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_consensus_bids_task_round ON consensus_bids(task_id, round_id, submitted_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS role_assignments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id TEXT NOT NULL,
@@ -488,8 +488,8 @@ pub(super) fn apply_schema_migrations(
             outcome TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_role_assignments_task_round ON role_assignments(task_id, round_id, assigned_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS consensus_quality_metrics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id TEXT NOT NULL,
@@ -499,8 +499,8 @@ pub(super) fn apply_schema_migrations(
             updated_at_ms INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_consensus_quality_task_ts ON consensus_quality_metrics(task_id, updated_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS cognitive_resonance_samples (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             sampled_at_ms INTEGER NOT NULL,
@@ -517,8 +517,8 @@ pub(super) fn apply_schema_migrations(
             memory_urgency_adjustment REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_cognitive_resonance_samples_sampled ON cognitive_resonance_samples(sampled_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS behavior_adjustments_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             adjusted_at_ms INTEGER NOT NULL,
@@ -529,8 +529,8 @@ pub(super) fn apply_schema_migrations(
             resonance_score REAL NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_behavior_adjustments_log_adjusted ON behavior_adjustments_log(adjusted_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS intent_models (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             agent_id TEXT NOT NULL UNIQUE,
@@ -539,8 +539,8 @@ pub(super) fn apply_schema_migrations(
             accuracy_score REAL
         );
         CREATE INDEX IF NOT EXISTS idx_intent_models_agent_created ON intent_models(agent_id, created_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS temporal_patterns (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pattern_type TEXT NOT NULL,
@@ -555,8 +555,8 @@ pub(super) fn apply_schema_migrations(
             created_at_ms INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_temporal_patterns_type_scale ON temporal_patterns(pattern_type, timescale, created_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS temporal_predictions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             pattern_id INTEGER NOT NULL,
@@ -569,8 +569,8 @@ pub(super) fn apply_schema_migrations(
             FOREIGN KEY (pattern_id) REFERENCES temporal_patterns(id)
         );
         CREATE INDEX IF NOT EXISTS idx_temporal_predictions_pattern_predicted ON temporal_predictions(pattern_id, predicted_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS precomputation_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             prediction_id INTEGER NOT NULL,
@@ -582,8 +582,8 @@ pub(super) fn apply_schema_migrations(
             FOREIGN KEY (prediction_id) REFERENCES temporal_predictions(id)
         );
         CREATE INDEX IF NOT EXISTS idx_precomputation_log_prediction_started ON precomputation_log(prediction_id, started_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS dream_cycles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             started_at_ms INTEGER NOT NULL,
@@ -595,8 +595,9 @@ pub(super) fn apply_schema_migrations(
             status TEXT NOT NULL DEFAULT 'running'
         );
         CREATE INDEX IF NOT EXISTS idx_dream_cycles_started ON dream_cycles(started_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    )
+    .await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS counterfactual_evaluations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dream_cycle_id INTEGER NOT NULL,
@@ -612,8 +613,8 @@ pub(super) fn apply_schema_migrations(
             FOREIGN KEY (dream_cycle_id) REFERENCES dream_cycles(id)
         );
         CREATE INDEX IF NOT EXISTS idx_counterfactual_evaluations_cycle ON counterfactual_evaluations(dream_cycle_id, created_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS event_triggers (
             id TEXT PRIMARY KEY,
             event_family TEXT NOT NULL,
@@ -635,8 +636,8 @@ pub(super) fn apply_schema_migrations(
             last_fired_at INTEGER
         );
         CREATE INDEX IF NOT EXISTS idx_event_triggers_family_kind_enabled ON event_triggers(event_family, event_kind, enabled, updated_at DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS agent_wakeups (
             id TEXT PRIMARY KEY,
             thread_id TEXT NOT NULL,
@@ -647,18 +648,20 @@ pub(super) fn apply_schema_migrations(
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_agent_wakeups_next_fire ON agent_wakeups(next_fire_at ASC);",
-    )?;
-    ensure_column(connection, "event_triggers", "agent_id", "TEXT")?;
-    ensure_column(connection, "event_triggers", "prompt_template", "TEXT")?;
-    ensure_column(connection, "event_triggers", "tool_name", "TEXT")?;
-    ensure_column(connection, "event_triggers", "tool_payload_json", "TEXT")?;
+    )
+    .await?;
+    ensure_column(&mut *exec, "event_triggers", "agent_id", "TEXT").await?;
+    ensure_column(&mut *exec, "event_triggers", "prompt_template", "TEXT").await?;
+    ensure_column(&mut *exec, "event_triggers", "tool_name", "TEXT").await?;
+    ensure_column(&mut *exec, "event_triggers", "tool_payload_json", "TEXT").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "event_triggers",
         "max_retries",
         "INTEGER NOT NULL DEFAULT 3",
-    )?;
-    connection.execute_batch(
+    )
+    .await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS routine_definitions (
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -678,22 +681,24 @@ pub(super) fn apply_schema_migrations(
             updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_routine_definitions_enabled_next_run ON routine_definitions(enabled, next_run_at, updated_at DESC);",
-    )?;
+    ).await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "routine_definitions",
         "schema_version",
         "INTEGER NOT NULL DEFAULT 1",
-    )?;
-    ensure_column(connection, "routine_definitions", "last_result", "TEXT")?;
-    ensure_column(connection, "routine_definitions", "last_error", "TEXT")?;
+    )
+    .await?;
+    ensure_column(&mut *exec, "routine_definitions", "last_result", "TEXT").await?;
+    ensure_column(&mut *exec, "routine_definitions", "last_error", "TEXT").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "routine_definitions",
         "last_success_summary",
         "TEXT",
-    )?;
-    connection.execute_batch(
+    )
+    .await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS routine_runs (
             id TEXT PRIMARY KEY,
             routine_id TEXT NOT NULL,
@@ -709,8 +714,8 @@ pub(super) fn apply_schema_migrations(
             rerun_of_run_id TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_routine_runs_routine_started ON routine_runs(routine_id, started_at DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS event_log (
             id TEXT PRIMARY KEY,
             event_family TEXT NOT NULL,
@@ -722,8 +727,8 @@ pub(super) fn apply_schema_migrations(
             handled_at_ms INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_event_log_family_kind_ts ON event_log(event_family, event_kind, handled_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS memory_graph_clusters (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
@@ -732,76 +737,76 @@ pub(super) fn apply_schema_migrations(
             created_at_ms INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_memory_graph_clusters_center ON memory_graph_clusters(center_node_id, created_at_ms DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS memory_cluster_members (
             cluster_id INTEGER NOT NULL,
             node_id TEXT NOT NULL,
             PRIMARY KEY (cluster_id, node_id)
         );
         CREATE INDEX IF NOT EXISTS idx_memory_cluster_members_node ON memory_cluster_members(node_id, cluster_id);",
-    )?;
+    ).await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "skill_variants",
         "fitness_score",
         "REAL NOT NULL DEFAULT 0",
-    )?;
-    connection.execute(
-        "UPDATE skill_variants SET fitness_score = CAST(success_count AS REAL) - CAST(failure_count AS REAL) WHERE fitness_score = 0",
-        [],
-    )?;
-    ensure_column(connection, "agent_threads", "deleted_at", "INTEGER")?;
-    ensure_column(connection, "agent_messages", "cost_usd", "REAL")?;
-    ensure_column(connection, "agent_messages", "deleted_at", "INTEGER")?;
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_messages_thread_deleted_created ON agent_messages(thread_id, deleted_at, created_at, id)",
-        [],
-    )?;
-    ensure_column(connection, "agent_tasks", "scheduled_at", "INTEGER")?;
-    ensure_column(connection, "agent_tasks", "goal_run_id", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "goal_run_title", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "goal_step_id", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "goal_step_title", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "parent_task_id", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "parent_thread_id", "TEXT")?;
+    )
+    .await?;
+    exec.execute(
+        "UPDATE skill_variants SET fitness_score = CAST(success_count AS REAL) - CAST(failure_count AS REAL) WHERE fitness_score = 0", super::db::Params::None).await?;
+    ensure_column(&mut *exec, "agent_threads", "deleted_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "agent_messages", "cost_usd", "REAL").await?;
+    ensure_column(&mut *exec, "agent_messages", "deleted_at", "INTEGER").await?;
+    exec.execute(
+        "CREATE INDEX IF NOT EXISTS idx_messages_thread_deleted_created ON agent_messages(thread_id, deleted_at, created_at, id)", super::db::Params::None).await?;
+    ensure_column(&mut *exec, "agent_tasks", "scheduled_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "agent_tasks", "goal_run_id", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "goal_run_title", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "goal_step_id", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "goal_step_title", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "parent_task_id", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "parent_thread_id", "TEXT").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "agent_tasks",
         "runtime",
         "TEXT NOT NULL DEFAULT 'daemon'",
-    )?;
-    ensure_column(connection, "agent_tasks", "override_provider", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "override_model", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "override_api_transport", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "override_system_prompt", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "sub_agent_def_id", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "tool_whitelist_json", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "tool_blacklist_json", "TEXT")?;
+    )
+    .await?;
+    ensure_column(&mut *exec, "agent_tasks", "override_provider", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "override_model", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "override_api_transport", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "override_system_prompt", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "sub_agent_def_id", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "tool_whitelist_json", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "tool_blacklist_json", "TEXT").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "agent_tasks",
         "context_budget_tokens",
         "INTEGER",
-    )?;
-    ensure_column(connection, "agent_tasks", "context_overflow_action", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "termination_conditions", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "success_criteria", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "max_duration_secs", "INTEGER")?;
-    ensure_column(connection, "agent_tasks", "supervisor_config_json", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "deleted_at", "INTEGER")?;
+    )
+    .await?;
+    ensure_column(&mut *exec, "agent_tasks", "context_overflow_action", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "termination_conditions", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "success_criteria", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "max_duration_secs", "INTEGER").await?;
+    ensure_column(&mut *exec, "agent_tasks", "supervisor_config_json", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "deleted_at", "INTEGER").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "agent_task_dependencies",
         "deleted_at",
         "INTEGER",
-    )?;
-    ensure_column(connection, "agent_task_logs", "deleted_at", "INTEGER")?;
-    ensure_column(connection, "agent_config_items", "deleted_at", "INTEGER")?;
-    ensure_column(connection, "provider_auth_state", "deleted_at", "INTEGER")?;
-    ensure_column(connection, "plugins", "deleted_at", "INTEGER")?;
-    ensure_column(connection, "plugin_settings", "deleted_at", "INTEGER")?;
-    ensure_column(connection, "plugin_credentials", "deleted_at", "INTEGER")?;
+    )
+    .await?;
+    ensure_column(&mut *exec, "agent_task_logs", "deleted_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "agent_config_items", "deleted_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "provider_auth_state", "deleted_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "plugins", "deleted_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "plugin_settings", "deleted_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "plugin_credentials", "deleted_at", "INTEGER").await?;
     for table in [
         "command_log",
         "snapshot_index",
@@ -821,128 +826,140 @@ pub(super) fn apply_schema_migrations(
         "workflow_profiles",
         "protocol_steps",
     ] {
-        ensure_column(connection, table, "deleted_at", "INTEGER")?;
+        ensure_column(&mut *exec, table, "deleted_at", "INTEGER").await?;
     }
     ensure_column(
-        connection,
+        &mut *exec,
         "memory_distillation_log",
         "source_message_span_json",
         "TEXT",
-    )?;
-    ensure_column(connection, "agent_tasks", "policy_fingerprint", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "approval_expires_at", "INTEGER")?;
-    ensure_column(connection, "agent_tasks", "containment_scope", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "compensation_status", "TEXT")?;
-    ensure_column(connection, "agent_tasks", "compensation_summary", "TEXT")?;
-    ensure_column(connection, "goal_runs", "client_request_id", "TEXT")?;
-    ensure_column(connection, "goal_runs", "failure_cause", "TEXT")?;
-    ensure_column(connection, "goal_runs", "stopped_reason", "TEXT")?;
+    )
+    .await?;
+    ensure_column(&mut *exec, "agent_tasks", "policy_fingerprint", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "approval_expires_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "agent_tasks", "containment_scope", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "compensation_status", "TEXT").await?;
+    ensure_column(&mut *exec, "agent_tasks", "compensation_summary", "TEXT").await?;
+    ensure_column(&mut *exec, "goal_runs", "client_request_id", "TEXT").await?;
+    ensure_column(&mut *exec, "goal_runs", "failure_cause", "TEXT").await?;
+    ensure_column(&mut *exec, "goal_runs", "stopped_reason", "TEXT").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "goal_runs",
         "child_task_count",
         "INTEGER NOT NULL DEFAULT 0",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "goal_runs",
         "approval_count",
         "INTEGER NOT NULL DEFAULT 0",
-    )?;
-    ensure_column(connection, "goal_runs", "awaiting_approval_id", "TEXT")?;
-    ensure_column(connection, "goal_runs", "policy_fingerprint", "TEXT")?;
-    ensure_column(connection, "goal_runs", "approval_expires_at", "INTEGER")?;
-    ensure_column(connection, "goal_runs", "containment_scope", "TEXT")?;
-    ensure_column(connection, "goal_runs", "compensation_status", "TEXT")?;
-    ensure_column(connection, "goal_runs", "compensation_summary", "TEXT")?;
-    ensure_column(connection, "goal_runs", "active_task_id", "TEXT")?;
-    ensure_column(connection, "goal_runs", "duration_ms", "INTEGER")?;
-    ensure_column(connection, "goal_runs", "dossier_json", "TEXT")?;
+    )
+    .await?;
+    ensure_column(&mut *exec, "goal_runs", "awaiting_approval_id", "TEXT").await?;
+    ensure_column(&mut *exec, "goal_runs", "policy_fingerprint", "TEXT").await?;
+    ensure_column(&mut *exec, "goal_runs", "approval_expires_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "goal_runs", "containment_scope", "TEXT").await?;
+    ensure_column(&mut *exec, "goal_runs", "compensation_status", "TEXT").await?;
+    ensure_column(&mut *exec, "goal_runs", "compensation_summary", "TEXT").await?;
+    ensure_column(&mut *exec, "goal_runs", "active_task_id", "TEXT").await?;
+    ensure_column(&mut *exec, "goal_runs", "duration_ms", "INTEGER").await?;
+    ensure_column(&mut *exec, "goal_runs", "dossier_json", "TEXT").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "goal_runs",
         "total_prompt_tokens",
         "INTEGER NOT NULL DEFAULT 0",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "goal_runs",
         "total_completion_tokens",
         "INTEGER NOT NULL DEFAULT 0",
-    )?;
-    ensure_column(connection, "goal_runs", "estimated_cost_usd", "REAL")?;
+    )
+    .await?;
+    ensure_column(&mut *exec, "goal_runs", "estimated_cost_usd", "REAL").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "goal_runs",
         "model_usage_json",
         "TEXT NOT NULL DEFAULT '[]'",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "goal_runs",
         "autonomy_level",
         "TEXT NOT NULL DEFAULT 'aware'",
-    )?;
-    ensure_column(connection, "goal_runs", "authorship_tag", "TEXT")?;
+    )
+    .await?;
+    ensure_column(&mut *exec, "goal_runs", "authorship_tag", "TEXT").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "goal_runs",
         "planner_owner_profile_json",
         "TEXT",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "goal_runs",
         "current_step_owner_profile_json",
         "TEXT",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "goal_runs",
         "launch_assignment_snapshot_json",
         "TEXT NOT NULL DEFAULT '[]'",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "goal_runs",
         "runtime_assignment_list_json",
         "TEXT NOT NULL DEFAULT '[]'",
-    )?;
-    ensure_column(connection, "goal_runs", "root_thread_id", "TEXT")?;
-    ensure_column(connection, "goal_runs", "active_thread_id", "TEXT")?;
+    )
+    .await?;
+    ensure_column(&mut *exec, "goal_runs", "root_thread_id", "TEXT").await?;
+    ensure_column(&mut *exec, "goal_runs", "active_thread_id", "TEXT").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "goal_runs",
         "execution_thread_ids_json",
         "TEXT NOT NULL DEFAULT '[]'",
-    )?;
-    ensure_column(connection, "goal_runs", "deleted_at", "INTEGER")?;
-    ensure_column(connection, "goal_run_steps", "deleted_at", "INTEGER")?;
-    ensure_column(connection, "goal_run_events", "step_index", "INTEGER")?;
-    ensure_column(connection, "goal_run_events", "todo_snapshot_json", "TEXT")?;
-    ensure_column(connection, "goal_run_events", "deleted_at", "INTEGER")?;
-    ensure_column(connection, "action_audit", "user_action", "TEXT")?;
+    )
+    .await?;
+    ensure_column(&mut *exec, "goal_runs", "deleted_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "goal_run_steps", "deleted_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "goal_run_events", "step_index", "INTEGER").await?;
+    ensure_column(&mut *exec, "goal_run_events", "todo_snapshot_json", "TEXT").await?;
+    ensure_column(&mut *exec, "goal_run_events", "deleted_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "action_audit", "user_action", "TEXT").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "causal_traces",
         "trace_family",
         "TEXT NOT NULL DEFAULT ''",
-    )?;
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_causal_traces_family ON causal_traces(trace_family, created_at DESC)",
-        [],
-    )?;
+    )
+    .await?;
+    exec.execute(
+        "CREATE INDEX IF NOT EXISTS idx_causal_traces_family ON causal_traces(trace_family, created_at DESC)", super::db::Params::None).await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "memory_provenance",
         "entry_hash",
         "TEXT NOT NULL DEFAULT ''",
-    )?;
-    ensure_column(connection, "memory_provenance", "signature", "TEXT")?;
-    ensure_column(connection, "memory_provenance", "signature_scheme", "TEXT")?;
-    ensure_column(connection, "memory_provenance", "confirmed_at", "INTEGER")?;
-    ensure_column(connection, "memory_provenance", "retracted_at", "INTEGER")?;
-    connection.execute_batch(
+    )
+    .await?;
+    ensure_column(&mut *exec, "memory_provenance", "signature", "TEXT").await?;
+    ensure_column(&mut *exec, "memory_provenance", "signature_scheme", "TEXT").await?;
+    ensure_column(&mut *exec, "memory_provenance", "confirmed_at", "INTEGER").await?;
+    ensure_column(&mut *exec, "memory_provenance", "retracted_at", "INTEGER").await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS memory_provenance_relationships (
             id TEXT PRIMARY KEY,
             source_entry_id TEXT NOT NULL,
@@ -953,8 +970,8 @@ pub(super) fn apply_schema_migrations(
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_memory_provenance_rel_unique ON memory_provenance_relationships(source_entry_id, target_entry_id, relation_type, fact_key);
         CREATE INDEX IF NOT EXISTS idx_memory_provenance_rel_source ON memory_provenance_relationships(source_entry_id, created_at DESC);",
-    )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS collaboration_agent_outcomes (
             parent_task_id TEXT NOT NULL,
             task_id TEXT NOT NULL,
@@ -966,12 +983,10 @@ pub(super) fn apply_schema_migrations(
             PRIMARY KEY (parent_task_id, task_id)
         );
         CREATE INDEX IF NOT EXISTS idx_collaboration_agent_outcomes_parent_updated ON collaboration_agent_outcomes(parent_task_id, updated_at_ms DESC);",
-    )?;
-    connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_agent_tasks_goal_run ON agent_tasks(goal_run_id, created_at DESC)",
-            [],
-        )?;
-    connection.execute_batch(
+    ).await?;
+    exec.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_tasks_goal_run ON agent_tasks(goal_run_id, created_at DESC)", super::db::Params::None).await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspace_settings (
             workspace_id TEXT PRIMARY KEY,
             workspace_root TEXT,
@@ -1016,68 +1031,75 @@ pub(super) fn apply_schema_migrations(
             created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_workspace_notices_task ON workspace_notices(workspace_id, task_id, created_at DESC);",
-    )?;
+    ).await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "workspace_tasks",
         "runtime_history_json",
         "TEXT NOT NULL DEFAULT '[]'",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "workspace_settings",
         "repo_monitor_enabled",
         "INTEGER NOT NULL DEFAULT 0",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "workspace_settings",
         "repo_monitor_include_dirs_json",
         "TEXT NOT NULL DEFAULT '[]'",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "workspace_settings",
         "repo_monitor_exclude_dirs_json",
         "TEXT NOT NULL DEFAULT '[]'",
-    )?;
-    connection.execute(
+    )
+    .await?;
+    exec.execute(
         "CREATE INDEX IF NOT EXISTS idx_workspace_settings_repo_monitor_enabled
          ON workspace_settings(repo_monitor_enabled, workspace_id)
          WHERE repo_monitor_enabled = 1",
-        [],
-    )?;
-    crate::agent::episodic::schema::init_episodic_schema(connection)
-        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
-    crate::agent::handoff::schema::init_handoff_schema(connection)
-        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
-    ensure_column(connection, "browser_profiles", "browser_kind", "TEXT")?;
-    ensure_column(connection, "browser_profiles", "workspace_id", "TEXT")?;
+        super::db::Params::None,
+    )
+    .await?;
+    crate::agent::episodic::schema::init_episodic_schema(&mut *exec).await?;
+    crate::agent::handoff::schema::init_handoff_schema(&mut *exec).await?;
+    ensure_column(&mut *exec, "browser_profiles", "browser_kind", "TEXT").await?;
+    ensure_column(&mut *exec, "browser_profiles", "workspace_id", "TEXT").await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "browser_profiles",
         "health_state",
         "TEXT NOT NULL DEFAULT 'healthy'",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "browser_profiles",
         "last_auth_success_at",
         "INTEGER",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "browser_profiles",
         "last_auth_failure_at",
         "INTEGER",
-    )?;
+    )
+    .await?;
     ensure_column(
-        connection,
+        &mut *exec,
         "browser_profiles",
         "last_auth_failure_reason",
         "TEXT",
-    )?;
-    connection.execute_batch(
+    )
+    .await?;
+    exec.execute_batch(
         "CREATE TABLE IF NOT EXISTS trigger_fire_history (
             id               TEXT PRIMARY KEY,
             trigger_id       TEXT NOT NULL,
@@ -1094,9 +1116,9 @@ pub(super) fn apply_schema_migrations(
         );
         CREATE INDEX IF NOT EXISTS idx_trigger_fire_history_trigger_fired ON trigger_fire_history(trigger_id, fired_at_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_trigger_fire_history_status ON trigger_fire_history(status, fired_at_ms DESC);",
-    )?;
+    ).await?;
 
-    connection.execute_batch(
+    exec.execute_batch(
         "-- Per-agent thread picker fetch
         --   matches WHERE lower(trim(t.agent_name)) IN (?, ...) verbatim.
         CREATE INDEX IF NOT EXISTS idx_threads_agent_name_norm
@@ -1209,8 +1231,9 @@ pub(super) fn apply_schema_migrations(
         CREATE INDEX IF NOT EXISTS idx_workspace_tasks_active_thread_updated
             ON workspace_tasks(thread_id, updated_at DESC)
             WHERE deleted_at IS NULL;",
-    )?;
-    connection.execute_batch(
+    )
+    .await?;
+    exec.execute_batch(
         "-- Approval inbox latest-by-session lookup. The existing
         -- `idx_approval_inbox_session(session_id, requested_at DESC)`
         -- helps when ordering by request time, but the active-flow path
@@ -1289,10 +1312,11 @@ pub(super) fn apply_schema_migrations(
         CREATE INDEX IF NOT EXISTS idx_messages_assistant_created
             ON agent_messages(created_at)
             WHERE role = 'assistant' AND deleted_at IS NULL;",
-    )?;
+    )
+    .await?;
 
     ensure_column(
-        connection,
+        &mut *exec,
         "agent_threads",
         "pinned",
         "INTEGER GENERATED ALWAYS AS (\
@@ -1301,13 +1325,15 @@ pub(super) fn apply_schema_migrations(
                 OR json_extract(metadata_json, '$.pinnedThread') = 1\
             ) THEN 1 ELSE 0 END\
         ) VIRTUAL",
-    )?;
-    connection.execute_batch(
+    )
+    .await?;
+    exec.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_threads_pinned_active_updated
             ON agent_threads(pinned, updated_at DESC)
             WHERE deleted_at IS NULL;",
-    )?;
-    connection.execute_batch(
+    )
+    .await?;
+    exec.execute_batch(
         "-- agent_tasks visible-status pages, ordered by recent activity.
         -- list_tasks_capped_for_ipc and the supervision loops scan this.
         CREATE INDEX IF NOT EXISTS idx_agent_tasks_active_status_priority
@@ -1375,7 +1401,8 @@ pub(super) fn apply_schema_migrations(
             WHERE json_valid(payload_json)
               AND json_extract(payload_json, '$.archived_at') IS NULL
               AND json_extract(payload_json, '$.deleted_at')  IS NULL;",
-    )?;
+    )
+    .await?;
 
     Ok(())
 }

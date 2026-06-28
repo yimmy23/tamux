@@ -60,7 +60,11 @@ fn run_execute(conn: &rusqlite::Connection, sql: &str, params: &Params) -> rusql
     Ok(affected as u64)
 }
 
-fn run_query(conn: &rusqlite::Connection, sql: &str, params: &Params) -> rusqlite::Result<Vec<Row>> {
+fn run_query(
+    conn: &rusqlite::Connection,
+    sql: &str,
+    params: &Params,
+) -> rusqlite::Result<Vec<Row>> {
     let mut stmt = conn.prepare(sql)?;
     let column_count = stmt.column_count();
     let rows = stmt.query_map(params_from_iter(params.values().iter()), |row| {
@@ -293,7 +297,9 @@ impl SqliteTxn {
             }
             Err(_) => {
                 let _ = worker.join();
-                Err(anyhow!("transaction worker exited before signalling readiness"))
+                Err(anyhow!(
+                    "transaction worker exited before signalling readiness"
+                ))
             }
         }
     }
@@ -329,7 +335,8 @@ impl Drop for SqliteTxn {
 impl DbTxn for SqliteTxn {
     async fn execute(&mut self, sql: &str, params: Params) -> Result<u64> {
         let sql = sql.to_string();
-        self.send(|resp| TxnCmd::Execute { sql, params, resp }).await
+        self.send(|resp| TxnCmd::Execute { sql, params, resp })
+            .await
     }
 
     async fn execute_batch(&mut self, sql: &str) -> Result<()> {
@@ -472,7 +479,10 @@ mod tests {
         )
         .await
         .unwrap();
-        let rows = db.query("SELECT name, score FROM t", Params::None).await.unwrap();
+        let rows = db
+            .query("SELECT name, score FROM t", Params::None)
+            .await
+            .unwrap();
         assert!(rows[0].get::<Option<String>>(0).unwrap().is_none());
         assert!(rows[0].get::<Option<f64>>(1).unwrap().is_none());
     }
@@ -494,11 +504,17 @@ mod tests {
         .await
         .unwrap();
         // Read-your-writes inside the transaction.
-        let mid = txn.query("SELECT COUNT(*) FROM t", Params::None).await.unwrap();
+        let mid = txn
+            .query("SELECT COUNT(*) FROM t", Params::None)
+            .await
+            .unwrap();
         assert_eq!(mid[0].get::<i64>(0).unwrap(), 2);
         txn.commit().await.unwrap();
 
-        let rows = db.query("SELECT COUNT(*) FROM t", Params::None).await.unwrap();
+        let rows = db
+            .query("SELECT COUNT(*) FROM t", Params::None)
+            .await
+            .unwrap();
         assert_eq!(rows[0].get::<i64>(0).unwrap(), 2);
     }
 
@@ -515,7 +531,10 @@ mod tests {
             .unwrap();
             // Drop without commit.
         }
-        let rows = db.query("SELECT COUNT(*) FROM t", Params::None).await.unwrap();
+        let rows = db
+            .query("SELECT COUNT(*) FROM t", Params::None)
+            .await
+            .unwrap();
         assert_eq!(rows[0].get::<i64>(0).unwrap(), 0);
     }
 }

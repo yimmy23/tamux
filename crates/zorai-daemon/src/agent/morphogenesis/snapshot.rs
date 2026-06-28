@@ -1,7 +1,19 @@
 use anyhow::Result;
-use rusqlite::{params, OptionalExtension};
 
 use super::affinity_tracker::{apply_decay, apply_outcome};
+use crate::history::db;
+
+fn row_to_affinity(row: &db::Row) -> Result<MorphogenesisAffinity> {
+    Ok(MorphogenesisAffinity {
+        agent_id: row.get(0)?,
+        domain: row.get(1)?,
+        affinity_score: row.get(2)?,
+        task_count: row.get::<i64>(3)? as u64,
+        success_count: row.get::<i64>(4)? as u64,
+        failure_count: row.get::<i64>(5)? as u64,
+        last_updated_ms: row.get::<i64>(6)? as u64,
+    })
+}
 use super::soul_adaptor::{apply_specialization_section, build_soul_adaptation};
 use super::types::{
     AdaptationType, AffinityUpdate, MorphogenesisAffinity, MorphogenesisOutcome, SoulAdaptation,
@@ -20,37 +32,25 @@ impl AgentEngine {
         let agent_id = agent_id.to_string();
         let now_ms = crate::history::now_ts() * 1000;
 
-        self.history
-            .conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT agent_id, domain, affinity_score, task_count, success_count, failure_count, last_updated_ms
-                     FROM morphogenesis_affinities
-                     WHERE agent_id = ?1",
-                )?;
-                let rows = stmt.query_map(params![agent_id], |row| {
-                    Ok(MorphogenesisAffinity {
-                        agent_id: row.get(0)?,
-                        domain: row.get(1)?,
-                        affinity_score: row.get(2)?,
-                        task_count: row.get::<_, i64>(3)? as u64,
-                        success_count: row.get::<_, i64>(4)? as u64,
-                        failure_count: row.get::<_, i64>(5)? as u64,
-                        last_updated_ms: row.get::<_, i64>(6)? as u64,
-                    })
-                })?;
-                let mut affinities = Vec::new();
-                for row in rows {
-                    affinities.push(apply_decay(
-                        row?,
-                        now_ms,
-                        MORPHOGENESIS_DECAY_FLOOR,
-                    ));
-                }
-                Ok(affinities)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+        let rows = self
+            .history
+            .read_db
+            .query(
+                "SELECT agent_id, domain, affinity_score, task_count, success_count, failure_count, last_updated_ms
+                 FROM morphogenesis_affinities
+                 WHERE agent_id = ?1",
+                db::db_params![agent_id],
+            )
+            .await?;
+        let mut affinities = Vec::new();
+        for row in &rows {
+            affinities.push(apply_decay(
+                row_to_affinity(row)?,
+                now_ms,
+                MORPHOGENESIS_DECAY_FLOOR,
+            ));
+        }
+        Ok(affinities)
     }
 
     pub(crate) async fn load_morphogenesis_affinities(
@@ -60,39 +60,27 @@ impl AgentEngine {
         let domains = domains.to_vec();
         let now_ms = crate::history::now_ts() * 1000;
 
-        self.history
-            .conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
+        let mut affinities = Vec::new();
+        for domain in domains {
+            let rows = self
+                .history
+                .read_db
+                .query(
                     "SELECT agent_id, domain, affinity_score, task_count, success_count, failure_count, last_updated_ms
                      FROM morphogenesis_affinities
                      WHERE domain = ?1",
-                )?;
-                let mut affinities = Vec::new();
-                for domain in domains {
-                    let rows = stmt.query_map(params![domain], |row| {
-                        Ok(MorphogenesisAffinity {
-                            agent_id: row.get(0)?,
-                            domain: row.get(1)?,
-                            affinity_score: row.get(2)?,
-                            task_count: row.get::<_, i64>(3)? as u64,
-                            success_count: row.get::<_, i64>(4)? as u64,
-                            failure_count: row.get::<_, i64>(5)? as u64,
-                            last_updated_ms: row.get::<_, i64>(6)? as u64,
-                        })
-                    })?;
-                    for row in rows {
-                        affinities.push(apply_decay(
-                            row?,
-                            now_ms,
-                            MORPHOGENESIS_DECAY_FLOOR,
-                        ));
-                    }
-                }
-                Ok(affinities)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+                    db::db_params![domain],
+                )
+                .await?;
+            for row in &rows {
+                affinities.push(apply_decay(
+                    row_to_affinity(row)?,
+                    now_ms,
+                    MORPHOGENESIS_DECAY_FLOOR,
+                ));
+            }
+        }
+        Ok(affinities)
     }
 
     pub(crate) async fn load_morphogenesis_affinity_updates(
@@ -104,54 +92,44 @@ impl AgentEngine {
         let agent_id = agent_id.to_string();
         let domain = domain.map(str::to_string);
         let limit = limit.max(1) as i64;
-        self.history
-            .read_conn
-            .call(move |conn| {
-                let sql = if domain.is_some() {
+        let rows = if let Some(domain) = domain {
+            self.history
+                .read_db
+                .query(
                     "SELECT agent_id, domain, old_affinity, new_affinity, trigger_type, task_id, updated_at_ms
                      FROM affinity_updates_log
                      WHERE agent_id = ?1 AND domain = ?2
                      ORDER BY updated_at_ms DESC, id DESC
-                     LIMIT ?3"
-                } else {
+                     LIMIT ?3",
+                    db::db_params![agent_id, domain, limit],
+                )
+                .await?
+        } else {
+            self.history
+                .read_db
+                .query(
                     "SELECT agent_id, domain, old_affinity, new_affinity, trigger_type, task_id, updated_at_ms
                      FROM affinity_updates_log
                      WHERE agent_id = ?1
                      ORDER BY updated_at_ms DESC, id DESC
-                     LIMIT ?2"
-                };
-                let mut stmt = conn.prepare(sql)?;
-                let rows = if let Some(domain) = domain {
-                    stmt.query_map(params![agent_id, domain, limit], |row| {
-                        Ok(AffinityUpdate {
-                            agent_id: row.get(0)?,
-                            domain: row.get(1)?,
-                            old_affinity: row.get(2)?,
-                            new_affinity: row.get(3)?,
-                            trigger_type: row.get(4)?,
-                            task_id: row.get(5)?,
-                            updated_at_ms: row.get::<_, i64>(6)?.max(0) as u64,
-                        })
-                    })?
-                    .collect::<std::result::Result<Vec<_>, _>>()?
-                } else {
-                    stmt.query_map(params![agent_id, limit], |row| {
-                        Ok(AffinityUpdate {
-                            agent_id: row.get(0)?,
-                            domain: row.get(1)?,
-                            old_affinity: row.get(2)?,
-                            new_affinity: row.get(3)?,
-                            trigger_type: row.get(4)?,
-                            task_id: row.get(5)?,
-                            updated_at_ms: row.get::<_, i64>(6)?.max(0) as u64,
-                        })
-                    })?
-                    .collect::<std::result::Result<Vec<_>, _>>()?
-                };
-                Ok(rows)
+                     LIMIT ?2",
+                    db::db_params![agent_id, limit],
+                )
+                .await?
+        };
+        rows.iter()
+            .map(|row| {
+                Ok(AffinityUpdate {
+                    agent_id: row.get(0)?,
+                    domain: row.get(1)?,
+                    old_affinity: row.get(2)?,
+                    new_affinity: row.get(3)?,
+                    trigger_type: row.get(4)?,
+                    task_id: row.get(5)?,
+                    updated_at_ms: row.get::<i64>(6)?.max(0) as u64,
+                })
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .collect()
     }
 
     pub(crate) async fn load_soul_adaptations(
@@ -161,38 +139,36 @@ impl AgentEngine {
     ) -> Result<Vec<SoulAdaptation>> {
         let agent_id = agent_id.to_string();
         let limit = limit.max(1) as i64;
-        self.history
-            .read_conn
-            .call(move |conn| {
-                let mut stmt = conn.prepare(
-                    "SELECT agent_id, domain, adaptation_type, soul_snippet, old_soul_hash, new_soul_hash, created_at_ms
-                     FROM soul_adaptations_log
-                     WHERE agent_id = ?1
-                     ORDER BY created_at_ms DESC, id DESC
-                     LIMIT ?2",
-                )?;
-                let rows = stmt
-                    .query_map(params![agent_id, limit], |row| {
-                    let adaptation_type = match row.get::<_, String>(2)?.as_str() {
-                        "added" => AdaptationType::Added,
-                        "removed" => AdaptationType::Removed,
-                        _ => AdaptationType::Updated,
-                    };
-                    Ok(SoulAdaptation {
-                        agent_id: row.get(0)?,
-                        domain: row.get(1)?,
-                        adaptation_type,
-                        soul_snippet: row.get(3)?,
-                        old_soul_hash: row.get(4)?,
-                        new_soul_hash: row.get(5)?,
-                        created_at_ms: row.get::<_, i64>(6)?.max(0) as u64,
-                    })
-                })?
-                    .collect::<std::result::Result<Vec<_>, _>>()?;
-                Ok(rows)
+        let rows = self
+            .history
+            .read_db
+            .query(
+                "SELECT agent_id, domain, adaptation_type, soul_snippet, old_soul_hash, new_soul_hash, created_at_ms
+                 FROM soul_adaptations_log
+                 WHERE agent_id = ?1
+                 ORDER BY created_at_ms DESC, id DESC
+                 LIMIT ?2",
+                db::db_params![agent_id, limit],
+            )
+            .await?;
+        rows.iter()
+            .map(|row| {
+                let adaptation_type = match row.get::<String>(2)?.as_str() {
+                    "added" => AdaptationType::Added,
+                    "removed" => AdaptationType::Removed,
+                    _ => AdaptationType::Updated,
+                };
+                Ok(SoulAdaptation {
+                    agent_id: row.get(0)?,
+                    domain: row.get(1)?,
+                    adaptation_type,
+                    soul_snippet: row.get(3)?,
+                    old_soul_hash: row.get(4)?,
+                    new_soul_hash: row.get(5)?,
+                    created_at_ms: row.get::<i64>(6)?.max(0) as u64,
+                })
             })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .collect()
     }
 
     pub(crate) async fn record_morphogenesis_outcome(
@@ -212,77 +188,78 @@ impl AgentEngine {
         .to_string();
 
         let agent_id_for_db = agent_id.clone();
-        let updates = self
-            .history
-            .conn
-            .call(move |conn| {
-                let mut updates = Vec::new();
-                for domain in domains {
-                    let existing = conn
-                        .query_row(
-                            "SELECT affinity_score, task_count, success_count, failure_count, last_updated_ms
-                             FROM morphogenesis_affinities
-                             WHERE agent_id = ?1 AND domain = ?2",
-                            params![&agent_id_for_db, &domain],
-                            |row| {
-                                Ok(MorphogenesisAffinity {
-                                    agent_id: agent_id_for_db.clone(),
-                                    domain: domain.clone(),
-                                    affinity_score: row.get(0)?,
-                                    task_count: row.get::<_, i64>(1)? as u64,
-                                    success_count: row.get::<_, i64>(2)? as u64,
-                                    failure_count: row.get::<_, i64>(3)? as u64,
-                                    last_updated_ms: row.get::<_, i64>(4)? as u64,
-                                })
-                            },
-                        )
-                        .optional()?;
+        let mut updates = Vec::new();
+        for domain in domains {
+            let existing = self
+                .history
+                .conn_db
+                .query_opt(
+                    "SELECT affinity_score, task_count, success_count, failure_count, last_updated_ms
+                     FROM morphogenesis_affinities
+                     WHERE agent_id = ?1 AND domain = ?2",
+                    db::db_params![agent_id_for_db.clone(), domain.clone()],
+                )
+                .await?
+                .map(|row| {
+                    Ok::<_, anyhow::Error>(MorphogenesisAffinity {
+                        agent_id: agent_id_for_db.clone(),
+                        domain: domain.clone(),
+                        affinity_score: row.get(0)?,
+                        task_count: row.get::<i64>(1)? as u64,
+                        success_count: row.get::<i64>(2)? as u64,
+                        failure_count: row.get::<i64>(3)? as u64,
+                        last_updated_ms: row.get::<i64>(4)? as u64,
+                    })
+                })
+                .transpose()?;
 
-                    let old_affinity = existing
-                        .as_ref()
-                        .map(|value| value.affinity_score)
-                        .unwrap_or(0.0);
-                    let updated =
-                        apply_outcome(existing, &agent_id_for_db, &domain, outcome, now_ms as u64);
-                    conn.execute(
-                        "INSERT INTO morphogenesis_affinities (
-                            agent_id, domain, affinity_score, task_count, success_count, failure_count, last_updated_ms
-                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                         ON CONFLICT(agent_id, domain) DO UPDATE SET
-                            affinity_score = excluded.affinity_score,
-                            task_count = excluded.task_count,
-                            success_count = excluded.success_count,
-                            failure_count = excluded.failure_count,
-                            last_updated_ms = excluded.last_updated_ms",
-                        params![
-                            updated.agent_id,
-                            updated.domain,
-                            updated.affinity_score,
-                            updated.task_count as i64,
-                            updated.success_count as i64,
-                            updated.failure_count as i64,
-                            updated.last_updated_ms as i64,
-                        ],
-                    )?;
-                    conn.execute(
-                        "INSERT INTO affinity_updates_log (
-                            agent_id, domain, old_affinity, new_affinity, trigger_type, task_id, updated_at_ms
-                         ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",
-                        params![
-                            updated.agent_id,
-                            updated.domain,
-                            old_affinity,
-                            updated.affinity_score,
-                            trigger_type,
-                            updated.last_updated_ms as i64,
-                        ],
-                    )?;
-                    updates.push((domain, old_affinity, updated));
-                }
-                Ok(updates)
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            let old_affinity = existing
+                .as_ref()
+                .map(|value| value.affinity_score)
+                .unwrap_or(0.0);
+            let updated =
+                apply_outcome(existing, &agent_id_for_db, &domain, outcome, now_ms as u64);
+            self.history
+                .conn_db
+                .execute(
+                    "INSERT INTO morphogenesis_affinities (
+                        agent_id, domain, affinity_score, task_count, success_count, failure_count, last_updated_ms
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                     ON CONFLICT(agent_id, domain) DO UPDATE SET
+                        affinity_score = excluded.affinity_score,
+                        task_count = excluded.task_count,
+                        success_count = excluded.success_count,
+                        failure_count = excluded.failure_count,
+                        last_updated_ms = excluded.last_updated_ms",
+                    db::db_params![
+                        updated.agent_id.clone(),
+                        updated.domain.clone(),
+                        updated.affinity_score,
+                        updated.task_count as i64,
+                        updated.success_count as i64,
+                        updated.failure_count as i64,
+                        updated.last_updated_ms as i64,
+                    ],
+                )
+                .await?;
+            self.history
+                .conn_db
+                .execute(
+                    "INSERT INTO affinity_updates_log (
+                        agent_id, domain, old_affinity, new_affinity, trigger_type, task_id, updated_at_ms
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",
+                    db::db_params![
+                        updated.agent_id.clone(),
+                        updated.domain.clone(),
+                        old_affinity,
+                        updated.affinity_score,
+                        trigger_type.clone(),
+                        updated.last_updated_ms as i64,
+                    ],
+                )
+                .await?;
+            updates.push((domain, old_affinity, updated));
+        }
 
         for (domain, _old_affinity, updated) in updates {
             let all_affinities = self
@@ -351,17 +328,14 @@ impl AgentEngine {
         let created_at_ms = adaptation.created_at_ms as i64;
 
         self.history
-            .conn
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT INTO soul_adaptations_log (
-                        agent_id, domain, adaptation_type, soul_snippet, old_soul_hash, new_soul_hash, created_at_ms
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                    params![agent_id, domain, adaptation_type, snippet, old_hash, new_hash, created_at_ms],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .conn_db
+            .execute(
+                "INSERT INTO soul_adaptations_log (
+                    agent_id, domain, adaptation_type, soul_snippet, old_soul_hash, new_soul_hash, created_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                db::db_params![agent_id, domain, adaptation_type, snippet, old_hash, new_hash, created_at_ms],
+            )
+            .await?;
+        Ok(())
     }
 }

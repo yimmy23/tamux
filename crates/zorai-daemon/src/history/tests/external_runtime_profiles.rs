@@ -30,42 +30,57 @@ const OPENCLAW_CONFIG_FIXTURE: &str = r#"{
   }
 }"#;
 
-#[test]
-fn schema_init_migrates_legacy_external_runtime_profiles_before_session_index() -> Result<()> {
+#[tokio::test]
+async fn schema_init_migrates_legacy_external_runtime_profiles_before_session_index() -> Result<()>
+{
     let root = std::env::temp_dir().join(format!("zorai-history-test-{}", Uuid::new_v4()));
     fs::create_dir_all(&root)?;
     let db_path = root.join("history.sqlite");
-    let conn = rusqlite::Connection::open(&db_path)?;
-    conn.execute_batch(
-        "CREATE TABLE external_runtime_profiles (
-            runtime TEXT PRIMARY KEY,
-            profile_json TEXT NOT NULL,
-            updated_at INTEGER NOT NULL
-        );
-        INSERT INTO external_runtime_profiles (runtime, profile_json, updated_at)
-        VALUES ('hermes', '{}', 1);",
-    )?;
+    let conn = tokio_rusqlite::Connection::open(&db_path).await?;
+    conn.call(|conn| {
+        conn.execute_batch(
+            "CREATE TABLE external_runtime_profiles (
+                runtime TEXT PRIMARY KEY,
+                profile_json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
+            INSERT INTO external_runtime_profiles (runtime, profile_json, updated_at)
+            VALUES ('hermes', '{}', 1);",
+        )?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    let init_result = crate::history::schema::init_schema_on_connection(&conn, &root);
+    let facade = crate::history::db::sqlite::SqliteWriteConn::new(conn.clone(), db_path.clone());
+    crate::history::schema::init_schema_on_connection(
+        &mut crate::history::db::ConnExecutor(&facade),
+        &root,
+    )
+    .await?;
 
-    init_result?;
-    let mut column_stmt = conn.prepare("PRAGMA table_info(external_runtime_profiles)")?;
-    let columns = column_stmt
-        .query_map([], |row| row.get::<_, String>(1))?
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let (columns, session_index_exists) = conn
+        .call(|conn| {
+            let mut column_stmt = conn.prepare("PRAGMA table_info(external_runtime_profiles)")?;
+            let columns = column_stmt
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            let session_index_exists: bool = conn.query_row(
+                "SELECT EXISTS (
+                    SELECT 1 FROM sqlite_master
+                    WHERE type = 'index'
+                      AND name = 'idx_external_runtime_profiles_session'
+                )",
+                [],
+                |row| row.get(0),
+            )?;
+            Ok((columns, session_index_exists))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
     assert!(columns.iter().any(|column| column == "session_id"));
     assert!(columns.iter().any(|column| column == "source_config_path"));
     assert!(columns.iter().any(|column| column == "source_fingerprint"));
-
-    let session_index_exists: bool = conn.query_row(
-        "SELECT EXISTS (
-            SELECT 1 FROM sqlite_master
-            WHERE type = 'index'
-              AND name = 'idx_external_runtime_profiles_session'
-        )",
-        [],
-        |row| row.get(0),
-    )?;
     assert!(session_index_exists);
 
     fs::remove_dir_all(root)?;

@@ -92,7 +92,8 @@ impl HistoryStore {
                 db::db_params![parent_task_id],
             )
             .await?;
-        row.map(|row| map_collaboration_session_row(&row)).transpose()
+        row.map(|row| map_collaboration_session_row(&row))
+            .transpose()
     }
 
     pub async fn upsert_profile_field(
@@ -107,7 +108,13 @@ impl HistoryStore {
                 "INSERT OR REPLACE INTO operator_profile_fields \
                  (field_key, field_value_json, confidence, source, updated_at) \
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                db::db_params![field_key, field_value_json, confidence, source, now_ts() as i64],
+                db::db_params![
+                    field_key,
+                    field_value_json,
+                    confidence,
+                    source,
+                    now_ts() as i64
+                ],
             )
             .await?;
         Ok(())
@@ -125,7 +132,8 @@ impl HistoryStore {
                 db::db_params![field_key],
             )
             .await?;
-        row.map(|row| map_operator_profile_field_row(&row)).transpose()
+        row.map(|row| map_operator_profile_field_row(&row))
+            .transpose()
     }
 
     pub async fn list_profile_fields(&self) -> Result<Vec<OperatorProfileFieldRow>> {
@@ -180,7 +188,8 @@ impl HistoryStore {
                 db::db_params![consent_key],
             )
             .await?;
-        row.map(|row| map_operator_profile_consent_row(&row)).transpose()
+        row.map(|row| map_operator_profile_consent_row(&row))
+            .transpose()
     }
 
     pub async fn list_profile_consents(&self) -> Result<Vec<OperatorProfileConsentRow>> {
@@ -272,7 +281,8 @@ impl HistoryStore {
                 db::db_params![id],
             )
             .await?;
-        row.map(|row| map_operator_profile_checkin_row(&row)).transpose()
+        row.map(|row| map_operator_profile_checkin_row(&row))
+            .transpose()
     }
 
     pub async fn list_profile_checkins(&self) -> Result<Vec<OperatorProfileCheckinRow>> {

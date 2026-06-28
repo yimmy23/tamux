@@ -156,7 +156,10 @@ impl HistoryStore {
             "SELECT key, value FROM consolidation_state \
              WHERE key IN ({placeholders}) AND deleted_at IS NULL"
         );
-        let values = keys.iter().map(|key| db::Value::Text(key.clone())).collect();
+        let values = keys
+            .iter()
+            .map(|key| db::Value::Text(key.clone()))
+            .collect();
         let rows = self
             .read_db
             .query(&sql, db::Params::Positional(values))
@@ -285,10 +288,12 @@ impl HistoryStore {
         let row = self
             .read_db
             .query_opt(
-                &format!("SELECT {EXECUTION_TRACE_COLUMNS} \
+                &format!(
+                    "SELECT {EXECUTION_TRACE_COLUMNS} \
                      FROM execution_traces \
                      WHERE id = ?1 AND outcome = 'success' \
-                     LIMIT 1"),
+                     LIMIT 1"
+                ),
                 db::db_params![trace_id],
             )
             .await?;
@@ -389,9 +394,7 @@ impl HistoryStore {
         let mut run: Vec<HistorySearchHit> = Vec::new();
         for hit in &hits {
             if hit.excerpt.contains("exit=Some(0)") {
-                if run.is_empty()
-                    || (run.last().unwrap().timestamp.abs_diff(hit.timestamp) < 300)
-                {
+                if run.is_empty() || (run.last().unwrap().timestamp.abs_diff(hit.timestamp) < 300) {
                     run.push(hit.clone());
                 } else {
                     if run.len() >= 3 {

@@ -119,7 +119,9 @@ impl SessionManager {
         let cut = messages
             .iter()
             .position(|message| message.id == message_id)
-            .ok_or_else(|| anyhow::anyhow!("message {message_id} not found in thread {thread_id}"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("message {message_id} not found in thread {thread_id}")
+            })?;
         messages.truncate(cut.saturating_add(1));
         let exported_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -155,7 +157,9 @@ impl SessionManager {
         let cut = messages
             .iter()
             .position(|message| message.id == message_id)
-            .ok_or_else(|| anyhow::anyhow!("message {message_id} not found in thread {thread_id}"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("message {message_id} not found in thread {thread_id}")
+            })?;
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
@@ -203,8 +207,14 @@ impl SessionManager {
             format!("Fork: {}", base_title.trim())
         };
 
-        let total_input: i64 = forked.iter().filter_map(|message| message.input_tokens).sum();
-        let total_output: i64 = forked.iter().filter_map(|message| message.output_tokens).sum();
+        let total_input: i64 = forked
+            .iter()
+            .filter_map(|message| message.input_tokens)
+            .sum();
+        let total_output: i64 = forked
+            .iter()
+            .filter_map(|message| message.output_tokens)
+            .sum();
         let last_preview: String = forked
             .last()
             .map(|message| message.content.chars().take(240).collect())

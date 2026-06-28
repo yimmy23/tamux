@@ -38,7 +38,8 @@ impl HistoryStore {
             .filter(|record| skill_variant_matches(record, &normalized))
             .collect::<Vec<_>>();
         let trend_by_variant =
-            load_skill_variant_trends_db(&mut db::ConnExecutor(&*self.conn_db), &variants, 8).await?;
+            load_skill_variant_trends_db(&mut db::ConnExecutor(&*self.conn_db), &variants, 8)
+                .await?;
         variants.sort_by(|left, right| {
             compare_skill_variants(left, right, &context_tags, &trend_by_variant)
         });
@@ -260,7 +261,8 @@ impl HistoryStore {
             .map(map_skill_variant_row_db)
             .collect::<anyhow::Result<Vec<_>>>()?;
         let trend_by_variant =
-            load_skill_variant_trends_db(&mut db::ConnExecutor(&*self.conn_db), &variants, 8).await?;
+            load_skill_variant_trends_db(&mut db::ConnExecutor(&*self.conn_db), &variants, 8)
+                .await?;
         variants.sort_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant));
         Ok(variants)
     }
@@ -599,7 +601,8 @@ impl HistoryStore {
             .collect::<Vec<_>>();
 
         let trend_by_variant =
-            load_skill_variant_trends_db(&mut db::ConnExecutor(&*self.conn_db), &variants, 8).await?;
+            load_skill_variant_trends_db(&mut db::ConnExecutor(&*self.conn_db), &variants, 8)
+                .await?;
         variants.sort_by(|left, right| compare_skill_variants(left, right, &[], &trend_by_variant));
         Ok(variants)
     }

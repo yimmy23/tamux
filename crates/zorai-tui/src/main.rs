@@ -1383,6 +1383,12 @@ fn start_daemon_bridge(
                             DaemonCommand::WhatsAppLinkReset => {
                                 let _ = client.whatsapp_link_reset();
                             }
+                            DaemonCommand::DatabaseSyncNow => {
+                                let _ = client.database_sync_now();
+                            }
+                            DaemonCommand::DatabaseGetBackend => {
+                                let _ = client.database_get_backend();
+                            }
                         }
                     }
                 }

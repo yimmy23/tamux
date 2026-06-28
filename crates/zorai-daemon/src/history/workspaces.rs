@@ -420,7 +420,9 @@ impl HistoryStore {
                     .await?
             }
         };
-        row.map(|row| row.get::<Option<i64>>(0)).transpose().map(Option::flatten)
+        row.map(|row| row.get::<Option<i64>>(0))
+            .transpose()
+            .map(Option::flatten)
     }
 
     pub async fn insert_workspace_notice(&self, notice: &WorkspaceNotice) -> Result<()> {

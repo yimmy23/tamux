@@ -17,6 +17,7 @@ pub enum SettingsTab {
     Features,
     Advanced,
     Plugins,
+    Database,
     About,
 }
 

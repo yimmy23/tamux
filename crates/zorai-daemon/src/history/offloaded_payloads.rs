@@ -81,7 +81,8 @@ impl HistoryStore {
                 db::db_params![payload_id],
             )
             .await?;
-        row.map(|row| map_offloaded_payload_metadata_row(&row)).transpose()
+        row.map(|row| map_offloaded_payload_metadata_row(&row))
+            .transpose()
     }
 
     pub async fn list_offloaded_payload_metadata_for_thread(
@@ -96,7 +97,9 @@ impl HistoryStore {
                 db::db_params![thread_id],
             )
             .await?;
-        rows.iter().map(map_offloaded_payload_metadata_row).collect()
+        rows.iter()
+            .map(map_offloaded_payload_metadata_row)
+            .collect()
     }
 
     pub async fn delete_offloaded_payload_metadata(&self, payload_id: &str) -> Result<()> {

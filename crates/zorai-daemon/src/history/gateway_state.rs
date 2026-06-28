@@ -201,7 +201,8 @@ impl HistoryStore {
                 db::db_params![platform, channel_id],
             )
             .await?;
-        row.map(|row| map_gateway_replay_cursor_row(&row)).transpose()
+        row.map(|row| map_gateway_replay_cursor_row(&row))
+            .transpose()
     }
 
     pub async fn load_gateway_replay_cursors(

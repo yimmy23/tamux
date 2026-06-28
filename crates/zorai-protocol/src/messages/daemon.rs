@@ -186,4 +186,7 @@ pub enum DaemonMessage {
     SemanticIndexStatus { status_json: String },
     SemanticDocumentSyncResult { result_json: String },
     SemanticIndexRepairResult { result_json: String },
+    DatabaseBackendState { backend: Option<String>, sync_url: Option<String>, has_token: bool, seeded_at: Option<i64> },
+    DatabaseBackendUpdated,
+    DatabaseSyncResult { ok: bool, message: String },
 }

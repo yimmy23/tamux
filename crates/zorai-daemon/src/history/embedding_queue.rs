@@ -582,7 +582,11 @@ async fn delete_stale_embedding_chunks_exec<E: db::DbExecutor + ?Sized>(
         db::Value::Text(source_kind.to_string()),
         db::Value::Text(source_id.to_string()),
     ];
-    values.extend(active_chunk_ids.iter().map(|id| db::Value::Text(id.clone())));
+    values.extend(
+        active_chunk_ids
+            .iter()
+            .map(|id| db::Value::Text(id.clone())),
+    );
     exec.execute(
         &format!(
             "DELETE FROM embedding_jobs WHERE source_kind = ?1 AND source_id = ?2 AND chunk_id NOT IN ({placeholders})"
@@ -1158,7 +1162,11 @@ impl HistoryStore {
                     "UPDATE embedding_deletions
                      SET claimed_at = ?3, attempts = attempts + 1
                      WHERE source_kind = ?1 AND source_id = ?2",
-                    db::db_params![deletion.source_kind.clone(), deletion.source_id.clone(), now],
+                    db::db_params![
+                        deletion.source_kind.clone(),
+                        deletion.source_id.clone(),
+                        now
+                    ],
                 )
                 .await?;
             }
@@ -1365,9 +1373,12 @@ impl HistoryStore {
         let embedding_model = embedding_model.trim().to_string();
         let dimensions = dimensions as i64;
         let mut exec = db::ConnExecutor(&*self.read_db);
-        let queued_jobs =
-            count_i64_exec(&mut exec, "SELECT COUNT(*) FROM embedding_jobs", db::Params::None)
-                .await?;
+        let queued_jobs = count_i64_exec(
+            &mut exec,
+            "SELECT COUNT(*) FROM embedding_jobs",
+            db::Params::None,
+        )
+        .await?;
         let queued_deletions = count_i64_exec(
             &mut exec,
             "SELECT COUNT(*) FROM embedding_deletions",

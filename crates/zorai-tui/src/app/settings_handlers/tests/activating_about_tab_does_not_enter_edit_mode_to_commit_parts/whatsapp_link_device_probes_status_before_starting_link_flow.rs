@@ -36,6 +36,23 @@ fn whatsapp_link_device_probes_status_before_starting_link_flow() {
 }
 
 #[test]
+fn database_sync_now_action_sends_sync_command() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .settings
+        .reduce(SettingsAction::SwitchTab(SettingsTab::Database));
+    assert_eq!(model.settings.current_field_name(), "db_sync_now");
+
+    model.activate_settings_field();
+
+    assert!(matches!(
+        daemon_rx.try_recv().expect("expected database sync command"),
+        DaemonCommand::DatabaseSyncNow
+    ));
+    assert!(daemon_rx.try_recv().is_err());
+}
+
+#[test]
 fn whatsapp_link_device_does_not_reset_existing_link() {
     let (mut model, mut daemon_rx) = make_model();
     model

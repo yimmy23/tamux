@@ -138,18 +138,8 @@ async fn add_negative_constraint_persists_source_and_propagated_target_updates_t
         })
         .await?;
 
-    let source = engine
-        .history
-        .conn
-        .call(|conn| Ok(select_constraint_by_id(conn, "nc-source")?))
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
-    let target = engine
-        .history
-        .conn
-        .call(|conn| Ok(select_constraint_by_id(conn, "nc-target")?))
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let source = select_constraint_by_id(&*engine.history.conn_db, "nc-source").await?;
+    let target = select_constraint_by_id(&*engine.history.conn_db, "nc-target").await?;
 
     assert_eq!(source.state, ConstraintState::Dead);
     assert_eq!(source.evidence_count, 3);

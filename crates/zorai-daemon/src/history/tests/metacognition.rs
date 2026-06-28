@@ -1,5 +1,5 @@
 use super::*;
-use crate::history::schema_helpers::table_has_column;
+use crate::history::schema_helpers::table_has_column_sync;
 
 #[tokio::test]
 async fn init_schema_adds_meta_cognition_tables() -> Result<()> {
@@ -25,9 +25,9 @@ async fn init_schema_adds_meta_cognition_tables() -> Result<()> {
     let status = store
         .conn
         .call(|conn| {
-            let model_has_agent_id = table_has_column(conn, "meta_cognition_model", "agent_id")?;
-            let model_has_offset = table_has_column(conn, "meta_cognition_model", "calibration_offset")?;
-            let bias_has_pattern = table_has_column(conn, "cognitive_biases", "trigger_pattern_json")?;
+            let model_has_agent_id = table_has_column_sync(conn, "meta_cognition_model", "agent_id")?;
+            let model_has_offset = table_has_column_sync(conn, "meta_cognition_model", "calibration_offset")?;
+            let bias_has_pattern = table_has_column_sync(conn, "cognitive_biases", "trigger_pattern_json")?;
             let bias_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_cognitive_biases_model'",
@@ -35,7 +35,7 @@ async fn init_schema_adds_meta_cognition_tables() -> Result<()> {
                     |row| row.get(0),
                 )
                 .optional()?;
-            let workflow_has_tools = table_has_column(conn, "workflow_profiles", "typical_tools_json")?;
+            let workflow_has_tools = table_has_column_sync(conn, "workflow_profiles", "typical_tools_json")?;
             let workflow_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_workflow_profiles_model'",
@@ -157,9 +157,9 @@ async fn init_schema_adds_implicit_feedback_tables() -> Result<()> {
     let status = store
         .conn
         .call(|conn| {
-            let signals_has_type = table_has_column(conn, "implicit_signals", "signal_type")?;
+            let signals_has_type = table_has_column_sync(conn, "implicit_signals", "signal_type")?;
             let signals_has_context =
-                table_has_column(conn, "implicit_signals", "context_snapshot_json")?;
+                table_has_column_sync(conn, "implicit_signals", "context_snapshot_json")?;
             let signals_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_implicit_signals_session_ts'",
@@ -167,9 +167,9 @@ async fn init_schema_adds_implicit_feedback_tables() -> Result<()> {
                     |row| row.get(0),
                 )
                 .optional()?;
-            let scores_has_label = table_has_column(conn, "satisfaction_scores", "label")?;
+            let scores_has_label = table_has_column_sync(conn, "satisfaction_scores", "label")?;
             let scores_has_signal_count =
-                table_has_column(conn, "satisfaction_scores", "signal_count")?;
+                table_has_column_sync(conn, "satisfaction_scores", "signal_count")?;
             let scores_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_satisfaction_scores_session_ts'",
@@ -202,8 +202,8 @@ async fn init_schema_adds_implicit_feedback_tables() -> Result<()> {
     let intent_status = store
         .conn
         .call(|conn| {
-            let predictions_has_actual = table_has_column(conn, "intent_predictions", "actual_action")?;
-            let predictions_has_correct = table_has_column(conn, "intent_predictions", "was_correct")?;
+            let predictions_has_actual = table_has_column_sync(conn, "intent_predictions", "actual_action")?;
+            let predictions_has_correct = table_has_column_sync(conn, "intent_predictions", "was_correct")?;
             let predictions_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_intent_predictions_session_ts'",
@@ -227,13 +227,13 @@ async fn init_schema_adds_implicit_feedback_tables() -> Result<()> {
         .conn
         .call(|conn| {
             let has_prediction_type =
-                table_has_column(conn, "system_outcome_predictions", "prediction_type")?;
+                table_has_column_sync(conn, "system_outcome_predictions", "prediction_type")?;
             let has_predicted_outcome =
-                table_has_column(conn, "system_outcome_predictions", "predicted_outcome")?;
+                table_has_column_sync(conn, "system_outcome_predictions", "predicted_outcome")?;
             let has_actual_outcome =
-                table_has_column(conn, "system_outcome_predictions", "actual_outcome")?;
+                table_has_column_sync(conn, "system_outcome_predictions", "actual_outcome")?;
             let has_was_correct =
-                table_has_column(conn, "system_outcome_predictions", "was_correct")?;
+                table_has_column_sync(conn, "system_outcome_predictions", "was_correct")?;
             let predictions_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_system_outcome_predictions_session_ts'",

@@ -242,6 +242,10 @@ pub struct ZoraiConfig {
 
     /// Cerbos PDP endpoint for external policy evaluation (e.g. "http://localhost:3592").
     pub cerbos_endpoint: Option<String>,
+
+    pub db_backend: Option<String>,
+    pub db_sync_url: Option<String>,
+    pub db_sync_interval_secs: Option<u64>,
 }
 
 impl Default for ZoraiConfig {
@@ -267,11 +271,31 @@ impl Default for ZoraiConfig {
             snapshot_max_total_size_mb: 10_240,
             snapshot_auto_cleanup: false,
             cerbos_endpoint: None,
+            db_backend: None,
+            db_sync_url: None,
+            db_sync_interval_secs: None,
         }
     }
 }
 
 impl ZoraiConfig {
+    pub fn db_auth_token() -> Option<String> {
+        if let Ok(token) = std::env::var("ZORAI_DB_AUTH_TOKEN") {
+            let token = token.trim().to_string();
+            if !token.is_empty() {
+                return Some(token);
+            }
+        }
+        let path = dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("zorai")
+            .join("db_auth_token");
+        std::fs::read_to_string(path)
+            .ok()
+            .map(|token| token.trim().to_string())
+            .filter(|token| !token.is_empty())
+    }
+
     /// Load config from the default location, or return defaults.
     pub fn load() -> Self {
         for path in [Self::config_path(), legacy_config_path()] {

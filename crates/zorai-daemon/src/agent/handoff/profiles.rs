@@ -763,7 +763,11 @@ mod tests {
     fn select_by_embedding_picks_clear_leader_above_floor() {
         let scored = vec![(0usize, 0.15_f32), (1, 0.42), (2, 0.10)];
         assert_eq!(
-            select_by_embedding(&scored, SPECIALIST_EMBEDDING_FLOOR, SPECIALIST_EMBEDDING_MARGIN),
+            select_by_embedding(
+                &scored,
+                SPECIALIST_EMBEDDING_FLOOR,
+                SPECIALIST_EMBEDDING_MARGIN
+            ),
             Some((1, 0.42_f32 as f64))
         );
     }
@@ -771,13 +775,23 @@ mod tests {
     #[test]
     fn select_by_embedding_rejects_when_top_below_floor() {
         let scored = vec![(0usize, 0.10_f32), (1, 0.12)];
-        assert!(select_by_embedding(&scored, SPECIALIST_EMBEDDING_FLOOR, SPECIALIST_EMBEDDING_MARGIN).is_none());
+        assert!(select_by_embedding(
+            &scored,
+            SPECIALIST_EMBEDDING_FLOOR,
+            SPECIALIST_EMBEDDING_MARGIN
+        )
+        .is_none());
     }
 
     #[test]
     fn select_by_embedding_rejects_flat_field_without_margin() {
         let scored = vec![(0usize, 0.40_f32), (1, 0.395)];
-        assert!(select_by_embedding(&scored, SPECIALIST_EMBEDDING_FLOOR, SPECIALIST_EMBEDDING_MARGIN).is_none());
+        assert!(select_by_embedding(
+            &scored,
+            SPECIALIST_EMBEDDING_FLOOR,
+            SPECIALIST_EMBEDDING_MARGIN
+        )
+        .is_none());
     }
 
     #[test]

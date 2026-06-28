@@ -1,4 +1,5 @@
 use super::render_about_tab::*;
+use super::render_database_tab::*;
 use super::render_advanced_value_to_render_advanced_tab::*;
 use super::render_auth_tab_to_render_agent_tab::*;
 use super::render_chat_tab_to_render_honcho_editor_actions::*;

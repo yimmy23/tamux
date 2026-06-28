@@ -122,9 +122,8 @@ pub(crate) async fn dispatch_part4(
                     })
                     .await
             } else {
-                let effective_limit = limit.or(Some(AGENT_DB_THREAD_LIST_WINDOW));
                 agent
-                    .list_threads_paginated(effective_limit, offset.unwrap_or(0), include_internal)
+                    .list_threads_paginated(limit, offset.unwrap_or(0), include_internal)
                     .await
             };
             let (threads, truncated) = cap_agent_thread_list_for_ipc(threads);

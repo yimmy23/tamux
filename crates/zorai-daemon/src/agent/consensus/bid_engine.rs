@@ -1,9 +1,9 @@
 use anyhow::Result;
-use rusqlite::params;
 
 use super::types::PersistedConsensusBid;
 use crate::agent::collaboration::{BidAvailability, CollaborationSession};
 use crate::agent::engine::AgentEngine;
+use crate::history::db;
 
 pub(crate) fn consensus_round_id(session: &CollaborationSession) -> u64 {
     session
@@ -54,26 +54,23 @@ pub(crate) fn build_persisted_bid(
 impl AgentEngine {
     pub(crate) async fn persist_consensus_bid(&self, bid: PersistedConsensusBid) -> Result<()> {
         self.history
-            .conn
-            .call(move |conn| {
-                conn.execute(
-                    "INSERT INTO consensus_bids (
-                        task_id, round_id, agent_id, confidence, reasoning, availability, domain_affinity, submitted_at_ms
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![
-                        bid.task_id,
-                        bid.round_id as i64,
-                        bid.agent_id,
-                        bid.confidence,
-                        bid.reasoning,
-                        bid.availability,
-                        bid.domain_affinity,
-                        bid.submitted_at_ms as i64,
-                    ],
-                )?;
-                Ok(())
-            })
-            .await
-            .map_err(|e| anyhow::anyhow!("{e}"))
+            .conn_db
+            .execute(
+                "INSERT INTO consensus_bids (
+                    task_id, round_id, agent_id, confidence, reasoning, availability, domain_affinity, submitted_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                db::db_params![
+                    bid.task_id,
+                    bid.round_id as i64,
+                    bid.agent_id,
+                    bid.confidence,
+                    bid.reasoning,
+                    bid.availability,
+                    bid.domain_affinity,
+                    bid.submitted_at_ms as i64,
+                ],
+            )
+            .await?;
+        Ok(())
     }
 }

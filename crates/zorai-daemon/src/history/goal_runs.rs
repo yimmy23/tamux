@@ -179,8 +179,7 @@ async fn upsert_goal_run_exec<E: db::DbExecutor + ?Sized>(
     let child_task_ids_json = serde_json::to_string(&goal_run.child_task_ids)?;
     let launch_assignment_snapshot_json =
         serde_json::to_string(&goal_run.launch_assignment_snapshot)?;
-    let runtime_assignment_list_json =
-        serde_json::to_string(&goal_run.runtime_assignment_list)?;
+    let runtime_assignment_list_json = serde_json::to_string(&goal_run.runtime_assignment_list)?;
     let execution_thread_ids_json = serde_json::to_string(&goal_run.execution_thread_ids)?;
     let model_usage_json = serde_json::to_string(&goal_run.model_usage)?;
     let dossier_json = goal_run
@@ -561,7 +560,10 @@ impl HistoryStore {
                     AND goal_runs.deleted_at IS NULL
                   GROUP BY goal_runs.id
                   LIMIT 1",
-                db::db_params![goal_run_id, goal_run_step_status_to_str(GoalRunStepStatus::Completed)],
+                db::db_params![
+                    goal_run_id,
+                    goal_run_step_status_to_str(GoalRunStepStatus::Completed)
+                ],
             )
             .await?;
         row.map(|row| -> anyhow::Result<GoalRunProgressMetricsRef> {
@@ -769,9 +771,7 @@ impl HistoryStore {
                         .and_then(|json| serde_json::from_str(json).ok())
                         .unwrap_or_default(),
                     current_step_title: row.get(8)?,
-                    current_step_status: step_status
-                        .as_deref()
-                        .map(parse_goal_run_step_status),
+                    current_step_status: step_status.as_deref().map(parse_goal_run_step_status),
                     current_step_summary: row.get(10)?,
                     plan_summary: row.get(11)?,
                     latest_error: last_error.or(failure_cause),
@@ -1462,7 +1462,8 @@ impl HistoryStore {
                 db::db_params![running_str, paused_str],
             )
             .await?;
-        let (latest_id, running_total, paused_total): (Option<String>, i64, i64) = match totals_row {
+        let (latest_id, running_total, paused_total): (Option<String>, i64, i64) = match totals_row
+        {
             Some(row) => (
                 row.get::<Option<String>>(0)?,
                 row.get::<i64>(1)?,
@@ -1512,7 +1513,14 @@ impl HistoryStore {
                     .map(|row| row.get::<String>(0))
                     .transpose()?;
 
-                let latest_step: Option<(String, Option<String>, Option<String>, Option<i64>, Option<i64>, i64)> = self
+                let latest_step: Option<(
+                    String,
+                    Option<String>,
+                    Option<String>,
+                    Option<i64>,
+                    Option<i64>,
+                    i64,
+                )> = self
                     .interactive_read_db
                     .query_opt(
                         "SELECT title, summary, error, started_at, completed_at, ordinal \
@@ -1576,49 +1584,49 @@ impl HistoryStore {
                     execution_thread_ids: Vec::new(),
                     session_id: None,
                     current_step_index: lean.current_step_index,
-                        current_step_title,
-                        current_step_kind: None,
-                        launch_assignment_snapshot: Vec::new(),
-                        runtime_assignment_list: Vec::new(),
-                        planner_owner_profile: None,
-                        current_step_owner_profile: None,
-                        step_owner_overrides: std::collections::BTreeMap::new(),
-                        replan_count: 0,
-                        max_replans: 0,
-                        plan_summary: lean.plan_summary,
-                        reflection_summary: lean.reflection_summary,
-                        memory_updates: Vec::new(),
-                        generated_skill_path: None,
-                        last_error: None,
-                        failure_cause: None,
-                        stopped_reason: None,
-                        child_task_ids: Vec::new(),
-                        child_task_count: 0,
-                        approval_count: 0,
-                        awaiting_approval_id: None,
-                        policy_fingerprint: None,
-                        approval_expires_at: None,
-                        containment_scope: None,
-                        compensation_status: None,
-                        compensation_summary: None,
-                        active_task_id: None,
-                        duration_ms: None,
-                        steps,
-                        events: Vec::new(),
-                        dossier: None,
-                        total_prompt_tokens: 0,
-                        total_completion_tokens: 0,
-                        estimated_cost_usd: None,
-                        model_usage: Vec::new(),
-                        autonomy_level: crate::agent::AutonomyLevel::default(),
-                        authorship_tag: None,
-                    })
-                } else {
-                    None
-                }
+                    current_step_title,
+                    current_step_kind: None,
+                    launch_assignment_snapshot: Vec::new(),
+                    runtime_assignment_list: Vec::new(),
+                    planner_owner_profile: None,
+                    current_step_owner_profile: None,
+                    step_owner_overrides: std::collections::BTreeMap::new(),
+                    replan_count: 0,
+                    max_replans: 0,
+                    plan_summary: lean.plan_summary,
+                    reflection_summary: lean.reflection_summary,
+                    memory_updates: Vec::new(),
+                    generated_skill_path: None,
+                    last_error: None,
+                    failure_cause: None,
+                    stopped_reason: None,
+                    child_task_ids: Vec::new(),
+                    child_task_count: 0,
+                    approval_count: 0,
+                    awaiting_approval_id: None,
+                    policy_fingerprint: None,
+                    approval_expires_at: None,
+                    containment_scope: None,
+                    compensation_status: None,
+                    compensation_summary: None,
+                    active_task_id: None,
+                    duration_ms: None,
+                    steps,
+                    events: Vec::new(),
+                    dossier: None,
+                    total_prompt_tokens: 0,
+                    total_completion_tokens: 0,
+                    estimated_cost_usd: None,
+                    model_usage: Vec::new(),
+                    autonomy_level: crate::agent::AutonomyLevel::default(),
+                    authorship_tag: None,
+                })
             } else {
                 None
-            };
+            }
+        } else {
+            None
+        };
         let running_goal_total = running_total.max(0) as usize;
         let paused_goal_total = paused_total.max(0) as usize;
 

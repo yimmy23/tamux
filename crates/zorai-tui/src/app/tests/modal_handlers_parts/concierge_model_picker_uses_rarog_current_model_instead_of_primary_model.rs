@@ -180,6 +180,40 @@ fn thread_picker_agent_tab_switch_only_refreshes_latest_selection() {
 }
 
 #[test]
+fn thread_picker_gateway_tab_switch_requests_unfiltered_refresh() {
+    let (mut model, mut daemon_rx) = make_model();
+    model
+        .modal
+        .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
+
+    for _ in 0..7 {
+        assert!(!model.handle_key_modal(
+            KeyCode::Right,
+            KeyModifiers::NONE,
+            modal::ModalKind::ThreadPicker,
+        ));
+    }
+
+    assert_eq!(
+        model.modal.thread_picker_tab(),
+        modal::ThreadPickerTab::Gateway
+    );
+    assert_eq!(
+        model.thread_picker_loading_tab(),
+        Some(modal::ThreadPickerTab::Gateway)
+    );
+    assert!(daemon_rx.try_recv().is_err());
+
+    model.on_tick_elapsed(THREAD_PICKER_AGENT_REFRESH_DEBOUNCE_TICKS);
+
+    assert!(matches!(
+        daemon_rx.try_recv(),
+        Ok(DaemonCommand::RefreshThreadsForAgent { agent_filter: None })
+    ));
+    assert!(daemon_rx.try_recv().is_err());
+}
+
+#[test]
 fn thread_picker_left_right_cycles_all_sources() {
     let (mut model, _daemon_rx) = make_model();
     model
@@ -306,7 +340,7 @@ fn thread_picker_enter_selects_filtered_rarog_thread() {
             assert_eq!(thread_id, "heartbeat-1");
             assert_eq!(
                 message_limit,
-                Some(model.config.tui_chat_history_page_size as usize)
+                Some(model.chat_history_delete_backfill_target_size())
             );
             assert_eq!(message_offset, Some(0));
         }

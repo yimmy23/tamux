@@ -1,5 +1,5 @@
 use super::*;
-use crate::history::schema_helpers::table_has_column;
+use crate::history::schema_helpers::table_has_column_sync;
 use std::fs;
 
 #[tokio::test]
@@ -27,8 +27,8 @@ async fn init_schema_adds_temporal_foresight_and_intent_model_tables() -> Result
     let status = store
         .conn
         .call(|conn| {
-            let has_pattern_type = table_has_column(conn, "temporal_patterns", "pattern_type")?;
-            let has_timescale = table_has_column(conn, "temporal_patterns", "timescale")?;
+            let has_pattern_type = table_has_column_sync(conn, "temporal_patterns", "pattern_type")?;
+            let has_timescale = table_has_column_sync(conn, "temporal_patterns", "timescale")?;
             let pattern_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_temporal_patterns_type_scale'",
@@ -36,7 +36,7 @@ async fn init_schema_adds_temporal_foresight_and_intent_model_tables() -> Result
                     |row| row.get(0),
                 )
                 .optional()?;
-            let has_confidence = table_has_column(conn, "temporal_predictions", "confidence")?;
+            let has_confidence = table_has_column_sync(conn, "temporal_predictions", "confidence")?;
             let prediction_index: Option<String> = conn
                 .query_row(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_temporal_predictions_pattern_predicted'",
@@ -45,8 +45,8 @@ async fn init_schema_adds_temporal_foresight_and_intent_model_tables() -> Result
                 )
                 .optional()?;
             let has_precompute_type =
-                table_has_column(conn, "precomputation_log", "precomputation_type")?;
-            let has_model_blob = table_has_column(conn, "intent_models", "model_blob")?;
+                table_has_column_sync(conn, "precomputation_log", "precomputation_type")?;
+            let has_model_blob = table_has_column_sync(conn, "intent_models", "model_blob")?;
             Ok((
                 has_pattern_type,
                 has_timescale,

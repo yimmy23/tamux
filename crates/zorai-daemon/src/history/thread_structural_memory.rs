@@ -9,9 +9,7 @@ pub struct ThreadStructuralMemoryRow {
     pub updated_at: u64,
 }
 
-fn map_thread_structural_memory_row(
-    row: &db::Row,
-) -> anyhow::Result<ThreadStructuralMemoryRow> {
+fn map_thread_structural_memory_row(row: &db::Row) -> anyhow::Result<ThreadStructuralMemoryRow> {
     let state_json_raw = row.get::<String>(1)?;
     let state_json = serde_json::from_str(&state_json_raw)?;
     Ok(ThreadStructuralMemoryRow {
@@ -49,7 +47,8 @@ impl HistoryStore {
                 db::db_params![thread_id],
             )
             .await?;
-        row.map(|row| map_thread_structural_memory_row(&row)).transpose()
+        row.map(|row| map_thread_structural_memory_row(&row))
+            .transpose()
     }
 
     pub async fn list_thread_structural_memory_for_threads(

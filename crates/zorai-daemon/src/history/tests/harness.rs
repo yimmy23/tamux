@@ -4,7 +4,7 @@ use crate::agent::harness::{
     HarnessRecordKind, ObservationKind, ObservationRecord, VerificationGateKind,
     VerificationGateRecord,
 };
-use crate::history::schema_helpers::table_has_column;
+use crate::history::schema_helpers::table_has_column_sync;
 use std::fs;
 
 fn scope_ids() -> (String, String, String) {
@@ -23,8 +23,8 @@ async fn init_schema_adds_harness_tables() -> Result<()> {
         .conn
         .call(|conn| {
             Ok((
-                table_has_column(conn, "harness_state_records", "entity_id")?,
-                table_has_column(conn, "harness_state_records", "payload_json")?,
+                table_has_column_sync(conn, "harness_state_records", "entity_id")?,
+                table_has_column_sync(conn, "harness_state_records", "payload_json")?,
             ))
         })
         .await

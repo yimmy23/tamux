@@ -12,6 +12,7 @@
 
 use anyhow::{anyhow, Result};
 
+pub(crate) mod libsql;
 pub(crate) mod sqlite;
 
 /// A single SQL value, mirroring SQLite's storage classes.
@@ -158,10 +159,12 @@ impl Row {
     /// Reads column `idx`, converting to `T`. Errors if the index is out of
     /// range or the stored value is not convertible to `T`.
     pub(crate) fn get<T: FromValue>(&self, idx: usize) -> Result<T> {
-        let value = self
-            .values
-            .get(idx)
-            .ok_or_else(|| anyhow!("column index {idx} out of range (row has {} columns)", self.values.len()))?;
+        let value = self.values.get(idx).ok_or_else(|| {
+            anyhow!(
+                "column index {idx} out of range (row has {} columns)",
+                self.values.len()
+            )
+        })?;
         T::from_value(value)
     }
 }
@@ -268,6 +271,11 @@ pub(crate) trait DbConn: Send + Sync {
     /// arbitrary multi-statement SQL.
     async fn total_changes(&self) -> Result<u64> {
         Err(anyhow!("total_changes is not supported on this connection"))
+    }
+    /// Syncs an embedded remote replica against its server. Default no-op for
+    /// engines/connections without replication (SQLite, local libSQL, readers).
+    async fn sync(&self) -> Result<()> {
+        Ok(())
     }
     async fn query_opt(&self, sql: &str, params: Params) -> Result<Option<Row>> {
         let mut rows = self.query(sql, params).await?;
