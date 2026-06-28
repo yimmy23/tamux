@@ -21,7 +21,8 @@ pub(crate) fn add_available_tools_part_a(
                     "security_level": { "type": "string", "enum": ["highest", "moderate", "lowest", "yolo"], "description": "Approval strictness level" },
                     "language_hint": { "type": "string", "description": "Optional language hint for validation" },
                     "wait_for_completion": { "type": "boolean", "description": "Wait for quick-command result (default: true); non-quick commands always background" },
-                    "timeout_seconds": { "type": "integer", "description": "Quick-command wait timeout (default: 30, max: 600); larger values force background" }
+                    "timeout_seconds": { "type": "integer", "description": "Quick-command wait timeout (default: 30, max: 600); larger values force background" },
+                    "notify_on_completion": { "type": "boolean", "description": "When backgrounded, automatically resume this thread on completion (default: false). When false the completion is still recorded in the thread for your next turn, but no autonomous turn is started; poll get_operation_status if you need the result sooner. Set true only when you must act on the result immediately." }
                 },
                 "required": ["command"]
             }),

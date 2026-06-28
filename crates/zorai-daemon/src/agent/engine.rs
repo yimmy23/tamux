@@ -176,6 +176,9 @@ pub struct AgentEngine {
     pub gateway_seen_ids: Mutex<Vec<String>>,
     /// Channels currently being processed — prevents concurrent dispatch to the same channel.
     pub gateway_inflight_channels: Mutex<HashSet<String>>,
+    /// Messages that arrived while a channel's turn was in flight; drained as
+    /// follow-up turns the moment the active turn finishes.
+    pub gateway_pending_followups: Mutex<HashMap<String, VecDeque<gateway::IncomingMessage>>>,
     /// Queue of externally injected gateway messages (e.g. linked WhatsApp sidecar).
     pub gateway_injected_messages: Mutex<VecDeque<gateway::IncomingMessage>>,
     pub(super) webhook_listener_addr: RwLock<Option<String>>,
@@ -424,6 +427,7 @@ impl AgentEngine {
             gateway_route_modes: RwLock::new(HashMap::new()),
             gateway_seen_ids: Mutex::new(Vec::new()),
             gateway_inflight_channels: Mutex::new(HashSet::new()),
+            gateway_pending_followups: Mutex::new(HashMap::new()),
             gateway_injected_messages: Mutex::new(VecDeque::new()),
             webhook_listener_addr: RwLock::new(None),
             external_runners: RwLock::new(runners),

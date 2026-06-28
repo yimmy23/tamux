@@ -2358,11 +2358,17 @@ pub fn execute_tool<'a>(
                     prepared.dispatch_tool_name.as_str(),
                     &prepared.dispatch_args,
                 );
+                let notify_on_completion = prepared
+                    .dispatch_args
+                    .get("notify_on_completion")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
                 agent
                     .register_operation_wakeups_from_tool_result(
                         thread_id,
                         prepared.dispatch_tool_name.as_str(),
                         &content,
+                        notify_on_completion,
                     )
                     .await;
                 if prepared.dispatch_tool_name.as_str() == tool_names::FETCH_URL {

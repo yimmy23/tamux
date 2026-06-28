@@ -1,6 +1,18 @@
 use super::*;
 use zorai_protocol::AGENT_ID_SWAROG;
 
+/// Gateway turns now run in detached per-channel tasks, so callers that assert
+/// on thread state must wait for every in-flight channel to drain first.
+async fn await_gateway_idle(engine: &AgentEngine) {
+    for _ in 0..1000 {
+        if engine.gateway_inflight_channels.lock().await.is_empty() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
+    panic!("gateway channels did not settle");
+}
+
 #[test]
 fn hydrate_defers_gateway_start_until_after_thread_restore() {
     let persistence_source =
@@ -6825,6 +6837,7 @@ async fn inbound_gateway_messages_reuse_same_thread_binding_for_same_slack_chann
         .await
         .expect("enqueue second inbound message");
     engine.process_gateway_messages().await;
+    await_gateway_idle(&engine).await;
 
     let bound_thread_id = engine
         .gateway_threads
@@ -6915,6 +6928,7 @@ async fn inbound_gateway_messages_reuse_same_thread_binding_for_same_telegram_ch
         .await
         .expect("enqueue second inbound message");
     engine.process_gateway_messages().await;
+    await_gateway_idle(&engine).await;
 
     let bound_thread_id = engine
         .gateway_threads
@@ -7002,6 +7016,7 @@ async fn inbound_gateway_messages_reuse_same_thread_binding_for_same_discord_dm_
         .await
         .expect("enqueue second inbound message");
     engine.process_gateway_messages().await;
+    await_gateway_idle(&engine).await;
 
     let bound_thread_id = engine
         .gateway_threads

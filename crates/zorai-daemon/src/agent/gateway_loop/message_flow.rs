@@ -1,8 +1,12 @@
 use super::*;
 use zorai_protocol::AGENT_NAME_SWAROG;
 
+/// Max messages held per channel while its turn is in flight before the oldest
+/// are dropped (matches the bounded-queue policy on `gateway_injected_messages`).
+const GATEWAY_FOLLOWUP_CAP: usize = 200;
+
 impl AgentEngine {
-    async fn process_single_gateway_message(&self, msg: gateway::IncomingMessage) {
+    async fn process_single_gateway_message(self: &Arc<Self>, msg: gateway::IncomingMessage) {
         if let Some(ref mid) = msg.message_id {
             let mut seen = self.gateway_seen_ids.lock().await;
             if seen.contains(mid) {
@@ -22,17 +26,66 @@ impl AgentEngine {
 
         let channel_key = gateway::gateway_channel_key(&msg.platform, &msg.channel);
         {
+            // Lock order: follow-ups before in-flight, matching the drain at
+            // the end of the spawned turn loop, so a message that arrives just
+            // as a turn finishes is never orphaned.
+            let mut followups = self.gateway_pending_followups.lock().await;
             let mut inflight = self.gateway_inflight_channels.lock().await;
             if inflight.contains(&channel_key) {
-                tracing::warn!(
-                    channel_key = %channel_key,
-                    "gateway: channel already being processed, skipping"
-                );
+                let queue = followups.entry(channel_key.clone()).or_default();
+                queue.push_back(msg);
+                if queue.len() > GATEWAY_FOLLOWUP_CAP {
+                    let excess = queue.len() - GATEWAY_FOLLOWUP_CAP;
+                    queue.drain(..excess);
+                    tracing::warn!(
+                        channel_key = %channel_key,
+                        excess,
+                        "gateway: follow-up queue exceeded cap, dropped oldest pending messages"
+                    );
+                } else {
+                    tracing::info!(
+                        channel_key = %channel_key,
+                        "gateway: channel busy, queued message to inject after current turn"
+                    );
+                }
                 return;
             }
             inflight.insert(channel_key.clone());
         }
 
+        let engine = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut current = msg;
+            loop {
+                engine
+                    .run_gateway_message_pipeline(current, &channel_key)
+                    .await;
+                let next = {
+                    let mut followups = engine.gateway_pending_followups.lock().await;
+                    let mut inflight = engine.gateway_inflight_channels.lock().await;
+                    match followups.get_mut(&channel_key).and_then(VecDeque::pop_front) {
+                        Some(next) => Some(next),
+                        None => {
+                            followups.remove(&channel_key);
+                            inflight.remove(&channel_key);
+                            None
+                        }
+                    }
+                };
+                match next {
+                    Some(next) => current = next,
+                    None => break,
+                }
+            }
+        });
+    }
+
+    async fn run_gateway_message_pipeline(
+        &self,
+        msg: gateway::IncomingMessage,
+        channel_key: &str,
+    ) {
+        let channel_key = channel_key.to_string();
         tracing::info!(
             platform = %msg.platform,
             sender = %msg.sender,
@@ -43,7 +96,6 @@ impl AgentEngine {
         );
 
         if self.handle_gateway_reset_command(&msg, &channel_key).await {
-            self.release_gateway_inflight_channel(&channel_key).await;
             return;
         }
 
@@ -56,7 +108,6 @@ impl AgentEngine {
                 .handle_gateway_route_switch_ack(&msg, &channel_key, request, reply_tool_name)
                 .await
             {
-                self.release_gateway_inflight_channel(&channel_key).await;
                 return;
             }
         }
@@ -72,7 +123,6 @@ impl AgentEngine {
             ))
             .await
             {
-                self.release_gateway_inflight_channel(&channel_key).await;
                 return;
             }
         }
@@ -85,7 +135,6 @@ impl AgentEngine {
         ))
         .await
         {
-            self.release_gateway_inflight_channel(&channel_key).await;
             return;
         }
 
@@ -128,7 +177,6 @@ impl AgentEngine {
                         )
                         .await
                     {
-                        self.release_gateway_inflight_channel(&channel_key).await;
                         return;
                     }
                 }
@@ -152,10 +200,9 @@ impl AgentEngine {
             full_agent_scope.as_deref(),
         )
         .await;
-        self.release_gateway_inflight_channel(&channel_key).await;
     }
 
-    pub(super) async fn process_gateway_messages(&self) {
+    pub(super) async fn process_gateway_messages(self: &Arc<Self>) {
         let now_ms = now_millis();
         let incoming = {
             let mut gw_guard = self.gateway_state.lock().await;
