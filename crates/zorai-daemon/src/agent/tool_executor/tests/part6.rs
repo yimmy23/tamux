@@ -1311,6 +1311,42 @@ async fn tui_bash_command_wait_false_returns_immediate_operation_handle() {
 }
 
 #[tokio::test]
+async fn get_operation_status_resolves_mistyped_id_by_unique_first_segment() {
+    let root = tempdir().expect("tempdir should succeed");
+    let manager = SessionManager::new_test(root.path()).await;
+    let record = crate::server::operation_registry()
+        .accept_operation(zorai_protocol::tool_names::BASH_COMMAND, None);
+    let first_segment = record
+        .operation_id
+        .split('-')
+        .next()
+        .expect("uuid should have a first segment");
+    let mangled = format!("{first_segment}-1111-4111-8111-111111111111");
+
+    let args = serde_json::json!({ "operation_id": mangled });
+    let result = execute_get_operation_status(&args, &manager)
+        .await
+        .expect("a mistyped id with a unique correct leading segment should still resolve");
+    let payload: serde_json::Value =
+        serde_json::from_str(&result).expect("status payload should be valid JSON");
+
+    assert_eq!(
+        payload["operation_id"], record.operation_id,
+        "payload should report the real registered operation id"
+    );
+    assert_eq!(
+        payload["requested_operation_id"], mangled,
+        "payload should surface the id the caller actually asked for"
+    );
+    assert!(
+        payload["status_note"]
+            .as_str()
+            .is_some_and(|note| note.contains(&record.operation_id)),
+        "status note should tell the agent the exact id to use next time: {payload}"
+    );
+}
+
+#[tokio::test]
 async fn tui_bash_command_wait_true_detaches_long_running_headless_command() {
     let root = tempdir().expect("tempdir should succeed");
     let manager = SessionManager::new_test(root.path()).await;

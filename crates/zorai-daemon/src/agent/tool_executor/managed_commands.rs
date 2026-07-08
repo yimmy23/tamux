@@ -517,6 +517,35 @@ async fn execute_operation_status_lookup(
     session_manager: &Arc<SessionManager>,
     compatibility_alias: bool,
 ) -> Result<String> {
+    if let Some(payload) =
+        operation_status_payload(operation_id, session_manager, compatibility_alias).await?
+    {
+        return Ok(payload.to_string());
+    }
+
+    if let Some(resolved_id) =
+        crate::server::operation_registry().resolve_unique_id_by_first_segment(operation_id)
+    {
+        if let Some(mut payload) =
+            operation_status_payload(&resolved_id, session_manager, compatibility_alias).await?
+        {
+            payload["requested_operation_id"] =
+                serde_json::Value::String(operation_id.to_string());
+            payload["status_note"] = serde_json::Value::String(format!(
+                "Requested operation id {operation_id} was not found; it was resolved to {resolved_id} because that is the only registered operation sharing the same leading UUID segment. Use the exact operation_id {resolved_id} in future calls."
+            ));
+            return Ok(payload.to_string());
+        }
+    }
+
+    Err(anyhow::anyhow!("unknown operation id: {operation_id}"))
+}
+
+async fn operation_status_payload(
+    operation_id: &str,
+    session_manager: &Arc<SessionManager>,
+    compatibility_alias: bool,
+) -> Result<Option<serde_json::Value>> {
     if let Some(status) = session_manager
         .get_background_task_status(operation_id)
         .await?
@@ -552,7 +581,7 @@ async fn execute_operation_status_lookup(
                 .map(|obj| obj.remove("background_task_id"));
         }
 
-        return Ok(payload.to_string());
+        return Ok(Some(payload));
     }
 
     if let Some(snapshot) = crate::server::operation_registry().snapshot(operation_id) {
@@ -587,8 +616,8 @@ async fn execute_operation_status_lookup(
         if compatibility_alias {
             payload["background_task_id"] = serde_json::Value::String(operation_id.to_string());
         }
-        return Ok(payload.to_string());
+        return Ok(Some(payload));
     }
 
-    Err(anyhow::anyhow!("unknown operation id: {operation_id}"))
+    Ok(None)
 }

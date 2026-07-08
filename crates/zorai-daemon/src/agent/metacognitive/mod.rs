@@ -11,6 +11,10 @@ pub mod self_assessment;
 pub mod types;
 
 #[cfg(test)]
+#[path = "tests/introspector.rs"]
+mod introspector_tests;
+
+#[cfg(test)]
 #[path = "tests/persistence.rs"]
 mod persistence_tests;
 

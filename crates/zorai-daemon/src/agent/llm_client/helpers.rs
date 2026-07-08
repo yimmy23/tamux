@@ -167,7 +167,7 @@ pub(crate) fn parse_fetched_models_response(json: &serde_json::Value) -> Vec<Fet
 fn built_in_models_for_provider(provider_id: &str) -> Result<Vec<FetchedModel>> {
     get_provider_definition(provider_id)
         .map(|definition| {
-            definition
+            let mut models = definition
                 .models
                 .iter()
                 .map(|model| FetchedModel {
@@ -177,7 +177,17 @@ fn built_in_models_for_provider(provider_id: &str) -> Result<Vec<FetchedModel>> 
                     pricing: None,
                     metadata: None,
                 })
-                .collect()
+                .collect::<Vec<_>>();
+            if models.is_empty() && !definition.default_model.is_empty() {
+                models.push(FetchedModel {
+                    id: definition.default_model.to_string(),
+                    name: Some(definition.default_model.to_string()),
+                    context_window: None,
+                    pricing: None,
+                    metadata: None,
+                });
+            }
+            models
         })
         .ok_or_else(|| anyhow::anyhow!("Unknown provider '{}'", provider_id))
 }
@@ -209,6 +219,31 @@ pub async fn fetch_models(
         return built_in_models_for_provider(provider_id);
     }
 
+    match fetch_remote_models(def, provider_id, base_url, api_key, output_modalities).await {
+        Ok(models) => Ok(models),
+        Err(error) => {
+            let fallback = built_in_models_for_provider(provider_id).unwrap_or_default();
+            if fallback.is_empty() {
+                Err(error)
+            } else {
+                tracing::warn!(
+                    provider_id,
+                    %error,
+                    "remote model fetch failed; returning built-in catalog"
+                );
+                Ok(fallback)
+            }
+        }
+    }
+}
+
+async fn fetch_remote_models(
+    def: &crate::agent::types::ProviderDefinition,
+    provider_id: &str,
+    base_url: &str,
+    api_key: &str,
+    output_modalities: Option<&str>,
+) -> Result<Vec<FetchedModel>> {
     let client = reqwest::Client::new();
     let trimmed_base_url = base_url.trim_end_matches('/');
     let mut url = if def.api_type == ApiType::Anthropic && !trimmed_base_url.ends_with("/v1") {
@@ -547,6 +582,95 @@ pub async fn validate_provider_connection(
 #[cfg(test)]
 mod helper_tests {
     use super::*;
+
+    fn write_custom_auth(yaml: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let custom_auth_path = temp_dir.path().join("custom-auth.yaml");
+        std::fs::write(&custom_auth_path, yaml).expect("write custom auth");
+        (temp_dir, custom_auth_path)
+    }
+
+    #[tokio::test]
+    async fn fetch_models_returns_yaml_models_for_custom_provider_without_remote_fetch() {
+        let _lock = crate::test_support::env_test_lock();
+        let _guard = crate::test_support::EnvGuard::new(&["ZORAI_CUSTOM_AUTH_PATH"]);
+        let (_temp_dir, custom_auth_path) = write_custom_auth(
+            r#"
+providers:
+  - id: yaml-provider
+    name: Yaml Provider
+    default_base_url: http://127.0.0.1:9/v1
+    default_model: model-a
+    models:
+      - id: model-a
+        context_window: 128000
+      - id: model-b
+        name: Model B
+        context_window: 64000
+"#,
+        );
+        std::env::set_var("ZORAI_CUSTOM_AUTH_PATH", &custom_auth_path);
+
+        let models = fetch_models("yaml-provider", "http://127.0.0.1:9/v1", "", None)
+            .await
+            .expect("custom provider models should come from the yaml catalog");
+
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "model-a");
+        assert_eq!(models[1].id, "model-b");
+        assert_eq!(models[1].name.as_deref(), Some("Model B"));
+        assert_eq!(models[1].context_window, Some(64_000));
+    }
+
+    #[tokio::test]
+    async fn fetch_models_falls_back_to_yaml_models_when_remote_fetch_fails() {
+        let _lock = crate::test_support::env_test_lock();
+        let _guard = crate::test_support::EnvGuard::new(&["ZORAI_CUSTOM_AUTH_PATH"]);
+        let (_temp_dir, custom_auth_path) = write_custom_auth(
+            r#"
+providers:
+  - id: yaml-fetch-provider
+    name: Yaml Fetch Provider
+    default_base_url: http://127.0.0.1:9/v1
+    default_model: model-a
+    supports_model_fetch: true
+    models:
+      - id: model-a
+        context_window: 128000
+"#,
+        );
+        std::env::set_var("ZORAI_CUSTOM_AUTH_PATH", &custom_auth_path);
+
+        let models = fetch_models("yaml-fetch-provider", "http://127.0.0.1:9/v1", "", None)
+            .await
+            .expect("remote fetch failure should fall back to the yaml catalog");
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "model-a");
+    }
+
+    #[tokio::test]
+    async fn fetch_models_returns_default_model_when_custom_provider_has_no_models() {
+        let _lock = crate::test_support::env_test_lock();
+        let _guard = crate::test_support::EnvGuard::new(&["ZORAI_CUSTOM_AUTH_PATH"]);
+        let (_temp_dir, custom_auth_path) = write_custom_auth(
+            r#"
+providers:
+  - id: yaml-default-only
+    name: Yaml Default Only
+    default_base_url: http://127.0.0.1:9/v1
+    default_model: only-model
+"#,
+        );
+        std::env::set_var("ZORAI_CUSTOM_AUTH_PATH", &custom_auth_path);
+
+        let models = fetch_models("yaml-default-only", "http://127.0.0.1:9/v1", "", None)
+            .await
+            .expect("provider with only a default model should still list it");
+
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "only-model");
+    }
 
     #[test]
     fn parse_fetched_models_response_preserves_xai_metadata_and_pricing() {

@@ -66,12 +66,15 @@ impl TuiModel {
             .map(|v| v.max(1000) as u32);
 
             self.config.provider = provider_id.to_string();
-            self.config.base_url = if !providers::provider_uses_configurable_base_url(provider_id) {
+            self.config.base_url = if providers::provider_uses_configurable_base_url(provider_id)
+                || base_url.is_some_and(|value| {
+                    providers::provider_base_url_is_customized(provider_id, value)
+                }) {
+                base_url.map(str::to_string).unwrap_or_default()
+            } else {
                 providers::find_by_id(provider_id)
                     .map(|def| def.default_base_url.to_string())
                     .unwrap_or_else(|| base_url.unwrap_or("").to_string())
-            } else {
-                base_url.map(str::to_string).unwrap_or_default()
             };
             self.config.model = model.map(str::to_string).unwrap_or_else(|| {
                 providers::find_by_id(provider_id)

@@ -132,6 +132,19 @@ impl OperationRegistry {
             .and_then(|record| record.terminal_result)
     }
 
+    pub(crate) fn resolve_unique_id_by_first_segment(&self, query: &str) -> Option<String> {
+        let first_segment = query.split('-').next().filter(|segment| segment.len() >= 8)?;
+        let records = self
+            .records
+            .lock()
+            .expect("operation records mutex poisoned");
+        let mut candidates = records
+            .keys()
+            .filter(|id| id.split('-').next() == Some(first_segment));
+        let resolved = candidates.next()?.clone();
+        candidates.next().is_none().then_some(resolved)
+    }
+
     fn record(&self, operation_id: &str) -> Option<OperationRecord> {
         let records = self
             .records
@@ -255,6 +268,59 @@ mod operation_registry_tests {
         assert_eq!(
             second.state,
             zorai_protocol::OperationLifecycleState::Accepted
+        );
+    }
+
+    #[test]
+    fn mistyped_operation_id_resolves_by_unique_first_segment() {
+        let registry = OperationRegistry::default();
+        let record = registry.accept_operation(zorai_protocol::tool_names::BASH_COMMAND, None);
+        let first_segment = record
+            .operation_id
+            .split('-')
+            .next()
+            .expect("uuid should have a first segment");
+
+        let mangled = format!("{first_segment}-0000-0000-0000-000000000000");
+        assert_eq!(
+            registry.resolve_unique_id_by_first_segment(&mangled),
+            Some(record.operation_id.clone()),
+            "a mangled tail with a correct leading segment should resolve to the registered operation"
+        );
+
+        assert_eq!(
+            registry.resolve_unique_id_by_first_segment("abc-0000"),
+            None,
+            "segments shorter than a uuid segment should not resolve"
+        );
+    }
+
+    #[test]
+    fn ambiguous_first_segment_does_not_resolve() {
+        let registry = OperationRegistry::default();
+        for suffix in ["111111111111", "222222222222"] {
+            let operation_id = format!("aabbccdd-0000-4000-8000-{suffix}");
+            registry
+                .records
+                .lock()
+                .expect("operation records mutex poisoned")
+                .insert(
+                    operation_id.clone(),
+                    OperationRecord {
+                        operation_id,
+                        kind: zorai_protocol::tool_names::BASH_COMMAND.to_string(),
+                        dedup: None,
+                        state: zorai_protocol::OperationLifecycleState::Accepted,
+                        revision: 0,
+                        terminal_result: None,
+                    },
+                );
+        }
+
+        assert_eq!(
+            registry.resolve_unique_id_by_first_segment("aabbccdd-9999-9999-9999-999999999999"),
+            None,
+            "prefix resolution must refuse to guess between multiple operations sharing a leading segment"
         );
     }
 

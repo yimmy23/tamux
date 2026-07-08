@@ -100,7 +100,7 @@ fn build_config_patch_value_round_trips_daemon_backed_settings() {
     reloaded.apply_config_json(&json);
 
     assert_eq!(reloaded.config.provider, PROVIDER_ID_OPENAI);
-    assert_eq!(reloaded.config.base_url, "https://api.openai.com/v1");
+    assert_eq!(reloaded.config.base_url, "https://example.invalid/v1");
     assert_eq!(reloaded.config.model, "gpt-5.4-mini");
     assert_eq!(reloaded.config.reasoning_effort, "high");
     assert_eq!(reloaded.config.tool_bash, false);

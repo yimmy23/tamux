@@ -248,6 +248,10 @@ function ensureCustomAuthTemplate(platform, env) {
       "#     default_base_url: http://127.0.0.1:11434/v1\n" +
       "#     default_model: llama3.3\n" +
       "#     api_key_env: LOCAL_OPENAI_API_KEY\n" +
+      "#     models:\n" +
+      "#       - id: llama3.3\n" +
+      "#         name: Llama 3.3\n" +
+      "#         context_window: 128000\n" +
       "providers: []\n"
   );
   return customAuthPath;
