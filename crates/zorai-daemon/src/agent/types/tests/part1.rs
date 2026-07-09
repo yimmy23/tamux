@@ -370,6 +370,18 @@ fn openai_curated_media_modalities_match_expectations() {
         Some("gpt-5.5")
     );
     assert_eq!(model_modalities(PROVIDER_ID_OPENAI, "gpt-5.5"), MULTIMODAL);
+    assert_eq!(
+        model_modalities(PROVIDER_ID_OPENAI, "gpt-5.6-sol"),
+        TEXT_IMAGE
+    );
+    assert_eq!(
+        model_modalities(PROVIDER_ID_OPENAI, "gpt-5.6-terra"),
+        TEXT_IMAGE
+    );
+    assert_eq!(
+        model_modalities(PROVIDER_ID_OPENAI, "gpt-5.6-luna"),
+        TEXT_IMAGE
+    );
     assert_eq!(model_modalities(PROVIDER_ID_OPENAI, "gpt-5.4"), MULTIMODAL);
     assert_eq!(
         model_modalities(PROVIDER_ID_OPENAI, "gpt-5.4-mini"),

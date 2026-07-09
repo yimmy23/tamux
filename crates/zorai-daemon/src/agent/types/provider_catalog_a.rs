@@ -8,6 +8,24 @@ pub const OPENAI_MODELS: &[ModelDefinition] = &[
         modalities: MULTIMODAL,
     },
     ModelDefinition {
+        id: "gpt-5.6-sol",
+        name: "GPT-5.6 Sol",
+        context_window: 1_000_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "gpt-5.6-terra",
+        name: "GPT-5.6 Terra",
+        context_window: 1_000_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
+        id: "gpt-5.6-luna",
+        name: "GPT-5.6 Luna",
+        context_window: 1_000_000,
+        modalities: TEXT_IMAGE,
+    },
+    ModelDefinition {
         id: "gpt-5.4",
         name: "GPT-5.4",
         context_window: 1_000_000,
