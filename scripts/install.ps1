@@ -307,6 +307,10 @@ function Install-CustomAuthTemplate {
 #     default_base_url: http://127.0.0.1:11434/v1
 #     default_model: llama3.3
 #     api_key_env: LOCAL_OPENAI_API_KEY
+#     models:
+#       - id: llama3.3
+#         name: Llama 3.3
+#         context_window: 128000
 providers: []
 "@ | Set-Content -Path $customAuthPath -Encoding UTF8
     Write-Host "Created custom provider template -> $customAuthPath"

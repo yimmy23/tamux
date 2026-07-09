@@ -91,6 +91,17 @@ pub fn provider_uses_configurable_base_url(provider_id: &str) -> bool {
     matches!(provider_id, PROVIDER_ID_CUSTOM | PROVIDER_ID_AZURE_OPENAI)
 }
 
+pub fn provider_base_url_is_customized(provider_id: &str, base_url: &str) -> bool {
+    let trimmed = base_url.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    match find_by_id(provider_id) {
+        Some(def) => trimmed != def.default_base_url && def.native_base_url != Some(trimmed),
+        None => true,
+    }
+}
+
 pub const PROVIDERS: &[ProviderDef] = &[
     ProviderDef {
         id: PROVIDER_ID_OPENAI,

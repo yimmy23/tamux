@@ -43,7 +43,9 @@ pub(super) fn normalize_provider_transport(provider_id: &str, cfg: &mut Provider
     if let Some(fixed_transport) = fixed_api_transport_for_model(provider_id, &cfg.model) {
         cfg.api_transport = fixed_transport;
     }
-    if cfg.api_transport == ApiTransport::AnthropicMessages {
+    if cfg.api_transport == ApiTransport::AnthropicMessages
+        && !provider_base_url_is_customized(provider_id, &cfg.base_url)
+    {
         if let Some(anthropic_base_url) = get_provider_definition(provider_id)
             .and_then(|definition| definition.anthropic_base_url)
         {
@@ -142,7 +144,9 @@ pub(super) fn resolve_provider_config_for(
                 resolved.model = def.default_model.to_string();
             }
         }
-        if !provider_uses_configurable_base_url(provider_id) {
+        if !provider_uses_configurable_base_url(provider_id)
+            && !provider_base_url_is_customized(provider_id, &resolved.base_url)
+        {
             if let Some(def) = get_provider_definition(provider_id) {
                 resolved.base_url =
                     get_provider_base_url(provider_id, &resolved.model, def.default_base_url);
@@ -290,7 +294,18 @@ pub(super) fn resolve_provider_model_switch(
                 provider_id
             );
         }
-        base_url = get_provider_base_url(provider_id, model, def.default_base_url);
+        let keeps_active_custom_base_url = provider_id == config.provider
+            && provider_base_url_is_customized(provider_id, &base_url);
+        if !keeps_active_custom_base_url {
+            base_url = config
+                .providers
+                .get(provider_id)
+                .map(|provider_config| provider_config.base_url.clone())
+                .filter(|url| provider_base_url_is_customized(provider_id, url))
+                .unwrap_or_else(|| {
+                    get_provider_base_url(provider_id, model, def.default_base_url)
+                });
+        }
         api_transport = if provider_supports_transport(provider_id, config.api_transport) {
             config.api_transport
         } else {
@@ -559,6 +574,99 @@ providers:
             resolved.base_url,
             "https://token-plan-ams.xiaomimimo.com/anthropic"
         );
+    }
+
+    #[test]
+    fn named_provider_keeps_user_customized_base_url() {
+        let mut config = AgentConfig::default();
+        config.provider = PROVIDER_ID_OPENAI.to_string();
+        config.providers.insert(
+            zorai_shared::providers::PROVIDER_ID_DEEPSEEK.to_string(),
+            ProviderConfig {
+                base_url: "https://proxy.example.com/v1".to_string(),
+                model: "deepseek-v4-pro".to_string(),
+                api_key: "deepseek-key".to_string(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ApiKey,
+                api_transport: ApiTransport::ChatCompletions,
+                context_window_tokens: 0,
+                reasoning_effort: String::new(),
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+                openrouter_provider_order: Vec::new(),
+                openrouter_provider_ignore: Vec::new(),
+                openrouter_allow_fallbacks: None,
+                openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
+            },
+        );
+
+        let resolved = resolve_provider_config_for(
+            &config,
+            zorai_shared::providers::PROVIDER_ID_DEEPSEEK,
+            Some("deepseek-v4-pro"),
+        )
+        .expect("provider should resolve");
+
+        assert_eq!(resolved.base_url, "https://proxy.example.com/v1");
+    }
+
+    #[test]
+    fn anthropic_transport_keeps_user_customized_base_url() {
+        let mut config = AgentConfig::default();
+        config.provider = PROVIDER_ID_OPENAI.to_string();
+        config.providers.insert(
+            PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN.to_string(),
+            ProviderConfig {
+                base_url: "https://mimo-proxy.example.com/anthropic".to_string(),
+                model: "mimo-v2.5-pro".to_string(),
+                api_key: "mimo-key".to_string(),
+                assistant_id: String::new(),
+                auth_source: AuthSource::ApiKey,
+                api_transport: ApiTransport::AnthropicMessages,
+                context_window_tokens: 0,
+                reasoning_effort: String::new(),
+                response_schema: None,
+                stop_sequences: None,
+                temperature: None,
+                top_p: None,
+                top_k: None,
+                metadata: None,
+                service_tier: None,
+                container: None,
+                inference_geo: None,
+                cache_control: None,
+                max_tokens: None,
+                anthropic_tool_choice: None,
+                output_effort: None,
+                openrouter_provider_order: Vec::new(),
+                openrouter_provider_ignore: Vec::new(),
+                openrouter_allow_fallbacks: None,
+                openrouter_response_cache_enabled: false,
+                huggingface_provider: None,
+            },
+        );
+
+        let resolved = resolve_provider_config_for(
+            &config,
+            PROVIDER_ID_XIAOMI_MIMO_TOKEN_PLAN,
+            Some("mimo-v2.5-pro"),
+        )
+        .expect("provider should resolve");
+
+        assert_eq!(resolved.api_transport, ApiTransport::AnthropicMessages);
+        assert_eq!(resolved.base_url, "https://mimo-proxy.example.com/anthropic");
     }
 
     #[test]

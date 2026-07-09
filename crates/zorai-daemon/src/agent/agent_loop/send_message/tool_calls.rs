@@ -74,11 +74,11 @@ impl<'a> SendMessageRunner<'a> {
         self.previous_tool_signature = Some(current_tool_signature);
         self.previous_tool_outcome = Some((tc.function.name.clone(), true));
         self.last_tool_error = Some((tc.function.name.clone(), content.clone()));
+        let mut blocked_outcome_summary =
+            summarize_tool_result_for_policy(&tc.function.name, &synthetic_result);
+        blocked_outcome_summary.outcome = "blocked".to_string();
         self.recent_policy_tool_outcomes
-            .push_back(summarize_tool_result_for_policy(
-                &tc.function.name,
-                &synthetic_result,
-            ));
+            .push_back(blocked_outcome_summary);
         while self.recent_policy_tool_outcomes.len() > POLICY_TOOL_OUTCOME_HISTORY_LIMIT {
             self.recent_policy_tool_outcomes.pop_front();
         }

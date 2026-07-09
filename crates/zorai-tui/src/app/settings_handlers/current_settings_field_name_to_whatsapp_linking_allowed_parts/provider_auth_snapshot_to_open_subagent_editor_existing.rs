@@ -211,13 +211,14 @@ impl TuiModel {
                 .and_then(|providers| providers.get(def.id))
                 .or_else(|| raw.get(def.id))
             {
-                if providers::provider_uses_configurable_base_url(def.id) {
-                    if let Some(saved_base_url) =
-                        TuiModel::provider_field_str(provider_config, "base_url", "base_url")
+                if let Some(saved_base_url) =
+                    TuiModel::provider_field_str(provider_config, "base_url", "base_url")
+                {
+                    if !saved_base_url.is_empty()
+                        && (providers::provider_uses_configurable_base_url(def.id)
+                            || providers::provider_base_url_is_customized(def.id, saved_base_url))
                     {
-                        if !saved_base_url.is_empty() {
-                            self.config.base_url = saved_base_url.to_string();
-                        }
+                        self.config.base_url = saved_base_url.to_string();
                     }
                 }
                 if let Some(key) =

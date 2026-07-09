@@ -25,6 +25,9 @@ const M_TI: Modality[] = ["text", "image"];
 const M_TA: Modality[] = ["text", "audio"];
 const OPENAI_API_MODELS: ModelDefinition[] = [
   { id: "gpt-5.5", name: "GPT-5.5", contextWindow: 1_000_000, modalities: M_MULTI },
+  { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", contextWindow: 1_000_000, modalities: M_TI },
+  { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", contextWindow: 1_000_000, modalities: M_TI },
+  { id: "gpt-5.6-luna", name: "GPT-5.6 Luna", contextWindow: 1_000_000, modalities: M_TI },
   { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000, modalities: M_MULTI },
   { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.4-nano", name: "GPT-5.4 Nano", contextWindow: 400_000, modalities: M_TI },
@@ -46,6 +49,10 @@ const OPENAI_API_MODELS: ModelDefinition[] = [
 
 const OPENAI_CHATGPT_SUBSCRIPTION_MODELS: ModelDefinition[] = [
   { id: "gpt-5.5", name: "GPT-5.5", contextWindow: 1_000_000, modalities: M_TI },
+  { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", contextWindow: 1_000_000, modalities: M_TI },
+  { id: "gpt-5.6-sol-pro", name: "GPT-5.6 Sol Pro", contextWindow: 1_000_000, modalities: M_TI },
+  { id: "gpt-5.6-terra", name: "GPT-5.6 Terra", contextWindow: 1_000_000, modalities: M_TI },
+  { id: "gpt-5.6-luna", name: "GPT-5.6 Luna", contextWindow: 1_000_000, modalities: M_TI },
   { id: "gpt-5.4", name: "GPT-5.4", contextWindow: 1_000_000, modalities: M_TI },
   { id: "gpt-5.4-mini", name: "GPT-5.4 Mini", contextWindow: 400_000, modalities: M_TI },
   { id: "gpt-5.3-codex", name: "GPT-5.3 Codex", contextWindow: 400_000, modalities: M_TI },
