@@ -129,7 +129,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         id: PROVIDER_ID_XAI,
         name: "xAI",
         default_base_url: "https://api.x.ai/v1",
-        default_model: "grok-4.3",
+        default_model: "grok-4.5",
         supported_transports: RESPONSES_AND_CHAT_TRANSPORTS,
         default_transport: "responses",
         supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,

@@ -228,6 +228,18 @@ impl TuiModel {
                 self.focus_prev();
                 Some(false)
             }
+            KeyCode::Left if ctrl && self.focus == FocusArea::Input => {
+                {
+                    self.input.reduce(input::InputAction::MoveCursorWordLeft);
+                };
+                Some(false)
+            }
+            KeyCode::Right if ctrl && self.focus == FocusArea::Input => {
+                {
+                    self.input.reduce(input::InputAction::MoveCursorWordRight);
+                };
+                Some(false)
+            }
             KeyCode::Left if self.focus == FocusArea::Input => {
                 {
                     self.input.reduce(input::InputAction::MoveCursorLeft);

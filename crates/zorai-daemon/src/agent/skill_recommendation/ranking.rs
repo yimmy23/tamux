@@ -8,9 +8,9 @@ use std::collections::{BTreeSet, HashMap};
 
 const MAX_USE_SCORE: f64 = 8.0;
 const RECENCY_DAY_SECS: u64 = 86_400;
-const MAX_LEXICAL_QUERY_TOKENS: usize = 8;
 const MIN_LEXICAL_QUERY_TOKENS: usize = 4;
 const MIN_PARTIAL_EVIDENCE_TERMS: usize = 2;
+const MIN_SEMANTIC_EVIDENCE_SCORE: f64 = 0.75;
 const PROCESS_INTENT_TOKENS: &[&str] = &[
     "architect",
     "behavior",
@@ -67,12 +67,28 @@ pub(super) fn rank_skill_candidates_with_semantic_scores(
         return SkillDiscoveryResult::default();
     }
 
+    let search_token_sets = candidates
+        .iter()
+        .map(|candidate| tokenize(&candidate.metadata.search_text))
+        .collect::<Vec<_>>();
+    let corpus_size = candidates.len();
+    let mut document_frequency: HashMap<String, usize> = HashMap::new();
+    for search_tokens in &search_token_sets {
+        for token in search_tokens {
+            *document_frequency.entry(token.clone()).or_default() += 1;
+        }
+    }
+
     let mut ranked = candidates
         .into_iter()
-        .map(|candidate| {
+        .zip(search_token_sets)
+        .map(|(candidate, search_tokens)| {
             score_candidate(
                 candidate,
+                &search_tokens,
                 &query_tokens,
+                &document_frequency,
+                corpus_size,
                 workspace_tags,
                 graph_signals,
                 semantic_scores,
@@ -153,25 +169,44 @@ fn compare_candidates(left: &CandidateScore, right: &CandidateScore) -> std::cmp
         })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn score_candidate(
     candidate: SkillCandidateInput,
+    search_tokens: &BTreeSet<String>,
     query_tokens: &BTreeSet<String>,
+    document_frequency: &HashMap<String, usize>,
+    corpus_size: usize,
     workspace_tags: &[String],
     graph_signals: &HashMap<String, GraphSkillSignal>,
     semantic_scores: &HashMap<String, f64>,
     cfg: &SkillRecommendationConfig,
 ) -> CandidateScore {
-    let search_tokens = tokenize(&candidate.metadata.search_text);
     let matched_terms = query_tokens
         .iter()
         .filter(|token| search_tokens.contains(token.as_str()))
         .cloned()
         .collect::<Vec<_>>();
-    let lexical_denominator = query_tokens
-        .len()
-        .clamp(MIN_LEXICAL_QUERY_TOKENS, MAX_LEXICAL_QUERY_TOKENS);
-    let lexical_overlap =
-        matched_terms.len().min(lexical_denominator) as f64 / lexical_denominator as f64;
+    let term_weight = |token: &str| {
+        let frequency = document_frequency.get(token).copied().unwrap_or(0);
+        inverse_document_frequency(frequency, corpus_size)
+    };
+    let query_weight_mass: f64 = query_tokens.iter().map(|token| term_weight(token)).sum();
+    let matched_weight_mass: f64 = matched_terms.iter().map(|token| term_weight(token)).sum();
+    let short_query_damp = (query_tokens.len() as f64 / MIN_LEXICAL_QUERY_TOKENS as f64).min(1.0);
+    let lexical_overlap = if query_weight_mass > 0.0 {
+        (matched_weight_mass / query_weight_mass) * short_query_damp
+    } else {
+        0.0
+    };
+    let distinctive_matched_terms = matched_terms
+        .iter()
+        .filter(|token| {
+            is_distinctive_term(
+                document_frequency.get(token.as_str()).copied().unwrap_or(0),
+                corpus_size,
+            )
+        })
+        .count();
 
     let matched_workspace_tags = workspace_tags
         .iter()
@@ -223,7 +258,7 @@ fn score_candidate(
         + (history_score * 0.20)
         + (recency_score * 0.06)
         + (graph_score * 0.04)
-        + (semantic_score * 0.75)
+        + (semantic_score * 0.45)
         + (novelty_score * cfg.novelty_distance_weight)
         + lifecycle_bonus
         + process_bonus
@@ -231,7 +266,7 @@ fn score_candidate(
         + canonical_pack_bonus;
     let score = apply_partial_evidence_floor(
         raw_score,
-        matched_terms.len(),
+        distinctive_matched_terms,
         matched_workspace_tags.len(),
         graph_score,
         semantic_score,
@@ -262,22 +297,31 @@ fn score_candidate(
 
 fn apply_partial_evidence_floor(
     score: f64,
-    matched_term_count: usize,
+    distinctive_matched_term_count: usize,
     matched_workspace_tag_count: usize,
     graph_score: f64,
     semantic_score: f64,
     cfg: &SkillRecommendationConfig,
 ) -> f64 {
-    let has_clear_partial_text_match = matched_term_count >= MIN_PARTIAL_EVIDENCE_TERMS;
-    let has_contextual_match = matched_term_count > 0 && matched_workspace_tag_count > 0;
+    let has_clear_partial_text_match = distinctive_matched_term_count >= MIN_PARTIAL_EVIDENCE_TERMS;
+    let has_contextual_match =
+        distinctive_matched_term_count > 0 && matched_workspace_tag_count > 0;
     let has_graph_match = graph_score > 0.0;
-    let has_semantic_match = semantic_score >= 0.50;
+    let has_semantic_match = semantic_score >= MIN_SEMANTIC_EVIDENCE_SCORE;
     if has_clear_partial_text_match || has_contextual_match || has_graph_match || has_semantic_match
     {
         score.max(cfg.weak_match_threshold)
     } else {
         score
     }
+}
+
+fn inverse_document_frequency(document_count: usize, corpus_size: usize) -> f64 {
+    (((corpus_size + 1) as f64) / ((document_count + 1) as f64)).ln() + 1.0
+}
+
+fn is_distinctive_term(document_count: usize, corpus_size: usize) -> bool {
+    document_count * 4 <= corpus_size.max(4)
 }
 
 fn score_history(record: &SkillVariantRecord) -> f64 {
@@ -479,13 +523,87 @@ fn tokenize(input: &str) -> BTreeSet<String> {
     const STOPWORDS: &[&str] = &[
         "about",
         "after",
+        "all",
+        "and",
+        "any",
+        "are",
         "backend",
+        "been",
+        "before",
+        "being",
+        "but",
+        "can",
+        "could",
+        "did",
+        "does",
+        "doing",
+        "down",
+        "during",
+        "each",
+        "few",
+        "for",
         "from",
+        "had",
+        "has",
+        "have",
+        "her",
+        "here",
+        "him",
+        "his",
+        "how",
         "into",
+        "its",
+        "just",
+        "more",
+        "most",
+        "not",
+        "now",
+        "off",
+        "once",
+        "only",
+        "other",
+        "our",
+        "out",
+        "over",
+        "own",
+        "same",
+        "she",
+        "should",
+        "some",
+        "such",
+        "than",
         "that",
+        "the",
+        "their",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
         "this",
+        "those",
+        "through",
+        "too",
+        "under",
+        "until",
+        "upon",
+        "very",
+        "was",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "while",
+        "who",
+        "whom",
+        "why",
+        "will",
         "with",
         "workspace",
+        "would",
+        "you",
+        "your",
     ];
 
     input

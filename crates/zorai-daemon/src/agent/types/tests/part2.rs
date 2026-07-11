@@ -855,7 +855,7 @@ fn deepseek_provider_exposes_fetchable_openai_defaults() {
 fn xai_provider_exposes_fetchable_responses_defaults() {
     let provider = get_provider_definition(PROVIDER_ID_XAI).expect("xai provider");
     assert_eq!(provider.default_base_url, "https://api.x.ai/v1");
-    assert_eq!(provider.default_model, "grok-4.3");
+    assert_eq!(provider.default_model, "grok-4.5");
     assert_eq!(provider.api_type, ApiType::OpenAI);
     assert_eq!(provider.auth_method, AuthMethod::Bearer);
     assert!(provider.supports_model_fetch);
@@ -866,13 +866,15 @@ fn xai_provider_exposes_fetchable_responses_defaults() {
     assert!(provider
         .supported_transports
         .contains(&ApiTransport::ChatCompletions));
-    assert_eq!(provider.models.len(), 3);
-    assert_eq!(provider.models[0].id, "grok-4.3");
+    assert_eq!(provider.models.len(), 4);
+    assert_eq!(provider.models[0].id, "grok-4.5");
     assert_eq!(provider.models[0].context_window, 1_000_000);
-    assert_eq!(provider.models[1].id, "grok-4");
-    assert_eq!(provider.models[1].context_window, 256_000);
-    assert_eq!(provider.models[2].id, "grok-code-fast-1");
+    assert_eq!(provider.models[1].id, "grok-4.3");
+    assert_eq!(provider.models[1].context_window, 1_000_000);
+    assert_eq!(provider.models[2].id, "grok-4");
     assert_eq!(provider.models[2].context_window, 256_000);
+    assert_eq!(provider.models[3].id, "grok-code-fast-1");
+    assert_eq!(provider.models[3].context_window, 256_000);
     assert_eq!(
         get_provider_api_type(PROVIDER_ID_XAI, "grok-4.3", "https://api.x.ai/v1"),
         ApiType::OpenAI

@@ -100,8 +100,9 @@ describe("frontend xAI provider catalog", () => {
 
     expect(xai).toBeDefined();
     expect(xai?.defaultBaseUrl).toBe("https://api.x.ai/v1");
-    expect(xai?.defaultModel).toBe("grok-4.3");
+    expect(xai?.defaultModel).toBe("grok-4.5");
     expect(xai?.models.map((model) => model.id)).toEqual([
+      "grok-4.5",
       "grok-4.3",
       "grok-4",
       "grok-code-fast-1",
@@ -112,7 +113,7 @@ describe("frontend xAI provider catalog", () => {
 
   it("recognizes xAI as a valid provider id", () => {
     expect(normalizeAgentProviderId("xai")).toBe("xai");
-    expect(getDefaultModelForProvider("xai" as any)).toBe("grok-4.3");
+    expect(getDefaultModelForProvider("xai" as any)).toBe("grok-4.5");
   });
 });
 
@@ -174,7 +175,7 @@ describe("frontend xAI audio/provider settings coverage", () => {
   it("covers xAI settings normalization and daemon serialization in a collected test file", () => {
     expect(DEFAULT_AGENT_SETTINGS.xai).toMatchObject({
       base_url: "https://api.x.ai/v1",
-      model: "grok-4.3",
+      model: "grok-4.5",
       api_transport: "responses",
     });
 

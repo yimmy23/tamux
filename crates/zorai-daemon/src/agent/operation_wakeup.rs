@@ -59,8 +59,13 @@ impl AgentEngine {
         }
 
         for operation_id in extract_operation_ids(content) {
-            self.register_operation_wakeup(thread_id, tool_name, &operation_id, notify_on_completion)
-                .await;
+            self.register_operation_wakeup(
+                thread_id,
+                tool_name,
+                &operation_id,
+                notify_on_completion,
+            )
+            .await;
         }
     }
 
@@ -131,22 +136,23 @@ impl AgentEngine {
             let should_resume_thread = claimed_wakeups
                 .iter()
                 .any(|(wakeup, _)| wakeup.notify_on_completion);
-            if self
+            let completion_message = self
                 .perform_operation_completion_wakeup_batch(&thread_id, &claimed_wakeups)
-                .await
-                && should_resume_thread
-            {
-                self.enqueue_operation_completion_continuation(&thread_id)
-                    .await;
-                if let Err(error) = self
-                    .flush_deferred_visible_thread_continuations(&thread_id)
-                    .await
-                {
-                    tracing::warn!(
-                        thread_id = %thread_id,
-                        error = %error,
-                        "operation completion wakeup continuation flush failed"
-                    );
+                .await;
+            if should_resume_thread {
+                if let Some(completion_message) = completion_message {
+                    self.enqueue_operation_completion_continuation(&thread_id, &completion_message)
+                        .await;
+                    if let Err(error) = self
+                        .flush_deferred_visible_thread_continuations(&thread_id)
+                        .await
+                    {
+                        tracing::warn!(
+                            thread_id = %thread_id,
+                            error = %error,
+                            "operation completion wakeup continuation flush failed"
+                        );
+                    }
                 }
             }
         }
@@ -225,7 +231,7 @@ impl AgentEngine {
         &self,
         thread_id: &str,
         wakeups: &[(OperationWakeup, serde_json::Value)],
-    ) -> bool {
+    ) -> Option<String> {
         let payload_ref = match self
             .write_operation_wakeup_payload(thread_id, wakeups)
             .await
@@ -245,7 +251,10 @@ impl AgentEngine {
                         wakeups.len()
                     )
                 };
-                return self.append_system_thread_message(thread_id, message).await;
+                return self
+                    .append_system_thread_message(thread_id, message.clone())
+                    .await
+                    .then_some(message);
             }
         };
 
@@ -273,8 +282,11 @@ impl AgentEngine {
             )
         };
 
-        if !self.append_system_thread_message(thread_id, message).await {
-            return false;
+        if !self
+            .append_system_thread_message(thread_id, message.clone())
+            .await
+        {
+            return None;
         }
 
         if wakeups.len() == 1 {
@@ -292,7 +304,7 @@ impl AgentEngine {
                 ),
                 Some(operation_wakeup_payload_ref_json(&payload_ref).to_string()),
             );
-            return true;
+            return Some(message);
         }
 
         self.emit_workflow_notice(
@@ -304,7 +316,7 @@ impl AgentEngine {
             ),
             Some(operation_wakeup_payload_ref_json(&payload_ref).to_string()),
         );
-        true
+        Some(message)
     }
 
     async fn write_operation_wakeup_payload(
@@ -362,7 +374,11 @@ impl AgentEngine {
         })
     }
 
-    async fn enqueue_operation_completion_continuation(&self, thread_id: &str) {
+    async fn enqueue_operation_completion_continuation(
+        &self,
+        thread_id: &str,
+        completion_message: &str,
+    ) {
         let prior_user_message = match self.history.latest_user_message_content(thread_id).await {
             Ok(message) => message,
             Err(error) => {
@@ -393,7 +409,10 @@ impl AgentEngine {
                 agent_id,
                 task_id,
                 preferred_session_hint: None,
-                llm_user_content: prior_user_message,
+                llm_user_content: operation_completion_continuation_prompt(
+                    completion_message,
+                    &prior_user_message,
+                ),
                 queued_at_ms: 0,
                 force_compaction: false,
                 rerun_participant_observers_after_turn: true,
@@ -403,6 +422,15 @@ impl AgentEngine {
         )
         .await;
     }
+}
+
+fn operation_completion_continuation_prompt(
+    completion_message: &str,
+    prior_user_message: &str,
+) -> String {
+    format!(
+        "A background operation for the active task has finished. This is an internal runtime continuation, not a new operator request.\n\nCompletion notice:\n{completion_message}\n\nOriginal operator request:\n{prior_user_message}\n\nContinue the original task now. Inspect the completed operation result before deciding the next step; when the completion notice provides a `read_with` instruction, execute it exactly to load the result. Do not merely acknowledge this notification or reply only with a confirmation such as \"OK\". Use the result, continue any remaining work, validate the outcome, and report meaningful progress or the final result. If the operation failed, diagnose the failure and continue with an appropriate recovery when safe."
+    )
 }
 
 fn operation_wakeup_payload_ref_json(payload_ref: &OperationWakeupPayloadRef) -> serde_json::Value {
@@ -501,6 +529,7 @@ fn operation_status_is_terminal(status: &serde_json::Value) -> bool {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
     use tempfile::tempdir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
@@ -922,19 +951,26 @@ mod tests {
             .expect("bind operation wakeup test server");
         let addr = listener.local_addr().expect("operation wakeup addr");
         let request_counter = Arc::new(AtomicUsize::new(0));
+        let request_bodies = Arc::new(Mutex::new(Vec::<String>::new()));
 
         tokio::spawn({
             let request_counter = request_counter.clone();
+            let request_bodies = request_bodies.clone();
             async move {
                 loop {
                     let Ok((mut socket, _)) = listener.accept().await else {
                         break;
                     };
                     let request_counter = request_counter.clone();
+                    let request_bodies = request_bodies.clone();
                     tokio::spawn(async move {
-                        let _body = read_http_request_body(&mut socket)
+                        let body = read_http_request_body(&mut socket)
                             .await
                             .expect("read operation wakeup request");
+                        request_bodies
+                            .lock()
+                            .expect("request bodies lock")
+                            .push(body);
                         request_counter.fetch_add(1, Ordering::SeqCst);
                         let response_body = concat!(
                             "data: {\"choices\":[{\"delta\":{\"content\":\"coalesced wakeup handled\"}}]}\n\n",
@@ -1027,6 +1063,26 @@ mod tests {
             1,
             "same-thread operation wakeups in one supervisor pass should produce one visible continuation"
         );
+        let request_bodies = request_bodies.lock().expect("request bodies lock");
+        assert_eq!(request_bodies.len(), 1);
+        let request_body = &request_bodies[0];
+        assert!(
+            request_body.contains("A background operation for the active task has finished"),
+            "completion continuation should explain why the agent resumed: {request_body}"
+        );
+        assert!(
+            request_body.contains("read_offloaded_payload"),
+            "completion continuation should tell the agent how to load results: {request_body}"
+        );
+        assert!(
+            request_body.contains("Do not merely acknowledge this notification"),
+            "completion continuation should prohibit acknowledgement-only responses: {request_body}"
+        );
+        assert!(
+            request_body.contains("run both long commands"),
+            "completion continuation should retain the original operator request: {request_body}"
+        );
+        drop(request_bodies);
 
         let threads = engine.threads.read().await;
         let thread = threads

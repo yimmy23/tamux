@@ -41,6 +41,9 @@ impl<'a> SendMessageRunner<'a> {
             &self.memory_paths,
             &self.agent_scope_id,
             &sub_agents,
+            self.current_task_snapshot
+                .as_ref()
+                .is_some_and(|task| task.parent_task_id.is_some()),
             self.operator_model_summary.as_deref(),
             self.operational_context.as_deref(),
             causal_guidance.as_deref(),

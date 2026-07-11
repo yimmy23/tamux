@@ -307,16 +307,17 @@ fn latest_stalled_turn_observation(
         return None;
     }
 
-    let last_message = thread.messages.last()?;
+    let mut trailing = thread
+        .messages
+        .iter()
+        .rev()
+        .skip_while(|message| matches!(message.role, MessageRole::System));
+    let last_message = trailing.next()?;
     if last_message.role != MessageRole::Assistant || last_message.tool_calls.is_some() {
         return None;
     }
 
-    let preceded_by_tool_result = thread
-        .messages
-        .iter()
-        .rev()
-        .skip(1)
+    let preceded_by_tool_result = trailing
         .find(|message| !matches!(message.role, MessageRole::System))
         .map(|message| message.role == MessageRole::Tool)
         .unwrap_or(false);

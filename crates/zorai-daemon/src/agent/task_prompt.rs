@@ -25,18 +25,23 @@ pub(super) fn build_task_prompt(task: &AgentTask) -> String {
     prompt.push_str(
         "\nIf the task is more than a one-shot action, call update_todo immediately with a concise plan and keep it current as steps advance.",
     );
-    prompt.push_str(
-        "\nIf this task is large and parallelizable, use spawn_subagent for bounded child work items and monitor them with list_subagents.",
-    );
+    let is_top_level_task = task.parent_task_id.is_none();
+    if is_top_level_task {
+        prompt.push_str(
+            "\nIf this task is large and parallelizable, use spawn_subagent for bounded child work items and monitor them with list_subagents.",
+        );
+    }
     prompt.push_str(
         "\nWhen this task involves work on a directory or repository path, check for `AGENTS.md` in that directory and its nearest relevant parent when repo-specific guidance is likely relevant. If present, apply the instructions that matter, but do not turn reading `AGENTS.md` into a standalone plan step unless the task specifically requires it.",
     );
-    prompt.push_str(
-        "\nWhen delegating directory or repository work with spawn_subagent, include that `AGENTS.md` path in the child assignment when one exists and pass along any applicable guidance; do not frame reading it as the child's first goal.",
-    );
-    prompt.push_str(
-        "\nDo not use list_agents to check spawned child progress, and do not busy-wait on active subagents. If delegation is in flight and no other useful work remains, send a concise progress update and stop so zorai can resume you when children finish.",
-    );
+    if is_top_level_task {
+        prompt.push_str(
+            "\nWhen delegating directory or repository work with spawn_subagent, include that `AGENTS.md` path in the child assignment when one exists and pass along any applicable guidance; do not frame reading it as the child's first goal.",
+        );
+        prompt.push_str(
+            "\nDo not use list_agents to check spawned child progress, and do not busy-wait on active subagents. If delegation is in flight and no other useful work remains, send a concise progress update and stop so zorai can resume you when children finish.",
+        );
+    }
 
     if let Some(command) = task.command.as_deref() {
         prompt.push_str(&format!("\nPreferred command or entrypoint: {command}"));
@@ -623,6 +628,31 @@ mod tests {
         assert!(prompt.contains("do not frame reading it as the child's first goal"));
         assert!(!prompt.contains("before planning or editing"));
         assert!(!prompt.contains("tell the child to read it first"));
+    }
+
+    #[test]
+    fn build_task_prompt_omits_spawn_guidance_for_supervised_subagents() {
+        let mut task = sample_task();
+        task.parent_task_id = Some("parent-1".to_string());
+
+        let prompt = build_task_prompt(&task);
+
+        assert!(
+            !prompt.contains("spawn_subagent"),
+            "a supervised subagent must not be told to spawn its own children"
+        );
+        assert!(
+            !prompt.contains("list_subagents"),
+            "a supervised subagent has no children to monitor"
+        );
+        assert!(
+            prompt.contains("You are running as a supervised subagent"),
+            "the subagent should still get its scoping note"
+        );
+        assert!(
+            prompt.contains("check for `AGENTS.md`"),
+            "general directory guidance must remain for subagents"
+        );
     }
 
     #[test]

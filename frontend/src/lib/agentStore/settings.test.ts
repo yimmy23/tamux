@@ -9,7 +9,7 @@ import {
 test("xAI defaults use hosted settings", () => {
   expect(DEFAULT_AGENT_SETTINGS.xai).toMatchObject({
     base_url: "https://api.x.ai/v1",
-    model: "grok-4.3",
+    model: "grok-4.5",
     api_transport: "responses",
   });
 });

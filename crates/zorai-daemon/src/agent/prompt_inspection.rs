@@ -692,6 +692,7 @@ impl AgentEngine {
             &memory_paths,
             &target.memory_scope_id,
             &sub_agents,
+            false,
             operator_model_summary.as_deref(),
             operational_context.as_deref(),
             causal_guidance.as_deref(),

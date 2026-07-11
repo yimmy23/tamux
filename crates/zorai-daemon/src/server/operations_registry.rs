@@ -133,7 +133,10 @@ impl OperationRegistry {
     }
 
     pub(crate) fn resolve_unique_id_by_first_segment(&self, query: &str) -> Option<String> {
-        let first_segment = query.split('-').next().filter(|segment| segment.len() >= 8)?;
+        let first_segment = query
+            .split('-')
+            .next()
+            .filter(|segment| segment.len() >= 8)?;
         let records = self
             .records
             .lock()

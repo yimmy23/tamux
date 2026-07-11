@@ -185,6 +185,24 @@ fn cursor_left_right() {
 }
 
 #[test]
+fn cursor_word_left_right_jumps_word_boundaries() {
+    let mut state = InputState::new();
+    for c in "foo bar baz".chars() {
+        state.reduce(InputAction::InsertChar(c));
+    }
+    assert_eq!(state.cursor_pos(), 11);
+
+    state.reduce(InputAction::MoveCursorWordLeft);
+    assert_eq!(state.cursor_pos(), 8);
+
+    state.reduce(InputAction::MoveCursorWordLeft);
+    assert_eq!(state.cursor_pos(), 4);
+
+    state.reduce(InputAction::MoveCursorWordRight);
+    assert_eq!(state.cursor_pos(), 8);
+}
+
+#[test]
 fn cursor_left_at_start_is_noop() {
     let mut state = InputState::new();
     state.reduce(InputAction::InsertChar('a'));

@@ -302,9 +302,7 @@ pub(super) fn resolve_provider_model_switch(
                 .get(provider_id)
                 .map(|provider_config| provider_config.base_url.clone())
                 .filter(|url| provider_base_url_is_customized(provider_id, url))
-                .unwrap_or_else(|| {
-                    get_provider_base_url(provider_id, model, def.default_base_url)
-                });
+                .unwrap_or_else(|| get_provider_base_url(provider_id, model, def.default_base_url));
         }
         api_transport = if provider_supports_transport(provider_id, config.api_transport) {
             config.api_transport
@@ -666,7 +664,10 @@ providers:
         .expect("provider should resolve");
 
         assert_eq!(resolved.api_transport, ApiTransport::AnthropicMessages);
-        assert_eq!(resolved.base_url, "https://mimo-proxy.example.com/anthropic");
+        assert_eq!(
+            resolved.base_url,
+            "https://mimo-proxy.example.com/anthropic"
+        );
     }
 
     #[test]
