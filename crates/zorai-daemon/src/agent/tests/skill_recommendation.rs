@@ -542,6 +542,139 @@ keywords: [summary, status, writing]
     Ok(())
 }
 
+fn write_generic_task_guidelines(guidelines_root: &std::path::Path) -> Result<()> {
+    for (file, name, topic) in [
+        (
+            "business-strategy-task.md",
+            "business-strategy-task",
+            "market positioning and revenue strategy",
+        ),
+        (
+            "customer-support-task.md",
+            "customer-support-task",
+            "support ticket handling and escalation",
+        ),
+        (
+            "hiring-pipeline-task.md",
+            "hiring-pipeline-task",
+            "candidate screening and interviews",
+        ),
+        (
+            "legal-review-task.md",
+            "legal-review-task",
+            "contract clauses and compliance",
+        ),
+        (
+            "marketing-campaign-task.md",
+            "marketing-campaign-task",
+            "campaign launch and audience targeting",
+        ),
+    ] {
+        write_markdown(
+            guidelines_root,
+            file,
+            &format!(
+                r#"---
+name: {name}
+description: Analyze the request, plan the architecture of the work, and repair issues in {topic}.
+keywords: [analysis, planning, review]
+---
+
+# {name}
+
+Analyze the task, plan the approach, review the architecture, and fix problems.
+"#
+            ),
+        )?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_local_guidelines_returns_none_when_only_generic_task_words_overlap() -> Result<()>
+{
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let guidelines_root = root.path().join("guidelines");
+    write_generic_task_guidelines(&guidelines_root)?;
+
+    let result = discover_local_guidelines(
+        &store,
+        &guidelines_root,
+        "analyze and repair recurrent neural architecture training gradients",
+        &["rust".to_string()],
+        3,
+        &SkillRecommendationConfig::default(),
+    )
+    .await?;
+
+    assert_eq!(
+        result.confidence,
+        SkillRecommendationConfidence::None,
+        "generic process words shared with every guideline must not manufacture a match; \
+         forcing agents to read or justify-skip an irrelevant guideline wastes every turn: {:?}",
+        result
+            .recommendations
+            .iter()
+            .map(|item| (item.record.skill_name.clone(), item.score))
+            .collect::<Vec<_>>()
+    );
+    assert!(result.recommendations.is_empty());
+    assert_eq!(result.recommended_action, SkillRecommendationAction::None);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn discover_local_guidelines_prefers_distinctive_terms_over_generic_overlap() -> Result<()> {
+    let root = tempdir()?;
+    let store = HistoryStore::new_test_store(root.path()).await?;
+    let guidelines_root = root.path().join("guidelines");
+    write_generic_task_guidelines(&guidelines_root)?;
+    write_markdown(
+        &guidelines_root,
+        "model-training-task.md",
+        r#"---
+name: model-training-task
+description: Diagnose neural network training problems such as vanishing gradients in recurrent models.
+keywords: [training, gradients, neural]
+---
+
+# Model Training Task
+
+Inspect gradient flow, loss curves, and recurrent state handling.
+"#,
+    )?;
+
+    let result = discover_local_guidelines(
+        &store,
+        &guidelines_root,
+        "analyze and repair recurrent neural architecture training gradients",
+        &["rust".to_string()],
+        3,
+        &SkillRecommendationConfig::default(),
+    )
+    .await?;
+
+    assert_eq!(
+        result
+            .recommendations
+            .first()
+            .map(|item| item.record.skill_name.as_str()),
+        Some("model-training-task"),
+        "the guideline matching the distinctive query terms must win over generic-word overlap"
+    );
+    assert!(
+        !result
+            .recommendations
+            .iter()
+            .any(|item| item.record.skill_name == "business-strategy-task"),
+        "guidelines that only share generic process words must not be recommended"
+    );
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn discover_local_guidelines_does_not_create_sidecar_lexical_index() -> Result<()> {
     let root = tempdir()?;

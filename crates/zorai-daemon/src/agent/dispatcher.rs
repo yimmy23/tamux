@@ -923,7 +923,9 @@ impl AgentEngine {
     async fn execute_dispatched_task(&self, task: AgentTask) -> Result<()> {
         let mut prompt = build_task_prompt(&task);
         task_prompt::append_goal_run_context(self, &mut prompt, &task).await;
-        task_prompt::append_effective_sub_agent_registry(self, &mut prompt).await;
+        if task.parent_task_id.is_none() {
+            task_prompt::append_effective_sub_agent_registry(self, &mut prompt).await;
+        }
         let use_internal_weles_dm = task.sub_agent_def_id.as_deref()
             == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
             && task.source != "workspace_review";

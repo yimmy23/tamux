@@ -419,6 +419,14 @@ impl InputState {
                 self.commit_history_selection();
                 self.textarea.move_cursor(CursorMove::Forward);
             }
+            InputAction::MoveCursorWordLeft => {
+                self.commit_history_selection();
+                self.textarea.move_cursor(CursorMove::WordBack);
+            }
+            InputAction::MoveCursorWordRight => {
+                self.commit_history_selection();
+                self.textarea.move_cursor(CursorMove::WordForward);
+            }
             InputAction::MoveCursorUp => {
                 self.commit_history_selection();
                 let (line, col) = self.cursor_line_col();

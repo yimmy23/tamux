@@ -2031,6 +2031,119 @@ async fn collect_stalled_turn_observations_detects_primary_thread_empty_after_to
 }
 
 #[tokio::test]
+async fn collect_stalled_turn_observations_detects_stall_behind_background_completion_notice() {
+    let engine = build_test_engine("Acknowledged.").await;
+    let now = super::now_millis();
+    let thread_id = "thread-stall-behind-background-notice";
+
+    let mut tool_message =
+        AgentMessage::user("Created file /tmp/output.md.", now.saturating_sub(60_000));
+    tool_message.id = "tool-result-1".to_string();
+    tool_message.role = MessageRole::Tool;
+    tool_message.tool_call_id = Some("call-1".to_string());
+    tool_message.tool_name = Some("write_file".to_string());
+
+    let assistant_with_tool_call = AgentMessage {
+        id: "assistant-tool-call".to_string(),
+        role: MessageRole::Assistant,
+        content: String::new(),
+        content_blocks: Vec::new(),
+        tool_calls: Some(vec![ToolCall {
+            id: "call-1".to_string(),
+            function: ToolFunction {
+                name: "write_file".to_string(),
+                arguments: "{}".to_string(),
+            },
+            weles_review: None,
+        }]),
+        tool_call_id: None,
+        tool_name: None,
+        tool_arguments: None,
+        tool_status: None,
+        weles_review: None,
+        input_tokens: 0,
+        output_tokens: 0,
+        cost: None,
+        provider: None,
+        model: None,
+        api_transport: None,
+        response_id: None,
+        upstream_message: None,
+        provider_final_result: None,
+        author_agent_id: None,
+        author_agent_name: None,
+        reasoning: None,
+        message_kind: crate::agent::types::AgentMessageKind::Normal,
+        compaction_strategy: None,
+        compaction_payload: None,
+        offloaded_payload_id: None,
+        tool_output_preview_path: None,
+        structural_refs: Vec::new(),
+        pinned_for_compaction: false,
+        timestamp: now.saturating_sub(120_000),
+        feedback: None,
+    };
+
+    let mut empty_assistant_after_tool_result =
+        AgentMessage::user(String::new(), now.saturating_sub(360_000));
+    empty_assistant_after_tool_result.id = "assistant-empty-after-tool".to_string();
+    empty_assistant_after_tool_result.role = MessageRole::Assistant;
+    empty_assistant_after_tool_result.reasoning = Some("brief".to_string());
+
+    let mut background_completion_notice = AgentMessage::user(
+        "Background operation finished.\n\nOperation result saved to file.",
+        now.saturating_sub(30_000),
+    );
+    background_completion_notice.id = "background-completion-notice".to_string();
+    background_completion_notice.role = MessageRole::System;
+
+    {
+        let mut threads = engine.threads.write().await;
+        threads.insert(
+            thread_id.to_string(),
+            AgentThread {
+                id: thread_id.to_string(),
+                agent_name: Some("DeepSeekorrr".to_string()),
+                title: "Primary chat stalled behind background completion notice".to_string(),
+                messages: vec![
+                    AgentMessage::user("Continue the project.", now.saturating_sub(180_000)),
+                    assistant_with_tool_call,
+                    tool_message,
+                    empty_assistant_after_tool_result,
+                    background_completion_notice,
+                ],
+                pinned: false,
+                upstream_thread_id: None,
+                upstream_transport: None,
+                upstream_provider: None,
+                upstream_model: None,
+                upstream_assistant_id: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                created_at: now.saturating_sub(180_000),
+                updated_at: now.saturating_sub(30_000),
+            },
+        );
+    }
+
+    let observations = engine.collect_stalled_turn_observations().await;
+    assert_eq!(
+        observations.len(),
+        1,
+        "a trailing background-completion system notice must not hide a stalled turn from recovery, since it no longer wakes the agent on its own"
+    );
+    assert_eq!(
+        observations[0].class,
+        StalledTurnClass::PostToolResultNoFollowThrough
+    );
+    assert_eq!(observations[0].thread_id, thread_id);
+    assert_eq!(
+        observations[0].last_message_id,
+        "assistant-empty-after-tool"
+    );
+}
+
+#[tokio::test]
 async fn collect_stalled_turn_observations_detects_subagent_stuck_on_empty_first_turn() {
     let engine = build_test_engine("Acknowledged.").await;
     let now = super::now_millis();

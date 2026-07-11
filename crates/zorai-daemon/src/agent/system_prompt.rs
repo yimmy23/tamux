@@ -70,6 +70,7 @@ pub(super) fn build_system_prompt(
     memory_paths: &super::task_prompt::MemoryPaths,
     agent_scope_id: &str,
     sub_agents: &[SubAgentDefinition],
+    is_subagent: bool,
     operator_model_summary: Option<&str>,
     operational_context: Option<&str>,
     causal_guidance: Option<&str>,
@@ -299,28 +300,30 @@ pub(super) fn build_system_prompt(
         );
     }
 
-    prompt.push_str(
-        "\n\n## Subagent Supervision\n\
-         - For large tasks with clearly separable work, call `spawn_subagent` to create bounded child tasks instead of trying to do everything in one loop.\n\
-            - If a child should use a specific provider or model, call `fetch_authenticated_providers` first and `fetch_provider_models` for the chosen provider before setting `spawn_subagent.provider` or `spawn_subagent.model`.\n\
-            - When spawning a child for directory or repository work, include the relevant path in the assignment and pass along any applicable `AGENTS.md` guidance when one exists; do not frame reading it as the child's first goal.\n\
-         - Keep each subagent narrow in scope and avoid creating duplicate child assignments.\n\
-         - Monitor child progress with `list_subagents` and integrate their results before declaring the parent task complete.\n\
-         - Do not use `list_agents` to check spawned child progress; it only lists runtime targets.\n\
-         - Do not busy-wait on child agents. If there is no other useful work to do after delegating, send a normal progress update and stop so zorai can resume you when children finish.\n\
-         - Spawned agents carry their own Slavic persona. Treat those identities as real collaborators with bounded scope, not as disposable copies of yourself.\n",
-    );
-    if config.collaboration.enabled {
+    if !is_subagent {
         prompt.push_str(
-            "         - When subagents need to coordinate, use `broadcast_contribution`, `read_peer_memory`, and `vote_on_disagreement` so disagreements are explicit instead of implicit.\n",
+            "\n\n## Subagent Supervision\n\
+             - For large tasks with clearly separable work, call `spawn_subagent` to create bounded child tasks instead of trying to do everything in one loop.\n\
+                - If a child should use a specific provider or model, call `fetch_authenticated_providers` first and `fetch_provider_models` for the chosen provider before setting `spawn_subagent.provider` or `spawn_subagent.model`.\n\
+                - When spawning a child for directory or repository work, include the relevant path in the assignment and pass along any applicable `AGENTS.md` guidance when one exists; do not frame reading it as the child's first goal.\n\
+             - Keep each subagent narrow in scope and avoid creating duplicate child assignments.\n\
+             - Monitor child progress with `list_subagents` and integrate their results before declaring the parent task complete.\n\
+             - Do not use `list_agents` to check spawned child progress; it only lists runtime targets.\n\
+             - Do not busy-wait on child agents. If there is no other useful work to do after delegating, send a normal progress update and stop so zorai can resume you when children finish.\n\
+             - Spawned agents carry their own Slavic persona. Treat those identities as real collaborators with bounded scope, not as disposable copies of yourself.\n",
         );
-    }
-    prompt.push_str(
-        "         - zorai caps active subagents per parent, so queue additional children only when they materially advance the task.\n\
-         - For tasks requiring domain expertise, prefer `route_to_specialist` over `spawn_subagent`. The handoff broker matches capability tags to specialist profiles, assembles context bundles with episodic memory and negative constraints, and records a WORM audit trail.\n",
-    );
+        if config.collaboration.enabled {
+            prompt.push_str(
+                "         - When subagents need to coordinate, use `broadcast_contribution`, `read_peer_memory`, and `vote_on_disagreement` so disagreements are explicit instead of implicit.\n",
+            );
+        }
+        prompt.push_str(
+            "         - zorai caps active subagents per parent, so queue additional children only when they materially advance the task.\n\
+             - For tasks requiring domain expertise, prefer `route_to_specialist` over `spawn_subagent`. The handoff broker matches capability tags to specialist profiles, assembles context bundles with episodic memory and negative constraints, and records a WORM audit trail.\n",
+        );
 
-    super::task_prompt::append_sub_agent_registry(&mut prompt, sub_agents);
+        super::task_prompt::append_sub_agent_registry(&mut prompt, sub_agents);
+    }
 
     prompt
 }
@@ -669,6 +672,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            false,
             None,
             None,
             None,
@@ -706,6 +710,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            false,
             None,
             None,
             None,
@@ -739,6 +744,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            false,
             None,
             None,
             None,
@@ -770,6 +776,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            false,
             None,
             None,
             None,
@@ -802,6 +809,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            false,
             None,
             None,
             None,
@@ -838,6 +846,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            false,
             None,
             None,
             None,
@@ -869,6 +878,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            false,
             None,
             None,
             None,
@@ -907,6 +917,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            false,
             None,
             None,
             None,
@@ -948,6 +959,7 @@ mod tests {
             ),
             crate::agent::agent_identity::MAIN_AGENT_ID,
             &engine.list_sub_agents().await,
+            false,
             None,
             None,
             None,
@@ -963,6 +975,83 @@ mod tests {
             "non-TUI / unknown surfaces should still see terminal discipline"
         );
         assert!(prompt.contains("`list_terminals`"));
+    }
+
+    #[tokio::test]
+    async fn subagent_prompt_omits_spawn_guidance_and_registry_to_prevent_recursive_spawning() {
+        let root = tempfile::tempdir().expect("tempdir should succeed");
+        let spawnable = SubAgentDefinition {
+            claude_permission_mode: None,
+            id: "researcher".to_string(),
+            name: "Researcher".to_string(),
+            provider: "openai".to_string(),
+            model: "gpt-5.4-mini".to_string(),
+            role: Some("investigator".to_string()),
+            system_prompt: Some("Investigate the assigned area.".to_string()),
+            tool_whitelist: None,
+            tool_blacklist: None,
+            context_budget_tokens: None,
+            context_window_tokens: None,
+            max_duration_secs: None,
+            supervisor_config: None,
+            enabled: true,
+            builtin: false,
+            immutable_identity: false,
+            disable_allowed: true,
+            delete_allowed: true,
+            protected_reason: None,
+            reasoning_effort: None,
+            api_transport: None,
+            openrouter_provider_order: Vec::new(),
+            openrouter_provider_ignore: Vec::new(),
+            openrouter_allow_fallbacks: None,
+            huggingface_provider: None,
+            created_at: 1,
+        };
+        let memory_paths = crate::agent::task_prompt::memory_paths_for_scope(
+            root.path(),
+            crate::agent::agent_identity::MAIN_AGENT_ID,
+        );
+        let build = |is_subagent: bool| {
+            build_system_prompt(
+                &AgentConfig::default(),
+                "Base prompt",
+                &crate::agent::types::AgentMemory::default(),
+                &memory_paths,
+                crate::agent::agent_identity::MAIN_AGENT_ID,
+                std::slice::from_ref(&spawnable),
+                is_subagent,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+
+        let root_prompt = build(false);
+        assert!(
+            root_prompt.contains("## Subagent Supervision"),
+            "the top-level agent should still be told how to delegate"
+        );
+        assert!(
+            root_prompt.contains("## Available Sub-Agents") && root_prompt.contains("Researcher"),
+            "the top-level agent should see the spawnable roster"
+        );
+
+        let subagent_prompt = build(true);
+        assert!(
+            !subagent_prompt.contains("## Subagent Supervision"),
+            "a spawned subagent must not be encouraged to spawn its own children"
+        );
+        assert!(
+            !subagent_prompt.contains("## Available Sub-Agents")
+                && !subagent_prompt.contains("spawn_subagent"),
+            "a spawned subagent must not receive the spawnable roster or spawn tooling guidance"
+        );
     }
 
     #[test]

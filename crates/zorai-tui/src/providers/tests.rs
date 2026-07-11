@@ -142,15 +142,15 @@ fn known_models_openai_chatgpt_subscription_is_restricted() {
 #[test]
 fn xai_static_catalog_uses_current_grok_defaults() {
     let provider = find_by_id(PROVIDER_ID_XAI).unwrap();
-    assert_eq!(provider.default_model, "grok-4.3");
+    assert_eq!(provider.default_model, "grok-4.5");
     assert_eq!(
         default_model_for_provider_auth(PROVIDER_ID_XAI, "api_key"),
-        "grok-4.3"
+        "grok-4.5"
     );
     let models = known_models_for_provider(PROVIDER_ID_XAI);
     assert_eq!(
         models.first().map(|model| model.id.as_str()),
-        Some("grok-4.3")
+        Some("grok-4.5")
     );
     assert_eq!(
         known_context_window_for(PROVIDER_ID_XAI, "grok-4.3"),

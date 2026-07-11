@@ -356,6 +356,7 @@ mod tests {
             },
             MAIN_AGENT_ID,
             &[],
+            false,
             None,
             None,
             None,

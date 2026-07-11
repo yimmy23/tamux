@@ -63,7 +63,10 @@ impl AgentEngine {
                 let next = {
                     let mut followups = engine.gateway_pending_followups.lock().await;
                     let mut inflight = engine.gateway_inflight_channels.lock().await;
-                    match followups.get_mut(&channel_key).and_then(VecDeque::pop_front) {
+                    match followups
+                        .get_mut(&channel_key)
+                        .and_then(VecDeque::pop_front)
+                    {
                         Some(next) => Some(next),
                         None => {
                             followups.remove(&channel_key);
@@ -80,11 +83,7 @@ impl AgentEngine {
         });
     }
 
-    async fn run_gateway_message_pipeline(
-        &self,
-        msg: gateway::IncomingMessage,
-        channel_key: &str,
-    ) {
+    async fn run_gateway_message_pipeline(&self, msg: gateway::IncomingMessage, channel_key: &str) {
         let channel_key = channel_key.to_string();
         tracing::info!(
             platform = %msg.platform,

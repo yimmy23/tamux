@@ -529,8 +529,7 @@ async fn execute_operation_status_lookup(
         if let Some(mut payload) =
             operation_status_payload(&resolved_id, session_manager, compatibility_alias).await?
         {
-            payload["requested_operation_id"] =
-                serde_json::Value::String(operation_id.to_string());
+            payload["requested_operation_id"] = serde_json::Value::String(operation_id.to_string());
             payload["status_note"] = serde_json::Value::String(format!(
                 "Requested operation id {operation_id} was not found; it was resolved to {resolved_id} because that is the only registered operation sharing the same leading UUID segment. Use the exact operation_id {resolved_id} in future calls."
             ));

@@ -414,7 +414,9 @@ mod tests {
             .await
             .expect("open_remote against live server");
         remote
-            .execute_batch("DROP TABLE IF EXISTS e2e; CREATE TABLE e2e (id INTEGER PRIMARY KEY, v TEXT)")
+            .execute_batch(
+                "DROP TABLE IF EXISTS e2e; CREATE TABLE e2e (id INTEGER PRIMARY KEY, v TEXT)",
+            )
             .await
             .expect("create remote table");
         remote

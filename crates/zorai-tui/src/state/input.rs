@@ -23,6 +23,8 @@ pub enum InputAction {
     InsertNewline,
     MoveCursorLeft,
     MoveCursorRight,
+    MoveCursorWordLeft,
+    MoveCursorWordRight,
     MoveCursorUp,
     MoveCursorDown,
     /// Move cursor up one visual line (accounting for text wrapping at given width)
