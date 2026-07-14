@@ -7,13 +7,11 @@ use std::collections::HashSet;
 const MAX_RECURSIVE_SUBAGENT_DEPTH: u8 = 3;
 const RECURSIVE_SUBAGENT_BUDGET_CURVE: [f64; 3] = [1.0, 0.6, 0.3];
 const DEFAULT_SUBAGENT_MAX_DURATION_SECS: u64 = 300;
-const DEFAULT_SUBAGENT_MAX_TOOL_CALLS: u32 = 50;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct RequestedSubagentBudget {
     pub(crate) max_tokens: Option<u32>,
     pub(crate) max_wall_time_secs: Option<u64>,
-    pub(crate) max_tool_calls: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -22,7 +20,6 @@ struct DerivedSubagentLimits {
     pub(crate) max_depth: u8,
     pub(crate) context_budget_tokens: Option<u32>,
     pub(crate) max_duration_secs: Option<u64>,
-    pub(crate) max_tool_calls: Option<u32>,
 }
 
 fn budget_fraction_for_depth(depth: u8) -> f64 {
@@ -78,18 +75,6 @@ fn adapt_derived_duration_budget(
     })
 }
 
-fn adapt_derived_tool_call_budget(
-    value: Option<u32>,
-    mode: SatisfactionAdaptationMode,
-) -> Option<u32> {
-    let factor = adaptive_subagent_budget_factor(mode);
-    value.map(|current| {
-        ((current as f64 * factor).round() as u32)
-            .max(1)
-            .min(current)
-    })
-}
-
 pub(super) fn parse_subagent_containment_scope(scope: Option<&str>) -> Option<(u8, u8)> {
     let scope = scope?.trim();
     let payload = scope.strip_prefix("subagent-depth:")?;
@@ -137,18 +122,6 @@ pub(super) fn extract_tool_call_limit(dsl: Option<&str>) -> Option<u32> {
         remaining = &after[close_idx + 1..];
     }
     limit
-}
-
-fn merge_tool_call_limit(existing: Option<String>, max_tool_calls: Option<u32>) -> Option<String> {
-    let Some(max_tool_calls) = max_tool_calls else {
-        return existing;
-    };
-    match existing {
-        Some(existing) if !existing.trim().is_empty() => {
-            Some(format!("({existing}) OR tool_call_count({max_tool_calls})"))
-        }
-        _ => Some(format!("tool_call_count({max_tool_calls})")),
-    }
 }
 
 async fn reserve_subagent_thread_id(agent: &AgentEngine) -> String {
@@ -286,15 +259,10 @@ fn parse_requested_subagent_budget(
     let max_wall_time_secs = budget
         .get("max_wall_time_secs")
         .and_then(|value| value.as_u64());
-    let max_tool_calls = budget
-        .get("max_tool_calls")
-        .and_then(|value| value.as_u64())
-        .map(|value| value.min(u32::MAX as u64) as u32);
 
     Ok(Some(RequestedSubagentBudget {
         max_tokens,
         max_wall_time_secs,
-        max_tool_calls,
     }))
 }
 
@@ -364,14 +332,6 @@ fn derive_subagent_limits(
             .map(|parent: u64| parent.min(base.max(30)))
             .or(Some(base.max(30)))
     };
-    let derived_max_tool_calls = {
-        let base = (DEFAULT_SUBAGENT_MAX_TOOL_CALLS as f64 * fraction).round() as u32;
-        current_task
-            .and_then(|task| extract_tool_call_limit(task.termination_conditions.as_deref()))
-            .map(|parent: u32| parent.min(base.max(1)))
-            .or(Some(base.max(1)))
-    };
-
     let requested_budget = requested_budget.unwrap_or_default();
     if let Some(current_task) = current_task {
         if let (Some(requested), Some(parent)) = (
@@ -398,18 +358,6 @@ fn derive_subagent_limits(
                 );
             }
         }
-        if let (Some(requested), Some(parent)) = (
-            requested_budget.max_tool_calls,
-            extract_tool_call_limit(current_task.termination_conditions.as_deref()),
-        ) {
-            if requested > parent {
-                anyhow::bail!(
-                    "requested budget.max_tool_calls {} exceeds parent tool-call budget {}",
-                    requested,
-                    parent
-                );
-            }
-        }
     }
 
     Ok(DerivedSubagentLimits {
@@ -421,9 +369,6 @@ fn derive_subagent_limits(
         max_duration_secs: requested_budget
             .max_wall_time_secs
             .or_else(|| adapt_derived_duration_budget(derived_max_duration, adaptation_mode)),
-        max_tool_calls: requested_budget
-            .max_tool_calls
-            .or_else(|| adapt_derived_tool_call_budget(derived_max_tool_calls, adaptation_mode)),
     })
 }
 
@@ -698,10 +643,6 @@ pub(crate) async fn execute_spawn_subagent(
     if subagent.context_budget_tokens.is_some() {
         subagent.context_overflow_action = Some(crate::agent::types::ContextOverflowAction::Error);
     }
-    subagent.termination_conditions = merge_tool_call_limit(
-        subagent.termination_conditions.clone(),
-        derived_limits.max_tool_calls,
-    );
 
     let persona_prompt = if subagent.sub_agent_def_id.as_deref()
         == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
@@ -800,10 +741,9 @@ pub(crate) async fn execute_spawn_subagent(
         derived_limits.child_depth, derived_limits.max_depth
     );
     let budget_suffix = format!(
-        "\nBudget: {} output tokens, {}s, {} tool calls",
+        "\nBudget: {} output tokens, {}s",
         derived_limits.context_budget_tokens.unwrap_or(0),
-        derived_limits.max_duration_secs.unwrap_or(0),
-        derived_limits.max_tool_calls.unwrap_or(0)
+        derived_limits.max_duration_secs.unwrap_or(0)
     );
     let thread_suffix = format!("\nReserved thread: {reserved_thread_id}");
     Ok(format!(

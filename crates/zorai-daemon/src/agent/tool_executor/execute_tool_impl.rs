@@ -952,21 +952,11 @@ pub(crate) fn apply_critique_modifications(
                 );
                 adjustments.push("temporal:schedule_for_operator_window".to_string());
             }
-            let tighten_tool_calls =
-                has_directive(
-                    critique_directives,
-                    crate::agent::critique::types::CritiqueDirective::LimitSubagentToolCalls,
-                ) || critique_requests_narrower_subagent_scope(critique_modifications);
             let tighten_wall_time =
                 has_directive(
                     critique_directives,
                     crate::agent::critique::types::CritiqueDirective::LimitSubagentWallTime,
                 ) || critique_requests_narrower_subagent_scope(critique_modifications);
-            if tighten_tool_calls {
-                if upsert_budget_limit(map, "max_tool_calls", 8) {
-                    adjustments.push("subagent:limit_tool_calls".to_string());
-                }
-            }
             if tighten_wall_time {
                 if upsert_budget_limit(map, "max_wall_time_secs", 120) {
                     adjustments.push("subagent:limit_wall_time".to_string());

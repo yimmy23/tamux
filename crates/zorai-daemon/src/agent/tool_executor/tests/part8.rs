@@ -6701,18 +6701,11 @@ fn apply_critique_modifications_constrains_spawn_subagent_budget_and_time() {
     );
 
     assert_eq!(
-        adjusted["budget"]["max_tool_calls"].as_u64(),
-        Some(8),
-        "critique rewrite should inject a tighter tool-call budget"
-    );
-    assert_eq!(
         adjusted["budget"]["max_wall_time_secs"].as_u64(),
         Some(120),
         "critique rewrite should inject a shorter wall-clock budget"
     );
-    assert!(changes
-        .iter()
-        .any(|item| item == "subagent:limit_tool_calls"));
+    assert!(adjusted["budget"].get("max_tool_calls").is_none());
     assert!(changes
         .iter()
         .any(|item| item == "subagent:limit_wall_time"));
@@ -6731,18 +6724,12 @@ fn apply_critique_modifications_uses_typed_directives_for_spawn_subagent_budget_
         Some("proceed_with_modifications"),
         &[],
         &["Keep this smaller and safer.".to_string()],
-        &[
-            crate::agent::critique::types::CritiqueDirective::LimitSubagentToolCalls,
-            crate::agent::critique::types::CritiqueDirective::LimitSubagentWallTime,
-        ],
+        &[crate::agent::critique::types::CritiqueDirective::LimitSubagentWallTime],
         None,
     );
 
-    assert_eq!(adjusted["budget"]["max_tool_calls"].as_u64(), Some(8));
     assert_eq!(adjusted["budget"]["max_wall_time_secs"].as_u64(), Some(120));
-    assert!(changes
-        .iter()
-        .any(|item| item == "subagent:limit_tool_calls"));
+    assert!(adjusted["budget"].get("max_tool_calls").is_none());
     assert!(changes
         .iter()
         .any(|item| item == "subagent:limit_wall_time"));
@@ -7067,10 +7054,7 @@ async fn critique_modifications_constrain_spawn_subagent_budget_end_to_end() {
         .find(|task| result.content.contains(&task.id))
         .expect("spawned subagent should exist");
     assert_eq!(task.max_duration_secs, Some(120));
-    assert!(task
-        .termination_conditions
-        .as_deref()
-        .is_some_and(|dsl| dsl.contains("tool_call_count(8)")));
+    assert!(task.termination_conditions.is_none());
 
     let review = result
         .weles_review
@@ -7079,10 +7063,6 @@ async fn critique_modifications_constrain_spawn_subagent_budget_end_to_end() {
         .reasons
         .iter()
         .any(|reason| reason.starts_with("critique_preflight:")));
-    assert!(review
-        .reasons
-        .iter()
-        .any(|reason| reason == "critique_applied:subagent:limit_tool_calls"));
     assert!(review
         .reasons
         .iter()
@@ -7259,10 +7239,7 @@ async fn critique_modifications_use_typed_directives_for_spawn_subagent_budget_e
         .find(|task| result.content.contains(&task.id))
         .expect("spawned subagent should exist");
     assert_eq!(task.max_duration_secs, Some(120));
-    assert!(task
-        .termination_conditions
-        .as_deref()
-        .is_some_and(|dsl| dsl.contains("tool_call_count(8)")));
+    assert!(task.termination_conditions.is_none());
 }
 
 #[tokio::test]

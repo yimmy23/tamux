@@ -387,8 +387,7 @@ pub(crate) fn add_available_tools_part_c(
                 "type": "object",
                 "properties": {
                     "max_tokens": { "type": "integer", "description": "Visible output-token budget; input/reasoning tokens not counted" },
-                    "max_wall_time_secs": { "type": "integer", "description": "Wall-clock budget in seconds" },
-                    "max_tool_calls": { "type": "integer", "description": "Tool-call budget" }
+                    "max_wall_time_secs": { "type": "integer", "description": "Wall-clock budget in seconds" }
                 },
                 "description": "Optional child budget; when omitted, derived from delegation depth."
             }
