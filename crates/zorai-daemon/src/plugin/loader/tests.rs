@@ -624,109 +624,6 @@ fn github_manifest_validates_through_plugin_loader() {
 }
 
 #[test]
-fn xquik_manifest_validates_read_only_contract() {
-    let root = project_root();
-    let path = root.join("plugins/zorai-plugin-xquik/xquik/plugin.json");
-    let raw = std::fs::read(&path).expect("xquik plugin.json should exist");
-    let validator = make_validator();
-
-    let (manifest, _) =
-        validate_manifest(&raw, &validator).expect("xquik manifest should pass validation");
-
-    let settings = manifest
-        .settings
-        .as_ref()
-        .expect("xquik should have settings");
-    let api_key = settings
-        .get("api_key")
-        .expect("xquik should declare api_key setting");
-    assert!(api_key.required);
-    assert!(api_key.secret);
-
-    let api = manifest
-        .api
-        .as_ref()
-        .expect("xquik should have api section");
-    assert_eq!(api.base_url.as_deref(), Some("https://xquik.com/api/v1"));
-    assert_eq!(api.endpoints.len(), 6);
-
-    for endpoint in api.endpoints.values() {
-        assert_eq!(endpoint.method, "GET");
-        let headers = endpoint
-            .headers
-            .as_ref()
-            .expect("xquik endpoints should declare headers");
-        assert_eq!(
-            headers.get("x-api-key").map(String::as_str),
-            Some("{{settings.api_key}}")
-        );
-        assert_eq!(
-            headers.get("xquik-api-contract").map(String::as_str),
-            Some("2026-04-29")
-        );
-    }
-
-    let connector = manifest
-        .connector
-        .as_ref()
-        .expect("xquik should declare connector metadata");
-    assert_eq!(connector.kind, "xquik");
-    assert_eq!(
-        connector.readiness_endpoint.as_deref(),
-        Some("check_health")
-    );
-    assert_eq!(connector.read_actions.len(), 5);
-    assert!(connector.write_actions.is_empty());
-}
-
-#[tokio::test]
-async fn xquik_request_and_response_templates_compile() {
-    let root = project_root();
-    let path = root.join("plugins/zorai-plugin-xquik/xquik/plugin.json");
-    let raw = std::fs::read(&path).expect("xquik plugin.json should exist");
-    let validator = make_validator();
-    let (manifest, _) =
-        validate_manifest(&raw, &validator).expect("xquik manifest should pass validation");
-    let api = manifest
-        .api
-        .as_ref()
-        .expect("xquik should have api section");
-    let mut registry = crate::plugin::template::create_registry();
-    let context = crate::plugin::template::build_context(
-        serde_json::json!({
-            "query": "open source agents",
-            "sort": "Latest",
-            "limit": 20,
-            "id": "xquik",
-            "include_replies": false,
-            "woeid": 1,
-            "count": 20
-        }),
-        vec![("api_key".to_string(), "test-secret".to_string(), true)],
-        None,
-    );
-
-    for (name, endpoint) in &api.endpoints {
-        if let Some(template) = &endpoint.response_template {
-            let template_name = format!("xquik-{name}");
-            registry
-                .register_template_string(&template_name, template)
-                .unwrap_or_else(|error| panic!("{name} response template should compile: {error}"));
-        }
-
-        let request = crate::plugin::template::render_request(&registry, api, endpoint, &context)
-            .await
-            .unwrap_or_else(|error| panic!("{name} request template should render: {error}"));
-        assert!(request.url.starts_with("https://xquik.com/api/v1/"));
-        assert!(!request.url.contains("test-secret"));
-        assert!(request
-            .headers
-            .iter()
-            .any(|(key, value)| key == "x-api-key" && value == "test-secret"));
-    }
-}
-
-#[test]
 fn core_connector_manifests_expose_readiness_probes_and_normalized_primitives() {
     let validator = make_validator();
     let cases: &[(&str, &str, &[&str], &[&str])] = &[
@@ -797,19 +694,6 @@ fn core_connector_manifests_expose_readiness_probes_and_normalized_primitives() 
                 "meeting_prep",
             ],
             &["update", "rsvp", "prep"],
-        ),
-        (
-            "plugins/zorai-plugin-xquik/xquik/plugin.json",
-            "xquik",
-            &[
-                "check_health",
-                "search_tweets",
-                "get_tweet",
-                "get_user",
-                "get_user_tweets",
-                "get_trends",
-            ],
-            &["health", "search", "tweet", "user", "timeline", "trends"],
         ),
     ];
 
