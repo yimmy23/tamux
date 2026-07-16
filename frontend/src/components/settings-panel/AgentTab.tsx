@@ -891,6 +891,7 @@ export function AgentTab({
                             <option value="medium">Medium</option>
                             <option value="high">High</option>
                             <option value="xhigh">Extra High</option>
+                            <option value="max">Max</option>
                         </select>
                     </SettingRow>
             </Section>
@@ -1302,6 +1303,7 @@ export function AgentTab({
                                 <option value="medium">medium</option>
                                 <option value="high">high</option>
                                 <option value="xhigh">xhigh</option>
+                                <option value="max">max</option>
                             </select>
                         </SettingRow>
                         <SettingRow label="WELES Transport">
@@ -1426,6 +1428,7 @@ export function AgentTab({
                                 <option value="medium">medium</option>
                                 <option value="high">high</option>
                                 <option value="xhigh">xhigh</option>
+                                <option value="max">max</option>
                             </select>
                         </SettingRow>
                         <SettingRow label="Custom Context Window">

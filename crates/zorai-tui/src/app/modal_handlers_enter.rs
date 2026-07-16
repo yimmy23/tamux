@@ -1297,7 +1297,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
         }
         modal::ModalKind::EffortPicker => {
             if let Some(edit) = model.goal_mission_control.pending_runtime_edit.clone() {
-                let efforts = ["", "minimal", "low", "medium", "high", "xhigh"];
+                let efforts = ["", "minimal", "low", "medium", "high", "xhigh", "max"];
                 let cursor = model.modal.picker_cursor();
                 if let Some(&effort) = efforts.get(cursor) {
                     let next_effort = (!effort.is_empty()).then(|| effort.to_string());
@@ -1321,7 +1321,7 @@ pub(super) fn handle_modal_enter(model: &mut TuiModel, kind: modal::ModalKind) {
                 }
                 return;
             }
-            let efforts = ["", "minimal", "low", "medium", "high", "xhigh"];
+            let efforts = ["", "minimal", "low", "medium", "high", "xhigh", "max"];
             let cursor = model.modal.picker_cursor();
             if let Some(&effort) = efforts.get(cursor) {
                 match model.settings_picker_target {

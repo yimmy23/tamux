@@ -113,6 +113,7 @@ export function ConciergeSection() {
                     <option value="medium">Medium</option>
                     <option value="high">High</option>
                     <option value="xhigh">Extra High</option>
+                    <option value="max">Max</option>
                 </select>
             </SettingRow>
             {config.provider && (

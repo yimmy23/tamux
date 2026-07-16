@@ -155,6 +155,7 @@ fn render_runtime_effort_picker(
         ("medium", "Medium"),
         ("high", "High"),
         ("xhigh", "Extra High"),
+        ("max", "Max"),
     ];
     let cursor = modal.picker_cursor();
     let current = current_effort.unwrap_or("");

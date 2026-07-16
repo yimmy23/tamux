@@ -216,6 +216,7 @@ impl TuiModel {
             "medium" => 3,
             "high" => 4,
             "xhigh" => 5,
+            "max" => 6,
             _ => 0,
         }
     }
@@ -263,7 +264,7 @@ impl TuiModel {
     }
 
     pub(crate) fn sync_effort_picker_cursor_to_current(&mut self) {
-        self.modal.set_picker_item_count(6);
+        self.modal.set_picker_item_count(7);
         let current = self.effort_picker_current_value();
         let cursor = Self::effort_picker_index(current.as_deref());
         self.modal

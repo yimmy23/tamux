@@ -202,6 +202,45 @@ fn toggle_tool_expansion() {
 }
 
 #[test]
+fn tool_expanded_while_running_collapses_after_result_assigns_message_id() {
+    let mut state = ChatState::new();
+    state.reduce(ChatAction::ThreadDetailReceived(AgentThread {
+        id: "t1".into(),
+        title: "Test".into(),
+        ..Default::default()
+    }));
+    state.reduce(ChatAction::SelectThread("t1".into()));
+    state.reduce(ChatAction::ToolCall {
+        thread_id: "t1".into(),
+        call_id: "call-1".into(),
+        name: "bash".into(),
+        args: "{}".into(),
+        weles_review: None,
+        message_id: None,
+    });
+
+    state.toggle_tool_expansion(0);
+    assert!(state.expanded_tools().contains(&0));
+
+    state.reduce(ChatAction::ToolResult {
+        thread_id: "t1".into(),
+        call_id: "call-1".into(),
+        name: "bash".into(),
+        content: "ok".into(),
+        is_error: false,
+        weles_review: None,
+        message_id: Some("msg-tool-1".into()),
+    });
+    assert!(state.expanded_tools().contains(&0));
+
+    state.toggle_tool_expansion(0);
+    assert!(
+        !state.expanded_tools().contains(&0),
+        "tool expanded before its result arrived must collapse after the result assigns an id"
+    );
+}
+
+#[test]
 fn toggle_tool_expansion_independent() {
     let mut state = state_with_messages(2);
     state.toggle_tool_expansion(0);

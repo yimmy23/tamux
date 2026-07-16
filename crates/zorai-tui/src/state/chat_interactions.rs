@@ -1,5 +1,16 @@
 use super::*;
 
+fn refs_resolving_to_index(
+    refs: &std::collections::HashSet<StoredMessageRef>,
+    thread: &AgentThread,
+    index: usize,
+) -> Vec<StoredMessageRef> {
+    refs.iter()
+        .filter(|stored| resolve_message_ref(thread, stored) == Some(index))
+        .cloned()
+        .collect()
+}
+
 impl ChatState {
     pub fn expanded_reasoning(&self) -> std::collections::HashSet<usize> {
         self.resolve_active_message_ref_set(&self.expanded_reasoning)
@@ -9,10 +20,16 @@ impl ChatState {
         let Some(message_ref) = self.message_ref_for_active_index(msg_index) else {
             return;
         };
-        if self.expanded_reasoning.contains(&message_ref) {
-            self.expanded_reasoning.remove(&message_ref);
-        } else {
+        let existing = self
+            .active_thread()
+            .map(|thread| refs_resolving_to_index(&self.expanded_reasoning, thread, msg_index))
+            .unwrap_or_default();
+        if existing.is_empty() {
             self.expanded_reasoning.insert(message_ref);
+        } else {
+            for stored in existing {
+                self.expanded_reasoning.remove(&stored);
+            }
         }
         self.bump_render_revision();
     }
@@ -117,31 +134,35 @@ impl ChatState {
         let Some(message_ref) = self.message_ref_for_active_index(msg_index) else {
             return;
         };
-        if self.expanded_tools.contains(&message_ref) {
-            self.expanded_tools.remove(&message_ref);
-        } else {
+        let existing = self
+            .active_thread()
+            .map(|thread| refs_resolving_to_index(&self.expanded_tools, thread, msg_index))
+            .unwrap_or_default();
+        if existing.is_empty() {
             self.expanded_tools.insert(message_ref);
+        } else {
+            for stored in existing {
+                self.expanded_tools.remove(&stored);
+            }
         }
         self.bump_render_revision();
     }
 
     pub fn toggle_last_reasoning(&mut self) {
-        if let Some(thread) = self.active_thread() {
-            for (index, message) in thread.messages.iter().enumerate().rev() {
-                if message.role == MessageRole::Assistant && message.reasoning.is_some() {
-                    let Some(message_ref) = stored_message_ref(thread, index) else {
-                        return;
-                    };
-                    if self.expanded_reasoning.contains(&message_ref) {
-                        self.expanded_reasoning.remove(&message_ref);
-                    } else {
-                        self.expanded_reasoning.insert(message_ref);
-                    }
-                    self.bump_render_revision();
-                    return;
-                }
-            }
-        }
+        let Some(msg_index) = self.active_thread().and_then(|thread| {
+            thread
+                .messages
+                .iter()
+                .enumerate()
+                .rev()
+                .find(|(_, message)| {
+                    message.role == MessageRole::Assistant && message.reasoning.is_some()
+                })
+                .map(|(index, _)| index)
+        }) else {
+            return;
+        };
+        self.toggle_reasoning(msg_index);
     }
 
     pub fn mark_message_copied(&mut self, message_index: usize, expires_at_tick: u64) {

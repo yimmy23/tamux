@@ -1548,7 +1548,7 @@ impl TuiModel {
                         && mouse.row < inner.y.saturating_add(inner.height.saturating_sub(1))
                     {
                         let idx = mouse.row.saturating_sub(inner.y) as usize;
-                        if idx < 5 {
+                        if idx < 7 {
                             self.modal_navigate_to(idx);
                             self.handle_modal_enter(kind);
                         }

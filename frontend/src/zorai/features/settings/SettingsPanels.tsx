@@ -48,7 +48,7 @@ type ToggleSetting = {
 };
 
 const authSources: AuthSource[] = ["api_key", "chatgpt_subscription", "github_copilot"];
-const reasoningEfforts: AgentSettings["reasoning_effort"][] = ["none", "minimal", "low", "medium", "high", "xhigh"];
+const reasoningEfforts: AgentSettings["reasoning_effort"][] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 export const conciergeReasoningEffortOptions: Array<{ value: AgentSettings["reasoning_effort"]; label: string }> = [
   { value: "none", label: "No" },
   { value: "minimal", label: "minimal" },
@@ -56,6 +56,7 @@ export const conciergeReasoningEffortOptions: Array<{ value: AgentSettings["reas
   { value: "medium", label: "medium" },
   { value: "high", label: "high" },
   { value: "xhigh", label: "xhigh" },
+  { value: "max", label: "max" },
 ];
 const APP_VERSION = "0.9.32";
 const APP_AUTHOR = "Mariusz Kurman";

@@ -112,7 +112,7 @@ pub(crate) fn normalize_reasoning_effort(effort: &str) -> Option<String> {
         "low" => Some("low".to_string()),
         "medium" => Some("medium".to_string()),
         "high" => Some("high".to_string()),
-        "xhigh" => Some("high".to_string()),
+        "xhigh" => Some("xhigh".to_string()),
         other => Some(other.to_string()),
     }
 }
@@ -294,6 +294,7 @@ pub(crate) fn anthropic_thinking_budget(effort: &str) -> Option<u32> {
         "medium" => Some(4096),
         "high" => Some(8192),
         "xhigh" => Some(16384),
+        "max" => Some(32768),
         _ => Some(4096),
     }
 }

@@ -397,6 +397,7 @@ export function ChatComposer({
             <option value="medium">medium</option>
             <option value="high">high</option>
             <option value="xhigh">xhigh</option>
+            <option value="max">max</option>
           </select>
         </div>
         <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>

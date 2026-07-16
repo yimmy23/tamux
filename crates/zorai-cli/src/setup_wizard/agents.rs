@@ -3,13 +3,14 @@ use super::flow::{
 };
 use super::*;
 
-const REASONING_EFFORT_ITEMS: [(&str, &str); 6] = [
+const REASONING_EFFORT_ITEMS: [(&str, &str); 7] = [
     ("None", "none"),
     ("Minimal", "minimal"),
     ("Low", "low"),
     ("Medium", "medium"),
     ("High", "high"),
     ("Extra High", "xhigh"),
+    ("Max", "max"),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
