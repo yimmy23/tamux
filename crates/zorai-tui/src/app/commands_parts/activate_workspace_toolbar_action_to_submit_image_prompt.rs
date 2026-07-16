@@ -265,7 +265,19 @@ impl TuiModel {
             "thread" => {
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::ThreadPicker));
-                self.sync_thread_picker_item_count();
+                if let Some(tab) = self.active_thread_owner_agent_id().and_then(|agent_id| {
+                    widgets::thread_picker::resolve_thread_picker_tab(
+                        &agent_id,
+                        &self.chat,
+                        &self.subagents,
+                    )
+                }) {
+                    self.modal.set_thread_picker_tab(tab.clone());
+                    self.sync_thread_picker_item_count();
+                    self.queue_threads_for_picker_tab_refresh(&tab);
+                } else {
+                    self.sync_thread_picker_item_count();
+                }
             }
             "goal" => {
                 self.modal

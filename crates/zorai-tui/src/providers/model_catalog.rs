@@ -174,6 +174,7 @@ pub(super) fn known_models_for_provider_auth(
             ("moonshot-v1-128k", "Moonshot V1 128K", 131_072),
         ],
         PROVIDER_ID_KIMI_CODING_PLAN => &[
+            ("k3", "Kimi K3", 262_144),
             ("kimi-for-coding", "Kimi for Coding", 262_144),
             ("kimi-k2.7-code", "Kimi K2.7 Code", 262_144),
             ("kimi-k2.6", "Kimi K2.6", 262_144),

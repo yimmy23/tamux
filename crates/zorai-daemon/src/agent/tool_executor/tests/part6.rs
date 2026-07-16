@@ -5071,10 +5071,7 @@ async fn spawn_subagent_allows_recursive_spawn_when_parent_scope_permits_and_der
     );
     assert_eq!(task.context_budget_tokens, Some(20_000));
     assert_eq!(task.max_duration_secs, Some(180));
-    assert!(task
-        .termination_conditions
-        .as_deref()
-        .is_some_and(|dsl| dsl.contains("tool_call_count(10)")));
+    assert!(task.termination_conditions.is_none());
     assert_eq!(
         task.context_overflow_action,
         Some(crate::agent::types::ContextOverflowAction::Error)
@@ -5174,16 +5171,8 @@ async fn spawn_subagent_strained_mode_constrains_derived_budgets() {
         ((normal_duration as f64 * 0.6).round() as u64).max(30)
     );
 
-    let normal_tool_calls =
-        super::extract_tool_call_limit(normal_task.termination_conditions.as_deref())
-            .expect("normal spawn should derive a tool-call budget");
-    let strained_tool_calls =
-        super::extract_tool_call_limit(strained_task.termination_conditions.as_deref())
-            .expect("strained spawn should derive a tool-call budget");
-    assert_eq!(
-        strained_tool_calls,
-        ((normal_tool_calls as f64 * 0.6).round() as u32).max(1)
-    );
+    assert!(normal_task.termination_conditions.is_none());
+    assert!(strained_task.termination_conditions.is_none());
 }
 
 #[tokio::test]

@@ -467,6 +467,34 @@ fn slash_thread_with_agent_preselects_matching_source() {
 }
 
 #[test]
+fn slash_thread_without_args_preselects_active_thread_owner_agent() {
+    let (mut model, _daemon_rx) = make_model();
+    model
+        .subagents
+        .entries
+        .push(sample_subagent("domowoj", "Domowoj", false));
+    model
+        .chat
+        .reduce(chat::ChatAction::ThreadDetailReceived(chat::AgentThread {
+            id: "thread-domowoj".to_string(),
+            agent_name: Some("Domowoj".to_string()),
+            title: "Domowoj thread".to_string(),
+            ..Default::default()
+        }));
+    model
+        .chat
+        .reduce(chat::ChatAction::SelectThread("thread-domowoj".to_string()));
+
+    assert!(model.execute_slash_command_line("/thread"));
+
+    assert_eq!(model.modal.top(), Some(modal::ModalKind::ThreadPicker));
+    assert_eq!(
+        model.modal.thread_picker_tab(),
+        modal::ThreadPickerTab::Agent("domowoj".to_string())
+    );
+}
+
+#[test]
 fn slash_image_prompt_dispatches_generate_image_for_active_thread() {
     let (mut model, mut daemon_rx) = make_model();
     model.connected = true;
