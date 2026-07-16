@@ -472,6 +472,7 @@ describe("frontend curated media provider catalog", () => {
       "glm-4-flash",
     ]);
     expect(getProviderModels("kimi-coding-plan").map((model) => model.id)).toEqual([
+      "k3",
       "kimi-for-coding",
       "kimi-k2.7-code",
       "kimi-k2.6",

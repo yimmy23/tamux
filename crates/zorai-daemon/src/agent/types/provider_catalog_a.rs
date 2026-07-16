@@ -269,6 +269,12 @@ pub const KIMI_MODELS: &[ModelDefinition] = &[
 
 pub const KIMI_CODING_MODELS: &[ModelDefinition] = &[
     ModelDefinition {
+        id: "k3",
+        name: "Kimi K3",
+        context_window: 262144,
+        modalities: TEXT_ONLY,
+    },
+    ModelDefinition {
         id: "kimi-for-coding",
         name: "Kimi for Coding",
         context_window: 262144,

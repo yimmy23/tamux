@@ -230,7 +230,7 @@ pub const PROVIDER_DEFINITIONS: &[ProviderDefinition] = &[
         id: PROVIDER_ID_KIMI_CODING_PLAN,
         name: "Kimi Coding Plan",
         default_base_url: "https://api.kimi.com/coding/v1",
-        default_model: "kimi-for-coding",
+        default_model: "k3",
         api_type: ApiType::OpenAI,
         auth_method: AuthMethod::Bearer,
         models: KIMI_CODING_MODELS,

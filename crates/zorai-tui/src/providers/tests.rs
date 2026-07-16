@@ -223,13 +223,14 @@ fn kimi_static_catalog_preserves_provider_default_model() {
 #[test]
 fn kimi_coding_static_catalog_preserves_provider_default_model() {
     let models = known_models_for_provider(PROVIDER_ID_KIMI_CODING_PLAN);
+    assert!(models.iter().any(|model| model.id == "k3"));
     assert!(models.iter().any(|model| model.id == "kimi-for-coding"));
     assert!(models
         .iter()
         .any(|model| model.id == "kimi-k2-turbo-preview"));
     assert_eq!(
         default_model_for_provider_auth(PROVIDER_ID_KIMI_CODING_PLAN, "api_key"),
-        "kimi-for-coding"
+        "k3"
     );
 }
 

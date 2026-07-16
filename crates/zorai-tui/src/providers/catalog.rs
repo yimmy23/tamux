@@ -170,7 +170,7 @@ pub const PROVIDERS: &[ProviderDef] = &[
         id: PROVIDER_ID_KIMI_CODING_PLAN,
         name: "Kimi Coding Plan",
         default_base_url: "https://api.kimi.com/coding/v1",
-        default_model: "kimi-for-coding",
+        default_model: "k3",
         supported_transports: CHAT_ONLY_TRANSPORTS,
         default_transport: "chat_completions",
         supported_auth_sources: API_KEY_ONLY_AUTH_SOURCES,
