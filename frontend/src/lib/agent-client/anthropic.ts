@@ -70,6 +70,7 @@ export async function* sendAnthropic(
       medium: 4096,
       high: 8192,
       xhigh: 16384,
+      max: 32768,
     };
     const budgetTokens = budgetMap[req.reasoning_effort] ?? 4096;
     body.thinking = { type: "enabled", budget_tokens: budgetTokens };

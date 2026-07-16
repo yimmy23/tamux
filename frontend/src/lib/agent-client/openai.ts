@@ -269,8 +269,7 @@ export async function* sendOpenAICompatible(
       req.reasoning_effort && req.reasoning_effort !== "none",
     );
   } else if (req.reasoning_effort && req.reasoning_effort !== "none") {
-    body.reasoning_effort =
-      req.reasoning_effort === "xhigh" ? "high" : req.reasoning_effort;
+    body.reasoning_effort = req.reasoning_effort;
     body.reasoning = { effort: req.reasoning_effort };
   }
 
@@ -401,7 +400,7 @@ export async function* sendOpenAIResponses(
   }
   if (req.reasoning_effort && req.reasoning_effort !== "none") {
     body.reasoning = {
-      effort: req.reasoning_effort === "xhigh" ? "high" : req.reasoning_effort,
+      effort: req.reasoning_effort,
     };
   }
   if (isSubscription) {

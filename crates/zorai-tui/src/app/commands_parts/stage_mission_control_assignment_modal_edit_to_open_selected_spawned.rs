@@ -39,7 +39,7 @@ impl TuiModel {
                 self.settings_picker_target = Some(SettingsPickerTarget::SubAgentReasoningEffort);
                 self.modal
                     .reduce(modal::ModalAction::Push(modal::ModalKind::EffortPicker));
-                self.modal.set_picker_item_count(6);
+                self.modal.set_picker_item_count(7);
             }
             goal_mission_control::RuntimeAssignmentEditField::Role => {
                 self.settings_picker_target = Some(SettingsPickerTarget::SubAgentRole);

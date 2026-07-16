@@ -167,7 +167,7 @@ export interface AgentSettings {
   semantic_embedding_dimensions: number;
   semantic_embedding_batch_size: number;
   semantic_embedding_max_concurrency: number;
-  reasoning_effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+  reasoning_effort: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   auto_compact_context: boolean;
   max_context_messages: number;
   react_chat_history_page_size: number;
