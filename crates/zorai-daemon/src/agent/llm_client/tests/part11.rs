@@ -436,3 +436,77 @@ async fn anthropic_stream_done_chunk_carries_upstream_message_thinking_blocks() 
     );
     server.await.expect("server task");
 }
+#[tokio::test]
+async fn anthropic_sse_data_line_split_across_network_chunks_is_reassembled() {
+    use tokio::io::AsyncWriteExt;
+
+    let client = reqwest::Client::new();
+    let part1 = concat!(
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_split\",\"usage\":{\"input_tokens\":3}}}\n\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"plan\"}}\n\n",
+        "data: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+        "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"Welcome back! \"}}\n\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"te"
+    );
+    let part2 = concat!(
+        "xt_delta\",\"text\":\"Here is your session summary.\"}}\n\n",
+        "data: {\"type\":\"content_block_stop\",\"index\":1}\n\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":12}}\n\n",
+        "data: {\"type\":\"message_stop\"}\n\n"
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind test server");
+    let addr = listener.local_addr().expect("local addr");
+    let total_len = part1.len() + part2.len();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let head = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {total_len}\r\nconnection: close\r\n\r\n{part1}",
+        );
+        socket
+            .write_all(head.as_bytes())
+            .await
+            .expect("write first chunk");
+        socket.flush().await.expect("flush first chunk");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        socket
+            .write_all(part2.as_bytes())
+            .await
+            .expect("write second chunk");
+    });
+
+    let response = client
+        .get(format!("http://{addr}"))
+        .send()
+        .await
+        .expect("send test request");
+
+    let (tx, mut rx) = mpsc::channel(16);
+    parse_anthropic_sse(response, None, &tx)
+        .await
+        .expect("parse should succeed");
+    drop(tx);
+
+    let mut done_chunk = None;
+    while let Some(chunk) = rx.recv().await {
+        if let CompletionChunk::Done {
+            content,
+            reasoning,
+            stop_reason,
+            ..
+        } = chunk.expect("chunk")
+        {
+            done_chunk = Some((content, reasoning, stop_reason));
+            break;
+        }
+    }
+
+    let (content, reasoning, stop_reason) = done_chunk.expect("done chunk");
+    assert_eq!(content, "Welcome back! Here is your session summary.");
+    assert_eq!(reasoning.as_deref(), Some("plan"));
+    assert_eq!(stop_reason.as_deref(), Some("end_turn"));
+    server.await.expect("server task");
+}
