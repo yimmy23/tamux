@@ -387,7 +387,7 @@ pub(crate) async fn parse_anthropic_sse(
     use futures::StreamExt;
 
     let mut stream = response.bytes_stream();
-    let mut buffer = String::new();
+    let mut buffer: Vec<u8> = Vec::new();
     let mut total_content = String::new();
     let mut total_reasoning = String::new();
     let mut usage = AnthropicStreamUsage::default();
@@ -400,19 +400,21 @@ pub(crate) async fn parse_anthropic_sse(
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.context("failed to read Anthropic SSE chunk")?;
-        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        buffer.extend_from_slice(&chunk);
 
-        let mut remaining = String::new();
-        for line in buffer.split('\n') {
-            if !line.starts_with("data: ") {
-                if !line.is_empty() && !line.starts_with(':') && !line.starts_with("event:") {
-                    remaining.push_str(line);
-                    remaining.push('\n');
-                }
+        let mut lines: Vec<String> = Vec::new();
+        while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
+            let line_bytes: Vec<u8> = buffer.drain(..=pos).collect();
+            lines.push(
+                String::from_utf8_lossy(&line_bytes)
+                    .trim_end_matches(['\r', '\n'])
+                    .to_string(),
+            );
+        }
+        for line in &lines {
+            let Some(data) = line.strip_prefix("data:").map(str::trim) else {
                 continue;
-            }
-
-            let data = line[6..].trim();
+            };
             let parsed: serde_json::Value = match serde_json::from_str(data) {
                 Ok(v) => v,
                 Err(_) => continue,
@@ -625,7 +627,6 @@ pub(crate) async fn parse_anthropic_sse(
                 _ => {}
             }
         }
-        buffer = remaining;
     }
 
     let final_upstream_message = upstream_message.build(&stop_metadata);
