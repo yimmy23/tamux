@@ -1,3 +1,4 @@
+use super::super::render_edit_buffer_with_cursor_to_editing_cursor_hit_test_to_content::render_edit_buffer_with_cursor;
 use super::super::wrap_textarea_visual_line_to_render_wrapped_textarea_buffer_to_render::*;
 use crate::providers;
 use crate::state::settings::SettingsState;
@@ -26,24 +27,37 @@ pub(crate) fn render_subagents_tab<'a>(
             settings.is_editing() && settings.editing_field() == Some("subagent_name");
         let model_is_editing =
             settings.is_editing() && settings.editing_field() == Some("subagent_model");
+        let base_url_is_editing =
+            settings.is_editing() && settings.editing_field() == Some("subagent_base_url");
         let context_is_editing = settings.is_editing()
             && settings.editing_field() == Some("subagent_context_window_tokens");
+        let huggingface_is_editing = settings.is_editing()
+            && settings.editing_field() == Some("subagent_huggingface_provider");
         let role_is_editing =
             settings.is_editing() && settings.editing_field() == Some("subagent_role");
         let prompt_is_editing =
             settings.is_editing() && settings.editing_field() == Some("subagent_system_prompt");
+        let edit_buffer_with_cursor =
+            || render_edit_buffer_with_cursor(settings.edit_buffer(), settings.edit_cursor());
         let name_value = if name_is_editing {
-            format!("{}\u{2588}", settings.edit_buffer())
+            edit_buffer_with_cursor()
         } else {
             editor.name.clone()
         };
         let model_value = if model_is_editing {
-            format!("{}\u{2588}", settings.edit_buffer())
+            edit_buffer_with_cursor()
         } else {
             editor.model.clone()
         };
+        let base_url_value = if base_url_is_editing {
+            edit_buffer_with_cursor()
+        } else if editor.base_url.trim().is_empty() {
+            "(provider default)".to_string()
+        } else {
+            editor.base_url.clone()
+        };
         let context_value = if context_is_editing {
-            format!("{}\u{2588}", settings.edit_buffer())
+            edit_buffer_with_cursor()
         } else {
             editor
                 .context_window_tokens
@@ -54,7 +68,9 @@ pub(crate) fn render_subagents_tab<'a>(
                 })
                 .unwrap_or_else(|| "auto".to_string())
         };
-        let huggingface_provider_value = if editor.huggingface_provider.trim().is_empty() {
+        let huggingface_provider_value = if huggingface_is_editing {
+            edit_buffer_with_cursor()
+        } else if editor.huggingface_provider.trim().is_empty() {
             "auto".to_string()
         } else {
             editor.huggingface_provider.clone()
@@ -131,6 +147,14 @@ pub(crate) fn render_subagents_tab<'a>(
             } else {
                 model_value
             },
+        ));
+        lines.push(field_line(
+            matches!(
+                editor.field,
+                crate::state::subagents::SubAgentEditorField::BaseUrl
+            ),
+            "Base URL",
+            base_url_value,
         ));
         lines.push(field_line(
             matches!(

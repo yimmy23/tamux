@@ -499,6 +499,7 @@ mod tests {
 
     fn sample_subagent(id: &str, name: &str) -> SubAgentDefinition {
         SubAgentDefinition {
+            base_url: None,
             id: id.to_string(),
             name: name.to_string(),
             provider: "openai".to_string(),

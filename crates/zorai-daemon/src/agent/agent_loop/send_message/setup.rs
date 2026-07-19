@@ -17,6 +17,7 @@ struct DirectThreadResponderConfig {
     agent_name: String,
     provider_id: String,
     model: Option<String>,
+    base_url: Option<String>,
     reasoning_effort: Option<String>,
     context_window_tokens: Option<u32>,
     huggingface_provider: Option<String>,
@@ -167,6 +168,7 @@ fn build_direct_thread_responder_config(
             agent_name: CONCIERGE_AGENT_NAME.to_string(),
             provider_id,
             model: Some(provider_config.model.clone()),
+            base_url: nonempty(config.concierge.base_url.as_deref()),
             reasoning_effort: Some(provider_config.reasoning_effort.clone()),
             context_window_tokens: Some(provider_config.context_window_tokens),
             huggingface_provider: provider_config.huggingface_provider.clone(),
@@ -222,6 +224,9 @@ fn build_direct_thread_responder_config(
                 builtin_persona_overrides.and_then(|overrides| nonempty(overrides.model.as_deref()))
             })
             .or_else(|| profile_model.clone()),
+        base_url: matched_def
+            .as_ref()
+            .and_then(|def| nonempty(def.base_url.as_deref())),
         reasoning_effort: matched_def
             .as_ref()
             .and_then(|def| nonempty(def.reasoning_effort.as_deref()))
@@ -522,6 +527,13 @@ impl<'a> SendMessageRunner<'a> {
         let current_task_for_setup = load_current_task_for_send_message(engine, task_id).await;
         let task_provider_override = current_task_for_setup.as_ref().and_then(|t| {
             if let Some(provider) = t.override_provider.as_ref() {
+                let def_base_url = t.sub_agent_def_id.as_ref().and_then(|def_id| {
+                    sub_agents
+                        .iter()
+                        .find(|def| def.id == *def_id)
+                        .filter(|def| def.provider == *provider)
+                        .and_then(|def| def.base_url.clone())
+                });
                 return Some((
                     provider.clone(),
                     t.override_model.clone(),
@@ -530,6 +542,7 @@ impl<'a> SendMessageRunner<'a> {
                     t.override_api_transport,
                     None,
                     None,
+                    def_base_url,
                 ));
             }
 
@@ -543,6 +556,7 @@ impl<'a> SendMessageRunner<'a> {
                 def.api_transport,
                 def.context_window_tokens,
                 def.huggingface_provider.clone(),
+                def.base_url.clone(),
             ))
         });
         let thread_execution_profile = engine
@@ -571,7 +585,7 @@ impl<'a> SendMessageRunner<'a> {
             .flatten();
         let active_provider_id = task_provider_override
             .as_ref()
-            .map(|(provider_id, _, _, _, _, _, _)| provider_id.as_str())
+            .map(|(provider_id, _, _, _, _, _, _, _)| provider_id.as_str())
             .or_else(|| {
                 direct_thread_responder
                     .as_ref()
@@ -587,6 +601,7 @@ impl<'a> SendMessageRunner<'a> {
             sub_transport,
             sub_context_window_tokens,
             ref sub_huggingface_provider,
+            ref sub_base_url,
         )) = task_provider_override
         {
             let mut pc = engine.resolve_sub_agent_provider_config(&config, sub_provider)?;
@@ -598,6 +613,13 @@ impl<'a> SendMessageRunner<'a> {
                 &mut pc,
                 sub_transport,
             );
+            if let Some(base_url) = sub_base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                pc.base_url = base_url.to_string();
+            }
             if let Some(reasoning_effort) = task_execution_profile_reasoning.as_ref() {
                 pc.reasoning_effort = reasoning_effort.clone();
             }
@@ -622,6 +644,14 @@ impl<'a> SendMessageRunner<'a> {
                 engine.resolve_sub_agent_provider_config(&config, &responder.provider_id)?;
             if let Some(model) = responder.model.as_ref() {
                 apply_provider_model_override(&responder.provider_id, &mut pc, model);
+            }
+            if let Some(base_url) = responder
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                pc.base_url = base_url.to_string();
             }
             if let Some(reasoning_effort) = responder.reasoning_effort.as_ref() {
                 pc.reasoning_effort = reasoning_effort.clone();
@@ -747,7 +777,7 @@ impl<'a> SendMessageRunner<'a> {
         let memory = engine.current_memory_snapshot().await;
         let memory_paths = memory_paths_for_scope(&engine.data_dir, &agent_scope_id);
         let base_prompt =
-            if let Some((_, _, Some(ref override_prompt), _, _, _, _)) = task_provider_override {
+            if let Some((_, _, Some(ref override_prompt), _, _, _, _, _)) = task_provider_override {
                 format!("{}\n\n{}", override_prompt, config.system_prompt)
             } else if let Some(responder) = direct_thread_responder.as_ref() {
                 format!(
@@ -971,7 +1001,7 @@ impl<'a> SendMessageRunner<'a> {
         };
         let runtime_agent_name = task_provider_override
             .as_ref()
-            .and_then(|(_, _, prompt, sub_agent_def_id, _, _, _)| {
+            .and_then(|(_, _, prompt, sub_agent_def_id, _, _, _, _)| {
                 if sub_agent_def_id.as_deref()
                     == Some(crate::agent::agent_identity::WELES_BUILTIN_SUBAGENT_ID)
                 {
@@ -1703,6 +1733,7 @@ mod tests {
         let mut config = AgentConfig::default();
         config.system_prompt = "Main system prompt".to_string();
         let sub_agents = vec![SubAgentDefinition {
+            base_url: None,
             claude_permission_mode: None,
             id: "dola".to_string(),
             name: "Dola".to_string(),
@@ -2307,6 +2338,7 @@ mod tests {
         config.base_url = "http://127.0.0.1:1/v1".to_string();
         config.api_key = "test-key".to_string();
         config.sub_agents.push(SubAgentDefinition {
+            base_url: None,
             claude_permission_mode: None,
             id: "qa".to_string(),
             name: "QA".to_string(),

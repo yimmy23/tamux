@@ -350,6 +350,7 @@ pub(crate) async fn startup_readiness_blocks_history_requests_until_hydrate_fini
 
 pub(crate) fn test_user_sub_agent(id: &str, name: &str) -> SubAgentDefinition {
     SubAgentDefinition {
+        base_url: None,
         id: id.to_string(),
         name: name.to_string(),
         provider: "openai".to_string(),

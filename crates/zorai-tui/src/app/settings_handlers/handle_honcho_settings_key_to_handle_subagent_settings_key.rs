@@ -216,6 +216,18 @@ impl TuiModel {
                         crate::state::subagents::SubAgentEditorField::Model => {
                             self.open_subagent_model_picker();
                         }
+                        crate::state::subagents::SubAgentEditorField::BaseUrl => {
+                            let current = self
+                                .subagents
+                                .editor
+                                .as_ref()
+                                .map(|editor| editor.base_url.clone())
+                                .unwrap_or_default();
+                            self.settings.start_editing("subagent_base_url", &current);
+                            self.status_line =
+                                "Enter base URL override; empty uses the provider default"
+                                    .to_string();
+                        }
                         crate::state::subagents::SubAgentEditorField::ContextWindowTokens => {
                             let current = self
                                 .subagents

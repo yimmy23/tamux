@@ -676,6 +676,7 @@ async fn list_threads_filtered_matches_user_defined_subagent_agent_name() {
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.sub_agents.push(SubAgentDefinition {
+        base_url: None,
         claude_permission_mode: None,
         id: "dola".to_string(),
         name: "Dola".to_string(),

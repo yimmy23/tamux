@@ -291,6 +291,7 @@ impl SettingsState {
                 4 => "concierge_reasoning_effort",
                 5 => "concierge_api_transport",
                 6 => "concierge_claude_permission_mode",
+                7 => "concierge_base_url",
                 _ => "",
             },
             SettingsTab::Features => match self.field_cursor {
@@ -410,7 +411,7 @@ impl SettingsState {
             SettingsTab::Auth => 1,
             SettingsTab::Agent => 11,
             SettingsTab::SubAgents => 1,
-            SettingsTab::Concierge => 7,
+            SettingsTab::Concierge => 8,
             SettingsTab::Features => 29,
             SettingsTab::Advanced => 25,
             SettingsTab::Plugins => 1,

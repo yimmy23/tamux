@@ -131,6 +131,7 @@ pub(super) fn build_effective_weles_definition(config: &AgentConfig) -> SubAgent
     let system_prompt =
         resolve_main_agent_default(overrides.system_prompt.take(), &config.system_prompt);
     SubAgentDefinition {
+        base_url: None,
         id: WELES_BUILTIN_ID.to_string(),
         name: WELES_BUILTIN_NAME.to_string(),
         provider: resolve_main_agent_default(overrides.provider.clone(), &config.provider),

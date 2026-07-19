@@ -6,6 +6,7 @@ pub struct ConciergeState {
     pub detail_level: String,
     pub provider: Option<String>,
     pub model: Option<String>,
+    pub base_url: String,
     pub reasoning_effort: Option<String>,
     pub api_transport: Option<String>,
     pub claude_permission_mode: Option<String>,
@@ -35,6 +36,7 @@ impl ConciergeState {
             detail_level: "proactive_triage".into(),
             provider: None,
             model: None,
+            base_url: String::new(),
             reasoning_effort: None,
             api_transport: None,
             claude_permission_mode: None,
@@ -59,6 +61,7 @@ pub enum ConciergeAction {
         detail_level: String,
         provider: Option<String>,
         model: Option<String>,
+        base_url: String,
         reasoning_effort: Option<String>,
         api_transport: Option<String>,
         claude_permission_mode: Option<String>,
@@ -100,6 +103,7 @@ impl ConciergeState {
                 detail_level,
                 provider,
                 model,
+                base_url,
                 reasoning_effort,
                 api_transport,
                 claude_permission_mode,
@@ -113,6 +117,7 @@ impl ConciergeState {
                 self.detail_level = detail_level;
                 self.provider = provider;
                 self.model = model;
+                self.base_url = base_url;
                 self.reasoning_effort = reasoning_effort;
                 self.api_transport = api_transport;
                 self.claude_permission_mode = claude_permission_mode;

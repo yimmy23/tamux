@@ -587,6 +587,14 @@ impl AgentEngine {
         {
             apply_provider_model_override(&provider_id, &mut provider_config, &model);
         }
+        if let Some(base_url) = matched_def
+            .as_ref()
+            .and_then(|def| def.base_url.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            provider_config.base_url = base_url.to_string();
+        }
         if let Some(reasoning_effort) = matched_def
             .as_ref()
             .and_then(|def| def.reasoning_effort.clone())

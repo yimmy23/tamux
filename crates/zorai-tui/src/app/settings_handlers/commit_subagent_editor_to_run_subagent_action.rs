@@ -59,6 +59,15 @@ impl TuiModel {
                 "model".to_string(),
                 serde_json::Value::String(editor.model.clone()),
             );
+            let base_url = editor.base_url.trim();
+            if base_url.is_empty() {
+                obj.remove("base_url");
+            } else {
+                obj.insert(
+                    "base_url".to_string(),
+                    serde_json::Value::String(base_url.to_string()),
+                );
+            }
             if let Some(context_window_tokens) = editor.context_window_tokens {
                 obj.insert(
                     "context_window_tokens".to_string(),
@@ -323,6 +332,8 @@ impl TuiModel {
             "detail_level": self.concierge.detail_level,
             "provider": self.concierge.provider,
             "model": self.concierge.model,
+            "base_url": (!self.concierge.base_url.trim().is_empty())
+                .then(|| self.concierge.base_url.trim().to_string()),
             "reasoning_effort": self.concierge.reasoning_effort,
             "api_transport": self.concierge.api_transport,
             "claude_permission_mode": self.concierge.claude_permission_mode,
