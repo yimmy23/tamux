@@ -107,6 +107,12 @@ impl TuiModel {
                         "OpenRouter provider routing only applies to OpenRouter agents".to_string();
                 }
             }
+            "concierge_base_url" => {
+                self.settings
+                    .start_editing("concierge_base_url", &self.concierge.base_url);
+                self.status_line =
+                    "Enter Rarog base URL override; empty uses the provider default".to_string();
+            }
             "concierge_huggingface_provider" => {
                 if self.concierge.provider.as_deref()
                     == Some(zorai_shared::providers::PROVIDER_ID_HUGGINGFACE)

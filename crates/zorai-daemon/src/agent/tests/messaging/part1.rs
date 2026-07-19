@@ -523,6 +523,7 @@ async fn get_or_create_thread_with_target_preserves_user_defined_subagent_identi
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.sub_agents.push(SubAgentDefinition {
+        base_url: None,
         claude_permission_mode: None,
         id: "dola".to_string(),
         name: "Dola".to_string(),

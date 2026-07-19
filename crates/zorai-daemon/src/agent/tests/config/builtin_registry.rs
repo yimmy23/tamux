@@ -21,6 +21,7 @@ fn agent_config_serializes_honcho_fields_in_snake_case() {
 #[test]
 fn sub_agent_definition_roundtrip_preserves_builtin_metadata_and_reasoning_effort() {
     let definition = SubAgentDefinition {
+        base_url: None,
         claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),
@@ -320,6 +321,7 @@ async fn set_sub_agent_rejects_minimal_weles_override_payload_without_protection
     engine.set_config(config).await;
 
     let minimal = SubAgentDefinition {
+        base_url: None,
         claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),

@@ -23,6 +23,12 @@ impl TuiModel {
                 7 if self.concierge.provider.as_deref() == Some(PROVIDER_ID_HUGGINGFACE) => {
                     "concierge_huggingface_provider"
                 }
+                8 if self.concierge.provider.as_deref() == Some(PROVIDER_ID_OPENROUTER)
+                    || self.concierge.provider.as_deref() == Some(PROVIDER_ID_HUGGINGFACE) =>
+                {
+                    "concierge_base_url"
+                }
+                7 => "concierge_base_url",
                 6 => "concierge_claude_permission_mode",
                 _ => "",
             };
@@ -33,11 +39,11 @@ impl TuiModel {
     pub(crate) fn settings_field_count(&self) -> usize {
         if self.settings.active_tab() == crate::state::SettingsTab::Concierge {
             return if self.concierge.provider.as_deref() == Some(PROVIDER_ID_OPENROUTER) {
-                8
+                9
             } else if self.concierge.provider.as_deref() == Some(PROVIDER_ID_HUGGINGFACE) {
-                8
+                9
             } else {
-                7
+                8
             };
         }
         self.settings.field_count_with_config(&self.config)

@@ -304,6 +304,7 @@ async fn agent_set_sub_agent_config_accepts_minimal_weles_payload_via_server_can
     conn.agent.set_config(config).await;
 
     let minimal = SubAgentDefinition {
+        base_url: None,
         claude_permission_mode: None,
         id: "weles_builtin".to_string(),
         name: "WELES".to_string(),

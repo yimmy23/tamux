@@ -126,6 +126,7 @@ async fn rerunning_thread_workspace_task_uses_updated_assignee_model() -> Result
     )
     .await;
     config.sub_agents.push(SubAgentDefinition {
+        base_url: None,
         claude_permission_mode: None,
         id: "first".to_string(),
         name: "First".to_string(),
@@ -154,6 +155,7 @@ async fn rerunning_thread_workspace_task_uses_updated_assignee_model() -> Result
         created_at: 1,
     });
     config.sub_agents.push(SubAgentDefinition {
+        base_url: None,
         claude_permission_mode: None,
         id: "second".to_string(),
         name: "Second".to_string(),
@@ -588,6 +590,7 @@ async fn moving_to_review_with_subagent_reviewer_queues_reviewer_persona_task() 
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.sub_agents.push(SubAgentDefinition {
+        base_url: None,
         claude_permission_mode: None,
         id: "qa".to_string(),
         name: "QA".to_string(),

@@ -270,6 +270,84 @@ fn subagent_editor_renders_reasoning_effort_field() {
     assert!(text.contains("medium"));
 }
 
+#[test]
+fn subagent_editor_custom_model_edit_shows_cursor() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::SubAgents,
+    ));
+    let mut subagents = SubAgentsState::new();
+    let mut editor = crate::state::subagents::SubAgentEditorState::new(
+        None,
+        1,
+        PROVIDER_ID_OPENAI.to_string(),
+        "gpt-5.4-mini".to_string(),
+    );
+    editor.field = crate::state::subagents::SubAgentEditorField::Model;
+    subagents.editor = Some(editor);
+    settings.start_editing("subagent_model", "my-custom-model");
+    let config = ConfigState::new();
+    let modal = ModalState::new();
+    let auth = crate::state::auth::AuthState::new();
+    let concierge = crate::state::concierge::ConciergeState::new();
+    let tier = crate::state::tier::TierState::from_tier("power_user");
+    let plugin_settings = crate::state::settings::PluginSettingsState::new();
+
+    let lines = render_tab_content(
+        100,
+        &settings,
+        &config,
+        &modal,
+        &auth,
+        &subagents,
+        &concierge,
+        &tier,
+        &plugin_settings,
+        &ThemeTokens::default(),
+    );
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        text.contains("my-custom-model\u{2588}"),
+        "model edit buffer with cursor should render, got: {text}"
+    );
+    assert!(
+        text.contains("Base URL"),
+        "sub-agent editor should show a Base URL field, got: {text}"
+    );
+}
+
+#[test]
+fn concierge_tab_model_edit_shows_cursor() {
+    let mut settings = SettingsState::new();
+    settings.reduce(crate::state::settings::SettingsAction::SwitchTab(
+        SettingsTab::Concierge,
+    ));
+    let mut concierge = crate::state::concierge::ConciergeState::new();
+    concierge.model = Some("old-model".to_string());
+    settings.start_editing("concierge_model", "my-custom-model");
+
+    let lines = render_concierge_tab(&settings, &concierge, &ThemeTokens::default());
+    let text = lines
+        .iter()
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(
+        text.contains("my-custom-model\u{2588}"),
+        "Rarog model edit buffer with cursor should render, got: {text}"
+    );
+    assert!(
+        text.contains("Base URL"),
+        "Rarog tab should show a Base URL field, got: {text}"
+    );
+}
+
 use serde_json::json;
 
 fn make_config_with_audio() -> ConfigState {

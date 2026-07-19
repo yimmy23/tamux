@@ -401,6 +401,15 @@ pub(crate) fn resolve_concierge_provider(config: &AgentConfig) -> Result<Provide
         &mut resolved,
         config.concierge.api_transport,
     );
+    if let Some(base_url) = config
+        .concierge
+        .base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        resolved.base_url = base_url.to_string();
+    }
     resolved.reasoning_effort = config
         .concierge
         .reasoning_effort

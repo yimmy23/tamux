@@ -1042,6 +1042,7 @@ async fn new_targeted_custom_subagent_thread_persists_assistant_author_identity(
     config.max_retries = 0;
     config.max_tool_loops = 1;
     config.sub_agents.push(SubAgentDefinition {
+        base_url: None,
         claude_permission_mode: None,
         id: "coder".to_string(),
         name: "coder".to_string(),

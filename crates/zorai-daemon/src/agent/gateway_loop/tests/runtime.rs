@@ -395,6 +395,7 @@ async fn gateway_subagent_turn_owns_thread_titles_it_and_auto_replies() {
     config.max_retries = 0;
     config.max_tool_loops = 1;
     config.sub_agents.push(SubAgentDefinition {
+        base_url: None,
         id: "subagent-glmus".to_string(),
         name: "Glmus".to_string(),
         provider: zorai_shared::providers::PROVIDER_ID_OPENAI.to_string(),

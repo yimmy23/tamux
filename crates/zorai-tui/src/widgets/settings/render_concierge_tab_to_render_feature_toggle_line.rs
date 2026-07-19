@@ -1,3 +1,4 @@
+use super::render_edit_buffer_with_cursor;
 use crate::state::concierge::ConciergeState;
 use crate::state::settings::SettingsState;
 use crate::theme::ThemeTokens;
@@ -8,6 +9,13 @@ pub(crate) fn render_concierge_tab<'a>(
     theme: &ThemeTokens,
 ) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
+    let edit_value = |field: &str, current: String| {
+        if settings.is_editing() && settings.editing_field() == Some(field) {
+            render_edit_buffer_with_cursor(settings.edit_buffer(), settings.edit_cursor())
+        } else {
+            current
+        }
+    };
     lines.push(Line::raw(""));
     lines.push(Line::from(Span::styled(
         format!("  {}", zorai_protocol::AGENT_NAME_RAROG),
@@ -117,10 +125,13 @@ pub(crate) fn render_concierge_tab<'a>(
             ),
             Span::styled("Model:        ", theme.fg_dim),
             Span::styled(
-                concierge
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| format!("(use {})", zorai_protocol::AGENT_NAME_SWAROG)),
+                edit_value(
+                    "concierge_model",
+                    concierge
+                        .model
+                        .clone()
+                        .unwrap_or_else(|| format!("(use {})", zorai_protocol::AGENT_NAME_SWAROG)),
+                ),
                 if is_selected {
                     theme.fg_active
                 } else {
@@ -230,7 +241,7 @@ pub(crate) fn render_concierge_tab<'a>(
             ),
             Span::styled("HF Route:     ", theme.fg_dim),
             Span::styled(
-                value.to_string(),
+                edit_value("concierge_huggingface_provider", value.to_string()),
                 if is_selected {
                     theme.fg_active
                 } else {
@@ -293,6 +304,40 @@ pub(crate) fn render_concierge_tab<'a>(
                 ),
             ]));
         }
+    }
+
+    {
+        let base_url_idx = match concierge.provider.as_deref() {
+            Some(zorai_shared::providers::PROVIDER_ID_OPENROUTER)
+            | Some(zorai_shared::providers::PROVIDER_ID_HUGGINGFACE) => 8,
+            _ => 7,
+        };
+        let is_selected = settings.field_cursor() == base_url_idx;
+        let marker = if is_selected { "> " } else { "  " };
+        let value = if concierge.base_url.trim().is_empty() {
+            "(provider default)".to_string()
+        } else {
+            concierge.base_url.clone()
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                marker,
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
+            Span::styled("Base URL:     ", theme.fg_dim),
+            Span::styled(
+                edit_value("concierge_base_url", value),
+                if is_selected {
+                    theme.fg_active
+                } else {
+                    theme.fg_dim
+                },
+            ),
+        ]));
     }
 
     lines

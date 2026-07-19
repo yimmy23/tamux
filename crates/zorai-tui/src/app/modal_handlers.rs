@@ -331,6 +331,9 @@ impl TuiModel {
                                 self.concierge.huggingface_provider =
                                     value.trim().trim_start_matches(':').to_ascii_lowercase();
                             }
+                            "concierge_base_url" => {
+                                self.concierge.base_url = value.trim().to_string();
+                            }
                             "compaction_weles_model" => {
                                 self.config.compaction_weles_model = value.trim().to_string()
                             }
@@ -583,6 +586,11 @@ impl TuiModel {
                             "subagent_model" => {
                                 if let Some(editor) = self.subagents.editor.as_mut() {
                                     editor.model = value.trim().to_string();
+                                }
+                            }
+                            "subagent_base_url" => {
+                                if let Some(editor) = self.subagents.editor.as_mut() {
+                                    editor.base_url = value.trim().to_string();
                                 }
                             }
                             "subagent_context_window_tokens" => {
@@ -906,7 +914,10 @@ impl TuiModel {
                             _ => {}
                         }
                         self.settings.reduce(SettingsAction::ConfirmEdit);
-                        if field == "concierge_huggingface_provider" {
+                        if matches!(
+                            field.as_str(),
+                            "concierge_huggingface_provider" | "concierge_base_url"
+                        ) {
                             self.send_concierge_config();
                         }
                         if !matches!(
@@ -915,7 +926,9 @@ impl TuiModel {
                                 | "subagent_role"
                                 | "subagent_context_window_tokens"
                                 | "subagent_huggingface_provider"
+                                | "subagent_base_url"
                                 | "concierge_huggingface_provider"
+                                | "concierge_base_url"
                                 | "subagent_system_prompt"
                                 | "honcho_editor_api_key"
                                 | "honcho_editor_base_url"

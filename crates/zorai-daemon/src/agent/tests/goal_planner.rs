@@ -1196,6 +1196,7 @@ async fn sync_goal_run_with_task_preserves_captured_subagent_owner_profile_after
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.sub_agents.push(SubAgentDefinition {
+        base_url: None,
         claude_permission_mode: None,
         id: "android-verifier".to_string(),
         name: "Android Verifier".to_string(),
@@ -3418,6 +3419,7 @@ async fn handle_goal_run_step_completion_schedules_subagent_verification_before_
     let manager = SessionManager::new_test(root.path()).await;
     let mut config = AgentConfig::default();
     config.sub_agents.push(SubAgentDefinition {
+        base_url: None,
         claude_permission_mode: None,
         id: "android-verifier".to_string(),
         name: "Android Verifier".to_string(),

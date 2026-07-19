@@ -356,6 +356,8 @@ pub struct SubAgentDefinition {
     pub provider: String,
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<String>,
@@ -511,6 +513,8 @@ pub struct ConciergeConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_transport: Option<ApiTransport>,
@@ -535,6 +539,7 @@ impl Default for ConciergeConfig {
             detail_level: ConciergeDetailLevel::default(),
             provider: None,
             model: None,
+            base_url: None,
             reasoning_effort: None,
             api_transport: None,
             claude_permission_mode: None,

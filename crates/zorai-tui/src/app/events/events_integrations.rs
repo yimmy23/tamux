@@ -203,6 +203,11 @@ impl TuiModel {
                     .get("model")
                     .and_then(|value| value.as_str())
                     .map(str::to_string),
+                base_url: raw
+                    .get("base_url")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 reasoning_effort: raw
                     .get("reasoning_effort")
                     .and_then(|value| value.as_str())

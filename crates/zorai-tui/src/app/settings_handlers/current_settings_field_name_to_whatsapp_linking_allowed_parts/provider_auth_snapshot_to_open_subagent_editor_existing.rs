@@ -438,6 +438,11 @@ impl TuiModel {
         );
         let system_prompt = self.subagent_editor_system_prompt_override(&entry, &raw);
         editor.name = entry.name;
+        editor.base_url = raw
+            .get("base_url")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string();
         editor.context_window_tokens = raw
             .get("context_window_tokens")
             .and_then(|value| value.as_u64())

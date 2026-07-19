@@ -12,6 +12,7 @@ pub enum SubAgentEditorField {
     Name,
     Provider,
     Model,
+    BaseUrl,
     ContextWindowTokens,
     OpenRouterProviderOrder,
     OpenRouterProviderIgnore,
@@ -27,10 +28,11 @@ pub enum SubAgentEditorField {
 }
 
 impl SubAgentEditorField {
-    pub const ALL: [SubAgentEditorField; 15] = [
+    pub const ALL: [SubAgentEditorField; 16] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
+        SubAgentEditorField::BaseUrl,
         SubAgentEditorField::ContextWindowTokens,
         SubAgentEditorField::OpenRouterProviderOrder,
         SubAgentEditorField::OpenRouterProviderIgnore,
@@ -44,10 +46,11 @@ impl SubAgentEditorField {
         SubAgentEditorField::Save,
         SubAgentEditorField::Cancel,
     ];
-    const OPENROUTER: [SubAgentEditorField; 14] = [
+    const OPENROUTER: [SubAgentEditorField; 15] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
+        SubAgentEditorField::BaseUrl,
         SubAgentEditorField::ContextWindowTokens,
         SubAgentEditorField::OpenRouterProviderOrder,
         SubAgentEditorField::OpenRouterProviderIgnore,
@@ -60,10 +63,11 @@ impl SubAgentEditorField {
         SubAgentEditorField::Save,
         SubAgentEditorField::Cancel,
     ];
-    const HUGGINGFACE: [SubAgentEditorField; 12] = [
+    const HUGGINGFACE: [SubAgentEditorField; 13] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
+        SubAgentEditorField::BaseUrl,
         SubAgentEditorField::ContextWindowTokens,
         SubAgentEditorField::HuggingFaceProvider,
         SubAgentEditorField::ReasoningEffort,
@@ -74,10 +78,11 @@ impl SubAgentEditorField {
         SubAgentEditorField::Save,
         SubAgentEditorField::Cancel,
     ];
-    const NON_OPENROUTER: [SubAgentEditorField; 11] = [
+    const NON_OPENROUTER: [SubAgentEditorField; 12] = [
         SubAgentEditorField::Name,
         SubAgentEditorField::Provider,
         SubAgentEditorField::Model,
+        SubAgentEditorField::BaseUrl,
         SubAgentEditorField::ContextWindowTokens,
         SubAgentEditorField::ReasoningEffort,
         SubAgentEditorField::ApiTransport,
@@ -393,6 +398,7 @@ pub struct SubAgentEditorState {
     pub name: String,
     pub provider: String,
     pub model: String,
+    pub base_url: String,
     pub context_window_tokens: Option<u32>,
     pub role: String,
     pub system_prompt: String,
@@ -422,6 +428,7 @@ impl SubAgentEditorState {
             name: String::new(),
             provider,
             model,
+            base_url: String::new(),
             context_window_tokens: None,
             role: String::new(),
             system_prompt: String::new(),

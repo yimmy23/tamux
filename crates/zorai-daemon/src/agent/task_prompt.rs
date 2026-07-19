@@ -922,6 +922,7 @@ mod tests {
     fn append_sub_agent_registry_excludes_protected_entries_from_spawnable_list() {
         let mut prompt = String::new();
         let visible = SubAgentDefinition {
+            base_url: None,
             claude_permission_mode: None,
             id: "researcher".to_string(),
             name: "Researcher".to_string(),
@@ -950,6 +951,7 @@ mod tests {
             created_at: 1,
         };
         let protected = SubAgentDefinition {
+            base_url: None,
             claude_permission_mode: None,
             id: "weles_builtin".to_string(),
             name: "WELES".to_string(),
